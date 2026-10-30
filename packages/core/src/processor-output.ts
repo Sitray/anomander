@@ -8,7 +8,8 @@ export const processorInferenceSchema = z.strictObject({
   predicate: z.string().min(1),
   value_json: z.json(),
   mode: z.literal('inferred'),
-  basis_json: z.json(),
+  // §7.2: an inference states what it rests on; z.json() alone would accept null.
+  basis_json: z.json().refine((basis) => basis !== null, 'basis is required'),
   confidence: z.number().min(0).max(1),
 });
 

@@ -30,6 +30,7 @@ describe('R-14 processor isolation', () => {
 
   it.each([
     ['no basis', { ...inference, basis_json: undefined }],
+    ['a null basis', { ...inference, basis_json: null }],
     ['no confidence', { ...inference, confidence: undefined }],
     ['a confidence above 1', { ...inference, confidence: 1.5 }],
     ['an actor it may not claim', { ...inference, actor: 'principal' }],
