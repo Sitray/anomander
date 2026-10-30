@@ -1,6 +1,8 @@
 import { createTelegramBot, type TelegramLogger } from '@anomander/telegram';
 import type { Config } from './config.ts';
+import { createReceiptExpenseHandler } from './expenses/receipt-expense.ts';
 import { createTextExpenseHandler } from './expenses/text-expense.ts';
+import { createPiAiReceiptReader } from './processor/receipt-reader.ts';
 import { createPiAiReplyPhraser } from './processor/reply-phraser.ts';
 import { type Complete, createPiAiTextInterpreter } from './processor/text-interpreter.ts';
 import { applyMigrations, openDatabase } from './store/database.ts';
@@ -14,6 +16,11 @@ export interface AnomanderDeps<M> {
   complete: Complete<M>;
   /** `ANOMANDER_MODEL`, resolved by the caller (R-15 AC1). */
   model: M;
+  /**
+   * `ANOMANDER_VISION_MODEL`, resolved by the caller (R-15 AC1), for reading receipts. Without
+   * it, receipts are read with `model`.
+   */
+  visionModel?: M;
   /** Points the bot at another Bot API server, such as the fake one in tests. */
   telegramApiRoot?: string;
   logger?: TelegramLogger;
@@ -32,13 +39,25 @@ export const startAnomander = <M>(config: Config, deps: AnomanderDeps<M>): Anoma
   const applied = applyMigrations(db);
   logger.info(`anomander store ready at ${config.dbPath} (${applied} migrations applied)`);
 
+  const phraser = createPiAiReplyPhraser({ complete, model, logger });
   const onText = createTextExpenseHandler({
     db,
     interpreter: createPiAiTextInterpreter({ complete, model, logger }),
-    phraser: createPiAiReplyPhraser({ complete, model, logger }),
+    phraser,
     timeZone: config.timeZone,
     now,
     processorSource: `processor:${config.model.provider}/${config.model.id}`,
+    logger,
+  });
+  const vision = deps.visionModel === undefined ? config.model : config.visionModel;
+  const onReceipt = createReceiptExpenseHandler({
+    db,
+    reader: createPiAiReceiptReader({ complete, model: deps.visionModel ?? model, logger }),
+    phraser,
+    inboxDir: config.inboxDir,
+    timeZone: config.timeZone,
+    now,
+    processorSource: `processor:${vision.provider}/${vision.id}`,
     logger,
   });
 
@@ -46,6 +65,7 @@ export const startAnomander = <M>(config: Config, deps: AnomanderDeps<M>): Anoma
     token: config.telegramBotToken,
     principalChatId: config.principalChatId,
     onText,
+    onReceipt,
     logger,
     ...(deps.telegramApiRoot === undefined ? {} : { apiRoot: deps.telegramApiRoot }),
   });

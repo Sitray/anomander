@@ -1,6 +1,18 @@
 export { type Anomander, type AnomanderDeps, startAnomander } from './app.ts';
 export { type Config, loadConfig, type ModelId, parseModelId } from './config.ts';
+export {
+  createReceiptExpenseHandler,
+  type ReceiptExpenseDeps,
+} from './expenses/receipt-expense.ts';
 export { createTextExpenseHandler, type TextExpenseDeps } from './expenses/text-expense.ts';
+export {
+  createPiAiReceiptReader,
+  type PiAiReceiptReaderDeps,
+  RECEIPT_READER_PROMPT,
+  type ReceiptReader,
+  type ReceiptReaderInput,
+  type ReceiptReading,
+} from './processor/receipt-reader.ts';
 export {
   createPiAiReplyPhraser,
   type PhraseRequest,

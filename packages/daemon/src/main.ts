@@ -25,12 +25,18 @@ const models = builtinModels();
 const model =
   models.getModel(config.model.provider, config.model.id) ??
   fail(`unknown model ${config.model.provider}/${config.model.id} (ANOMANDER_MODEL)`);
+const visionModel =
+  models.getModel(config.visionModel.provider, config.visionModel.id) ??
+  fail(
+    `unknown model ${config.visionModel.provider}/${config.visionModel.id} (ANOMANDER_VISION_MODEL)`,
+  );
 
 const anomander = (() => {
   try {
     return startAnomander(config, {
       complete: (target, context) => models.complete(target, context),
       model,
+      visionModel,
     });
   } catch (error) {
     return fail(`could not open the store at ${config.dbPath}: ${reason(error)}`);

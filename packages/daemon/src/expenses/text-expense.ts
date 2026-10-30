@@ -23,6 +23,7 @@ import {
   recordReplyDelivery,
   registerTextExpense,
 } from '../store/expenses.ts';
+import { textValue, writtenIn } from './declarations.ts';
 
 // PRD §10 for a text such as "23 € cena": interpret (processor), check the amount against the
 // literal message (R-2 AC6), categorize (R-5), check authority (R-2 AC2), act, verify (R-9).
@@ -46,15 +47,6 @@ const inferenceOf = (inferences: readonly ProcessorInference[], predicate: strin
 
 const inferredValue = (inferences: readonly ProcessorInference[], predicate: string): unknown =>
   inferenceOf(inferences, predicate)?.value_json ?? null;
-
-const textValue = (value: unknown): string | null =>
-  typeof value === 'string' && value.trim() !== '' ? value.trim() : null;
-
-const escapeRegExp = (value: string): string => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-
-/** The name appears in the text as a whole word, ignoring case. */
-const writtenIn = (text: string, name: string): boolean =>
-  new RegExp(`(?<![\\p{L}\\p{N}])${escapeRegExp(name)}(?![\\p{L}\\p{N}])`, 'iu').test(text);
 
 export const createTextExpenseHandler = (deps: TextExpenseDeps): TextHandler => {
   const { db, interpreter, timeZone, now, processorSource, phraser, logger } = deps;

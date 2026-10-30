@@ -9,7 +9,7 @@ import type { Delivery } from '@anomander/protocol';
 import type Database from 'better-sqlite3';
 import { z } from 'zod';
 
-// Rows of PRD §13 for the text expense cycle. Only core-validated shapes are written.
+// Rows of PRD §13 for the expense cycles. Only core-validated shapes are written.
 
 const EXPENSES_MATTER = 'Keep my expenses';
 
@@ -74,7 +74,8 @@ export interface TextExpenseRegistration {
   now: string;
 }
 
-const findOrCreateMerchant = (db: Database.Database, name: string, now: string): number => {
+/** The merchant entity, found case-insensitively or created. */
+export const findOrCreateMerchant = (db: Database.Database, name: string, now: string): number => {
   const wanted = name.toLowerCase();
   const existing = db
     .prepare<[], { id: number; name: string }>(
@@ -89,8 +90,56 @@ const findOrCreateMerchant = (db: Database.Database, name: string, now: string):
   return Number(created.lastInsertRowid);
 };
 
-const idOf = (db: Database.Database, sql: string, ...params: unknown[]): number | null =>
+export const idOf = (db: Database.Database, sql: string, ...params: unknown[]): number | null =>
   db.prepare<unknown[], { id: number }>(sql).get(...params)?.id ?? null;
+
+export const categoryIdOf = (db: Database.Database, name: string | null): number | null =>
+  name === null ? null : idOf(db, 'SELECT id FROM categories WHERE name = ?', name);
+
+export interface ProposalRow {
+  payload: Record<string, unknown>;
+  basis: Record<string, unknown>;
+  status: 'executed' | 'asked';
+  now: string;
+}
+
+/** A `register_expense` proposal in the "Keep my expenses" matter (§8.2). Returns its id. */
+export const insertProposal = (db: Database.Database, proposal: ProposalRow): number => {
+  const matterId = idOf(
+    db,
+    "SELECT id FROM matters WHERE title = ? AND status IN ('open', 'active', 'waiting')",
+    EXPENSES_MATTER,
+  );
+  const result = db
+    .prepare(
+      `INSERT INTO proposals (matter_id, operation, payload_json, basis_json, status, created_at)
+       VALUES (?, 'register_expense', ?, ?, ?, ?)`,
+    )
+    .run(
+      matterId,
+      JSON.stringify(proposal.payload),
+      JSON.stringify(proposal.basis),
+      proposal.status,
+      proposal.now,
+    );
+  return Number(result.lastInsertRowid);
+};
+
+/** An executed action, authorized by a permission or the principal (§8.2). Returns its id. */
+export const insertAction = (
+  db: Database.Database,
+  proposalId: number,
+  authorizedBy: string,
+  now: string,
+): number =>
+  Number(
+    db
+      .prepare(
+        `INSERT INTO actions (proposal_id, authorized_by, executed_at, status)
+         VALUES (?, ?, ?, 'executed')`,
+      )
+      .run(proposalId, authorizedBy, now).lastInsertRowid,
+  );
 
 /**
  * §10 steps 5 to 7 in one transaction: proposal, action, expense and its assertions. Returns the
@@ -104,40 +153,20 @@ export const registerTextExpense = (
     const { now } = registration;
     const merchantId =
       registration.merchant === null ? null : findOrCreateMerchant(db, registration.merchant, now);
-    const categoryId =
-      registration.category === null
-        ? null
-        : idOf(db, 'SELECT id FROM categories WHERE name = ?', registration.category);
-    const matterId = idOf(
-      db,
-      "SELECT id FROM matters WHERE title = ? AND status IN ('open', 'active', 'waiting')",
-      EXPENSES_MATTER,
-    );
-    const payload = {
-      total_cents: registration.total_cents,
-      merchant: registration.merchant,
-      occurred_on: registration.occurred_on,
-      category: registration.category,
-      category_basis: registration.category_basis,
-    };
-    const proposal = db
-      .prepare(
-        `INSERT INTO proposals (matter_id, operation, payload_json, basis_json, status, created_at)
-         VALUES (?, 'register_expense', ?, ?, 'executed', ?)`,
-      )
-      .run(
-        matterId,
-        JSON.stringify(payload),
-        JSON.stringify({ source: registration.channelRef }),
-        now,
-      );
-    const action = db
-      .prepare(
-        `INSERT INTO actions (proposal_id, authorized_by, executed_at, status)
-         VALUES (?, ?, ?, 'executed')`,
-      )
-      .run(proposal.lastInsertRowid, registration.authorized_by, now);
-    const actionId = Number(action.lastInsertRowid);
+    const categoryId = categoryIdOf(db, registration.category);
+    const proposalId = insertProposal(db, {
+      payload: {
+        total_cents: registration.total_cents,
+        merchant: registration.merchant,
+        occurred_on: registration.occurred_on,
+        category: registration.category,
+        category_basis: registration.category_basis,
+      },
+      basis: { source: registration.channelRef },
+      status: 'executed',
+      now,
+    });
+    const actionId = insertAction(db, proposalId, registration.authorized_by, now);
     const expense = db
       .prepare(
         `INSERT INTO expenses (merchant_id, occurred_on, total_cents, category_id, category_basis,
@@ -206,13 +235,18 @@ export interface StoredExpense {
   total_cents: number;
   merchant: string | null;
   category: string | null;
+  occurred_on: string;
+  /** The sum of its purchase lines; 0 for a text expense. */
+  lines_sum_cents: number;
 }
 
 /** R-9 AC1: the reply is built from this row, read back after registering. */
 export const readExpense = (db: Database.Database, expenseId: number): StoredExpense => {
   const row = db
     .prepare<[number], StoredExpense>(
-      `SELECT e.total_cents, m.name AS merchant, c.name AS category
+      `SELECT e.total_cents, m.name AS merchant, c.name AS category, e.occurred_on,
+         (SELECT coalesce(sum(l.amount_cents), 0) FROM purchase_lines l WHERE l.expense_id = e.id)
+           AS lines_sum_cents
        FROM expenses e
        LEFT JOIN entities m ON m.id = e.merchant_id
        LEFT JOIN categories c ON c.id = e.category_id
