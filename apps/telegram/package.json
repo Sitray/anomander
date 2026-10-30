@@ -5,9 +5,14 @@
   "type": "module",
   "description": "Telegram front door.",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./fake-telegram-api": "./test-support/fake-telegram-api.ts"
   },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@anomander/protocol": "workspace:*",
+    "grammy": "1.46.0"
   }
 }
