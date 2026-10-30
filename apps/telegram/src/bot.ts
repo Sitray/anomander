@@ -12,7 +12,7 @@ import {
   strings,
   type TextHandler,
 } from '@anomander/protocol';
-import { type Api, Bot, type Context } from 'grammy';
+import { type Api, Bot, type Context, type Transformer } from 'grammy';
 import type { InlineKeyboardMarkup, Message } from 'grammy/types';
 
 export interface TelegramLogger {
@@ -40,6 +40,11 @@ const MAX_FILE_BYTES = 20 * 1024 * 1024;
 // R-3 AC4: an album is collected for 2 seconds after its first photo arrives.
 const ALBUM_WINDOW_MS = 2000;
 const TELEGRAM_API_ROOT = 'https://api.telegram.org';
+// A reply Telegram refused for a moment (429, 5xx) is sent again rather than lost.
+const SEND_ATTEMPTS = 3;
+const RETRY_DELAY_MS = 500;
+// R-22 AC1: the principal always gets an answer, even when the daemon fails.
+const FAILED: Reply = { text: strings.processingFailed() };
 
 const channelRef = (messageId: number) => `telegram:${messageId}`;
 const receivedAt = (message: Message) => new Date(message.date * 1000).toISOString();
@@ -79,6 +84,22 @@ const keyboard = (reply: Reply): { reply_markup: InlineKeyboardMarkup } | undefi
         },
       };
 
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/**
+ * Retries `sendMessage` when Telegram answers 429 (after its `retry_after`) or 5xx. A network
+ * error is not retried: the message may have been sent, and a reply must not arrive twice.
+ */
+const retryRefusedSends: Transformer = async (prev, method, payload, signal) => {
+  for (let attempt = 1; ; attempt++) {
+    const result = await prev(method, payload, signal);
+    const refused = !result.ok && (result.error_code === 429 || result.error_code >= 500);
+    if (method !== 'sendMessage' || !refused || attempt === SEND_ATTEMPTS) return result;
+    const retryAfter = result.parameters?.retry_after;
+    await sleep(retryAfter === undefined ? RETRY_DELAY_MS * attempt : retryAfter * 1000);
+  }
+};
+
 /** Sends a reply, with its buttons, and reports the delivery (R-9 AC2, R-17 AC2). */
 const deliverReply = async (api: Api, chatId: number, reply: Reply): Promise<void> => {
   const sent = await api.sendMessage(chatId, reply.text, keyboard(reply));
@@ -103,6 +124,7 @@ export const createTelegramBot = (options: TelegramBotOptions): Bot => {
     options.token,
     options.apiRoot === undefined ? {} : { client: { apiRoot: options.apiRoot } },
   );
+  bot.api.config.use(retryRefusedSends);
   const fileRoot = `${options.apiRoot ?? TELEGRAM_API_ROOT}/file/bot${options.token}`;
 
   /** Downloads a file on demand, through the same Bot API server (the fake one in tests). */
@@ -125,7 +147,7 @@ export const createTelegramBot = (options: TelegramBotOptions): Bot => {
         channelRef: receipt.channelRef,
         error,
       });
-      return;
+      reply = FAILED;
     }
     if (reply !== null) await deliver(chatId, reply);
   };
@@ -220,7 +242,7 @@ export const createTelegramBot = (options: TelegramBotOptions): Bot => {
         channelRef: channelRef(message.message_id),
         error,
       });
-      return;
+      reply = FAILED;
     }
     await deliver(ctx.chat.id, reply);
   });
@@ -239,7 +261,7 @@ export const createTelegramBot = (options: TelegramBotOptions): Bot => {
       reply = await onButton({ data, channelRef: ref, pressedAt: new Date().toISOString() });
     } catch (error) {
       logger.error('The daemon failed to handle a button press', { channelRef: ref, error });
-      return;
+      reply = FAILED;
     }
     await deliver(ctx.chat?.id ?? principalChatId, reply);
   });

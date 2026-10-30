@@ -96,6 +96,33 @@ describe('principal text (R-17 AC5)', () => {
   });
 });
 
+describe('R-22 failure reply', () => {
+  it('AC1: when the daemon fails, the principal gets S-22 and the error is logged', async () => {
+    onText.mockRejectedValueOnce(new Error('store is locked'));
+    api.push(updates.text(principal, '23 € cena'));
+
+    const [reply] = await api.waitForSent(1);
+
+    expect(reply?.text).toBe(
+      'Algo ha fallado y no he podido procesar tu mensaje. ¿Me lo vuelves a enviar en un rato?',
+    );
+    expect(logger.error).toHaveBeenCalledWith(
+      'The daemon failed to handle a text',
+      expect.objectContaining({ error: expect.any(Error) }),
+    );
+  });
+
+  it('sends a reply again when Telegram refuses it for a moment', async () => {
+    api.refuseNextSends(1, 500);
+    api.push(updates.text(principal, '23 € cena'));
+
+    const sent = await api.waitForSent(1);
+
+    expect(sent.map((message) => message.text)).toEqual(['Apuntado: 23,00 € (sin clasificar).']);
+    await vi.waitFor(() => expect(onDelivered).toHaveBeenCalledOnce());
+  });
+});
+
 describe('decisions (R-17 AC1, AC2)', () => {
   it('hands a button press to the daemon, answers the callback and sends the reply', async () => {
     api.push(updates.callbackQuery(principal, 'decision:7:0', 31));

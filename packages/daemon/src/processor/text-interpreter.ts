@@ -18,13 +18,20 @@ export interface TextInterpreterInput {
 export type Interpretation =
   | { kind: 'expense'; inferences: ProcessorInference[] }
   | { kind: 'conversation'; reply: string }
-  | { kind: 'invalid'; reason: string };
+  | { kind: 'invalid'; reason: string }
+  /** The processor failed or did not answer in time: nothing to interpret (R-22 AC1). */
+  | { kind: 'failed'; reason: string };
 
 /** The processor port. A1: policies and categories (R-13, R-18) arrive in M4. */
 export type TextInterpreter = (input: TextInterpreterInput) => Promise<Interpretation>;
 
 /** `models.complete` of pi-ai, or a recorded response in tests. */
-export type Complete<M> = (model: M, context: Context) => Promise<AssistantMessage>;
+/** `signal` aborts the call when its timeout passes (R-22 AC2). */
+export type Complete<M> = (
+  model: M,
+  context: Context,
+  signal?: AbortSignal,
+) => Promise<AssistantMessage>;
 
 export const TEXT_INTERPRETER_PROMPT = `You interpret one message the user wrote to a personal expenses assistant. You can only answer; you have no tools and you never store anything.
 
@@ -98,12 +105,12 @@ export const createPiAiTextInterpreter =
     } catch (error) {
       const reason = `processor call failed: ${(error as Error).message}`;
       logger.warn('text interpretation failed', { reason });
-      return { kind: 'invalid', reason };
+      return { kind: 'failed', reason };
     }
     if (response.stopReason === 'error' || response.stopReason === 'aborted') {
       const reason = `processor stopped: ${response.errorMessage ?? response.stopReason}`;
       logger.warn('text interpretation failed', { reason });
-      return { kind: 'invalid', reason };
+      return { kind: 'failed', reason };
     }
 
     const envelope = envelopeSchema.safeParse(parseJson(responseText(response)));

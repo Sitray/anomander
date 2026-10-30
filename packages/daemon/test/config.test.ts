@@ -32,6 +32,7 @@ describe('loadConfig', () => {
       model: { provider: 'openai', id: 'gpt-4o-mini' },
       visionModel: { provider: 'ollama', id: 'llava' },
       dailyAiCallLimit: 200,
+      processorTimeoutMs: 60_000,
       weeklySummaryCron: '0 20 * * 0',
       retentionCron: '0 3 * * *',
       inboxDir: './data/inbox',

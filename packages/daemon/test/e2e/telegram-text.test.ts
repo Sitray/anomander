@@ -25,6 +25,8 @@ const PHRASED = '¡Hecho! He apuntado 23,00 € de la cena en restaurantes.';
 let scratch: string;
 let api: FakeTelegramApi;
 let anomander: Anomander;
+/** `false` makes the processor never answer, as a hung model would. */
+let processorAnswers: boolean;
 
 beforeEach(async () => {
   scratch = mkdtempSync(join(tmpdir(), 'anomander-e2e-'));
@@ -36,18 +38,23 @@ beforeEach(async () => {
     ANOMANDER_MODEL: 'openai/gpt-4o-mini',
     ANOMANDER_VISION_MODEL: 'openai/gpt-4o-mini',
   });
+  processorAnswers = true;
   const complete = async (_model: string, context: Context) => {
+    if (!processorAnswers) return new Promise<never>(() => {});
     const phrasing = context.systemPrompt === REPLY_PHRASER_PROMPT;
     const reply = recorded('expense-23-space-euro');
     return phrasing ? { ...reply, content: [{ type: 'text' as const, text: PHRASED }] } : reply;
   };
   const logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn() };
-  anomander = startAnomander(config, {
-    complete,
-    model: 'openai/gpt-4o-mini',
-    telegramApiRoot: api.apiRoot,
-    logger,
-  });
+  anomander = startAnomander(
+    { ...config, processorTimeoutMs: 200 },
+    {
+      complete,
+      model: 'openai/gpt-4o-mini',
+      telegramApiRoot: api.apiRoot,
+      logger,
+    },
+  );
   await anomander.started;
 });
 
@@ -103,5 +110,21 @@ describe('a text expense over Telegram', () => {
 
     expect(api.sent.map(({ chatId }) => chatId)).toEqual([PRINCIPAL]);
     expect(tables()).toEqual(before);
+  });
+
+  it('R-22: a processor that does not answer gets S-22 and does not block the next message', async () => {
+    processorAnswers = false;
+    api.push(updates.text({ chatId: PRINCIPAL }, '23 € cena'));
+    const [failed] = await api.waitForSent(1);
+
+    processorAnswers = true;
+    api.push(updates.text({ chatId: PRINCIPAL }, '23 € cena'));
+    await api.waitForSent(2);
+
+    expect(failed?.text).toBe(
+      'Algo ha fallado y no he podido procesar tu mensaje. ¿Me lo vuelves a enviar en un rato?',
+    );
+    expect(api.sent[1]?.text).toBe(PHRASED);
+    expect(query('SELECT total_cents FROM expenses')).toEqual([{ total_cents: 2300 }]);
   });
 });
