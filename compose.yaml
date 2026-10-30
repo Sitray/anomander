@@ -1,0 +1,16 @@
+services:
+  daemon:
+    build: .
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      ANOMANDER_DB_PATH: /app/data/anomander.db
+      ANOMANDER_INBOX_DIR: /app/data/inbox
+    volumes:
+      - anomander-data:/app/data
+    restart: unless-stopped
+    # No ports: Telegram long polling needs no public URL (PRD §20).
+
+volumes:
+  anomander-data:

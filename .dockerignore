@@ -1,0 +1,9 @@
+.git
+.env
+data
+node_modules
+**/node_modules
+coverage
+odd
+docs
+*.md
