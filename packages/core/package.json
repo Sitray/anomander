@@ -1,0 +1,13 @@
+{
+  "name": "@anomander/core",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Ontology, truth and authority. Imports no provider (R-15 AC2).",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json"
+  }
+}

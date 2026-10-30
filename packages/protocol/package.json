@@ -1,0 +1,13 @@
+{
+  "name": "@anomander/protocol",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Types shared by the daemon and its front doors.",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json"
+  }
+}
