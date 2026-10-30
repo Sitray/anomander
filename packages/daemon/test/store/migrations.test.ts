@@ -1,9 +1,9 @@
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import type Database from 'better-sqlite3';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { applyMigrations, openDatabase } from '../../src/store/database.ts';
+import { applyMigrations, MIGRATIONS_DIR, openDatabase } from '../../src/store/database.ts';
 
 const ISO_UTC = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
 
@@ -221,5 +221,16 @@ describe('supermarket_purchases view', () => {
       .all()
       .map((row) => row.name);
     expect(columns).toEqual(['producto', 'cantidad', 'precio_cents', 'comercio', 'fecha', 'modo']);
+  });
+});
+
+// PRD §13: the daily AI budget (R-12) is the second SQL block of the data model.
+describe('0003_ai_budget.sql', () => {
+  it('equals the second SQL block of PRD §13', () => {
+    const prd = readFileSync(resolve(import.meta.dirname, '../../../../PRD.md'), 'utf8');
+    const section = prd.split('## 13. Data model')[1]?.split('\n## ')[0] ?? '';
+    const block = section.split('```sql\n')[2]?.split('```')[0] ?? '';
+    expect(block).toContain('CREATE TABLE ai_usage');
+    expect(readFileSync(resolve(MIGRATIONS_DIR, '0003_ai_budget.sql'), 'utf8')).toBe(block);
   });
 });

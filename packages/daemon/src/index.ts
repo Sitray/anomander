@@ -1,4 +1,16 @@
 export { type Anomander, type AnomanderDeps, startAnomander } from './app.ts';
+export {
+  type AiBudget,
+  type AiBudgetDeps,
+  AiBudgetExhaustedError,
+  budgeted,
+  createAiBudget,
+} from './budget/ai-budget.ts';
+export {
+  createReceiptQueue,
+  type ReceiptQueue,
+  type ReceiptQueueDeps,
+} from './budget/receipt-queue.ts';
 export { type Config, loadConfig, type ModelId, parseModelId } from './config.ts';
 export {
   type ButtonHandlerDeps,
@@ -19,7 +31,9 @@ export {
 export { createTextRouter, type TextRouterDeps } from './decisions/router.ts';
 export type { DecisionAnswer, DecisionAnswerHandler, OpenDecision } from './decisions/types.ts';
 export {
+  createReceiptExpenseCycle,
   createReceiptExpenseHandler,
+  type ReceiptExpenseCycle,
   type ReceiptExpenseDeps,
 } from './expenses/receipt-expense.ts';
 export { createTextExpenseHandler, type TextExpenseDeps } from './expenses/text-expense.ts';
@@ -57,4 +71,20 @@ export {
   type TextInterpreter,
   type TextInterpreterInput,
 } from './processor/text-interpreter.ts';
+export {
+  createKeepReceiptAnswerHandler,
+  type KeepReceiptDecisionDeps,
+} from './retention/keep-receipt-decision.ts';
+export {
+  createRetention,
+  type Retention,
+  type RetentionDeps,
+  type RetentionResult,
+} from './retention/retention-job.ts';
+export {
+  type Scheduler,
+  type SchedulerDeps,
+  type SchedulerJobs,
+  startScheduler,
+} from './scheduler/scheduler.ts';
 export { applyMigrations, MIGRATIONS_DIR, openDatabase } from './store/database.ts';

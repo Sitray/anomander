@@ -204,12 +204,24 @@ WHERE c.name = 'supermercado'
   AND e.status = 'current';
 ```
 
+The daily AI budget (PRD R-12) has its own table, added by the migration `0003_ai_budget.sql`:
+
+```sql
+-- Daily AI budget (R-12): processor calls per day in TZ
+CREATE TABLE ai_usage (
+  day TEXT PRIMARY KEY,             -- 'YYYY-MM-DD' in TZ
+  calls INTEGER NOT NULL,           -- processor calls counted that day (R-12 AC1)
+  limit_notified INTEGER NOT NULL DEFAULT 0  -- 1 once S-10 was sent that day (R-12 AC2)
+);
+```
+
 Schema decisions:
 
 - **Money is stored in cents** (`INTEGER`), never as decimals, so that sums add up exactly.
 - **Nothing is deleted or overwritten in `assertions`.** A correction of mine creates a new assertion that points to the earlier one (`supersedes_id`) and marks it as refuted. Two triggers enforce it: only `status` may change, and no row may be deleted.
 - **A confirmation points at what it confirms** (`confirms_id`). Its actor is `principal` when I confirm, or `code` when a deterministic check corroborates the assertion.
 - **Receipt images are temporary.** `documents.status` and `keep_until` track the queue used when the daily AI budget runs out (PRD R-8, R-12).
+- **The daily AI budget is counted in the database** (`ai_usage`, one row per day in `TZ`), so a restart does not reset it, and `limit_notified` makes the limit notice go out once a day (PRD R-12).
 - **At most one pending decision waits for my text** (`awaiting_text`), enforced by a partial unique index (PRD R-17).
 - **The database does not stop the processor from writing "confirmed"; the code does.** The processor never writes directly: it returns inferences and proposals, and only the code that checks authority turns them into rows.
 - **The dashboard only reads the view.** It never touches the tables, so changing the internal schema does not break the app of apps as long as the view keeps returning the same columns.

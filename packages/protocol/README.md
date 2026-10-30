@@ -12,7 +12,8 @@ dependencies and no runtime state.
   `ReceiptImage` with its `mimeType` and a `load()` that fetches the bytes when the daemon asks),
   `caption` (the principal's declaration, R-3 AC5, or `null`), `channelRef`
   (`telegram:<message_id>`, or `telegram:album:<media_group_id>` for an album) and `receivedAt`.
-  The front door hands it to a `ReceiptHandler`.
+  The front door hands it to a `ReceiptHandler`, which may answer `null` to send nothing (a
+  receipt queued after the day's S-10, R-12 AC2).
 - The daemon decides what the text or receipt means and answers with a `Reply`. After sending
   it, the front door calls `reply.onDelivered` with the sent message's `channelRef`, so the daemon
   can record the delivery as an observation (R-9 AC2) or remember which message shows a pending

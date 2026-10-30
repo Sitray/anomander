@@ -54,7 +54,8 @@ export interface PrincipalReceipt {
   receivedAt: string;
 }
 
-export type ReceiptHandler = (receipt: PrincipalReceipt) => Promise<Reply>;
+/** `null` sends nothing, such as a receipt queued after the day's S-10 (R-12 AC2). */
+export type ReceiptHandler = (receipt: PrincipalReceipt) => Promise<Reply | null>;
 
 /** The buttons of a pending decision: option `i` sends `decision:<id>:<i>` (R-17 AC1). */
 export const decisionButtons = (decisionId: number, options: readonly string[]): ReplyButton[] =>

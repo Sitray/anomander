@@ -127,6 +127,40 @@ declaration as `answer_assertion_id`, and the reply is S-8, verbatim, from the r
 (R-21 AC3). If nothing usable was written, the reply is S-7 again and the decision keeps
 waiting.
 
+## The daily AI budget, the queue and retention
+
+**Budget (R-12).** `createAiBudget` (`src/budget/ai-budget.ts`) counts processor calls per day in
+`TZ` in the `ai_usage` table (PRD §13), so a restart does not reset it. `ANOMANDER_DAILY_AI_CALL_LIMIT`
+is the cap (AC1). `budgeted(complete, budget)` wraps the processor call of the text interpreter,
+the correction interpreter and the phraser: past the cap it throws without calling the processor,
+and the phraser then sends the §12 string (R-21 AC2, AC4). A receipt reserves its reader call in
+`mayReadNow` instead, so `app.ts` gives the reader the raw call and a refusal can never make a
+receipt unreadable.
+
+**Queue (R-8 AC2, R-12 AC2, AC3).** Past the cap a receipt stays `queued` with its images,
+`keep_until` is set to 24 hours after `received_at`, and its caption is observed with it. The
+principal gets S-10 once that day (`limit_notified`); later receipts that day get no reply (the
+`ReceiptHandler` returns `null`). Once the day changes in `TZ`, `createReceiptQueue` reads the
+queue in arrival order through the same receipt cycle, against the new day's cap, and sends each
+reply with `notify`.
+
+**Unread receipts (R-8 AC3 to AC5).** One hour before `keep_until`, an unread receipt gets S-13 with
+"Sí" and "No", once, as a `keep_receipt` proposal and pending decision. "Sí" keeps it until it is
+read, at most 7 days after `received_at`, and replies S-24; "No" leaves `keep_until` as it is and
+replies S-25. When `keep_until` passes, S-14 is sent, the images are deleted and the document
+becomes `discarded` with `image_deleted_at`.
+
+**Retention job (R-19).** `createRetention().retain` expires `current` inferences older than 30
+days that no current expense or its purchase lines rest on (AC1), and `open` decisions older than
+7 days, rejecting their proposal and refuting a provisional `pending` expense (AC2). It also
+handles expired queued receipts (AC3). It only changes `status` columns and deletes temporary
+images; a second run changes nothing (AC4).
+
+**Scheduler.** `startScheduler` (`src/scheduler/scheduler.ts`, croner) runs retention, the queue
+and the receipt watch once at startup. After that, it runs retention at `ANOMANDER_RETENTION_CRON`
+in `TZ`, and the queue and the receipt watch every minute, so S-13's "lo borro en una hora" holds.
+The jobs share one serial queue and never overlap. `stop()` waits for the job in progress.
+
 ## The processor ports
 
 `CorrectionInterpreter` (`src/processor/correction-interpreter.ts`) reads a correction text.

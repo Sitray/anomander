@@ -117,7 +117,7 @@ export const createTelegramBot = (options: TelegramBotOptions): Bot => {
   const deliver = (chatId: number, reply: Reply) => deliverReply(bot.api, chatId, reply);
 
   const handleReceipt = async (chatId: number, receipt: PrincipalReceipt) => {
-    let reply: Reply;
+    let reply: Reply | null;
     try {
       reply = await onReceipt(receipt);
     } catch (error) {
@@ -127,7 +127,7 @@ export const createTelegramBot = (options: TelegramBotOptions): Bot => {
       });
       return;
     }
-    await deliver(chatId, reply);
+    if (reply !== null) await deliver(chatId, reply);
   };
 
   // R-3 AC4: the photos of an album arrive as separate updates sharing `media_group_id`.
