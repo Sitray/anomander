@@ -11,7 +11,7 @@ export interface BoundaryViolation {
 }
 
 // Static and side-effect imports, re-exports, dynamic import() and require().
-// A match inside a comment or string is reported too: a false alarm is safer than a miss.
+// A match inside a string is reported too: a false alarm is safer than a miss.
 const SPECIFIER_PATTERNS = [
   /\b(?:import|export)\s[^'"`;]*?\bfrom\s*['"]([^'"]+)['"]/g,
   /\bimport\s*['"]([^'"]+)['"]/g,
@@ -24,10 +24,42 @@ const packageName = (specifier: string): string => {
   return specifier.startsWith('@') ? `${first}/${second}` : first;
 };
 
-const extractSpecifiers = (source: string): string[] =>
-  SPECIFIER_PATTERNS.flatMap((pattern) =>
-    [...source.matchAll(pattern)].map((match) => match[1] ?? ''),
+// Removes // and /* */ comments while keeping string and template literals intact, so a
+// quote or semicolon inside a comment cannot hide the import around it.
+const stripComments = (source: string): string => {
+  let output = '';
+  let index = 0;
+  while (index < source.length) {
+    const char = source[index] ?? '';
+    const next = source[index + 1];
+    if (char === '/' && next === '/') {
+      const end = source.indexOf('\n', index);
+      index = end === -1 ? source.length : end;
+    } else if (char === '/' && next === '*') {
+      const end = source.indexOf('*/', index + 2);
+      index = end === -1 ? source.length : end + 2;
+      output += ' ';
+    } else if (char === "'" || char === '"' || char === '`') {
+      let end = index + 1;
+      while (end < source.length && source[end] !== char) {
+        end += source[end] === '\\' ? 2 : 1;
+      }
+      output += source.slice(index, end + 1);
+      index = end + 1;
+    } else {
+      output += char;
+      index += 1;
+    }
+  }
+  return output;
+};
+
+const extractSpecifiers = (source: string): string[] => {
+  const code = stripComments(source);
+  return SPECIFIER_PATTERNS.flatMap((pattern) =>
+    [...code.matchAll(pattern)].map((match) => match[1] ?? ''),
   );
+};
 
 const isAllowed = (
   file: SourceFile,

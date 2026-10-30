@@ -12,7 +12,7 @@ const listSources = (dir: string): string[] =>
   readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
     const path = join(dir, entry.name);
     if (entry.isDirectory()) return listSources(path);
-    return /\.(ts|tsx|js|mjs|cjs)$/.test(entry.name) ? [path] : [];
+    return /\.(ts|tsx|mts|cts|js|mjs|cjs)$/.test(entry.name) ? [path] : [];
   });
 
 describe('core package boundary', () => {
@@ -50,6 +50,12 @@ describe('core package boundary', () => {
       file('require.ts', "const g = require('grammy');"),
       file('escape.ts', "import { x } from '../../daemon/src/x.ts';"),
       file('side-effect.ts', "import 'node:fs';"),
+      file(
+        'commented.ts',
+        "import type {\n  // The daemon's runtime type; core doesn't call it.\n  Runtime,\n} from '@anomander/daemon';",
+      ),
+      file('block-comment.ts', "import { a /* it's; here */ } from 'grammy';"),
+      file('url-in-string.ts', "const docs = 'https://example.com';\nimport { b } from 'openai';"),
     ];
 
     expect(findBoundaryViolations(files, CORE_ROOT, ALLOWED_PACKAGES)).toEqual([
@@ -60,6 +66,9 @@ describe('core package boundary', () => {
       { path: join(CORE_ROOT, 'src', 'require.ts'), specifier: 'grammy' },
       { path: join(CORE_ROOT, 'src', 'escape.ts'), specifier: '../../daemon/src/x.ts' },
       { path: join(CORE_ROOT, 'src', 'side-effect.ts'), specifier: 'node:fs' },
+      { path: join(CORE_ROOT, 'src', 'commented.ts'), specifier: '@anomander/daemon' },
+      { path: join(CORE_ROOT, 'src', 'block-comment.ts'), specifier: 'grammy' },
+      { path: join(CORE_ROOT, 'src', 'url-in-string.ts'), specifier: 'openai' },
     ]);
   });
 });
