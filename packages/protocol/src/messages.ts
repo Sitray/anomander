@@ -8,6 +8,8 @@ export interface PrincipalText {
   channelRef: string;
   /** When the message was sent, as an ISO 8601 UTC timestamp. */
   receivedAt: string;
+  /** The message this text replies to in the chat, if any: `telegram:<message_id>` (R-17 AC2). */
+  replyTo?: string;
 }
 
 /** Proof that a reply reached the principal (R-9 AC2). */
@@ -57,3 +59,17 @@ export type ReceiptHandler = (receipt: PrincipalReceipt) => Promise<Reply>;
 /** The buttons of a pending decision: option `i` sends `decision:<id>:<i>` (R-17 AC1). */
 export const decisionButtons = (decisionId: number, options: readonly string[]): ReplyButton[] =>
   options.map((label, index) => ({ label, data: `decision:${decisionId}:${index}` }));
+
+/** A press on a reply button (R-17 AC1), already past the principal check. */
+export interface ButtonPress {
+  /** The button's `data`: `decision:<id>:<option index>`. */
+  data: string;
+  /** The message that carries the button: `telegram:<message_id>`. */
+  channelRef: string;
+  pressedAt: string;
+}
+
+export type ButtonHandler = (press: ButtonPress) => Promise<Reply>;
+
+/** Sends a message the principal did not ask for, such as S-13 or S-14 (R-8, R-19). */
+export type Notify = (message: Reply) => Promise<void>;
