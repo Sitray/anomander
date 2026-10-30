@@ -6,3 +6,4 @@ coverage/
 odd/
 .env.*
 !.env.example
+.atl/
