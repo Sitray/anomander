@@ -1,0 +1,29 @@
+{
+  "role": "assistant",
+  "content": [
+    {
+      "type": "text",
+      "text": "{\"kind\":\"conversation\",\"reply\":\"¡Hola! Cuando quieras, dime un gasto, por ejemplo: 23,40 en Mercadona.\"}"
+    }
+  ],
+  "api": "openai-completions",
+  "provider": "openai",
+  "model": "gpt-4o-mini",
+  "responseId": "chatcmpl-recorded",
+  "usage": {
+    "input": 412,
+    "output": 96,
+    "cacheRead": 0,
+    "cacheWrite": 0,
+    "totalTokens": 508,
+    "cost": {
+      "input": 0.0000618,
+      "output": 0.0000576,
+      "cacheRead": 0,
+      "cacheWrite": 0,
+      "total": 0.0001194
+    }
+  },
+  "stopReason": "stop",
+  "timestamp": 1793380800000
+}

@@ -244,10 +244,10 @@ A message stating an amount registers a declared expense. The processor interpre
 - AC1: "23 € cena" creates an expense with `total_cents = 2300`, `mode = 'declared'`, `document_id = NULL`, and a `declared` assertion for the amount with actor `principal`.
 - AC2: Registering what the principal declared is authorized by the principal's own message; no permission lookup is required for the amount.
 - AC3: If the category comes from a policy or the principal states it, `category_basis` is `'policy'` or `'declared'`; otherwise it is `'inferred'` and the category must be one of the existing categories or `NULL`.
-- AC4: The reply uses string S-1 (or S-2 when there is no merchant).
+- AC4: The reply follows string S-1 (or S-2 when there is no merchant), phrased as in R-21.
 - AC5: Amounts written as `23`, `23,40`, `23.40`, `23€`, `23 €` and `€23` are understood. These forms are the contract test cases for the text interpreter (recorded responses) and the inputs of the AC6 check.
 - AC6: The processor returns the amount, and optionally the merchant, date and category, as inferences. Code accepts the amount only if it equals one of the amounts written literally in the message, normalized with the AC5 forms. Otherwise no expense is created and the reply is S-16.
-- AC7: The date is today in `TZ` unless the message names another one ("ayer", "el lunes"), which the processor infers. A date later than today is rejected as in R-4 AC2.
+- AC7: The date is today in `TZ` unless the message names another one ("ayer", "el lunes"), which the processor infers. A date later than today is rejected as in R-4 AC2: no expense is created and the reply is S-21.
 
 ### R-3 Receipt photo
 A photo is read by the document processor and becomes a proposal.
@@ -291,7 +291,7 @@ Code checks every proposed receipt expense.
 
 ### R-9 Verification reply
 - AC1: After registering, code reads the expense back from the database and builds the reply from the stored row, not from the proposal.
-- AC2: The reply is S-1 or S-2, and its delivery is recorded as an observation linked to the action (`verification_assertion_id`).
+- AC2: The reply follows S-1 or S-2 (R-21), and its delivery is recorded as an observation linked to the action (`verification_assertion_id`).
 
 ### R-10 Weekly summary
 - AC1: Sent on Sundays at the time set by `ANOMANDER_WEEKLY_SUMMARY_CRON` (default `0 20 * * 0`) in `TZ` (default `Europe/Madrid`).
@@ -361,7 +361,16 @@ A deterministic job, the internal **retain** operation, runs at `ANOMANDER_RETEN
 
 - AC1: Each row of the table has an integration test against the fake Telegram API.
 
+### R-21 Phrased replies
+The assistant may word its confirmations in its own voice; the facts in them always come from code.
+- AC1: The replies S-1, S-2, S-16 and S-21 may be phrased by the processor. Code passes it the §12 string as the reference and the facts read from the database (S-1 and S-2: total, merchant and category of the stored row; S-21: the date).
+- AC2: Code sends the phrased text only if it contains every fact, formatted as in §12, contains no amount that is not among the facts or in the reference string, and is at most 280 characters. Otherwise, or when the processor fails or the daily AI budget is exhausted (R-12), it sends the §12 string unchanged.
+- AC3: Every other string in §12 is sent verbatim and never goes through the processor.
+- AC4: The phrasing call passes no tools (R-14 AC3) and counts against the daily AI budget (R-12).
+
 ## 12. User-facing strings (verbatim, `es-ES`)
+
+S-1, S-2, S-16 and S-21 are the reference and the fallback for the phrased replies of R-21; every other string is sent exactly as written.
 
 Amounts are formatted with `Intl.NumberFormat('es-ES', { style: 'currency', currency: 'EUR' })`, for example `23,40 €`. Dates use `d 'de' MMMM`, for example `29 de octubre`.
 
@@ -387,6 +396,7 @@ Amounts are formatted with `Intl.NumberFormat('es-ES', { style: 'currency', curr
 | S-18 | `Todavía no leo PDF. ¿Me mandas una foto del ticket?` |
 | S-19 | `Esa pregunta ya no está abierta.` |
 | S-20 | `La imagen es demasiado grande. ¿Me mandas una foto más ligera?` |
+| S-21 | `La fecha {fecha} es posterior a hoy. ¿Me dices cuándo fue el gasto?` |
 
 When there is no category, `{categoria}` is `sin clasificar`. In S-9, each category name in `{desglose}` starts with a capital letter (R-10 AC4), for example `Supermercado 45,20 € · Restaurantes 23,00 € · Sin clasificar 0,00 €`. Button labels: `Apuntar`, `Corregir`, `Descartar`, and for S-11, S-12, S-13 and S-15 `Sí` and `No`.
 
@@ -668,7 +678,7 @@ One Node process (the daemon) and one SQLite file. The Telegram front door runs 
 | `ANOMANDER_INBOX_DIR` | Temporary folder for receipt images (R-8) | `./data/inbox` |
 | `TZ` | Time zone | `Europe/Madrid` |
 
-Secrets live only in `.env`, which is git-ignored. `.env.example` lists every variable.
+Secrets live only in `.env`, which is git-ignored. `.env.example` lists every variable. Model credentials are not ANOMANDER variables: pi-ai reads each provider's own variable (for example `OPENAI_API_KEY` or `ANTHROPIC_API_KEY`), which also goes in `.env`.
 
 ## 15. Testing strategy
 
@@ -706,7 +716,7 @@ Checks every feature document should run:
 | --- | --- | --- |
 | M0 Repository bootstrap | pnpm workspace, Biome, Vitest, MIT license, `.env.example`, Dockerfile and compose, `docs/` translated from this PRD, boundary test | R-15 AC2 |
 | M1 Core and truth store | Ontology types, authority check, consistency check, migrations, seed data | R-4, R-5, R-6 AC5, R-7 AC3, R-14 |
-| M2 Telegram text expenses | Principal-only bot, text expenses, verification reply, open conversation, text routing, unsupported inputs | R-1, R-2, R-9, R-16, R-17 AC5, R-20 (text and unsupported rows) |
+| M2 Telegram text expenses | Principal-only bot, text expenses, verification reply, open conversation, text routing, unsupported inputs | R-1, R-2, R-9, R-16, R-17 AC5, R-20 (text and unsupported rows), R-21 |
 | M3 Receipts | Receipt reading, albums, decisions with buttons, corrections, image retention and queue, AI budget, retention job, receipt evaluation set | R-3, R-6, R-7, R-8, R-12, R-17, R-19, R-20 |
 | M4 Summary, policies, categories and dashboard view | Weekly summary, policies and patterns, category creation, supermarket view | R-10, R-11, R-13, R-18 |
 | M5 Next matter | A second delegated matter chosen by the principal; open-conversation memory with epistemic modes; read access to the ledger from other applications or the AI assistant (API or MCP) | To be specified |
