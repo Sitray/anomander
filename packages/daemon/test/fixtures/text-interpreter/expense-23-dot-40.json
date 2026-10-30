@@ -1,0 +1,29 @@
+{
+  "role": "assistant",
+  "content": [
+    {
+      "type": "text",
+      "text": "```json\n{\"kind\":\"expense\",\"inferences\":[{\"subject_type\":\"expense\",\"subject_id\":null,\"predicate\":\"total\",\"value_json\":2340,\"mode\":\"inferred\",\"basis_json\":{\"quote\":\"23.40\"},\"confidence\":0.96},{\"subject_type\":\"expense\",\"subject_id\":null,\"predicate\":\"merchant\",\"value_json\":\"Mercadona\",\"mode\":\"inferred\",\"basis_json\":{\"quote\":\"Mercadona\"},\"confidence\":0.95},{\"subject_type\":\"expense\",\"subject_id\":null,\"predicate\":\"category\",\"value_json\":\"supermercado\",\"mode\":\"inferred\",\"basis_json\":{\"reason\":\"Mercadona is a supermarket\"},\"confidence\":0.85}]}\n```"
+    }
+  ],
+  "api": "openai-completions",
+  "provider": "openai",
+  "model": "gpt-4o-mini",
+  "responseId": "chatcmpl-recorded",
+  "usage": {
+    "input": 412,
+    "output": 96,
+    "cacheRead": 0,
+    "cacheWrite": 0,
+    "totalTokens": 508,
+    "cost": {
+      "input": 0.0000618,
+      "output": 0.0000576,
+      "cacheRead": 0,
+      "cacheWrite": 0,
+      "total": 0.0001194
+    }
+  },
+  "stopReason": "stop",
+  "timestamp": 1793380800000
+}
