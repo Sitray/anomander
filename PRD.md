@@ -17,9 +17,9 @@
 
 This document is the product source of truth. Requirements are numbered (`R-#`) and user-facing strings are quoted verbatim in §12 so they can be copied as-is into ODD feature documents.
 
-- Each milestone in §17 is one substantial feature. Under ODD, the agent creates `odd/tasks/<feature-name>.md` for it before the first source write. Suggested feature names are listed in §18.
+- Each milestone in §17 is one substantial feature. Under ODD, the agent creates `odd/tasks/<feature-name>.md` for it before the first source write. Feature documents are working notes: `odd/` is git-ignored and never published. Suggested feature names are listed in §18.
 - In each feature document, `## Specs` should quote the relevant `R-#` requirements, their acceptance criteria and the §12 strings verbatim. Do not paraphrase them.
-- The design rationale lives in `docs/`, written from §5 to §11 of this PRD. If this PRD and `docs/` disagree, this PRD wins until `docs/` is updated in the same change. `docs/data-model.md` still shows the 0.1 schema; M0 brings it in line with §13.
+- The design rationale lives in `docs/`, written from §5 to §11 of this PRD. If this PRD and `docs/` disagree, this PRD wins until `docs/` is updated in the same change.
 - Test-first applies: every `R-#` has acceptance criteria that can be turned into a RED test.
 
 ---
@@ -598,7 +598,7 @@ Migrations are versioned SQL files applied at startup. Seed data: the principal 
 ```
 anomander/
 ├── docs/               # ontology, authority, workflows, data model, stack, decisions
-├── odd/tasks/          # ODD feature documents
+├── odd/tasks/          # ODD feature documents (local only, git-ignored)
 ├── packages/core       # ontology, truth, authority; imports no provider
 ├── packages/daemon     # runtime: processors, providers, matter cycles, scheduler, migrations
 ├── packages/protocol   # types shared by the daemon and its front doors

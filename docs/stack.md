@@ -39,7 +39,7 @@ Repository layout:
 ```
 anomander/
 ├── docs/               # these documents
-├── odd/tasks/          # ODD feature documents
+├── odd/tasks/          # ODD feature documents (local only, git-ignored)
 ├── packages/core       # ontology, truth and authority; imports no provider
 ├── packages/daemon     # runtime: processors, providers and the cycle of each matter
 ├── packages/protocol   # types shared between the daemon and the front doors
