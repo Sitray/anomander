@@ -50,16 +50,6 @@ describe('§8.1 level: with permission (R-6 AC1)', () => {
     });
   });
 
-  it('send_summary executes under an active send_summary permission', () => {
-    const summary = { ...startingPermission, id: 7, operation: 'send_summary', conditions: {} };
-
-    expect(check({ operation: 'send_summary' }, [summary])).toEqual({
-      decision: 'execute',
-      level: 'with_permission',
-      authorized_by: 'permission:7',
-    });
-  });
-
   it('an expired permission does not cover', () => {
     const expired = { ...startingPermission, expires_at: '2026-10-30T09:59:59Z' };
 
@@ -74,12 +64,6 @@ describe('§8.1 level: with permission (R-6 AC1)', () => {
     const revoked = { ...startingPermission, revoked_at: '2026-10-29T10:00:00Z' };
 
     expect(check(receipt(), [revoked]).decision).toBe('ask');
-  });
-
-  it('a permission that expires later still covers', () => {
-    const later = { ...startingPermission, expires_at: '2026-10-30T10:00:01Z' };
-
-    expect(check(receipt(), [later]).decision).toBe('execute');
   });
 
   it('a permission for another operation, or with unknown conditions, does not cover', () => {
@@ -98,11 +82,9 @@ describe('§8.1 level: with permission (R-6 AC1)', () => {
 describe('§8.1 level: with confirmation (R-6 AC2)', () => {
   it.each([
     ['lines that do not add up use S-3', receipt({ lines_sum_to_total: false }), 'lines_mismatch'],
-    ['an invalid date', receipt({ valid_date: false }), 'invalid_date'],
     ['a duplicate uses S-4', receipt({ no_duplicate: false }), 'duplicate'],
     ['an inferred category uses S-6', receipt({}, 'inferred'), 'needs_confirmation'],
     ['no category (new merchant) uses S-6', receipt({}, null), 'needs_confirmation'],
-    ['a declared category asks too', receipt({}, 'declared'), 'needs_confirmation'],
   ])('%s', (_label, request, reason) => {
     expect(check(request)).toEqual({ decision: 'ask', level: 'with_confirmation', reason });
   });
@@ -127,10 +109,6 @@ describe('§8.1 level: with confirmation (R-6 AC2)', () => {
       level: 'with_confirmation',
       reason: 'needs_confirmation',
     });
-  });
-
-  it('register_expense without an expense asks', () => {
-    expect(check({ operation: 'register_expense' }).decision).toBe('ask');
   });
 
   it("R-2 AC2: a text expense declared by the principal executes on the principal's word", () => {

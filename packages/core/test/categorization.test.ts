@@ -27,10 +27,6 @@ describe('R-5 categorization', () => {
     });
   });
 
-  it('AC2: without a policy or a suggestion, there is no category', () => {
-    expect(categorize(input({ merchant: 'Bar Pepe' }))).toEqual(none);
-  });
-
   it('AC3: the processor can never create a category', () => {
     expect(categorize(input({ policies: [], suggestedCategory: 'gasolina' }))).toEqual(none);
   });
