@@ -51,3 +51,12 @@ export const strings = {
   futureDate: (date: string) =>
     `La fecha ${formatDate(date)} es posterior a hoy. ¿Me dices cuándo fue el gasto?`,
 } as const;
+
+/** PRD §12 button labels (R-6 AC3; S-11, S-12, S-13 and S-15 use `Sí` and `No`). */
+export const buttons = {
+  register: 'Apuntar',
+  correct: 'Corregir',
+  discard: 'Descartar',
+  yes: 'Sí',
+  no: 'No',
+} as const;

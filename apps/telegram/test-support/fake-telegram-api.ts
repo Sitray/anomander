@@ -10,6 +10,7 @@
 
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
+import { crc32, deflateSync } from 'node:zlib';
 import type { Update } from 'grammy/types';
 
 /** A `sendMessage` call the bot made. */
@@ -29,6 +30,8 @@ export interface FakeTelegramApi {
   token: string;
   /** Queues an update for `getUpdates`; the fake assigns its `update_id`. */
   push(update: IncomingUpdate): void;
+  /** Serves `bytes` for `file_id` through `getFile` and the file download URL. */
+  putFile(fileId: string, bytes: Uint8Array): void;
   sent: SentMessage[];
   /** Resolves once at least `count` messages were sent; rejects after `timeoutMs`. */
   waitForSent(count: number, timeoutMs?: number): Promise<SentMessage[]>;
@@ -57,6 +60,7 @@ export const startFakeTelegramApi = async (): Promise<FakeTelegramApi> => {
   const notify = () => {
     for (const listener of onChange) listener();
   };
+  const files = new Map<string, Uint8Array>();
   let nextUpdateId = 1;
   let nextMessageId = 1;
 
@@ -64,6 +68,17 @@ export const startFakeTelegramApi = async (): Promise<FakeTelegramApi> => {
     getMe: () => BOT_USER,
     deleteWebhook: () => true,
     getUpdates: (body) => getUpdates(body),
+    getFile: (body) => {
+      const fileId = String(body.file_id);
+      const bytes = files.get(fileId);
+      if (bytes === undefined) return undefined;
+      return {
+        file_id: fileId,
+        file_unique_id: `${fileId}-unique`,
+        file_size: bytes.byteLength,
+        file_path: `files/${fileId}`,
+      };
+    },
     sendMessage: (body) => {
       const chatId = Number(body.chat_id);
       const message = {
@@ -93,6 +108,11 @@ export const startFakeTelegramApi = async (): Promise<FakeTelegramApi> => {
 
   const waitFor = (ready: () => boolean, ms: number) =>
     new Promise<void>((resolve) => {
+      // Already ready: a message sent before the wait started must not cost the whole timeout.
+      if (ready()) {
+        resolve();
+        return;
+      }
       const done = () => {
         clearTimeout(timer);
         onChange.delete(check);
@@ -110,6 +130,18 @@ export const startFakeTelegramApi = async (): Promise<FakeTelegramApi> => {
   });
 
   const handle = async (req: IncomingMessage, res: ServerResponse) => {
+    // File download: `<apiRoot>/file/bot<token>/<file_path>`, as Telegram serves it.
+    const download = /^\/file\/bot([^/]+)\/files\/(.+)$/.exec(req.url ?? '');
+    if (download !== null) {
+      const bytes =
+        download[1] === TOKEN ? files.get(decodeURIComponent(download[2] ?? '')) : undefined;
+      if (bytes === undefined) {
+        res.writeHead(404).end();
+        return;
+      }
+      res.writeHead(200, { 'content-type': 'application/octet-stream' }).end(bytes);
+      return;
+    }
     const match = /^\/bot([^/]+)\/([A-Za-z]+)$/.exec(req.url ?? '');
     const chunks: Buffer[] = [];
     for await (const chunk of req) chunks.push(chunk as Buffer);
@@ -121,6 +153,14 @@ export const startFakeTelegramApi = async (): Promise<FakeTelegramApi> => {
     }
     const method = methods[match[2] ?? ''];
     const result = method === undefined ? true : await method(body);
+    if (result === undefined) {
+      respond(res, 400, {
+        ok: false,
+        error_code: 400,
+        description: 'Bad Request: invalid file_id',
+      });
+      return;
+    }
     respond(res, 200, { ok: true, result });
   };
 
@@ -134,6 +174,9 @@ export const startFakeTelegramApi = async (): Promise<FakeTelegramApi> => {
     push: (update) => {
       queue.push({ ...update, update_id: nextUpdateId++ } as Update);
       notify();
+    },
+    putFile: (fileId, bytes) => {
+      files.set(fileId, bytes);
     },
     waitForSent: async (count, timeoutMs = 2000) => {
       await waitFor(() => sent.length >= count, timeoutMs);
@@ -193,25 +236,75 @@ const file = (id: string, fileSize: number) => ({
   file_size: fileSize,
 });
 
+/** What a photo or image file carries besides its sender. */
+export interface ImageOptions {
+  /** The `file_id` of the largest size (photos) or of the document; serve it with `putFile`. */
+  fileId?: string;
+  fileSize?: number;
+  caption?: string;
+  /** Photos of one album share it (R-3 AC4). */
+  mediaGroupId?: string;
+}
+
+const imageExtras = ({ caption, mediaGroupId }: ImageOptions) => ({
+  ...(caption === undefined ? {} : { caption }),
+  ...(mediaGroupId === undefined ? {} : { media_group_id: mediaGroupId }),
+});
+
+const pngChunk = (type: string, data: Buffer): Buffer => {
+  const length = Buffer.alloc(4);
+  length.writeUInt32BE(data.length);
+  const body = Buffer.concat([Buffer.from(type, 'ascii'), data]);
+  const crc = Buffer.alloc(4);
+  crc.writeUInt32BE(crc32(body));
+  return Buffer.concat([length, body, crc]);
+};
+
+/** A generated 1×1 PNG of one colour: small, valid image bytes that are never a real receipt. */
+export const pngBytes = (red: number, green = 0, blue = 0): Uint8Array => {
+  const header = Buffer.alloc(13);
+  header.writeUInt32BE(1, 0);
+  header.writeUInt32BE(1, 4);
+  header.set([8, 2, 0, 0, 0], 8); // 8-bit RGB, no interlace
+  return new Uint8Array(
+    Buffer.concat([
+      Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+      pngChunk('IHDR', header),
+      pngChunk('IDAT', deflateSync(Buffer.from([0, red, green, blue]))),
+      pngChunk('IEND', Buffer.alloc(0)),
+    ]),
+  );
+};
+
 /** Builders for the updates a principal (or anyone else) can send. */
 export const updates = {
   text: (sender: Sender, text: string): IncomingUpdate => ({ message: message(sender, { text }) }),
   edited: (sender: Sender, text: string): IncomingUpdate => ({
     edited_message: { ...message(sender, { text }), edit_date: MESSAGE_DATE + 60 },
   }),
-  document: (sender: Sender, mimeType: string, fileSize = 1024): IncomingUpdate => ({
+  document: (sender: Sender, mimeType: string, options: ImageOptions = {}): IncomingUpdate => ({
     message: message(sender, {
-      document: { ...file('document', fileSize), mime_type: mimeType, file_name: 'file' },
+      document: {
+        ...file(options.fileId ?? 'document', options.fileSize ?? 1024),
+        mime_type: mimeType,
+        file_name: 'file',
+      },
+      ...imageExtras(options),
     }),
   }),
-  photo: (sender: Sender, fileSize = 1024): IncomingUpdate => ({
-    message: message(sender, {
-      photo: [
-        { ...file('photo-small', 1024), width: 90, height: 160 },
-        { ...file('photo-large', fileSize), width: 1280, height: 720 },
-      ],
-    }),
-  }),
+  /** Telegram sends every size of a photo, smallest first. */
+  photo: (sender: Sender, options: ImageOptions = {}): IncomingUpdate => {
+    const fileId = options.fileId ?? 'photo-large';
+    return {
+      message: message(sender, {
+        photo: [
+          { ...file(`${fileId}-small`, 1024), width: 90, height: 160 },
+          { ...file(fileId, options.fileSize ?? 1024), width: 1280, height: 720 },
+        ],
+        ...imageExtras(options),
+      }),
+    };
+  },
   voice: (sender: Sender): IncomingUpdate => ({
     message: message(sender, { voice: { ...file('voice', 1024), duration: 3 } }),
   }),
