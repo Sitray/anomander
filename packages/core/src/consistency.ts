@@ -32,7 +32,8 @@ export interface ConsistencyResult {
 
 const ISO_DATE = /^(\d{4})-(\d{2})-(\d{2})$/;
 
-const isCalendarDate = (value: string): boolean => {
+/** A `YYYY-MM-DD` string that names a real calendar day. */
+export const isCalendarDate = (value: string): boolean => {
   const match = ISO_DATE.exec(value);
   if (!match) return false;
   const [year, month, day] = match.slice(1).map(Number) as [number, number, number];
