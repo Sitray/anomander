@@ -3,3 +3,6 @@ packages:
   - apps/*
 allowBuilds:
   better-sqlite3: true
+  # Transitive dependencies of pi-ai whose install scripts the daemon does not need.
+  '@google/genai': false
+  protobufjs: false

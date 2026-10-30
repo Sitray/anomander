@@ -11,7 +11,12 @@
     "typecheck": "tsc -p tsconfig.json"
   },
   "dependencies": {
-    "better-sqlite3": "13.0.3"
+    "@anomander/core": "workspace:*",
+    "@anomander/protocol": "workspace:*",
+    "@anomander/telegram": "workspace:*",
+    "@earendil-works/pi-ai": "1.3.0",
+    "better-sqlite3": "13.0.3",
+    "zod": "4.6.7"
   },
   "devDependencies": {
     "@types/better-sqlite3": "9.6.0"
