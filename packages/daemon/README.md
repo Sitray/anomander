@@ -268,6 +268,10 @@ Store and cycle tests use a real SQLite file in a `mkdtemp` folder under the sys
 directory, removed after each test. The processor is a fake in cycle tests and a recorded
 response in contract tests; no test calls a live model.
 
+The receipt evaluation (`scripts/eval-receipts.ts`, `pnpm eval:receipts`) does call live
+models: it measures how well each one reads the receipts in `evals/receipts/cases/`, which stay
+out of git. See `evals/receipts/README.md`.
+
 ## Invariants
 
 - The processor never writes. It returns inferences; only this package persists rows
