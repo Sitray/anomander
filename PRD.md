@@ -392,7 +392,7 @@ When there is no category, `{categoria}` is `sin clasificar`. In S-9, each categ
 
 ## 13. Data model
 
-SQLite, one file, opened with `PRAGMA journal_mode = WAL` and `PRAGMA foreign_keys = ON`. An append-only assertion ledger plus "currently believed" tables that always carry their mode. Money is stored in integer cents.
+SQLite, one file, opened with `PRAGMA journal_mode = WAL`, `PRAGMA foreign_keys = ON` and `PRAGMA recursive_triggers = ON` (without it, `REPLACE` would bypass the ledger triggers). An append-only assertion ledger plus "currently believed" tables that always carry their mode. Money is stored in integer cents.
 
 ```sql
 -- World

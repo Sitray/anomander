@@ -2,7 +2,7 @@
 
 The schema follows from the 16 data classes of the [ontology](ontology.md). The core idea: **an append-only ledger of assertions** (`assertions`) and, on top of it, tables of what is currently believed (`expenses`, `purchase_lines`) that always state their mode. A stored inference is still an inference, because its mode travels with it.
 
-The database is one SQLite file, opened with `PRAGMA journal_mode = WAL` and `PRAGMA foreign_keys = ON`.
+The database is one SQLite file, opened with `PRAGMA journal_mode = WAL`, `PRAGMA foreign_keys = ON` and `PRAGMA recursive_triggers = ON` (without it, `REPLACE` would bypass the ledger triggers).
 
 How the tables relate:
 
