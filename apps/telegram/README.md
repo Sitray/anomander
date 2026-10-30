@@ -1,8 +1,9 @@
 # @anomander/telegram
 
 The Telegram front door: a grammY bot that long-polls Telegram (PRD §14.1) and hands the
-principal's texts to the daemon through `onText` (`TextHandler`) and receipts through
-`onReceipt` (`ReceiptHandler`), both from `@anomander/protocol`.
+principal's texts to the daemon through `onText` (`TextHandler`), receipts through
+`onReceipt` (`ReceiptHandler`) and button presses through `onButton` (`ButtonHandler`), all
+from `@anomander/protocol`.
 
 ## What it decides
 
@@ -10,7 +11,9 @@ principal's texts to the daemon through `onText` (`TextHandler`) and receipts th
   chat ID and the sender's user ID equal `principalChatId`. Anything else gets no reply, never
   reaches the daemon, and is logged at `warn` with its chat ID and sender ID. This check runs
   first, for every update kind.
-- **Which inputs are supported (R-20).** Text goes to `onText`. A photo (its largest size) or an
+- **Which inputs are supported (R-20).** Text goes to `onText`; when it is a Telegram reply,
+  `replyTo` is the replied-to message (`telegram:<message_id>`), so the daemon can route it to
+  that decision (R-17 AC2). A photo (its largest size) or an
   `image/*` file of 20 MB or less is a receipt and goes to `onReceipt` (R-3); its caption is the
   principal's declaration (R-3 AC5). A PDF gets S-18; a photo or `image/*` file over 20 MB gets
   S-20; voice, video, sticker, location, contact and any other message type get S-17. Edited
@@ -29,7 +32,18 @@ principal's texts to the daemon through `onText` (`TextHandler`) and receipts th
 2. The reply is sent with `reply.buttons` as an inline keyboard in one row; each button's
    `callback_data` is the button's `data` (`decision:<id>:<option index>`, R-17 AC1).
 3. `reply.onDelivered` gets the sent message's `channelRef`, so the daemon can store which
-   message shows a pending decision (R-17 AC2). Pressing a button is handled in T2.
+   message shows a pending decision (R-17 AC2).
+
+## Buttons and notices
+
+- **A button press (R-17 AC1)** arrives as a `callback_query`. After the R-1 check, the bot
+  answers the callback query (Telegram stops the button's spinner), calls `onButton` with
+  `{ data, channelRef: 'telegram:<message id of the message with the buttons>', pressedAt }`
+  and sends the reply it returns, reporting its delivery. Without `onButton`, presses are
+  answered and logged at `info`.
+- **A notice** the principal did not ask for (S-13, S-14) goes through
+  `createTelegramNotify(bot, principalChatId)`, a `Notify` that sends a `Reply`, with its
+  buttons, to the principal and calls `onDelivered`.
 
 ## What it never decides
 
@@ -85,8 +99,10 @@ await polling;
 await api.close();
 ```
 
-`updates` builds text, edited, document, photo, voice, video, sticker, location and contact
-updates. `photo` and `document` take `{ fileId, fileSize, caption, mediaGroupId }`.
+`updates` builds text, edited, document, photo, voice, video, sticker, location, contact and
+callback query updates. `text(sender, text, { replyToMessageId })` builds a Telegram reply;
+`callbackQuery(sender, data, messageId)` presses a button under the bot message `messageId`,
+and `answeredCallbacks` lists the `answerCallbackQuery` calls. `photo` and `document` take `{ fileId, fileSize, caption, mediaGroupId }`.
 `waitForSent` resolves at once when enough messages were already sent. A `Sender` defaults to a private chat whose sender is the chat itself; pass `fromId` or
 `chatType` to build anyone else. Updates are handled in order, so a reply to a later principal
 text proves an earlier update was already handled.

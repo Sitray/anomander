@@ -1,8 +1,10 @@
 // The Telegram front door: decides who may talk (R-1) and which inputs are supported (R-20).
-// What a text or a receipt means is the daemon's decision, reached through `onText` and
-// `onReceipt`.
+// What a text, a receipt or a button press means is the daemon's decision, reached through
+// `onText`, `onReceipt` and `onButton`.
 
 import {
+  type ButtonHandler,
+  type Notify,
   type PrincipalReceipt,
   type ReceiptHandler,
   type ReceiptImage,
@@ -10,7 +12,7 @@ import {
   strings,
   type TextHandler,
 } from '@anomander/protocol';
-import { Bot, type Context } from 'grammy';
+import { type Api, Bot, type Context } from 'grammy';
 import type { InlineKeyboardMarkup, Message } from 'grammy/types';
 
 export interface TelegramLogger {
@@ -26,6 +28,8 @@ export interface TelegramBotOptions {
   onText: TextHandler;
   /** Photos and image files (R-3, R-20). */
   onReceipt: ReceiptHandler;
+  /** Presses on the buttons of a pending decision (R-17 AC1). Without it, presses are ignored. */
+  onButton?: ButtonHandler;
   /** Points grammY at another Bot API server, such as the fake one in tests. */
   apiRoot?: string;
   logger?: TelegramLogger;
@@ -75,8 +79,26 @@ const keyboard = (reply: Reply): { reply_markup: InlineKeyboardMarkup } | undefi
         },
       };
 
+/** Sends a reply, with its buttons, and reports the delivery (R-9 AC2, R-17 AC2). */
+const deliverReply = async (api: Api, chatId: number, reply: Reply): Promise<void> => {
+  const sent = await api.sendMessage(chatId, reply.text, keyboard(reply));
+  reply.onDelivered?.({
+    channelRef: channelRef(sent.message_id),
+    deliveredAt: new Date().toISOString(),
+  });
+};
+
+/**
+ * The daemon's way to message the principal unasked, such as S-13 or S-14 (R-8, R-19), through
+ * the bot that `createTelegramBot` returned.
+ */
+export const createTelegramNotify =
+  (bot: Bot, principalChatId: number): Notify =>
+  (message) =>
+    deliverReply(bot.api, principalChatId, message);
+
 export const createTelegramBot = (options: TelegramBotOptions): Bot => {
-  const { principalChatId, onText, onReceipt, logger = console } = options;
+  const { principalChatId, onText, onReceipt, onButton, logger = console } = options;
   const bot = new Bot(
     options.token,
     options.apiRoot === undefined ? {} : { client: { apiRoot: options.apiRoot } },
@@ -92,14 +114,7 @@ export const createTelegramBot = (options: TelegramBotOptions): Bot => {
     return new Uint8Array(await response.arrayBuffer());
   };
 
-  /** Sends the daemon's reply, with its buttons, and reports the delivery (R-9 AC2). */
-  const deliver = async (chatId: number, reply: Reply) => {
-    const sent = await bot.api.sendMessage(chatId, reply.text, keyboard(reply));
-    reply.onDelivered?.({
-      channelRef: channelRef(sent.message_id),
-      deliveredAt: new Date().toISOString(),
-    });
-  };
+  const deliver = (chatId: number, reply: Reply) => deliverReply(bot.api, chatId, reply);
 
   const handleReceipt = async (chatId: number, receipt: PrincipalReceipt) => {
     let reply: Reply;
@@ -192,10 +207,13 @@ export const createTelegramBot = (options: TelegramBotOptions): Bot => {
 
     let reply: Reply;
     try {
+      const replyTo = message.reply_to_message?.message_id;
       reply = await onText({
         text: message.text,
         channelRef: channelRef(message.message_id),
         receivedAt: receivedAt(message),
+        // R-17 AC2: a Telegram reply to a decision's message corrects that decision.
+        ...(replyTo === undefined ? {} : { replyTo: channelRef(replyTo) }),
       });
     } catch (error) {
       logger.error('The daemon failed to handle a text', {
@@ -205,6 +223,25 @@ export const createTelegramBot = (options: TelegramBotOptions): Bot => {
       return;
     }
     await deliver(ctx.chat.id, reply);
+  });
+
+  // R-17 AC1: a press carries its decision in the data; the daemon decides what it answers.
+  bot.on('callback_query:data', async (ctx) => {
+    await ctx.answerCallbackQuery();
+    const { data, message } = ctx.callbackQuery;
+    if (onButton === undefined || message === undefined) {
+      logger.info('Ignored a button press with no handler', { data });
+      return;
+    }
+    const ref = channelRef(message.message_id);
+    let reply: Reply;
+    try {
+      reply = await onButton({ data, channelRef: ref, pressedAt: new Date().toISOString() });
+    } catch (error) {
+      logger.error('The daemon failed to handle a button press', { channelRef: ref, error });
+      return;
+    }
+    await deliver(ctx.chat?.id ?? principalChatId, reply);
   });
 
   // Without this, grammY stops polling on the first failed update.

@@ -1,10 +1,36 @@
 export { type Anomander, type AnomanderDeps, startAnomander } from './app.ts';
 export { type Config, loadConfig, type ModelId, parseModelId } from './config.ts';
 export {
+  type ButtonHandlerDeps,
+  createButtonHandler,
+  createDecisionAnswers,
+  type DecisionAnswers,
+} from './decisions/answer.ts';
+export {
+  type Correction,
+  type CorrectionHandler,
+  createExpenseCorrection,
+  type ExpenseCorrectionDeps,
+} from './decisions/correction.ts';
+export {
+  createRegisterExpenseDecision,
+  type RegisterExpenseDecisionDeps,
+} from './decisions/register-expense-decision.ts';
+export { createTextRouter, type TextRouterDeps } from './decisions/router.ts';
+export type { DecisionAnswer, DecisionAnswerHandler, OpenDecision } from './decisions/types.ts';
+export {
   createReceiptExpenseHandler,
   type ReceiptExpenseDeps,
 } from './expenses/receipt-expense.ts';
 export { createTextExpenseHandler, type TextExpenseDeps } from './expenses/text-expense.ts';
+export {
+  CORRECTION_INTERPRETER_PROMPT,
+  type CorrectionInterpretation,
+  type CorrectionInterpreter,
+  type CorrectionInterpreterInput,
+  createPiAiCorrectionInterpreter,
+  type PiAiCorrectionInterpreterDeps,
+} from './processor/correction-interpreter.ts';
 export {
   createPiAiReceiptReader,
   type PiAiReceiptReaderDeps,

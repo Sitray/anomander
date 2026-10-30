@@ -75,9 +75,65 @@ photo, an image file or an album (PRD §10). Each step enforces a PRD rule:
     (`Apuntar`, `Descartar`), and a new merchant, an inferred or declared category, or a date
     after today get S-6 (`Apuntar`, `Corregir`, `Descartar`). These are sent verbatim with their
     buttons; on delivery the sent message is stored as the decision's `channel_ref` (R-17 AC2).
-    Answering the buttons is T2.
+    The answer arrives as described below.
+
+## Decisions and corrections
+
+Every incoming message has exactly one destination, decided by code (R-17):
+
+1. **A button press** (`createButtonHandler`, `src/decisions/answer.ts`) carries
+   `decision:<id>:<option index>`. A decision that is not `open` or `awaiting_text`, an unknown
+   id, malformed data or an option the decision does not have gets S-19 and changes nothing
+   (AC1). Otherwise the answer goes to the handler of the proposal's `operation`, from the
+   dispatch table (`createDecisionAnswers`, a plain record; add another operation by spreading
+   it: `{ ...createDecisionAnswers(deps), keep_receipt: ... }`).
+2. **A text** goes through `createTextRouter` (`src/decisions/router.ts`), in this order:
+   - a Telegram reply to the message of an `open` or `awaiting_text` decision corrects that
+     decision (AC2);
+   - otherwise, the decision `awaiting_text` takes it as its correction (AC3);
+   - otherwise, the text expense cycle (AC5).
+
+   Only operations listed in `corrections` take text; a reply to any other decision's message
+   is an ordinary text.
+3. **A photo or an image file** always starts a new receipt and never answers a decision
+   (AC4); it does not pass through the router.
+
+A decision `awaiting_text` for 15 minutes is `open` again (AC6). There is no scheduler: the
+button handler and the router move stale decisions back to `open` before routing.
+
+`register_expense` (`src/decisions/register-expense-decision.ts`) answers S-3, S-4 and S-6:
+
+- **Apuntar (R-6 AC4).** One transaction: the proposal becomes `executed`, a new action
+  `authorized_by 'principal'`, one `confirmed` assertion by the principal (source
+  `decision:<id>:<index>`) for each processor inference the expense and its lines still rest on,
+  each now `confirmed`, and the expense `current` with mode `confirmed`. The decision is
+  `answered`, with the confirmation of the total as `answer_assertion_id`. The reply is S-1
+  from the row read back, through the phraser, and its delivery verifies the action (R-9).
+- **Descartar (R-6 AC4).** The proposal is `rejected`, the pending expense `refuted` (so no
+  current expense remains) and the decision `answered`. The reply is S-23, verbatim, from the
+  stored row.
+- **Corregir (R-7 AC1).** The reply is S-7, verbatim, and the decision becomes `awaiting_text`
+  with `awaiting_since`; any other decision awaiting text goes back to `open` first, so the
+  unique index `one_awaiting_text` holds (R-17 AC3).
+
+A correction (`createExpenseCorrection`, `src/decisions/correction.ts`, R-7 AC2) sends the text
+and the stored expense to the `CorrectionInterpreter`. A new total is accepted only if it is
+written literally (`isLiteralAmount`); a merchant or category only if the principal wrote it
+(`writtenIn`), and the category only if it exists. Each accepted value is a `declared`
+assertion by the principal whose `supersedes_id` points at the assertion it corrects, which
+becomes `refuted`; the expense takes the new value (a corrected category gets `category_basis
+'declared'`). The corrected expense is then registered as on "Apuntar", with the first
+declaration as `answer_assertion_id`, and the reply is S-8, verbatim, from the row read back
+(R-21 AC3). If nothing usable was written, the reply is S-7 again and the decision keeps
+waiting.
 
 ## The processor ports
+
+`CorrectionInterpreter` (`src/processor/correction-interpreter.ts`) reads a correction text.
+`createPiAiCorrectionInterpreter` follows the text interpreter: one system prompt, one user turn
+(`expense`, `categories`, `message`), no tools, and inferences `total`, `merchant` and `category`
+through `validateProcessorOutput`. Its recorded responses live in
+`test/fixtures/correction-interpreter/`.
 
 `TextInterpreter` (`src/processor/text-interpreter.ts`) is the port the cycle depends on.
 `createPiAiTextInterpreter` implements it with `@earendil-works/pi-ai`: one system prompt and
@@ -159,7 +215,8 @@ pnpm -F @anomander/daemon typecheck
 `test/e2e/` runs the whole path: the fake Telegram API (`@anomander/telegram/fake-telegram-api`),
 the real bot, `startAnomander`, a SQLite file and recorded processor responses. Receipt tests
 send generated 1×1 PNGs (`pngBytes`), never real receipts, with the inbox in the same `mkdtemp`
-folder.
+folder. `test/e2e/telegram-decisions.test.ts` wires the bot and the decision handlers itself,
+presses buttons with `updates.callbackQuery` and moves its clock to test the 15 minutes.
 
 Store and cycle tests use a real SQLite file in a `mkdtemp` folder under the system temp
 directory, removed after each test. The processor is a fake in cycle tests and a recorded

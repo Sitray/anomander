@@ -33,6 +33,8 @@ export interface FakeTelegramApi {
   /** Serves `bytes` for `file_id` through `getFile` and the file download URL. */
   putFile(fileId: string, bytes: Uint8Array): void;
   sent: SentMessage[];
+  /** The `callback_query_id` of every `answerCallbackQuery` call, in order. */
+  answeredCallbacks: string[];
   /** Resolves once at least `count` messages were sent; rejects after `timeoutMs`. */
   waitForSent(count: number, timeoutMs?: number): Promise<SentMessage[]>;
   close(): Promise<void>;
@@ -56,6 +58,7 @@ const MAX_HOLD_MS = 1000;
 export const startFakeTelegramApi = async (): Promise<FakeTelegramApi> => {
   const queue: Update[] = [];
   const sent: SentMessage[] = [];
+  const answeredCallbacks: string[] = [];
   const onChange = new Set<() => void>();
   const notify = () => {
     for (const listener of onChange) listener();
@@ -68,6 +71,11 @@ export const startFakeTelegramApi = async (): Promise<FakeTelegramApi> => {
     getMe: () => BOT_USER,
     deleteWebhook: () => true,
     getUpdates: (body) => getUpdates(body),
+    answerCallbackQuery: (body) => {
+      answeredCallbacks.push(String(body.callback_query_id));
+      notify();
+      return true;
+    },
     getFile: (body) => {
       const fileId = String(body.file_id);
       const bytes = files.get(fileId);
@@ -171,6 +179,7 @@ export const startFakeTelegramApi = async (): Promise<FakeTelegramApi> => {
     apiRoot: `http://127.0.0.1:${port}`,
     token: TOKEN,
     sent,
+    answeredCallbacks,
     push: (update) => {
       queue.push({ ...update, update_id: nextUpdateId++ } as Update);
       notify();
@@ -212,6 +221,7 @@ export interface Sender {
 export const MESSAGE_DATE = Date.UTC(2026, 9, 30, 10) / 1000;
 
 let nextIncomingMessageId = 500;
+let nextCallbackId = 1;
 
 type PrivateOrGroupMessage = NonNullable<Update['message']>;
 
@@ -276,9 +286,48 @@ export const pngBytes = (red: number, green = 0, blue = 0): Uint8Array => {
   );
 };
 
+/** A message the bot sent earlier, as Telegram embeds it in a reply or a callback query. */
+const botMessage = (sender: Sender, messageId: number) => ({
+  message_id: messageId,
+  date: MESSAGE_DATE,
+  chat: { id: sender.chatId, type: 'private', first_name: 'Test' },
+  from: BOT_USER,
+  text: 'bot message',
+});
+
+/** What a text carries besides its sender. */
+export interface TextOptions {
+  /** The bot message this text replies to (R-17 AC2). */
+  replyToMessageId?: number;
+}
+
 /** Builders for the updates a principal (or anyone else) can send. */
 export const updates = {
-  text: (sender: Sender, text: string): IncomingUpdate => ({ message: message(sender, { text }) }),
+  text: (sender: Sender, text: string, options: TextOptions = {}): IncomingUpdate => ({
+    message: message(sender, {
+      text,
+      ...(options.replyToMessageId === undefined
+        ? {}
+        : { reply_to_message: botMessage(sender, options.replyToMessageId) }),
+    }),
+  }),
+  /** A press on a button with `data` under the bot message `messageId` (R-17 AC1). */
+  callbackQuery: (sender: Sender, data: string, messageId: number): IncomingUpdate =>
+    ({
+      callback_query: {
+        id: `callback-${nextCallbackId++}`,
+        from: { id: sender.fromId ?? sender.chatId, is_bot: false, first_name: 'Test' },
+        message: {
+          ...botMessage(sender, messageId),
+          chat:
+            (sender.chatType ?? 'private') === 'private'
+              ? { id: sender.chatId, type: 'private', first_name: 'Test' }
+              : { id: sender.chatId, type: sender.chatType, title: 'Test group' },
+        },
+        chat_instance: 'chat-instance',
+        data,
+      },
+    }) as IncomingUpdate,
   edited: (sender: Sender, text: string): IncomingUpdate => ({
     edited_message: { ...message(sender, { text }), edit_date: MESSAGE_DATE + 60 },
   }),

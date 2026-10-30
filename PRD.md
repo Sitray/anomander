@@ -274,7 +274,7 @@ Code checks every proposed receipt expense.
 - AC1: A receipt expense that passed R-4 and has `category_basis = 'policy'` is registered without asking, with `actions.authorized_by = 'permission:<id>'`.
 - AC2: Any other receipt expense creates a pending decision. Lines that do not add up use S-3; a duplicate uses S-4; a new merchant or an inferred category uses S-6.
 - AC3: Buttons are exactly "Apuntar", "Corregir" and "Descartar" (S-4 uses only "Apuntar" and "Descartar").
-- AC4: "Apuntar" registers with `authorized_by = 'principal'` and a `confirmed` assertion. "Descartar" marks the proposal `rejected` and creates no expense.
+- AC4: "Apuntar" registers with `authorized_by = 'principal'` and a `confirmed` assertion. "Descartar" marks the proposal `rejected`, creates no expense and replies S-23.
 - AC5: The authority check is a pure function in `packages/core` with unit tests for every level in §8.1.
 
 ### R-7 Corrections
@@ -403,6 +403,7 @@ Amounts are formatted with `Intl.NumberFormat('es-ES', { style: 'currency', curr
 | S-20 | `La imagen es demasiado grande. ¿Me mandas una foto más ligera?` |
 | S-21 | `La fecha {fecha} es posterior a hoy. ¿Me dices cuándo fue el gasto?` |
 | S-22 | `Algo ha fallado y no he podido procesar tu mensaje. ¿Me lo vuelves a enviar en un rato?` |
+| S-23 | `Descartado: no he apuntado {total} en {comercio}.` |
 
 When there is no category, `{categoria}` is `sin clasificar`. In S-9, each category name in `{desglose}` starts with a capital letter (R-10 AC4), for example `Supermercado 45,20 € · Restaurantes 23,00 € · Sin clasificar 0,00 €`. Button labels: `Apuntar`, `Corregir`, `Descartar`, and for S-11, S-12, S-13 and S-15 `Sí` and `No`.
 

@@ -1,7 +1,13 @@
-import type { PrincipalReceipt, ReceiptHandler, Reply, TextHandler } from '@anomander/protocol';
+import type {
+  ButtonHandler,
+  PrincipalReceipt,
+  ReceiptHandler,
+  Reply,
+  TextHandler,
+} from '@anomander/protocol';
 import type { Bot } from 'grammy';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { createTelegramBot } from '../src/index.ts';
+import { createTelegramBot, createTelegramNotify } from '../src/index.ts';
 import {
   type FakeTelegramApi,
   type IncomingUpdate,
@@ -33,6 +39,9 @@ const BUTTONS = [
 const onReceipt = vi.fn<ReceiptHandler>(
   async (): Promise<Reply> => ({ text: QUESTION, buttons: BUTTONS, onDelivered }),
 );
+const onButton = vi.fn<ButtonHandler>(
+  async (): Promise<Reply> => ({ text: 'Esa pregunta ya no está abierta.', onDelivered }),
+);
 
 beforeEach(async () => {
   vi.clearAllMocks();
@@ -43,6 +52,7 @@ beforeEach(async () => {
     principalChatId: PRINCIPAL,
     onText,
     onReceipt,
+    onButton,
     logger,
   });
   await new Promise<void>((started) => {
@@ -82,6 +92,55 @@ describe('principal text (R-17 AC5)', () => {
         channelRef: `telegram:${reply?.messageId}`,
         deliveredAt: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/),
       }),
+    );
+  });
+});
+
+describe('decisions (R-17 AC1, AC2)', () => {
+  it('hands a button press to the daemon, answers the callback and sends the reply', async () => {
+    api.push(updates.callbackQuery(principal, 'decision:7:0', 31));
+
+    const [reply] = await api.waitForSent(1);
+
+    expect(onButton).toHaveBeenCalledExactlyOnceWith({
+      data: 'decision:7:0',
+      channelRef: 'telegram:31',
+      pressedAt: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T/),
+    });
+    expect(api.answeredCallbacks).toHaveLength(1);
+    expect(reply).toMatchObject({ chatId: PRINCIPAL, text: 'Esa pregunta ya no está abierta.' });
+    await vi.waitFor(() => expect(onDelivered).toHaveBeenCalledOnce());
+  });
+
+  it('ignores a button press from anyone but the principal (R-1)', async () => {
+    const sent = await pushThenSettle(
+      updates.callbackQuery({ chatId: PRINCIPAL, fromId: STRANGER }, 'decision:7:0', 31),
+    );
+
+    expect(sent).toHaveLength(1);
+    expect(onButton).not.toHaveBeenCalled();
+    expect(api.answeredCallbacks).toEqual([]);
+  });
+
+  it('passes the replied-to message of a text as replyTo', async () => {
+    api.push(updates.text(principal, 'total 28,40', { replyToMessageId: 31 }));
+    await api.waitForSent(1);
+
+    expect(onText).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({ text: 'total 28,40', replyTo: 'telegram:31' }),
+    );
+  });
+
+  it('notify sends a message to the principal with its buttons and reports the delivery', async () => {
+    await createTelegramNotify(bot, PRINCIPAL)({ text: QUESTION, buttons: BUTTONS, onDelivered });
+
+    expect(api.sent).toHaveLength(1);
+    expect(api.sent[0]).toMatchObject({ chatId: PRINCIPAL, text: QUESTION });
+    expect(api.sent[0]?.payload.reply_markup).toMatchObject({
+      inline_keyboard: [expect.any(Array)],
+    });
+    expect(onDelivered).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({ channelRef: `telegram:${api.sent[0]?.messageId}` }),
     );
   });
 });
