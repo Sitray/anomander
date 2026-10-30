@@ -13,12 +13,9 @@ const prdSchemaBlock = (): string => {
 };
 
 describe('0001_initial.sql', () => {
-  it('reads the SQL block from PRD §13', () => {
-    expect(prdSchemaBlock()).toContain('CREATE TABLE assertions');
-  });
-
   it('equals the SQL block of PRD §13', () => {
-    const migration = readFileSync(resolve(MIGRATIONS_DIR, '0001_initial.sql'), 'utf8');
-    expect(migration).toBe(prdSchemaBlock());
+    const block = prdSchemaBlock();
+    expect(block).toContain('CREATE TABLE assertions');
+    expect(readFileSync(resolve(MIGRATIONS_DIR, '0001_initial.sql'), 'utf8')).toBe(block);
   });
 });

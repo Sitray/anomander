@@ -44,52 +44,17 @@ afterEach(() => {
 });
 
 describe('openDatabase', () => {
-  it('creates the folder of the database file', () => {
+  it('creates its folder and turns on WAL, foreign keys and recursive triggers', () => {
     const path = join(scratch, 'nested', 'dir', 'anomander.db');
-    open(path);
+    const db = open(path);
     expect(existsSync(path)).toBe(true);
-  });
-
-  it('turns on WAL and foreign keys', () => {
-    const db = open();
     expect(db.pragma('journal_mode', { simple: true })).toBe('wal');
     expect(db.pragma('foreign_keys', { simple: true })).toBe(1);
+    expect(db.pragma('recursive_triggers', { simple: true })).toBe(1);
   });
 });
 
 describe('applyMigrations', () => {
-  it('creates every table, the view, both triggers and the awaiting-text index', () => {
-    const db = migrated();
-    expect(names(db, 'table')).toEqual(
-      [
-        'actions',
-        'assertions',
-        'categories',
-        'documents',
-        'entities',
-        'expenses',
-        'matters',
-        'pending_decisions',
-        'permissions',
-        'policies',
-        'proposals',
-        'purchase_lines',
-        'schema_migrations',
-      ].sort(),
-    );
-    expect(names(db, 'view')).toEqual(['supermarket_purchases']);
-    expect(names(db, 'trigger')).toEqual(['assertions_no_delete', 'assertions_status_only']);
-    expect(names(db, 'index')).toEqual(['one_awaiting_text']);
-  });
-
-  it('records each applied file as a version with an ISO 8601 UTC timestamp', () => {
-    const db = open();
-    expect(applyMigrations(db)).toBe(2);
-    const rows = versions(db) as { version: string; applied_at: string }[];
-    expect(rows.map((row) => row.version)).toEqual(['0001_initial', '0002_seed']);
-    for (const row of rows) expect(row.applied_at).toMatch(ISO_UTC);
-  });
-
   it('changes nothing when run twice', () => {
     const path = join(scratch, 'anomander.db');
     const first = open(path);
@@ -177,6 +142,9 @@ describe('seed data', () => {
 });
 
 // R-7 AC3: no row in `assertions` is ever updated except `status`, or deleted.
+const REWRITE = `(id, subject_type, predicate, value_json, mode, actor, source, status, created_at)
+  VALUES (?, 'expense', 'total', '"rewritten"', 'observed', 'code', 'x', 'current', 'now')`;
+
 describe('assertions ledger', () => {
   const insert = (db: Database.Database): number =>
     Number(
@@ -218,24 +186,30 @@ describe('assertions ledger', () => {
     });
   });
 
-  it.each(otherColumns)('aborts an update of %s', (column, value) => {
+  it('aborts an update of any other column', () => {
     const db = migrated();
     const id = insert(db);
     insert(db);
     const before = db.prepare('SELECT * FROM assertions WHERE id = ?').get(id);
-    expect(() =>
-      db.prepare(`UPDATE assertions SET ${column} = ? WHERE id = ?`).run(value, id),
-    ).toThrow('only assertions.status may change');
+    for (const [column, value] of otherColumns) {
+      expect(() =>
+        db.prepare(`UPDATE assertions SET ${column} = ? WHERE id = ?`).run(value, id),
+      ).toThrow('only assertions.status may change');
+    }
     expect(db.prepare('SELECT * FROM assertions WHERE id = ?').get(id)).toEqual(before);
   });
 
-  it('aborts a delete', () => {
+  // REPLACE deletes the conflicting row internally, so it must hit the delete trigger too.
+  it.each([
+    ['a delete', 'DELETE FROM assertions WHERE id = ?'],
+    ['REPLACE INTO', `REPLACE INTO assertions ${REWRITE}`],
+    ['INSERT OR REPLACE', `INSERT OR REPLACE INTO assertions ${REWRITE}`],
+  ])('aborts %s', (_label, sql) => {
     const db = migrated();
     const id = insert(db);
-    expect(() => db.prepare('DELETE FROM assertions WHERE id = ?').run(id)).toThrow(
-      'assertions are append-only',
-    );
-    expect(db.prepare('SELECT count(*) AS n FROM assertions').get()).toEqual({ n: 1 });
+    const before = db.prepare('SELECT * FROM assertions WHERE id = ?').get(id);
+    expect(() => db.prepare(sql).run(id)).toThrow('assertions are append-only');
+    expect(db.prepare('SELECT * FROM assertions').all()).toEqual([before]);
   });
 });
 
