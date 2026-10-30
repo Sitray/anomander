@@ -1,32 +1,50 @@
-// Daemon entry point. M1 opens the SQLite store and applies the migrations; matter cycles,
-// the scheduler and the front doors arrive in later milestones.
-import { applyMigrations, openDatabase } from './store/database.ts';
+// Daemon entry point: reads the configuration (PRD §14.4), resolves the model through pi-ai
+// (R-15 AC1) and starts the store and the Telegram front door.
+import { builtinModels } from '@earendil-works/pi-ai/providers/all';
+import { startAnomander } from './app.ts';
+import { loadConfig } from './config.ts';
 
-console.info('anomander daemon started');
-
-const dbPath = process.env.ANOMANDER_DB_PATH ?? './data/anomander.db';
-
-const openStore = () => {
-  try {
-    const db = openDatabase(dbPath);
-    const applied = applyMigrations(db);
-    console.info(`anomander store ready at ${dbPath} (${applied} migrations applied)`);
-    return db;
-  } catch (error) {
-    const reason = error instanceof Error ? error.message : String(error);
-    console.error(`anomander daemon failed to open the store at ${dbPath}: ${reason}`);
-    process.exit(1);
-  }
+const fail = (message: string): never => {
+  console.error(`anomander daemon failed to start: ${message}`);
+  process.exit(1);
 };
 
-const db = openStore();
+const reason = (error: unknown) => (error instanceof Error ? error.message : String(error));
 
-const keepAlive = setInterval(() => {}, 2 ** 30);
+console.info('anomander daemon starting');
+
+const config = (() => {
+  try {
+    return loadConfig(process.env);
+  } catch (error) {
+    return fail(reason(error));
+  }
+})();
+
+const models = builtinModels();
+const model =
+  models.getModel(config.model.provider, config.model.id) ??
+  fail(`unknown model ${config.model.provider}/${config.model.id} (ANOMANDER_MODEL)`);
+
+const anomander = (() => {
+  try {
+    return startAnomander(config, {
+      complete: (target, context) => models.complete(target, context),
+      model,
+    });
+  } catch (error) {
+    return fail(`could not open the store at ${config.dbPath}: ${reason(error)}`);
+  }
+})();
+
+anomander.started.then(
+  () => console.info('anomander is listening on Telegram'),
+  (error) => fail(`Telegram polling stopped: ${reason(error)}`),
+);
 
 const stop = (signal: NodeJS.Signals): void => {
   console.info(`anomander daemon stopping (${signal})`);
-  clearInterval(keepAlive);
-  db.close();
+  void anomander.stop();
 };
 
 process.once('SIGTERM', stop);
