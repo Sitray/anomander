@@ -43,6 +43,8 @@ const TELEGRAM_API_ROOT = 'https://api.telegram.org';
 // A reply Telegram refused for a moment (429, 5xx) is sent again rather than lost.
 const SEND_ATTEMPTS = 3;
 const RETRY_DELAY_MS = 500;
+/** A longer `retry_after` gives up: the handler's turn would block for that long. */
+const MAX_RETRY_AFTER_S = 30;
 // R-22 AC1: the principal always gets an answer, even when the daemon fails.
 const FAILED: Reply = { text: strings.processingFailed() };
 
@@ -87,7 +89,7 @@ const keyboard = (reply: Reply): { reply_markup: InlineKeyboardMarkup } | undefi
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 /**
- * Retries `sendMessage` when Telegram answers 429 (after its `retry_after`) or 5xx. A network
+ * Retries `sendMessage` when Telegram answers 429 (after its `retry_after`, up to 30 s) or 5xx. A network
  * error is not retried: the message may have been sent, and a reply must not arrive twice.
  */
 const retryRefusedSends: Transformer = async (prev, method, payload, signal) => {
@@ -96,6 +98,7 @@ const retryRefusedSends: Transformer = async (prev, method, payload, signal) => 
     const refused = !result.ok && (result.error_code === 429 || result.error_code >= 500);
     if (method !== 'sendMessage' || !refused || attempt === SEND_ATTEMPTS) return result;
     const retryAfter = result.parameters?.retry_after;
+    if (retryAfter !== undefined && retryAfter > MAX_RETRY_AFTER_S) return result;
     await sleep(retryAfter === undefined ? RETRY_DELAY_MS * attempt : retryAfter * 1000);
   }
 };
