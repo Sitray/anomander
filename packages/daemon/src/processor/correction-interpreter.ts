@@ -34,7 +34,7 @@ export type CorrectionInterpreter = (
   input: CorrectionInterpreterInput,
 ) => Promise<CorrectionInterpretation>;
 
-export const CORRECTION_INTERPRETER_PROMPT = `You read one message in which the user corrects an expense that a personal expenses assistant was about to record. You can only answer; you have no tools and you never store anything.
+export const CORRECTION_INTERPRETER_PROMPT = `You read one message in which the user corrects an expense that a personal assistant was about to record. You can only answer; you have no tools and you never store anything.
 
 Reply with exactly one JSON object and nothing else:
 {"kind":"correction","inferences":[...]}

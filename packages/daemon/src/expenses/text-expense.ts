@@ -17,6 +17,12 @@ import {
   UNCATEGORIZED,
 } from '@anomander/protocol';
 import type Database from 'better-sqlite3';
+import {
+  type Capability,
+  type CapabilityEnv,
+  capabilityContext,
+} from '../capabilities/capability.ts';
+import { CAPABILITIES } from '../capabilities/registry.ts';
 import type { RecentTurn } from '../conversation/recent-turns.ts';
 import { type PatternOffers, thenOfferPattern } from '../patterns/pattern-offers.ts';
 import { checkedPhrasing, type ReplyPhraser } from '../processor/reply-phraser.ts';
@@ -53,6 +59,8 @@ export interface TextExpenseDeps {
   recent?: () => RecentTurn[];
   /** Offers S-12 after a registration that completes a pattern (R-13 AC2); none when absent. */
   patterns?: PatternOffers;
+  /** The registered capabilities (R-24 AC1), the same the interpreter was given. */
+  capabilities?: readonly Capability[];
 }
 
 const inferenceOf = (inferences: readonly ProcessorInference[], predicate: string) =>
@@ -64,6 +72,8 @@ const inferredValue = (inferences: readonly ProcessorInference[], predicate: str
 export const createTextExpenseHandler = (deps: TextExpenseDeps): TextHandler => {
   const { db, interpreter, timeZone, now, processorSource, phraser, logger } = deps;
   const recent = deps.recent ?? (() => []);
+  const capabilities = deps.capabilities ?? CAPABILITIES;
+  const env: CapabilityEnv = { db, timeZone, now, logger };
 
   return async (message) => {
     const phrase = (reference: string, facts: string[]) =>
@@ -99,6 +109,7 @@ export const createTextExpenseHandler = (deps: TextExpenseDeps): TextHandler => 
       categories,
       recent: recent(),
       memories: memoriesForPrompt(db, message.text),
+      capabilities: capabilityContext(capabilities, env),
     });
 
     // R-23 AC1-AC3: the lasting facts of an interpreted message are remembered; a failure to
@@ -122,6 +133,8 @@ export const createTextExpenseHandler = (deps: TextExpenseDeps): TextHandler => 
       }
     };
 
+    // R-24 AC3: a validated capability call is carried out by its capability's handler.
+    if (interpretation.kind === 'capability') return interpretation.call.carryOut(message, env);
     // R-16: open conversation gets its reply; only its lasting facts are persisted.
     if (interpretation.kind === 'conversation') {
       remember(interpretation.memories);

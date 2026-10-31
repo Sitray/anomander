@@ -337,6 +337,24 @@ assertion answers the decision. An active policy for the same merchant with anot
 revoked (`active = 0`, `revoked_at`) and its declaration refuted and superseded by the new one; the
 same rule already active is kept as it is. The reply to `Sí` is S-38 (`policySaved`). `No` rejects the proposal, stores nothing and replies S-35.
 
+## Capabilities (R-24) and reminders (R-25)
+
+A capability (`src/capabilities/capability.ts`) declares its envelope `kinds`, the `prompt`
+section it adds to the text interpreter, the Zod `schema` of its call, an optional `context` for
+the interpreter's user turn and the `handle` that carries a call out. `src/capabilities/registry.ts`
+lists them; `TEXT_INTERPRETER_PROMPT` is `composeTextInterpreterPrompt(CAPABILITIES)`, so adding
+one changes no routing code. A call that fails its schema becomes `failed`, which replies S-22
+(R-22 AC1). How to add one is in [docs/capabilities.md](../../docs/capabilities.md).
+
+Reminders and tasks (`src/reminders/`) are the first. Their context is the local time in `TZ`
+and every pending reminder and task (`id`, `text`, `when`). `reminder_create` stores at once,
+without buttons: S-51 for a repetition it cannot keep, S-22 when the text is not quoted from the
+message, S-52 for a time already past, otherwise `createReminder` (`src/store/reminders.ts`)
+writes the row and its declared `reminder` assertion in one transaction and the reply is S-40, or
+S-41 for a task, phrased in the same call and checked by `checkedPhrasing`. `src/reminders/when.ts`
+holds the date math in `TZ`: local time to UTC, the next occurrence of a repetition (a monthly
+day a month lacks falls on its last day) and `{cuando}`. Never log a reminder's text (AC12).
+
 ## The processor ports
 
 `CorrectionInterpreter` (`src/processor/correction-interpreter.ts`) reads a correction text.
@@ -381,8 +399,8 @@ tools, and sends the result only if:
 - it contains no amount that is not among the facts or in the §12 string;
 - it is at most 280 characters.
 
-Otherwise, or if the call fails, the §12 string is sent unchanged. S-36 and S-39 are worded by
-the text interpreter in the call that read the message, and go through the same checks
+Otherwise, or if the call fails, the §12 string is sent unchanged. S-36, S-39, S-40 and S-41 are
+worded by the text interpreter in the call that read the message, and go through the same checks
 (`checkedPhrasing`). Every other string (S-17, S-18, S-20...) is sent verbatim and never reaches the processor. The delivery observation
 stores the text that was actually sent. `verbatimReplies` skips the processor, for tests.
 

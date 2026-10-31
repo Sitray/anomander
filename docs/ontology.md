@@ -37,7 +37,9 @@ Twenty-six classes in six layers. Each one is here because the expenses workflow
 
 The key to this matter is the **Document** class: a receipt is not an expense, it is an object that *claims* an expense happened. What ANOMANDER extracts from it is inference until something confirms it. There is no "Result" class: the result of an action is an **observation** about that action. There is no "Memory" class either: memory is the set of assertions and policies that survive, each with its mode and its expiry.
 
-Left out for now, because the workflow does not need them: budgets, bank accounts, projects, tasks, obligations, relationships between people, and places.
+Reminders and tasks (PRD R-25) add no class: each one is a **declaration** of the principal, an assertion with predicate `reminder` about the reminder, and creating one is an **action** the principal's own message authorizes. They are the first **capability** that is not about expenses (see [capabilities](capabilities.md)).
+
+Left out for now, because the workflow does not need them: budgets, bank accounts, projects, obligations, relationships between people, and places.
 
 ## Who owns each truth
 

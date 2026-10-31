@@ -2,6 +2,8 @@ import { type ProcessorInference, validateProcessorOutput } from '@anomander/cor
 import type { AssistantMessage, Context } from '@earendil-works/pi-ai';
 import { z } from 'zod';
 import { AiBudgetExhaustedError } from '../budget/ai-budget.ts';
+import { type Capability, type CapabilityCall, capabilityFor } from '../capabilities/capability.ts';
+import { CAPABILITIES } from '../capabilities/registry.ts';
 import type { RecentTurn } from '../conversation/recent-turns.ts';
 import { type Memory, quotedFrom } from '../store/memory.ts';
 
@@ -20,6 +22,8 @@ export interface TextInterpreterInput {
   recent: RecentTurn[];
   /** The current memories, for conversation replies only (R-23 AC4). */
   memories: Memory[];
+  /** What each capability adds to the user turn, under its name (R-24 AC1, R-25 AC1). */
+  capabilities?: Record<string, unknown>;
 }
 
 /** A lasting fact about the principal the processor found in the message (R-23 AC1). */
@@ -56,6 +60,8 @@ export type Interpretation =
    * Code asks S-11 before storing anything; the processor never stores a policy (§13).
    */
   | { kind: 'policy'; merchant: string; category: string; reply: string | null }
+  /** A capability call, validated against its capability's schema (R-24 AC2). */
+  | { kind: 'capability'; call: CapabilityCall }
   | { kind: 'invalid'; reason: string }
   /** The processor failed or did not answer in time: nothing to interpret (R-22 AC1). */
   | { kind: 'failed'; reason: string }
@@ -73,7 +79,8 @@ export type Complete<M> = (
   signal?: AbortSignal,
 ) => Promise<AssistantMessage>;
 
-export const TEXT_INTERPRETER_PROMPT = `You interpret one message the user wrote to a personal expenses assistant. You can only answer; you have no tools and you never store anything.
+// R-24 AC1: the prompt is these built-in kinds, then each registered capability's section.
+const BUILT_IN_KINDS = `You interpret one message the user wrote to a personal assistant. You can only answer; you have no tools and you never store anything.
 
 Reply with exactly one JSON object and nothing else.
 
@@ -105,13 +112,31 @@ You never create the category: the assistant asks the user first, and sends "rep
 
 If the user states that a merchant always belongs to a category, as a rule and with no amount ("Mercadona es supermercado"), reply:
 {"kind":"policy","merchant":"<the merchant, written as the user wrote it>","category":"<the category, written as the user wrote it>","reply":"<a short, friendly reply in Spanish (es-ES), at most 280 characters, saying the same as: Ya tengo la regla «<merchant> es <category in lowercase>».>"}
-You never save the rule: the assistant asks the user first, and sends "reply" only if the rule is already saved. Copy both names in "reply" exactly and add no number or amount.
+You never save the rule: the assistant asks the user first, and sends "reply" only if the rule is already saved. Copy both names in "reply" exactly and add no number or amount.`;
 
-The expense and conversation replies may also carry "memories": lasting facts about the user found in "message", such as "soy vegetariano" or "vivo en Madrid", never passing states such as "tengo hambre". Each memory is an object with these fields and no others:
+const MEMORIES_AND_TURN = (
+  fields: string,
+) => `The expense and conversation replies may also carry "memories": lasting facts about the user found in "message", such as "soy vegetariano" or "vivo en Madrid", never passing states such as "tengo hambre". Each memory is an object with these fields and no others:
 {"text":"<the fact, short, in Spanish>","quote":"<the words of the message it rests on>","said":<true if the user stated it, false if you deduced it>,"confidence":<number from 0 to 1>,"replaces":<the id of a listed memory it contradicts, or null>}
 Leave "memories" out when the message holds no lasting fact.
 
-The user turn is a JSON object with the fields "today", "categories", "recent", "memories" and "message". "recent" lists the previous turns of this conversation, oldest first, each with what the user wrote ("principal") and what you answered ("reply"); use it to understand references such as "ese" or "lo de antes". "memories" lists what you remember about the user, each with its "id", "text" and "mode"; use them only to shape a conversation reply and to pick what to forget, never as the source of an expense inference: every expense quote must be words of "message". Interpret only "message".`;
+The user turn is a JSON object with the fields "today", "categories", "recent", "memories"${fields} and "message". "recent" lists the previous turns of this conversation, oldest first, each with what the user wrote ("principal") and what you answered ("reply"); use it to understand references such as "ese" or "lo de antes". "memories" lists what you remember about the user, each with its "id", "text" and "mode"; use them only to shape a conversation reply and to pick what to forget, never as the source of an expense inference: every expense quote must be words of "message". Interpret only "message".`;
+
+/** R-24 AC1: the text interpreter's prompt for the given capabilities. */
+export const composeTextInterpreterPrompt = (capabilities: readonly Capability[]): string =>
+  [
+    BUILT_IN_KINDS,
+    ...capabilities.map(({ prompt }) => prompt),
+    MEMORIES_AND_TURN(
+      capabilities
+        .filter(({ context }) => context !== undefined)
+        .map(({ name }) => `, "${name}"`)
+        .join(''),
+    ),
+  ].join('\n\n');
+
+/** The prompt of the registered capabilities, the one the daemon uses. */
+export const TEXT_INTERPRETER_PROMPT = composeTextInterpreterPrompt(CAPABILITIES);
 
 const PREDICATES = new Set(['total', 'merchant', 'occurred_on', 'category', 'declared_category']);
 
@@ -196,18 +221,32 @@ export interface PiAiTextInterpreterDeps<M> {
   complete: Complete<M>;
   model: M;
   logger: Logger;
+  /** The registered capabilities (R-24 AC1); `CAPABILITIES` when absent. */
+  capabilities?: readonly Capability[];
 }
 
-export const createPiAiTextInterpreter =
-  <M>({ complete, model, logger }: PiAiTextInterpreterDeps<M>): TextInterpreter =>
-  async ({ text, today, categories, recent, memories }) => {
+export const createPiAiTextInterpreter = <M>({
+  complete,
+  model,
+  logger,
+  capabilities = CAPABILITIES,
+}: PiAiTextInterpreterDeps<M>): TextInterpreter => {
+  const systemPrompt = composeTextInterpreterPrompt(capabilities);
+  return async ({ text, today, categories, recent, memories, ...input }) => {
     // R-14 AC3: one system prompt and one user turn; the context never carries `tools`.
     const context: Context = {
-      systemPrompt: TEXT_INTERPRETER_PROMPT,
+      systemPrompt,
       messages: [
         {
           role: 'user',
-          content: JSON.stringify({ today, categories, recent, memories, message: text }),
+          content: JSON.stringify({
+            today,
+            categories,
+            recent,
+            memories,
+            ...input.capabilities,
+            message: text,
+          }),
           timestamp: Date.now(),
         },
       ],
@@ -228,7 +267,23 @@ export const createPiAiTextInterpreter =
       return { kind: 'failed', reason };
     }
 
-    const envelope = envelopeSchema.safeParse(parseJson(responseText(response)));
+    const answer = parseJson(responseText(response));
+    // R-24 AC2: a capability call is validated against its capability's schema; one that does
+    // not validate is handled as R-22 AC1. Logged by field and issue code only: the call may
+    // carry the principal's words (R-25 AC12).
+    const capability = capabilityFor(
+      capabilities,
+      typeof answer === 'object' && answer !== null ? (answer as { kind?: unknown }).kind : null,
+    );
+    if (capability !== undefined) {
+      const accepted = capability.accept(answer);
+      if ('call' in accepted) return { kind: 'capability', call: accepted.call };
+      const reason = `invalid ${capability.name} call: ${accepted.issue}`;
+      logger.warn('text interpretation failed', { reason });
+      return { kind: 'failed', reason };
+    }
+
+    const envelope = envelopeSchema.safeParse(answer);
     if (!envelope.success) {
       const reason = 'processor response is not the expected JSON envelope';
       logger.warn('text interpretation failed', { reason });
@@ -287,3 +342,4 @@ export const createPiAiTextInterpreter =
     });
     return { kind: 'expense', inferences: quoted, memories: facts };
   };
+};
