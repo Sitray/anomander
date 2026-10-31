@@ -9,7 +9,8 @@
   },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json",
-    "eval:receipts": "node --env-file-if-exists=../../.env scripts/eval-receipts.ts"
+    "eval:receipts": "node --env-file-if-exists=../../.env scripts/eval-receipts.ts",
+    "eval:text": "node --env-file-if-exists=../../.env scripts/eval-text.ts"
   },
   "dependencies": {
     "@anomander/core": "workspace:*",

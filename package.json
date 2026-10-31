@@ -10,7 +10,8 @@
   "scripts": {
     "typecheck": "pnpm -r typecheck",
     "test": "vitest run",
-    "eval:receipts": "pnpm -F @anomander/daemon eval:receipts"
+    "eval:receipts": "pnpm -F @anomander/daemon eval:receipts",
+    "eval:text": "pnpm -F @anomander/daemon eval:text"
   },
   "devDependencies": {
     "@biomejs/biome": "2.5.15",

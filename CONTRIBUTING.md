@@ -21,7 +21,7 @@ pnpm -r typecheck
 pnpm test
 ```
 
-The end-to-end tests run with `pnpm test`, against the fake Telegram API. When a processor or prompt changes, also run `pnpm eval:receipts`, which calls live models to measure how well they read the receipts (PRD §15).
+The end-to-end tests run with `pnpm test`, against the fake Telegram API. When a processor or prompt changes, also run `pnpm eval:receipts`, which calls live models to measure how well they read the receipts, and `pnpm eval:text`, which measures how well they interpret messages (PRD §15).
 
 ## Rules that are easy to break
 

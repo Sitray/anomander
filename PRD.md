@@ -747,6 +747,7 @@ anomander/
 ├── apps/telegram       # first front door
 ├── apps/desktop        # later: Tauri 2 and Rust
 ├── evals/receipts      # receipt evaluation set (images are local, not committed if personal)
+├── evals/text          # text evaluation set (cases are local, never committed)
 ├── Dockerfile
 ├── compose.yaml
 ├── biome.json
@@ -823,8 +824,9 @@ Secrets live only in `.env`, which is git-ignored. `.env.example` lists every va
 | Integration | Core with real SQLite in a temp file | A correction supersedes and refutes; the view returns its six columns |
 | End to end (in-process) | The full cycle from message to record | A photo sent to a fake Telegram API ends up in `supermarket_purchases` |
 | Receipt evaluation | How well the processor reads real receipts | A folder of receipts with expected totals and lines; reports the percentage read correctly per model and prompt |
+| Text evaluation | How well the processor interprets real messages | A list of messages with the expected kind and fields (expense, reminder, done task, conversation…); each case runs several times and passes only if every run does |
 
-The receipt evaluation is a measurement, not a pass/fail test. It decides with data whether a new or local model reads as well as the current one.
+The receipt and text evaluations are measurements, not pass/fail tests. It decides with data whether a new or local model reads as well as the current one.
 
 Checks every feature document should run:
 

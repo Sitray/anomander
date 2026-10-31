@@ -61,8 +61,9 @@ Each layer of the ontology is tested with the kind of test that fits it:
 | Integration | The core with a real SQLite database in a temporary file | A correction creates a new assertion that refutes the earlier one; the dashboard view returns its columns |
 | End to end (in-process) | The full cycle, from the message to the record | A photo sent to a fake Telegram API ends up in `supermarket_purchases` |
 | Receipt evaluation | How well the processor reads real receipts | A folder of receipts with their expected total and lines; measures the share read correctly when the model or prompt changes |
+| Text evaluation | How well the processor interprets real messages | A list of messages with the expected kind and fields; each case runs several times and passes only if every run does |
 
-The receipt evaluation is not a pass/fail test: it is a measurement. It decides with data whether a new model (or a local one) reads as well as the current one.
+The receipt and text evaluations are not pass/fail tests: they are measurements. It decides with data whether a new model (or a local one) reads as well as the current one.
 
 **Docker:** a `Dockerfile` for the daemon and a `compose.yaml` with the daemon and a volume for the SQLite file. The end-to-end tests do not use it: they run in-process with `pnpm test`, with the real bot, daemon and SQLite file against a server that fakes the Telegram API, which covers the full cycle in seconds. Checking that the container builds and starts belongs with the deployment to the VPS.
 

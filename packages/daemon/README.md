@@ -469,7 +469,10 @@ response in contract tests; no test calls a live model.
 
 The receipt evaluation (`scripts/eval-receipts.ts`, `pnpm eval:receipts`) does call live
 models: it measures how well each one reads the receipts in `evals/receipts/cases/`, which stay
-out of git. See `evals/receipts/README.md`.
+out of git. See `evals/receipts/README.md`. The text evaluation (`scripts/eval-text.ts`,
+`pnpm eval:text`) does the same for messages: it measures whether each model returns the
+expected kind and fields for the cases in `evals/text/cases.json`, also out of git. See
+`evals/text/README.md`.
 
 ## Invariants
 
