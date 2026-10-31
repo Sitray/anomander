@@ -234,6 +234,8 @@ export interface ExpenseCorrection {
   merchant?: string;
   /** An existing category, lowercase. */
   category?: string;
+  /** A calendar date, not after today. */
+  occurred_on?: string;
 }
 
 export interface CorrectionRegistration {
@@ -248,7 +250,7 @@ export interface CorrectionRegistration {
 /**
  * R-7 AC2: each corrected value is a `declared` assertion by the principal that supersedes the
  * assertion it corrects, which becomes `refuted`; the expense takes the new value. Returns the
- * ids of the new declarations, in the order total, merchant, category.
+ * ids of the new declarations, in the order total, merchant, category, date.
  */
 export const correctExpense = (
   db: Database.Database,
@@ -307,6 +309,13 @@ export const correctExpense = (
     ids.push(declare('category', correction.category));
     db.prepare("UPDATE expenses SET category_id = ?, category_basis = 'declared' WHERE id = ?").run(
       categoryIdOf(db, correction.category),
+      expenseId,
+    );
+  }
+  if (correction.occurred_on !== undefined) {
+    ids.push(declare('occurred_on', correction.occurred_on));
+    db.prepare('UPDATE expenses SET occurred_on = ? WHERE id = ?').run(
+      correction.occurred_on,
       expenseId,
     );
   }

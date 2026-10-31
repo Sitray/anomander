@@ -1,4 +1,4 @@
-import { isLiteralAmount } from '@anomander/core';
+import { isCalendarDate, isLiteralAmount, todayIn } from '@anomander/core';
 import { type PrincipalText, type Reply, strings } from '@anomander/protocol';
 import type Database from 'better-sqlite3';
 import { textValue, writtenIn } from '../expenses/declarations.ts';
@@ -13,6 +13,7 @@ import {
   registerByPrincipal,
 } from '../store/decisions.ts';
 import { listCategories, readExpense } from '../store/expenses.ts';
+import { quotedFrom } from '../store/memory.ts';
 import { verifiedReply } from './register-expense-decision.ts';
 import type { OpenDecision } from './types.ts';
 
@@ -29,6 +30,8 @@ export type CorrectionHandler = (correction: Correction) => Promise<Reply>;
 export interface ExpenseCorrectionDeps {
   db: Database.Database;
   interpreter: CorrectionInterpreter;
+  /** `TZ`: today is computed there, as for text expenses (R-2 AC7). */
+  timeZone: string;
   now: () => Date;
   logger: Logger;
 }
@@ -37,6 +40,7 @@ export interface ExpenseCorrectionDeps {
 export const createExpenseCorrection = ({
   db,
   interpreter,
+  timeZone,
   now,
   logger,
 }: ExpenseCorrectionDeps): CorrectionHandler => {
@@ -48,22 +52,25 @@ export const createExpenseCorrection = ({
   ): Promise<ExpenseCorrection | 'failed' | 'budget_exhausted'> => {
     const categories = listCategories(db);
     const stored = readExpense(db, expenseId);
+    const today = todayIn(timeZone, now());
     const interpretation = await interpreter({
       text,
       expense: {
         total_cents: stored.total_cents,
         merchant: stored.merchant,
         category: stored.category,
+        occurred_on: stored.occurred_on,
       },
       categories,
+      today,
     });
     if (interpretation.kind === 'failed' || interpretation.kind === 'budget_exhausted') {
       return interpretation.kind;
     }
     if (interpretation.kind === 'invalid') return {};
-    const value = (predicate: string) =>
-      interpretation.inferences.find((inference) => inference.predicate === predicate)
-        ?.value_json ?? null;
+    const inferenceFor = (predicate: string) =>
+      interpretation.inferences.find((inference) => inference.predicate === predicate);
+    const value = (predicate: string) => inferenceFor(predicate)?.value_json ?? null;
 
     const correction: ExpenseCorrection = {};
     const total = value('total');
@@ -86,6 +93,26 @@ export const createExpenseCorrection = ({
       logger.info('corrected category not written or not existing; ignored', {
         channelRef,
         category,
+      });
+    }
+    // A date is resolved by the processor ("el 28"), so the words it rests on must be written,
+    // and it may not be after today (R-2 AC7).
+    const date = value('occurred_on');
+    const quote = textValue(
+      (inferenceFor('occurred_on')?.basis_json as { quote?: unknown } | null)?.quote,
+    );
+    if (
+      typeof date === 'string' &&
+      isCalendarDate(date) &&
+      date <= today &&
+      quote !== null &&
+      quotedFrom(quote, text)
+    ) {
+      correction.occurred_on = date;
+    } else if (date !== null) {
+      logger.info('corrected date not written, not a date or after today; ignored', {
+        channelRef,
+        occurred_on: date,
       });
     }
     return correction;

@@ -1,0 +1,29 @@
+{
+  "role": "assistant",
+  "content": [
+    {
+      "type": "text",
+      "text": "{\"kind\":\"receipt\",\"inferences\":[{\"subject_type\":\"expense\",\"subject_id\":null,\"predicate\":\"merchant\",\"value_json\":\"Mercadona\",\"mode\":\"inferred\",\"basis_json\":{\"quote\":\"MERCADONA\"},\"confidence\":0.9},{\"subject_type\":\"expense\",\"subject_id\":null,\"predicate\":\"occurred_on\",\"value_json\":\"2026-11-02\",\"mode\":\"inferred\",\"basis_json\":{\"quote\":\"02/11/2026\"},\"confidence\":0.9},{\"subject_type\":\"expense\",\"subject_id\":null,\"predicate\":\"total\",\"value_json\":2340,\"mode\":\"inferred\",\"basis_json\":{\"quote\":\"TOTAL 23,40\"},\"confidence\":0.9},{\"subject_type\":\"expense\",\"subject_id\":null,\"predicate\":\"line\",\"value_json\":{\"name\":\"LECHE ENTERA 1L\",\"quantity\":2,\"amount_cents\":178},\"mode\":\"inferred\",\"basis_json\":{\"quote\":\"LECHE ENTERA 1L 2 x 0,89 1,78\"},\"confidence\":0.9},{\"subject_type\":\"expense\",\"subject_id\":null,\"predicate\":\"line\",\"value_json\":{\"name\":\"ACEITE OLIVA 1L\",\"quantity\":1,\"amount_cents\":895},\"mode\":\"inferred\",\"basis_json\":{\"quote\":\"ACEITE OLIVA 1L 8,95\"},\"confidence\":0.9},{\"subject_type\":\"expense\",\"subject_id\":null,\"predicate\":\"line\",\"value_json\":{\"name\":\"FRUTA\",\"quantity\":1,\"amount_cents\":1267},\"mode\":\"inferred\",\"basis_json\":{\"quote\":\"FRUTA 12,67\"},\"confidence\":0.9},{\"subject_type\":\"expense\",\"subject_id\":null,\"predicate\":\"category\",\"value_json\":\"supermercado\",\"mode\":\"inferred\",\"basis_json\":{\"quote\":\"MERCADONA\"},\"confidence\":0.8}]}"
+    }
+  ],
+  "api": "openai-completions",
+  "provider": "openai",
+  "model": "gpt-4o-mini",
+  "responseId": "chatcmpl-hand-authored",
+  "usage": {
+    "input": 412,
+    "output": 96,
+    "cacheRead": 0,
+    "cacheWrite": 0,
+    "totalTokens": 508,
+    "cost": {
+      "input": 6.18e-5,
+      "output": 5.76e-5,
+      "cacheRead": 0,
+      "cacheWrite": 0,
+      "total": 0.0001194
+    }
+  },
+  "stopReason": "stop",
+  "timestamp": 1793380800000
+}

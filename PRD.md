@@ -272,14 +272,14 @@ Code checks every proposed receipt expense.
 
 ### R-6 Authority check
 - AC1: A receipt expense that passed R-4 and has `category_basis = 'policy'` is registered without asking, with `actions.authorized_by = 'permission:<id>'`.
-- AC2: Any other receipt expense creates a pending decision. Lines that do not add up use S-3; a duplicate uses S-4; a new merchant or an inferred category uses S-6.
+- AC2: Any other receipt expense creates a pending decision. Lines that do not add up use S-3; a duplicate uses S-4; a new merchant or an inferred category uses S-6; a date after today uses S-33.
 - AC3: Buttons are exactly "Apuntar", "Corregir" and "Descartar" (S-4 uses only "Apuntar" and "Descartar").
 - AC4: "Apuntar" registers with `authorized_by = 'principal'` and a `confirmed` assertion. "Descartar" marks the proposal `rejected`, refutes the pending expense so no current expense remains, and replies S-23.
 - AC5: The authority check is a pure function in `packages/core` with unit tests for every level in §8.1.
 
 ### R-7 Corrections
 - AC1: "Corregir" replies with S-7 and waits for the principal's text.
-- AC2: A correction creates a `declared` assertion with `supersedes_id` pointing at the corrected one, marks the old one `refuted`, updates the expense, and replies with S-8.
+- AC2: A correction creates a `declared` assertion with `supersedes_id` pointing at the corrected one, marks the old one `refuted`, updates the expense, and replies with S-8. It may change the total, the merchant, the category or the date. The processor resolves a named date against today in `TZ`; code keeps it only if the words it rests on are in the message and it is not after today, and otherwise ignores it like any value not written.
 - AC3: No row in `assertions` is ever updated except `status`, or deleted. SQLite triggers enforce it (§13): any other update or any delete aborts with an error, and an integration test proves both.
 
 ### R-8 Image retention
@@ -426,6 +426,7 @@ Amounts are formatted with `Intl.NumberFormat('es-ES', { style: 'currency', curr
 | S-30 | `Hecho, lo he olvidado.` |
 | S-31 | `Vale, no olvido nada.` |
 | S-32 | `No encuentro nada así en lo que recuerdo.` |
+| S-33 | `{total} en {comercio}, con fecha {fecha}, que aún no ha llegado. ¿Lo apunto así o corrijo la fecha?` |
 
 When there is no category, `{categoria}` is `sin clasificar`. In S-9, each category name in `{desglose}` starts with a capital letter (R-10 AC4), for example `Supermercado 45,20 € · Restaurantes 23,00 € · Sin clasificar 0,00 €`. Button labels: `Apuntar`, `Corregir`, `Descartar`, and for S-11, S-12, S-13, S-15 and S-29 `Sí` and `No`.
 

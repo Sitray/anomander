@@ -77,6 +77,7 @@ export const startAnomander = <M>(config: Config, deps: AnomanderDeps<M>): Anoma
       register_expense: createExpenseCorrection({
         db,
         interpreter: createPiAiCorrectionInterpreter({ complete: ai, model, logger }),
+        timeZone: config.timeZone,
         now,
         logger,
       }),
