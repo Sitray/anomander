@@ -1,6 +1,6 @@
 import type { AssistantMessage, Context } from '@earendil-works/pi-ai';
 import { describe, expect, it, vi } from 'vitest';
-import { createPiAiReplyPhraser } from '../../src/processor/reply-phraser.ts';
+import { checkedPhrasing, createPiAiReplyPhraser } from '../../src/processor/reply-phraser.ts';
 
 // R-21: the processor may word S-1, S-2, S-16 and S-21; code keeps the facts.
 const MODEL = { provider: 'openai', id: 'gpt-4o-mini' };
@@ -101,6 +101,16 @@ describe('R-21 phrased replies', () => {
   it('AC2: falls back to the §12 string when the processor fails', async () => {
     expect(await phrased(async () => Promise.reject(new Error('timeout')))).toBe(REFERENCE);
     expect(await phrased(async () => answer('', 'error'))).toBe(REFERENCE);
+  });
+
+  it('AC2: logs a rejected phrasing without its text, which may echo a memory (R-23 AC8)', () => {
+    const logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn() };
+    const rejected = 'Como eres vegetariano estricto, ya la tienes.';
+
+    expect(checkedPhrasing(rejected, { reference: REFERENCE, facts: FACTS }, logger)).toBe(
+      REFERENCE,
+    );
+    expect(JSON.stringify(logger.warn.mock.calls)).not.toContain('vegetariano');
   });
 
   it('AC4: never passes tools to the processor', async () => {
