@@ -4,6 +4,7 @@ import type { Logger } from '../processor/text-interpreter.ts';
 // The daemon's clock (PRD §14.3). R-19: retention runs once at startup and then at
 // `ANOMANDER_RETENTION_CRON` in `TZ`. Every minute, the budget queue is read once the day has
 // changed (R-12 AC3) and unread receipts get S-13 or are discarded on time (R-8 AC3, AC5).
+// R-10 AC1: the weekly summary goes out at `ANOMANDER_WEEKLY_SUMMARY_CRON` in `TZ`, never at startup.
 // Jobs never overlap: they share one queue, so two of them never touch the same receipt.
 
 export interface SchedulerJobs {
@@ -13,11 +14,15 @@ export interface SchedulerJobs {
   drainQueue(): Promise<unknown>;
   /** R-8 AC3 and AC5: S-13 before `keep_until`, S-14 after it. */
   watchReceipts(): Promise<unknown>;
+  /** R-10: S-9 to the principal. */
+  sendWeeklySummary(): Promise<unknown>;
 }
 
 export interface SchedulerDeps {
   /** `ANOMANDER_RETENTION_CRON`. */
   retentionCron: string;
+  /** `ANOMANDER_WEEKLY_SUMMARY_CRON`. */
+  weeklySummaryCron: string;
   /** `TZ`: the cron expressions are read there. */
   timeZone: string;
   jobs: SchedulerJobs;
@@ -35,6 +40,7 @@ const EVERY_MINUTE = '* * * * *';
 
 export const startScheduler = ({
   retentionCron,
+  weeklySummaryCron,
   timeZone,
   jobs,
   logger,
@@ -61,6 +67,9 @@ export const startScheduler = ({
   const crons = [
     new Cron(retentionCron, { timezone: timeZone, paused: true }, () => {
       void enqueue('retain');
+    }),
+    new Cron(weeklySummaryCron, { timezone: timeZone, paused: true }, () => {
+      void enqueue('sendWeeklySummary');
     }),
     new Cron(EVERY_MINUTE, { timezone: timeZone, paused: true }, () => {
       // A slow minute does not pile up ticks behind it.

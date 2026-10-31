@@ -19,6 +19,9 @@ export const UNCATEGORIZED = 'sin clasificar';
 
 const category = (name: string | null): string => name ?? UNCATEGORIZED;
 
+/** S-9 writes each category name with a capital letter: `supermercado` → `Supermercado`. */
+const capitalized = (name: string): string => name.charAt(0).toUpperCase() + name.slice(1);
+
 // S-27 and S-29: a header followed by one line per item.
 const lines = (header: string, items: readonly string[]): string => [header, ...items].join('\n');
 
@@ -37,6 +40,23 @@ export const strings = {
   askCorrection: () => '¿Qué cambio? Escríbelo, por ejemplo: total 28,40',
   corrected: (total: number, merchant: string, categoryName: string | null) =>
     `Corregido: ${formatAmount(total)} en ${merchant} (${category(categoryName)}).`,
+  /**
+   * S-9, with `categories` already in the order of R-10 AC4; `Sin clasificar` is always last.
+   * `start` and `end` are `YYYY-MM-DD`.
+   */
+  weeklySummary: (
+    start: string,
+    end: string,
+    total: number,
+    categories: readonly { name: string; cents: number }[],
+    uncategorized: number,
+    pending: number,
+  ) => {
+    const breakdown = [...categories, { name: UNCATEGORIZED, cents: uncategorized }]
+      .map(({ name, cents }) => `${capitalized(name)} ${formatAmount(cents)}`)
+      .join(' · ');
+    return `Semana del ${formatDate(start)} al ${formatDate(end)}: ${formatAmount(total)}. ${breakdown}. Pendientes de confirmar: ${pending}.`;
+  },
   aiLimitReached: () => 'He llegado al límite diario de IA. Leeré este ticket mañana.',
   confirmPolicy: (merchant: string, categoryName: string) =>
     `¿Guardo la regla «${merchant} es ${categoryName}»?`,
