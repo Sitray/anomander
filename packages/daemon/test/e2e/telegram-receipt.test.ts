@@ -13,6 +13,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { type Anomander, startAnomander } from '../../src/app.ts';
 import { loadConfig } from '../../src/config.ts';
 import { RECEIPT_READER_PROMPT } from '../../src/processor/receipt-reader.ts';
+import { TEXT_INTERPRETER_PROMPT } from '../../src/processor/text-interpreter.ts';
 
 // End to end (PRD §15): a receipt photo through the fake Telegram API, the real bot, the daemon
 // and a SQLite file, with hand-authored recorded vision responses instead of a live model.
@@ -30,11 +31,14 @@ let api: FakeTelegramApi;
 let anomander: Anomander;
 let readerFixture: string;
 let readerCalls: Context[];
+/** The recent turns the text interpreter received (R-16 AC3). */
+let interpreterRecent: unknown[];
 
 beforeEach(async () => {
   scratch = mkdtempSync(join(tmpdir(), 'anomander-e2e-receipt-'));
   inbox = join(scratch, 'inbox');
   readerCalls = [];
+  interpreterRecent = [];
   api = await startFakeTelegramApi();
   const config = loadConfig({
     TELEGRAM_BOT_TOKEN: api.token,
@@ -48,6 +52,10 @@ beforeEach(async () => {
     if (context.systemPrompt === RECEIPT_READER_PROMPT) {
       readerCalls.push(context);
       return recorded(readerFixture);
+    }
+    const [turn] = context.messages;
+    if (context.systemPrompt === TEXT_INTERPRETER_PROMPT && typeof turn?.content === 'string') {
+      interpreterRecent.push(JSON.parse(turn.content).recent);
     }
     // The phraser fails, so S-1 goes out exactly as written in §12 (R-21 AC2).
     return { ...recorded('unreadable'), content: [], stopReason: 'error', errorMessage: 'offline' };
@@ -193,6 +201,28 @@ describe('a receipt photo over Telegram', () => {
     expect(query('SELECT status FROM proposals')).toEqual([{ status: 'asked' }]);
     expect(query('SELECT id FROM actions')).toEqual([]);
     expect(imagesLeft()).toEqual([]);
+  });
+
+  it('gives the interpreter the receipt and the button press as recent turns (R-16 AC3)', async () => {
+    addPolicy();
+    readerFixture = 'lines-mismatch';
+    sendPhoto('receipt', { caption: 'la compra' });
+    const [question] = await api.waitForSent(1);
+    const [decision] = query<{ id: number }>('SELECT id FROM pending_decisions');
+    api.push(
+      updates.callbackQuery(principal, `decision:${decision?.id}:2`, question?.messageId ?? 0),
+    );
+    const [, discarded] = await api.waitForSent(2);
+
+    api.push(updates.text(principal, '¿y ese cuánto era?'));
+    await api.waitForSent(3);
+
+    expect(interpreterRecent).toEqual([
+      [
+        { principal: '[foto de ticket] la compra', reply: question?.text },
+        { principal: '[botón: Descartar]', reply: discarded?.text },
+      ],
+    ]);
   });
 
   it('answers an unreadable receipt with S-5 and stores no expense (R-3 AC3, R-8 AC1)', async () => {

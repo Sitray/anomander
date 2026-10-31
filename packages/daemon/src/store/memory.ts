@@ -46,8 +46,11 @@ export interface MemoryCapture {
 const normalize = (text: string): string =>
   text.replace(/\s+/g, ' ').trim().toLocaleLowerCase('es-ES');
 
-/** R-23 AC2: a non-empty quote that appears in the message, ignoring case and spacing. */
-const quotedFrom = (quote: string, message: string): boolean => {
+/**
+ * R-23 AC2, AC4: a non-empty quote that appears in the message, ignoring case and spacing. A
+ * memory is `declared` only when its quote passes, and an expense inference is kept only then.
+ */
+export const quotedFrom = (quote: string, message: string): boolean => {
   const normalized = normalize(quote);
   return normalized !== '' && normalize(message).includes(normalized);
 };

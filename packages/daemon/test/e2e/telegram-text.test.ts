@@ -12,6 +12,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { type Anomander, startAnomander } from '../../src/app.ts';
 import { loadConfig } from '../../src/config.ts';
 import { REPLY_PHRASER_PROMPT } from '../../src/processor/reply-phraser.ts';
+import { listMemories } from '../../src/store/memory.ts';
 
 // End to end (PRD §15): a message through the fake Telegram API, the real bot, the daemon and a
 // SQLite file, with recorded processor responses instead of a live model.
@@ -28,13 +29,40 @@ let anomander: Anomander;
 let config: ReturnType<typeof loadConfig>;
 /** `false` makes the processor never answer, as a hung model would. */
 let processorAnswers: boolean;
+/** The user turns the text interpreter received, parsed. */
+let interpreted: { recent: unknown; memories: unknown; message: string }[];
+/** What the text interpreter answers, by message; the recorded expense when absent. */
+let interpretations: Map<string, AssistantMessage>;
 
 const complete = async (_model: string, context: Context) => {
   if (!processorAnswers) return new Promise<never>(() => {});
   const phrasing = context.systemPrompt === REPLY_PHRASER_PROMPT;
-  const reply = recorded('expense-23-space-euro');
+  const [turn] = context.messages;
+  let reply = recorded('expense-23-space-euro');
+  if (!phrasing && turn?.role === 'user' && typeof turn.content === 'string') {
+    const input = JSON.parse(turn.content);
+    interpreted.push(input);
+    reply = interpretations.get(input.message) ?? reply;
+  }
   return phrasing ? { ...reply, content: [{ type: 'text' as const, text: PHRASED }] } : reply;
 };
+
+/** A conversation reply that also carries the declared fact "Es vegetariano" (R-23 AC1). */
+const vegetarian = (reply: string): AssistantMessage => ({
+  ...recorded('conversation'),
+  content: [
+    {
+      type: 'text',
+      text: JSON.stringify({
+        kind: 'conversation',
+        reply,
+        memories: [
+          { text: 'Es vegetariano', quote: 'soy vegetariano', said: true, confidence: 0.95 },
+        ],
+      }),
+    },
+  ],
+});
 
 const start = async (overrides: Partial<ReturnType<typeof loadConfig>> = {}) => {
   anomander = startAnomander(
@@ -60,6 +88,8 @@ beforeEach(async () => {
     ANOMANDER_VISION_MODEL: 'openai/gpt-4o-mini',
   });
   processorAnswers = true;
+  interpreted = [];
+  interpretations = new Map();
   await start();
 });
 
@@ -131,6 +161,54 @@ describe('a text expense over Telegram', () => {
     );
     expect(api.sent[1]?.text).toBe(PHRASED);
     expect(query('SELECT total_cents FROM expenses')).toEqual([{ total_cents: 2300 }]);
+  });
+
+  it('R-16 AC3: the interpreter receives the previous turn with the reply that was sent', async () => {
+    api.push(updates.text({ chatId: PRINCIPAL }, '23 € cena'));
+    await api.waitForSent(1);
+    api.push(updates.text({ chatId: PRINCIPAL }, 'y otros 23 € cena'));
+    await api.waitForSent(2);
+
+    expect(interpreted.map(({ recent }) => recent)).toEqual([
+      [],
+      [{ principal: '23 € cena', reply: PHRASED }],
+    ]);
+  });
+
+  it('R-23 AC1, AC2: a lasting fact said in conversation is remembered as declared', async () => {
+    const reply = '¡Apuntado! Te propondré platos sin carne.';
+    interpretations.set('soy vegetariano', vegetarian(reply));
+
+    api.push(updates.text({ chatId: PRINCIPAL }, 'soy vegetariano'));
+    const [sent] = await api.waitForSent(1);
+
+    expect(sent?.text).toBe(reply);
+    const db = new Database(join(scratch, 'anomander.db'), { readonly: true });
+    try {
+      expect(listMemories(db)).toEqual([
+        { id: expect.any(Number), text: 'Es vegetariano', mode: 'declared' },
+      ]);
+    } finally {
+      db.close();
+    }
+    expect(query("SELECT actor, source FROM assertions WHERE predicate = 'memory'")).toEqual([
+      { actor: 'principal', source: expect.stringMatching(/^telegram:\d+$/) },
+    ]);
+    expect(query('SELECT id FROM expenses')).toEqual([]);
+  });
+
+  it('R-23 AC4: the next message is interpreted with the remembered facts', async () => {
+    interpretations.set('soy vegetariano', vegetarian('Tomo nota.'));
+
+    api.push(updates.text({ chatId: PRINCIPAL }, 'soy vegetariano'));
+    await api.waitForSent(1);
+    api.push(updates.text({ chatId: PRINCIPAL }, '¿qué ceno hoy?'));
+    await api.waitForSent(2);
+
+    expect(interpreted.map(({ memories }) => memories)).toEqual([
+      [],
+      [{ id: expect.any(Number), text: 'Es vegetariano', mode: 'declared' }],
+    ]);
   });
 
   it('R-12 AC4: with the daily AI budget spent, a text gets S-26 and nothing is stored', async () => {

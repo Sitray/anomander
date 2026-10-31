@@ -31,6 +31,12 @@ export interface ButtonHandlerDeps {
 
 const BUTTON_DATA = /^decision:(\d+):(\d+)$/;
 
+/** The label of the option a button press names, read before it is answered (R-16 AC3). */
+export const pressedOption = (db: Database.Database, data: string): string | undefined => {
+  const match = BUTTON_DATA.exec(data);
+  return match === null ? undefined : loadDecision(db, Number(match[1]))?.options[Number(match[2])];
+};
+
 export const createButtonHandler =
   ({ db, answers, now, logger }: ButtonHandlerDeps): ButtonHandler =>
   async (press) => {

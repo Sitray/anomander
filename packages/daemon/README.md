@@ -173,6 +173,18 @@ without storing anything; a failed correction keeps the decision waiting for the
 The front door replies S-22 too when a handler throws. A receipt is stored before it is read,
 so a failed reading is S-5, as before.
 
+## Recent turns (R-16 AC3)
+
+So the interpreter understands "ese" or "lo de antes", `src/conversation/recent-turns.ts` keeps the
+last 10 exchanges with the principal, none older than 30 minutes, and the text interpreter gets
+them as `recent`. `app.ts` records them at the front door: `recordingTurns` wraps the text, receipt
+and button handlers (a receipt is `[foto de ticket]` and its caption, a press `[botón: Apuntar]`),
+and `recordingNotices` wraps `notify`, so a message sent unasked is a turn with no principal part.
+Turns live only in this process: they are never written to the database or logged, and a restart
+loses them. They give context only: an expense's amount must still be written in the current message
+(R-2 AC6), so a recent turn never becomes an expense fact. `clear()` empties them; a confirmed forget
+calls it (R-23 AC6) so the forgotten fact leaves the context as well.
+
 ## Conversation memory (R-23)
 
 `src/store/memory.ts` keeps what ANOMANDER remembers about the principal. Each memory is an
@@ -188,6 +200,18 @@ memory supersedes it and refutes it (AC3); an id that is not a current memory is
 **Prompt (AC4).** `memoriesForPrompt` gives every current memory up to 50, and beyond that the 50
 that best match the message in `memory_search`. Each word of the message is quoted, so the
 principal's text is never read as FTS5 syntax.
+
+**Capture (AC1).** The text interpreter's envelope, `expense` or `conversation`, may carry
+`memories`: facts with `text`, `quote`, `said`, `confidence` and an optional `replaces` id, found
+in the same processor call. Zod drops an invalid fact and the log names only its field and issue
+code. The text handler saves each fact with `saveMemory` (source: the message's `channelRef`),
+for expenses and conversation alike, never for a failed, budget-blocked or invalid message. A
+save that fails is logged and the reply stays the same.
+
+**Use (AC4).** The handler puts `memoriesForPrompt` (`id`, `text`, `mode`) in the interpreter's
+user turn as `memories`; the prompt allows them only in conversation replies. Code enforces it:
+the interpreter rejects any expense inference whose `basis_json.quote` is not in the message,
+with the same `quotedFrom` rule as the mode decision, and logs only its predicate.
 
 **Forgetting (AC6, AC7).** `forgetMemories` deletes the `memory_texts` rows (the triggers remove
 them from the index) and sets the assertions to `expired`, in one transaction. The erase is real:

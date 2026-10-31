@@ -2,7 +2,14 @@ import { createTelegramBot, createTelegramNotify, type TelegramLogger } from '@a
 import { budgeted, createAiBudget } from './budget/ai-budget.ts';
 import { createReceiptQueue } from './budget/receipt-queue.ts';
 import type { Config } from './config.ts';
-import { createButtonHandler, createDecisionAnswers } from './decisions/answer.ts';
+import {
+  buttonTurn,
+  createRecentTurns,
+  receiptTurn,
+  recordingNotices,
+  recordingTurns,
+} from './conversation/recent-turns.ts';
+import { createButtonHandler, createDecisionAnswers, pressedOption } from './decisions/answer.ts';
 import { createExpenseCorrection } from './decisions/correction.ts';
 import { createTextRouter } from './decisions/router.ts';
 import { createReceiptExpenseCycle } from './expenses/receipt-expense.ts';
@@ -61,6 +68,8 @@ export const startAnomander = <M>(config: Config, deps: AnomanderDeps<M>): Anoma
   const ai = budgeted(timed, budget);
 
   const phraser = createPiAiReplyPhraser({ complete: ai, model, logger });
+  // R-16 AC3: every exchange with the principal is a recent turn, kept only in memory.
+  const turns = createRecentTurns({ now });
   const onText = createTextRouter({
     db,
     corrections: {
@@ -79,6 +88,7 @@ export const startAnomander = <M>(config: Config, deps: AnomanderDeps<M>): Anoma
       now,
       processorSource: `processor:${config.model.provider}/${config.model.id}`,
       logger,
+      recent: turns.recent,
     }),
     now,
   });
@@ -107,15 +117,15 @@ export const startAnomander = <M>(config: Config, deps: AnomanderDeps<M>): Anoma
   const bot = createTelegramBot({
     token: config.telegramBotToken,
     principalChatId: config.principalChatId,
-    onText,
-    onReceipt: receipts.onReceipt,
-    onButton,
+    onText: recordingTurns(turns, (message) => message.text, onText),
+    onReceipt: recordingTurns(turns, (receipt) => receiptTurn(receipt.caption), receipts.onReceipt),
+    onButton: recordingTurns(turns, (press) => buttonTurn(pressedOption(db, press.data)), onButton),
     logger,
     ...(deps.telegramApiRoot === undefined ? {} : { apiRoot: deps.telegramApiRoot }),
   });
 
   // R-8, R-12 AC3 and R-19 run without a message: their replies go to the principal unasked.
-  const notify = createTelegramNotify(bot, config.principalChatId);
+  const notify = recordingNotices(turns, createTelegramNotify(bot, config.principalChatId));
   const retention = createRetention({
     db,
     inboxDir: config.inboxDir,
