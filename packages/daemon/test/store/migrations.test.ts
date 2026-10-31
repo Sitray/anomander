@@ -44,13 +44,14 @@ afterEach(() => {
 });
 
 describe('openDatabase', () => {
-  it('creates its folder and turns on WAL, foreign keys and recursive triggers', () => {
+  it('creates its folder and turns on WAL, foreign keys, recursive triggers and secure delete', () => {
     const path = join(scratch, 'nested', 'dir', 'anomander.db');
     const db = open(path);
     expect(existsSync(path)).toBe(true);
     expect(db.pragma('journal_mode', { simple: true })).toBe('wal');
     expect(db.pragma('foreign_keys', { simple: true })).toBe(1);
     expect(db.pragma('recursive_triggers', { simple: true })).toBe(1);
+    expect(db.pragma('secure_delete', { simple: true })).toBe(1);
   });
 });
 
@@ -232,5 +233,18 @@ describe('0003_ai_budget.sql', () => {
     const block = section.split('```sql\n')[2]?.split('```')[0] ?? '';
     expect(block).toContain('CREATE TABLE ai_usage');
     expect(readFileSync(resolve(MIGRATIONS_DIR, '0003_ai_budget.sql'), 'utf8')).toBe(block);
+  });
+});
+
+// PRD §13: conversation memory (R-23) is the third SQL block of the data model.
+describe('0004_conversation_memory.sql', () => {
+  it('equals the third SQL block of PRD §13', () => {
+    const prd = readFileSync(resolve(import.meta.dirname, '../../../../PRD.md'), 'utf8');
+    const section = prd.split('## 13. Data model')[1]?.split('\n## ')[0] ?? '';
+    const block = section.split('```sql\n')[3]?.split('```')[0] ?? '';
+    expect(block).toContain('CREATE TABLE memory_texts');
+    expect(readFileSync(resolve(MIGRATIONS_DIR, '0004_conversation_memory.sql'), 'utf8')).toBe(
+      block,
+    );
   });
 });

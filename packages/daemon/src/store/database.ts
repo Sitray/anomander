@@ -16,6 +16,9 @@ export const openDatabase = (path: string): Database.Database => {
   // REPLACE removes the conflicting row without firing delete triggers unless this is on,
   // which would let it rewrite the append-only assertions ledger (R-7 AC3).
   db.pragma('recursive_triggers = ON');
+  // Deleted content is overwritten with zeros, so a forgotten memory leaves no text in free
+  // pages (R-23 AC7).
+  db.pragma('secure_delete = ON');
   return db;
 };
 

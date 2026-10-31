@@ -173,6 +173,28 @@ without storing anything; a failed correction keeps the decision waiting for the
 The front door replies S-22 too when a handler throws. A receipt is stored before it is read,
 so a failed reading is S-5, as before.
 
+## Conversation memory (R-23)
+
+`src/store/memory.ts` keeps what ANOMANDER remembers about the principal. Each memory is an
+assertion about the principal entity with predicate `memory`. Its text and quote live only in
+`memory_texts` (migration `0004`), indexed by the FTS5 table `memory_search`, never in
+`assertions`: the ledger is append-only, so text there could never be erased.
+
+**Mode (AC2).** `saveMemory` stores `declared` by the principal only when the processor says the
+principal said it and the quote is in the message, compared ignoring case and runs of spaces;
+otherwise `inferred` by the processor, with its confidence. A fact that `replaces` a current
+memory supersedes it and refutes it (AC3); an id that is not a current memory is ignored.
+
+**Prompt (AC4).** `memoriesForPrompt` gives every current memory up to 50, and beyond that the 50
+that best match the message in `memory_search`. Each word of the message is quoted, so the
+principal's text is never read as FTS5 syntax.
+
+**Forgetting (AC6, AC7).** `forgetMemories` deletes the `memory_texts` rows (the triggers remove
+them from the index) and sets the assertions to `expired`, in one transaction. The erase is real:
+`openDatabase` turns on `secure_delete`, the index has FTS5 `secure-delete`, and the WAL is
+checkpointed and truncated afterwards, so the text is in neither the database file nor its WAL.
+The test proves it by reading the raw bytes. Never log a memory's text or quote (AC8).
+
 ## The processor ports
 
 `CorrectionInterpreter` (`src/processor/correction-interpreter.ts`) reads a correction text.
