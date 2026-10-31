@@ -31,7 +31,7 @@ The lesson for ANOMANDER: Rust where the operating system is touched, and approv
 | Telegram | grammY | Typed, lightweight, supports buttons and photos |
 | Tests | Vitest, fast-check | See below |
 | Lint and format | Biome | One tool for linting and formatting, as in gentle-dot |
-| Containers | Docker and Docker Compose | Same environment locally, in e2e tests and on the server |
+| Containers | Docker and Docker Compose | Same environment locally and on the server |
 | Desktop (final phase) | Tauri 2 with Rust | As in gentle-dot |
 
 Repository layout:
@@ -59,12 +59,12 @@ Each layer of the ontology is tested with the kind of test that fits it:
 | Property (fast-check) | Rules that must hold for any input | For any generated receipt, the consistency check accepts if and only if the lines add up to the total |
 | Contract | That each provider fulfils the interface of its capability | The receipt reader returns inferences with a basis, never observations; uses recorded responses, without calling the model |
 | Integration | The core with a real SQLite database in a temporary file | A correction creates a new assertion that refutes the earlier one; the dashboard view returns its columns |
-| End to end (in Docker) | The full cycle, from the message to the record | A photo sent to a fake Telegram API ends up in `supermarket_purchases` |
+| End to end (in-process) | The full cycle, from the message to the record | A photo sent to a fake Telegram API ends up in `supermarket_purchases` |
 | Receipt evaluation | How well the processor reads real receipts | A folder of receipts with their expected total and lines; measures the share read correctly when the model or prompt changes |
 
 The receipt evaluation is not a pass/fail test: it is a measurement. It decides with data whether a new model (or a local one) reads as well as the current one.
 
-**Docker:** a `Dockerfile` for the daemon and a `compose.yaml` with the daemon and a volume for the SQLite file; in the test environment, a server that fakes the Telegram API. The end-to-end tests are meant to run against that compose setup, as Gentle AI does with its Docker e2e tests; that setup is not built yet, so today they run in-process with `pnpm test`, against the fake Telegram API.
+**Docker:** a `Dockerfile` for the daemon and a `compose.yaml` with the daemon and a volume for the SQLite file. The end-to-end tests do not use it: they run in-process with `pnpm test`, with the real bot, daemon and SQLite file against a server that fakes the Telegram API, which covers the full cycle in seconds. Checking that the container builds and starts belongs with the deployment to the VPS.
 
 ## Providers and processes
 

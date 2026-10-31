@@ -27,7 +27,7 @@ No trimming is needed: the 10 vocabulary classes cost nothing, and the 16 data c
 - [x] License: MIT.
 - [x] Repository documentation language: English.
 - [x] Lint and format: Biome.
-- [x] Docker: the daemon runs in a container, and the end-to-end tests run against it.
+- [x] Docker: the daemon runs in a container; the end-to-end tests run in-process, against a fake Telegram API.
 - [x] Tests: unit, property, contract, integration, end to end and a receipt evaluation (see [stack.md](stack.md)).
 - [x] Models: first through a subscription or an API; local models later.
 - [x] Memory: the SQLite ledger is the only memory. Engram, if used, is a read-only external source; ANOMANDER never writes to it.

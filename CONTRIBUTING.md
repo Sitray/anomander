@@ -21,7 +21,7 @@ pnpm -r typecheck
 pnpm test
 ```
 
-The end-to-end tests run with `pnpm test`, against the fake Telegram API. When a processor or prompt changes, also run `pnpm eval:receipts`, which calls live models to measure how well they read the receipts (PRD §15). The Docker `pnpm test:e2e` of PRD §15 is not built yet.
+The end-to-end tests run with `pnpm test`, against the fake Telegram API. When a processor or prompt changes, also run `pnpm eval:receipts`, which calls live models to measure how well they read the receipts (PRD §15).
 
 ## Rules that are easy to break
 

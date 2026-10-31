@@ -755,7 +755,7 @@ Secrets live only in `.env`, which is git-ignored. `.env.example` lists every va
 | Property (fast-check) | Rules that must hold for any input | The consistency check accepts if and only if lines sum to the total |
 | Contract | Each provider satisfies its capability interface | The receipt reader returns inferences with basis, never observations; uses recorded responses, no live model |
 | Integration | Core with real SQLite in a temp file | A correction supersedes and refutes; the view returns its six columns |
-| End to end (Docker) | The full cycle from message to record | A photo sent to a fake Telegram API ends up in `supermarket_purchases` |
+| End to end (in-process) | The full cycle from message to record | A photo sent to a fake Telegram API ends up in `supermarket_purchases` |
 | Receipt evaluation | How well the processor reads real receipts | A folder of receipts with expected totals and lines; reports the percentage read correctly per model and prompt |
 
 The receipt evaluation is a measurement, not a pass/fail test. It decides with data whether a new or local model reads as well as the current one.
@@ -765,7 +765,6 @@ Checks every feature document should run:
 - `pnpm biome check .`
 - `pnpm -r typecheck`
 - `pnpm test`
-- `pnpm test:e2e` (runs `docker compose -f compose.yaml -f compose.test.yaml up --abort-on-container-exit`; not built yet: until then the end-to-end tests run in-process with `pnpm test`, against the fake Telegram API)
 - `pnpm eval:receipts` (when a processor or prompt changes)
 
 ## 16. Security, privacy and open source
