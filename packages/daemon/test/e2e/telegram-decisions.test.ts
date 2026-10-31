@@ -332,6 +332,18 @@ describe('answering a pending receipt decision', () => {
     expect(query('SELECT occurred_on FROM expenses')).toEqual([{ occurred_on: '2026-10-29' }]);
   });
 
+  it('a corrected date whose words are not in the message is ignored (R-7 AC2)', async () => {
+    const { decisionId, question } = await askS3();
+    await press(question, decisionId, CORREGIR);
+    correctionFixture = 'occurred-on-28';
+    const before = ledger();
+
+    expect((await say('cambia el día'))?.text).toBe(S7);
+
+    expect(ledger()).toEqual(before);
+    expect(query('SELECT occurred_on FROM expenses')).toEqual([{ occurred_on: '2026-10-29' }]);
+  });
+
   it('with the daily AI budget spent, a correction gets S-26 and keeps waiting (R-12 AC4)', async () => {
     const { decisionId, question } = await askS3();
     await press(question, decisionId, CORREGIR);
