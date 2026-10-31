@@ -198,6 +198,7 @@ The authority check is code, never a model step. Verifying means observing what 
 | Consult the principal | Raise a decision | A question and its options | Pending decision; my answer returns as a declaration or confirmation | Free |
 | Register expenses | Register, correct or delete an expense | A proposal | The expense in my ledger, with mode and provenance | Register: with permission if it checks out, else with confirmation. Correct and delete: with confirmation |
 | Inform the principal | Send a summary or notice | Expenses for a period | Action, then an observation of delivery | With permission |
+| Keep reminders and tasks | Create, send, list, complete or cancel a reminder or task | My text ("recuérdame mañana llamar a mamá") | The reminder or task, with the declaration it rests on; reminders sent when due | Create, complete, list and send: free on my request. Cancel: with confirmation |
 | Manage matters | Open, pause or close a matter | My declaration or an ANOMANDER proposal | Matter state change | With confirmation if ANOMANDER proposes it |
 
 Internal deterministic operations (not capabilities, nobody requests them): **check consistency**, **check authority**, **retain** (decide what survives an execution).
@@ -333,7 +334,7 @@ Every incoming message has exactly one destination, decided by code in this orde
 - AC2: A text sent as a Telegram reply to a decision's message is a correction for that decision (R-7).
 - AC3: Otherwise, if a decision is `awaiting_text`, the text is a correction for it. At most one decision is `awaiting_text` at a time: pressing "Corregir" on another decision moves it back to `open`.
 - AC4: Photos and image files always start a new receipt (R-3) and never answer a decision, even while one is `awaiting_text`.
-- AC5: Any other text goes to the processor, which classifies it as an expense (R-2), a policy (R-13), a new category (R-18) or conversation (R-16).
+- AC5: Any other text goes to the processor, which classifies it as an expense (R-2), a policy (R-13), a new category (R-18), a capability call (R-24) or conversation (R-16).
 - AC6: A decision `awaiting_text` for 15 minutes without receiving text returns to `open`; its buttons still work.
 
 ### R-18 Categories
@@ -365,7 +366,7 @@ A deterministic job, the internal **retain** operation, runs at `ANOMANDER_RETEN
 
 ### R-21 Phrased replies
 The assistant may word its confirmations in its own voice; the facts in them always come from code.
-- AC1: The replies S-1, S-2, S-16, S-21, S-36 and S-39 may be phrased by the processor. Code passes it the §12 string as the reference and the facts read from the database (S-1 and S-2: total, merchant and category of the stored row; S-21: the date; S-36: the category name; S-39: the merchant and the category). S-36 and S-39 are phrased in the same processor call that read the message.
+- AC1: The replies S-1, S-2, S-16, S-21, S-36, S-39, S-40 and S-41 may be phrased by the processor. Code passes it the §12 string as the reference and the facts read from the database (S-1 and S-2: total, merchant and category of the stored row; S-21: the date; S-36: the category name; S-39: the merchant and the category; S-40: the text and `{cuando}`; S-41: the text). S-36, S-39, S-40 and S-41 are phrased in the same processor call that read the message.
 - AC2: Code sends the phrased text only if it contains every fact, formatted as in §12, contains no amount that is not among the facts or in the reference string, and is at most 280 characters. Otherwise, or when the processor fails or the daily AI budget is exhausted (R-12), it sends the §12 string unchanged.
 - AC3: Every other string in §12 is sent verbatim and never goes through the processor.
 - AC4: The phrasing call passes no tools (R-14 AC3) and counts against the daily AI budget (R-12).
@@ -386,9 +387,32 @@ ANOMANDER remembers lasting facts about the principal, such as "soy vegetariano"
 - AC7: Erasing is real: the connection runs with `PRAGMA secure_delete = ON`, the FTS5 index with `secure-delete`, and the WAL is checkpointed after each erase, so the text does not survive in free pages. Backups taken before the erase are outside this guarantee.
 - AC8: Memory text never appears in logs and is never written to Engram (§19).
 
+### R-24 Capability layer
+ANOMANDER is a personal assistant; expenses were its first matter, not its limit. What it can do for the principal grows by adding capabilities, each one self-contained.
+- AC1: A capability declares the kinds of request it handles, the instructions and JSON shape it adds to the text interpreter's prompt, the schema code validates the processor's answer with, and the handler that carries it out. The text interpreter builds its prompt from the registered capabilities; adding a capability changes no routing code.
+- AC2: The processor never carries out a capability. In the single call that reads the message (R-14), it returns at most one capability call; code validates it against that capability's schema, and an answer that does not validate is handled as R-22 AC1.
+- AC3: Writes stay with code. The capability's handler decides, by the authority model (§8), whether a write runs at once, needs the principal's answer to a decision with buttons, or is refused. Reading the principal's own data needs no confirmation.
+- AC4: Reminders and tasks (R-25) are the first capability. Expenses, memories, categories and policies keep their current kinds; moving them into capabilities is not part of M5.
+- AC5: The prompts present ANOMANDER as a personal assistant, not as an expenses assistant.
+
+### R-25 Reminders and tasks
+The principal asks ANOMANDER to remember things for them: at a time, on a schedule, or with no date at all.
+- AC1: The text interpreter receives the current date and time in `TZ` and the pending reminders and tasks, each with its ID, text and when.
+- AC2: A message such as "recuérdame mañana llamar a mamá" creates a reminder at once, without buttons, and replies S-40. The processor returns the text, quoted from the message, and the local time in `TZ`; it works out relative times ("mañana", "en dos horas", "el viernes"). A day without a time means 9:00, which S-40 states. Code stores the reminder only if its text appears in the message, with a `reminder` assertion about it: mode `declared`, actor `principal`, source the Telegram message.
+- AC3: A reminder may repeat every day, every week on one or more days, or every month on one day, always at one time. Any other repetition ("cada dos semanas", "el último viernes de cada mes") is not stored and the reply is S-51. A monthly reminder on a day that a month does not have (29, 30 or 31) is sent on that month's last day (assumption).
+- AC4: A time that has already passed is not stored and the reply is S-52.
+- AC5: A message such as "tengo que comprar pilas" with no date creates a task the same way and replies S-41. A task is listed but never sent. Giving a pending task a time ("lo de las pilas, recuérdamelo el sábado") turns it into a reminder and replies S-40.
+- AC6: S-40 and S-41 are phrased in the same processor call that read the message (R-21); their facts are the text and, for S-40, `{cuando}`.
+- AC7: Every minute and at startup, code sends each pending reminder whose time has come, unasked (R-16 AC3): S-42, or S-43 when it is sent more than 10 minutes after its time, for example after the daemon was down. A one-time reminder is then `sent`. A repeating reminder sends only its latest missed occurrence and moves to its next occurrence after now.
+- AC8: When the principal asks what is pending ("¿qué tengo pendiente?"), code replies S-44 with every pending reminder, soonest first, followed by every pending task, oldest first; or S-45 when there is none.
+- AC9: When the principal asks to cancel something, the processor only picks the matching pending reminders and tasks; code asks S-46 with `Sí` and `No`, or replies S-49 when none matches. `Sí` sets each one to `cancelled`, sets its `reminder` assertion to `expired`, and replies S-47; `No` changes nothing and replies S-48.
+- AC10: When the principal says they did something ("ya compré las pilas"), the processor picks the matching pending reminders and tasks; code sets each one to `done`, without buttons, and replies S-50, or S-49 when none matches. A done reminder or task is kept, not deleted.
+- AC11: `{cuando}` is written by code in `TZ`: `hoy a las 9:00`, `mañana a las 9:00`, `ayer a las 9:00` or `el 29 de octubre a las 9:00` for one time; `todos los días a las 9:00`, `todos los lunes y jueves a las 8:00` or `el día 15 de cada mes a las 9:00` for a repetition. At 1:00 it reads `a la 1:00`.
+- AC12: Reminder text never appears in logs and is never written to Engram (§19).
+
 ## 12. User-facing strings (verbatim, `es-ES`)
 
-S-1, S-2, S-16, S-21, S-36 and S-39 are the reference and the fallback for the phrased replies of R-21; every other string is sent exactly as written.
+S-1, S-2, S-16, S-21, S-36, S-39, S-40 and S-41 are the reference and the fallback for the phrased replies of R-21; every other string is sent exactly as written.
 
 Amounts are formatted with `Intl.NumberFormat('es-ES', { style: 'currency', currency: 'EUR' })`, for example `23,40 €`. Dates use `d 'de' MMMM`, for example `29 de octubre`.
 
@@ -433,8 +457,21 @@ Amounts are formatted with `Intl.NumberFormat('es-ES', { style: 'currency', curr
 | S-37 | `Hecho, he creado la categoría «{categoria}».` |
 | S-38 | `Hecho, he guardado la regla «{comercio} es {categoria}».` |
 | S-39 | `Ya tengo la regla «{comercio} es {categoria}».` |
+| S-40 | `Te lo recuerdo {cuando}: {texto}.` |
+| S-41 | `Apuntado en tus pendientes: {texto}.` |
+| S-42 | `Recordatorio: {texto}.` |
+| S-43 | `Recordatorio (era para {cuando}): {texto}.` |
+| S-44 | `Esto tienes pendiente:` followed by one line per reminder, `· {texto} ({cuando})`, and one per task, `· {texto}` |
+| S-45 | `No tienes nada pendiente.` |
+| S-46 | `¿Cancelo esto?` followed by one line per reminder, `· {texto} ({cuando})`, and one per task, `· {texto}` |
+| S-47 | `Hecho, cancelado.` |
+| S-48 | `Vale, no cancelo nada.` |
+| S-49 | `No encuentro nada así en tus pendientes.` |
+| S-50 | `Hecho: {texto}.` |
+| S-51 | `Todavía no sé repetir recordatorios así. Puedo cada día, cada semana o cada mes.` |
+| S-52 | `Esa hora ya pasó. ¿Para cuándo lo quieres?` |
 
-When there is no category, `{categoria}` is `sin clasificar`. In S-9, each category name in `{desglose}` starts with a capital letter (R-10 AC4), for example `Supermercado 45,20 € · Restaurantes 23,00 € · Sin clasificar 0,00 €`. Button labels: `Apuntar`, `Corregir`, `Descartar`, and for S-11, S-12, S-13, S-15 and S-29 `Sí` and `No`.
+When there is no category, `{categoria}` is `sin clasificar`. In S-9, each category name in `{desglose}` starts with a capital letter (R-10 AC4), for example `Supermercado 45,20 € · Restaurantes 23,00 € · Sin clasificar 0,00 €`. Button labels: `Apuntar`, `Corregir`, `Descartar`, and for S-11, S-12, S-13, S-15, S-29 and S-46 `Sí` and `No`. In S-50, `{texto}` lists the texts joined with `, ` and ` y ` before the last one.
 
 ## 13. Data model
 
@@ -655,6 +692,29 @@ CREATE TRIGGER memory_texts_unindexed AFTER DELETE ON memory_texts BEGIN
 END;
 ```
 
+Reminders and tasks (R-25) are added by a later migration:
+
+```sql
+-- Reminders and tasks (R-25): each one rests on a `reminder` assertion declared by the principal
+CREATE TABLE reminders (
+  id INTEGER PRIMARY KEY,
+  text TEXT NOT NULL,               -- what to remember, quoted from the principal's message
+  due_at TEXT,                      -- next time to send it, UTC; NULL for a task
+  recurrence_json TEXT,             -- {"freq": "weekly", "days": [1, 4], "time": "08:00"}; NULL when it happens once
+  status TEXT NOT NULL CHECK (status IN ('pending', 'sent', 'done', 'cancelled')),
+  declared_by_assertion_id INTEGER NOT NULL REFERENCES assertions(id),
+  created_at TEXT NOT NULL,
+  last_sent_at TEXT,
+  closed_at TEXT,                   -- when it became sent, done or cancelled
+  CHECK (recurrence_json IS NULL OR due_at IS NOT NULL)
+);
+
+-- The every-minute send (R-25 AC7) reads only pending reminders that have a time
+CREATE INDEX reminders_due ON reminders (due_at) WHERE status = 'pending' AND due_at IS NOT NULL;
+```
+
+In `recurrence_json`, `freq` is `daily`, `weekly` with `days` (1 Monday to 7 Sunday) or `monthly` with `day` (1 to 31); `time` is local `HH:mm` in `TZ`.
+
 Migrations are versioned SQL files applied at startup. Seed data: the principal entity, the two categories, the "Keep my expenses" matter and the starting permission.
 
 ## 14. Technical architecture
@@ -792,7 +852,8 @@ Checks every feature document should run:
 | M3 Receipts | Receipt reading, albums, decisions with buttons, corrections, image retention and queue, AI budget, retention job, receipt evaluation set | R-3, R-6, R-7, R-8, R-12, R-17, R-19, R-20, R-22 |
 | M3b Conversation memory | Recent turns as context, facts remembered from open conversation with epistemic modes, "qué sabes de mí", confirmed real forgetting | R-16 AC2, AC3, R-23 |
 | M4 Summary, policies, categories and dashboard view | Weekly summary, policies and patterns, category creation, supermarket view | R-10, R-11, R-13, R-18 |
-| M5 Next matter | A second delegated matter chosen by the principal; read access to the ledger from other applications or the AI assistant (API or MCP) | To be specified |
+| M5 Capability layer and reminders | A generic capability layer for the text interpreter; reminders and tasks as its first capability | R-24, R-25 |
+| M5b Ledger read access | Read access to the ledger from other applications or the AI assistant (API or MCP) | To be specified |
 | M6 Desktop | Tauri 2 app with Rust, talking to the same daemon | To be specified |
 
 ## 18. Suggested ODD feature documents
@@ -802,6 +863,7 @@ Checks every feature document should run:
 - `odd/tasks/telegram-text-expenses.md` (M2)
 - `odd/tasks/receipt-expenses.md` (M3)
 - `odd/tasks/weekly-summary-policies-view.md` (M4)
+- `odd/tasks/m5-capabilities-reminders.md` (M5)
 
 For each one, `L1` in `## Log` should be the request that starts it, and `## Specs` should quote the listed `R-#` and §12 strings verbatim.
 
