@@ -4,6 +4,7 @@ node_modules/
 data/
 coverage/
 odd/
+evals/receipts/cases/
 .env.*
 !.env.example
 .atl/

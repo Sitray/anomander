@@ -45,7 +45,7 @@ export const createExpenseCorrection = ({
     text: string,
     expenseId: number,
     channelRef: string,
-  ): Promise<ExpenseCorrection> => {
+  ): Promise<ExpenseCorrection | 'failed'> => {
     const categories = listCategories(db);
     const stored = readExpense(db, expenseId);
     const interpretation = await interpreter({
@@ -57,6 +57,7 @@ export const createExpenseCorrection = ({
       },
       categories,
     });
+    if (interpretation.kind === 'failed') return 'failed';
     if (interpretation.kind === 'invalid') return {};
     const value = (predicate: string) =>
       interpretation.inferences.find((inference) => inference.predicate === predicate)
@@ -93,6 +94,14 @@ export const createExpenseCorrection = ({
     const correction = await acceptedCorrection(message.text, expenseId, message.channelRef);
     const at = now().toISOString();
 
+    if (correction === 'failed') {
+      // R-22 AC1: nothing was stored; the decision keeps waiting for the text to be sent again.
+      logger.error('correction not handled: the processor failed', {
+        channelRef: message.channelRef,
+      });
+      awaitText(db, decision.id, at);
+      return { text: strings.processingFailed() };
+    }
     if (Object.keys(correction).length === 0) {
       // Nothing usable: S-7 again, and the decision keeps waiting for the text (R-7 AC1).
       awaitText(db, decision.id, at);

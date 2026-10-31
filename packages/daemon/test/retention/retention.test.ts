@@ -11,6 +11,7 @@ import { verbatimReplies } from '../../src/processor/reply-phraser.ts';
 import { createKeepReceiptAnswerHandler } from '../../src/retention/keep-receipt-decision.ts';
 import { createRetention } from '../../src/retention/retention-job.ts';
 import { applyMigrations, openDatabase } from '../../src/store/database.ts';
+import { awaitText } from '../../src/store/decisions.ts';
 import { insertAssertion, insertProposal } from '../../src/store/expenses.ts';
 import { createReceiptDocument, openPendingDecision } from '../../src/store/receipts.ts';
 
@@ -332,5 +333,25 @@ describe('R-19 retention job', () => {
     expect(second).toEqual({ inferencesExpired: 0, decisionsExpired: 0, receiptsDiscarded: 0 });
     expect(snapshot()).toEqual(after);
     expect(sent).toEqual([]);
+  });
+
+  it('AC2: a week-old decision left awaiting the correction text expires too', async () => {
+    clock = new Date('2026-10-30T03:00:00.000Z');
+    const document = createReceiptDocument(db, {
+      source: 'telegram:1',
+      receivedAt: ago(10),
+      mimeTypes: ['image/jpeg'],
+      now: ago(10),
+    });
+    const pendingExpense = expense('pending', document);
+    const stale = decision(document, ago(10));
+    // "Corregir" was pressed and no text followed (R-17 AC6 reopens it only after 15 minutes).
+    awaitText(db, stale, ago(10));
+
+    const result = await retention().retain();
+
+    expect(result.decisionsExpired).toBe(1);
+    expect(statuses('pending_decisions')).toEqual([{ id: stale, status: 'expired' }]);
+    expect(statuses('expenses')).toEqual([{ id: pendingExpense, status: 'refuted' }]);
   });
 });

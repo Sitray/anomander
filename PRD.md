@@ -693,6 +693,7 @@ One Node process (the daemon) and one SQLite file. The Telegram front door runs 
 | `ANOMANDER_MODEL` | Model for interpretation and writing | required |
 | `ANOMANDER_VISION_MODEL` | Model for reading receipts | required |
 | `ANOMANDER_DAILY_AI_CALL_LIMIT` | Daily processor call cap | `200` |
+| `ANOMANDER_PROCESSOR_TIMEOUT_SECONDS` | Timeout of each processor call (R-22 AC2) | `60` |
 | `ANOMANDER_WEEKLY_SUMMARY_CRON` | Weekly summary schedule | `0 20 * * 0` |
 | `ANOMANDER_RETENTION_CRON` | Retention job schedule (R-19) | `0 3 * * *` |
 | `ANOMANDER_INBOX_DIR` | Temporary folder for receipt images (R-8) | `./data/inbox` |

@@ -4,6 +4,7 @@ import { todayIn } from '@anomander/core';
 import { buttons, decisionButtons, type Notify, strings } from '@anomander/protocol';
 import type Database from 'better-sqlite3';
 import type { Logger } from '../processor/text-interpreter.ts';
+import { reopenStaleAwaiting } from '../store/decisions.ts';
 import { recordDecisionMessage } from '../store/receipts.ts';
 import {
   discardReceipt,
@@ -105,6 +106,9 @@ export const createRetention = ({
   return {
     retain: async () => {
       const at = now().getTime();
+      // R-17 AC6 is applied lazily, when a message arrives; a decision left awaiting text must be
+      // open again here, or it would never expire (AC2).
+      reopenStaleAwaiting(db, new Date(at));
       const decisionsExpired = expireOpenDecisions(db, new Date(at - 7 * DAY).toISOString());
       const inferencesExpired = expireLooseInferences(db, new Date(at - 30 * DAY).toISOString());
       const receiptsDiscarded = await discardExpired();

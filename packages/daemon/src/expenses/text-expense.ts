@@ -62,6 +62,14 @@ export const createTextExpenseHandler = (deps: TextExpenseDeps): TextHandler => 
 
     // R-16: open conversation gets its reply and nothing is persisted.
     if (interpretation.kind === 'conversation') return { text: interpretation.reply };
+    // R-22 AC1: the processor failed before anything was stored.
+    if (interpretation.kind === 'failed') {
+      logger.error('text not handled: the processor failed', {
+        channelRef: message.channelRef,
+        reason: interpretation.reason,
+      });
+      return { text: strings.processingFailed() };
+    }
     if (interpretation.kind === 'invalid') {
       logger.warn('text not interpreted', {
         channelRef: message.channelRef,

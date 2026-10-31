@@ -35,6 +35,8 @@ export interface FakeTelegramApi {
   sent: SentMessage[];
   /** The `callback_query_id` of every `answerCallbackQuery` call, in order. */
   answeredCallbacks: string[];
+  /** The next `count` sendMessage calls fail with `errorCode` and are not recorded in `sent`. */
+  refuseNextSends(count: number, errorCode: number): void;
   /** Resolves once at least `count` messages were sent; rejects after `timeoutMs`. */
   waitForSent(count: number, timeoutMs?: number): Promise<SentMessage[]>;
   close(): Promise<void>;
@@ -59,6 +61,7 @@ export const startFakeTelegramApi = async (): Promise<FakeTelegramApi> => {
   const queue: Update[] = [];
   const sent: SentMessage[] = [];
   const answeredCallbacks: string[] = [];
+  const refusals = { count: 0, errorCode: 500 };
   const onChange = new Set<() => void>();
   const notify = () => {
     for (const listener of onChange) listener();
@@ -159,6 +162,15 @@ export const startFakeTelegramApi = async (): Promise<FakeTelegramApi> => {
       respond(res, 404, { ok: false, error_code: 404, description: 'Not Found' });
       return;
     }
+    if (match[2] === 'sendMessage' && refusals.count > 0) {
+      refusals.count--;
+      respond(res, refusals.errorCode, {
+        ok: false,
+        error_code: refusals.errorCode,
+        description: 'Refused by the fake API',
+      });
+      return;
+    }
     const method = methods[match[2] ?? ''];
     const result = method === undefined ? true : await method(body);
     if (result === undefined) {
@@ -180,6 +192,10 @@ export const startFakeTelegramApi = async (): Promise<FakeTelegramApi> => {
     token: TOKEN,
     sent,
     answeredCallbacks,
+    refuseNextSends: (count, errorCode) => {
+      refusals.count = count;
+      refusals.errorCode = errorCode;
+    },
     push: (update) => {
       queue.push({ ...update, update_id: nextUpdateId++ } as Update);
       notify();

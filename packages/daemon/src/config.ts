@@ -27,6 +27,8 @@ export interface Config {
   model: ModelId;
   visionModel: ModelId;
   dailyAiCallLimit: number;
+  /** `ANOMANDER_PROCESSOR_TIMEOUT_SECONDS`, in milliseconds (R-22 AC2). */
+  processorTimeoutMs: number;
   weeklySummaryCron: string;
   retentionCron: string;
   inboxDir: string;
@@ -66,6 +68,11 @@ const envSchema = z.object({
     .regex(/^\d+$/, 'must be a non-negative integer')
     .default('200')
     .transform(Number),
+  ANOMANDER_PROCESSOR_TIMEOUT_SECONDS: z
+    .string()
+    .regex(/^[1-9]\d*$/, 'must be a positive integer')
+    .default('60')
+    .transform(Number),
   ANOMANDER_WEEKLY_SUMMARY_CRON: z.string().default('0 20 * * 0'),
   ANOMANDER_RETENTION_CRON: z.string().default('0 3 * * *'),
   ANOMANDER_INBOX_DIR: z.string().default('./data/inbox'),
@@ -102,6 +109,7 @@ export const loadConfig = (env: Record<string, string | undefined>): Config => {
     model: values.ANOMANDER_MODEL,
     visionModel: values.ANOMANDER_VISION_MODEL,
     dailyAiCallLimit: values.ANOMANDER_DAILY_AI_CALL_LIMIT,
+    processorTimeoutMs: values.ANOMANDER_PROCESSOR_TIMEOUT_SECONDS * 1000,
     weeklySummaryCron: values.ANOMANDER_WEEKLY_SUMMARY_CRON,
     retentionCron: values.ANOMANDER_RETENTION_CRON,
     inboxDir: values.ANOMANDER_INBOX_DIR,

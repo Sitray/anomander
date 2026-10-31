@@ -85,7 +85,8 @@ export const createPiAiReplyPhraser =
     let text: string;
     try {
       const response = await complete(model, context);
-      if (response.stopReason === 'error' || response.stopReason === 'aborted') {
+      // A cut-off ('length') or failed answer is not a reply: the §12 string goes out.
+      if (response.stopReason !== 'stop') {
         logger.warn('reply phrasing failed; sending the §12 string', {
           reason: response.errorMessage ?? response.stopReason,
         });

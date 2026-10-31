@@ -161,6 +161,17 @@ and the receipt watch once at startup. After that, it runs retention at `ANOMAND
 in `TZ`, and the queue and the receipt watch every minute, so S-13's "lo borro en una hora" holds.
 The jobs share one serial queue and never overlap. `stop()` waits for the job in progress.
 
+## Failures (R-22)
+
+The principal always gets an answer. `withTimeout` (`src/processor/timeout.ts`) gives every
+processor call `ANOMANDER_PROCESSOR_TIMEOUT_SECONDS`: it aborts the call through its `signal` and
+rejects even if the provider ignores the signal, so a hung model never blocks later messages
+(AC2). In `app.ts` it wraps the raw call first and the budget second. An interpreter that gets a
+thrown or failed call returns `failed` (not `invalid`), and the handler replies S-22 verbatim
+without storing anything; a failed correction keeps the decision waiting for the text (AC1).
+The front door replies S-22 too when a handler throws. A receipt is stored before it is read,
+so a failed reading is S-5, as before.
+
 ## The processor ports
 
 `CorrectionInterpreter` (`src/processor/correction-interpreter.ts`) reads a correction text.
@@ -231,6 +242,7 @@ The error names every missing required variable.
 | `ANOMANDER_VISION_MODEL` | required, provider-qualified |
 | `ANOMANDER_DB_PATH` | `./data/anomander.db` |
 | `ANOMANDER_DAILY_AI_CALL_LIMIT` | `200` |
+| `ANOMANDER_PROCESSOR_TIMEOUT_SECONDS` | `60` |
 | `ANOMANDER_WEEKLY_SUMMARY_CRON` | `0 20 * * 0` |
 | `ANOMANDER_RETENTION_CRON` | `0 3 * * *` |
 | `ANOMANDER_INBOX_DIR` | `./data/inbox` |
@@ -255,6 +267,10 @@ presses buttons with `updates.callbackQuery` and moves its clock to test the 15 
 Store and cycle tests use a real SQLite file in a `mkdtemp` folder under the system temp
 directory, removed after each test. The processor is a fake in cycle tests and a recorded
 response in contract tests; no test calls a live model.
+
+The receipt evaluation (`scripts/eval-receipts.ts`, `pnpm eval:receipts`) does call live
+models: it measures how well each one reads the receipts in `evals/receipts/cases/`, which stay
+out of git. See `evals/receipts/README.md`.
 
 ## Invariants
 

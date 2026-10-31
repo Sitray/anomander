@@ -16,7 +16,9 @@ export interface CorrectionInterpreterInput {
 
 export type CorrectionInterpretation =
   | { kind: 'correction'; inferences: ProcessorInference[] }
-  | { kind: 'invalid'; reason: string };
+  | { kind: 'invalid'; reason: string }
+  /** The processor failed or did not answer in time (R-22 AC1). */
+  | { kind: 'failed'; reason: string };
 
 export type CorrectionInterpreter = (
   input: CorrectionInterpreterInput,
@@ -74,6 +76,10 @@ export const createPiAiCorrectionInterpreter =
       logger.warn('correction interpretation failed', { reason });
       return { kind: 'invalid', reason };
     };
+    const failed = (reason: string): CorrectionInterpretation => {
+      logger.warn('correction interpretation failed', { reason });
+      return { kind: 'failed', reason };
+    };
     // R-14 AC3: one system prompt and one user turn; the context never carries `tools`.
     const context: Context = {
       systemPrompt: CORRECTION_INTERPRETER_PROMPT,
@@ -90,7 +96,10 @@ export const createPiAiCorrectionInterpreter =
     try {
       response = await complete(model, context);
     } catch (error) {
-      return invalid(`processor call failed: ${(error as Error).message}`);
+      return failed(`processor call failed: ${(error as Error).message}`);
+    }
+    if (response.stopReason === 'error' || response.stopReason === 'aborted') {
+      return failed(`processor stopped: ${response.errorMessage ?? response.stopReason}`);
     }
     if (response.stopReason !== 'stop') {
       return invalid(`processor stopped: ${response.errorMessage ?? response.stopReason}`);

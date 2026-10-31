@@ -34,7 +34,8 @@ const visionModel =
 const anomander = (() => {
   try {
     return startAnomander(config, {
-      complete: (target, context) => models.complete(target, context),
+      complete: (target, context, signal) =>
+        models.complete(target, context, signal === undefined ? {} : { signal }),
       model,
       visionModel,
     });
@@ -50,7 +51,10 @@ anomander.started.then(
 
 const stop = (signal: NodeJS.Signals): void => {
   console.info(`anomander daemon stopping (${signal})`);
-  void anomander.stop();
+  anomander.stop().then(
+    () => console.info('anomander daemon stopped'),
+    (error) => fail(`could not stop cleanly: ${reason(error)}`),
+  );
 };
 
 process.once('SIGTERM', stop);

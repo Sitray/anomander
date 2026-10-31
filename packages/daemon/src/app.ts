@@ -11,6 +11,7 @@ import { createPiAiCorrectionInterpreter } from './processor/correction-interpre
 import { createPiAiReceiptReader } from './processor/receipt-reader.ts';
 import { createPiAiReplyPhraser } from './processor/reply-phraser.ts';
 import { type Complete, createPiAiTextInterpreter } from './processor/text-interpreter.ts';
+import { withTimeout } from './processor/timeout.ts';
 import { createKeepReceiptAnswerHandler } from './retention/keep-receipt-decision.ts';
 import { createRetention } from './retention/retention-job.ts';
 import { startScheduler } from './scheduler/scheduler.ts';
@@ -21,7 +22,7 @@ import { applyMigrations, openDatabase } from './store/database.ts';
 // responses and the fake Telegram API.
 
 export interface AnomanderDeps<M> {
-  /** The processor call: pi-ai's `models.complete` (R-14 AC3). */
+  /** The processor call: pi-ai's `models.complete` (R-14 AC3). It must honour `signal`. */
   complete: Complete<M>;
   /** `ANOMANDER_MODEL`, resolved by the caller (R-15 AC1). */
   model: M;
@@ -56,7 +57,8 @@ export const startAnomander = <M>(config: Config, deps: AnomanderDeps<M>): Anoma
     timeZone: config.timeZone,
     now,
   });
-  const ai = budgeted(complete, budget);
+  const timed = withTimeout(complete, config.processorTimeoutMs);
+  const ai = budgeted(timed, budget);
 
   const phraser = createPiAiReplyPhraser({ complete: ai, model, logger });
   const onText = createTextRouter({
@@ -83,7 +85,7 @@ export const startAnomander = <M>(config: Config, deps: AnomanderDeps<M>): Anoma
   const vision = deps.visionModel === undefined ? config.model : config.visionModel;
   const receipts = createReceiptExpenseCycle({
     db,
-    reader: createPiAiReceiptReader({ complete, model: deps.visionModel ?? model, logger }),
+    reader: createPiAiReceiptReader({ complete: timed, model: deps.visionModel ?? model, logger }),
     phraser,
     inboxDir: config.inboxDir,
     timeZone: config.timeZone,
