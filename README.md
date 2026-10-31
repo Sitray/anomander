@@ -28,7 +28,7 @@ Design order, never reversed:
 
 1. World and ontology: what things exist.
 2. Truth and authority: who may assert what, and who may authorize what.
-3. Capabilities and operations: what the system must be able to do.
+3. Capabilities and operations: what the system must be able to do.gentle
 4. Providers: which stores, models, databases and apps implement those capabilities.
 
 ## How it fits together
@@ -92,7 +92,7 @@ ANOMANDER is an open-source project in a public repository, released under the [
 
 ## Documentation
 
-As in gentle-dot, the documentation lives in a `docs/` folder:
+The documentation lives in a `docs/` folder:
 
 | File | Contents |
 | --- | --- |
