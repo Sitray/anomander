@@ -20,6 +20,8 @@ export interface RecentTurns {
   add(principal: string | null, reply: string): void;
   /** The last turns, oldest first, none older than 30 minutes. */
   recent(): RecentTurn[];
+  /** Empties the turns: a confirmed forget (R-23 AC6) calls it, so the fact leaves the context. */
+  clear(): void;
 }
 
 export const createRecentTurns = ({ now }: { now: () => Date }): RecentTurns => {
@@ -35,6 +37,9 @@ export const createRecentTurns = ({ now }: { now: () => Date }): RecentTurns => 
       fresh();
     },
     recent: () => fresh().map(({ principal, reply }) => ({ principal, reply })),
+    clear: () => {
+      turns = [];
+    },
   };
 };
 

@@ -25,6 +25,15 @@ describe('recent turns', () => {
     expect(turns.recent()).toEqual([{ principal: 'new', reply: 'new reply' }]);
   });
 
+  it('forgets every turn when cleared, as a confirmed forget does (R-23 AC6)', () => {
+    const turns = createRecentTurns({ now: () => new Date('2026-10-31T10:00:00Z') });
+    turns.add('soy vegetariano', 'Apuntado.');
+
+    turns.clear();
+
+    expect(turns.recent()).toEqual([]);
+  });
+
   it('records a message sent unasked as a turn with no principal part', async () => {
     const turns = createRecentTurns({ now: () => new Date('2026-10-31T10:00:00Z') });
     const sent: string[] = [];

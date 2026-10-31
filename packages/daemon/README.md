@@ -182,7 +182,8 @@ and button handlers (a receipt is `[foto de ticket]` and its caption, a press `[
 and `recordingNotices` wraps `notify`, so a message sent unasked is a turn with no principal part.
 Turns live only in this process: they are never written to the database or logged, and a restart
 loses them. They give context only: an expense's amount must still be written in the current message
-(R-2 AC6), so a recent turn never becomes an expense fact.
+(R-2 AC6), so a recent turn never becomes an expense fact. `clear()` empties them; a confirmed forget
+calls it (R-23 AC6) so the forgotten fact leaves the context as well.
 
 ## Conversation memory (R-23)
 
