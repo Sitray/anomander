@@ -286,7 +286,7 @@ Code checks every proposed receipt expense.
 - AC1: The images are deleted from disk as soon as extraction finishes (successfully or not), `documents.status` leaves `'queued'` and `documents.image_deleted_at` is set.
 - AC2: Exception: if the daily AI budget is exhausted (R-12), the document stays `'queued'` with its images on disk and `keep_until` set to 24 hours after `received_at`.
 - AC3: If a queued receipt is still unread 1 hour before `keep_until`, the principal receives S-13 with buttons "Sí" and "No".
-- AC4: "Sí" extends `keep_until` until the receipt is read, up to 7 days after `received_at`. "No", or no answer, leaves `keep_until` as it is.
+- AC4: "Sí" extends `keep_until` until the receipt is read, up to 7 days after `received_at`, and replies S-24 with that last day. "No", or no answer, leaves `keep_until` as it is; "No" replies S-25.
 - AC5: When `keep_until` passes with the receipt still unread, the retention job (R-19) deletes the images, sets `documents.status = 'discarded'` and sends S-14. A receipt is never deleted unread without telling the principal.
 
 ### R-9 Verification reply
@@ -404,6 +404,8 @@ Amounts are formatted with `Intl.NumberFormat('es-ES', { style: 'currency', curr
 | S-21 | `La fecha {fecha} es posterior a hoy. ¿Me dices cuándo fue el gasto?` |
 | S-22 | `Algo ha fallado y no he podido procesar tu mensaje. ¿Me lo vuelves a enviar en un rato?` |
 | S-23 | `Descartado: no he apuntado {total} en {comercio}.` |
+| S-24 | `Vale, lo guardo hasta poder leerlo, como mucho hasta el {fecha}.` |
+| S-25 | `Vale, si no consigo leerlo antes, lo borro en una hora.` |
 
 When there is no category, `{categoria}` is `sin clasificar`. In S-9, each category name in `{desglose}` starts with a capital letter (R-10 AC4), for example `Supermercado 45,20 € · Restaurantes 23,00 € · Sin clasificar 0,00 €`. Button labels: `Apuntar`, `Corregir`, `Descartar`, and for S-11, S-12, S-13 and S-15 `Sí` and `No`.
 
@@ -588,6 +590,17 @@ JOIN entities m   ON m.id = e.merchant_id
 JOIN categories c ON c.id = e.category_id
 WHERE c.name = 'supermercado'
   AND e.status = 'current';
+```
+
+The daily AI budget (R-12) is counted in its own table, added by a later migration:
+
+```sql
+-- Daily AI budget (R-12): processor calls per day in TZ
+CREATE TABLE ai_usage (
+  day TEXT PRIMARY KEY,             -- 'YYYY-MM-DD' in TZ
+  calls INTEGER NOT NULL,           -- processor calls counted that day (R-12 AC1)
+  limit_notified INTEGER NOT NULL DEFAULT 0  -- 1 once S-10 was sent that day (R-12 AC2)
+);
 ```
 
 Migrations are versioned SQL files applied at startup. Seed data: the principal entity, the two categories, the "Keep my expenses" matter and the starting permission.

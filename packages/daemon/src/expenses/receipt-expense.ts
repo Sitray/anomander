@@ -19,6 +19,7 @@ import {
   UNCATEGORIZED,
 } from '@anomander/protocol';
 import type Database from 'better-sqlite3';
+import type { AiBudget } from '../budget/ai-budget.ts';
 import type {
   Inferred,
   ReceiptRead,
@@ -27,6 +28,7 @@ import type {
 } from '../processor/receipt-reader.ts';
 import type { ReplyPhraser } from '../processor/reply-phraser.ts';
 import type { Logger } from '../processor/text-interpreter.ts';
+import { findWaitingReceipt, queueReceipt } from '../retention/queued-receipts.ts';
 import {
   listActivePolicies,
   listCategories,
@@ -63,6 +65,11 @@ export interface ReceiptExpenseDeps {
   /** Words S-1 and S-2 (R-21). */
   phraser: ReplyPhraser;
   logger: Logger;
+  /**
+   * The daily AI budget (R-12). Reading a receipt reserves its processor call here, so the
+   * reader itself must not count it again. Without a budget, every receipt is read at once.
+   */
+  budget?: AiBudget;
 }
 
 // Image files get generated names; nothing a sender chose ever reaches the file system.
@@ -115,8 +122,15 @@ const questionFor = (
   }
 };
 
-export const createReceiptExpenseHandler = (deps: ReceiptExpenseDeps): ReceiptHandler => {
-  const { db, reader, inboxDir, timeZone, now, processorSource, phraser, logger } = deps;
+export interface ReceiptExpenseCycle {
+  /** A receipt the principal sent. `null` means nothing to send: S-10 went out earlier today. */
+  onReceipt(receipt: PrincipalReceipt): Promise<Reply | null>;
+  /** Reads a queued receipt (R-12 AC3); `null` while the budget still refuses. */
+  readQueued(documentId: number): Promise<Reply | null>;
+}
+
+export const createReceiptExpenseCycle = (deps: ReceiptExpenseDeps): ReceiptExpenseCycle => {
+  const { db, reader, inboxDir, timeZone, now, processorSource, phraser, logger, budget } = deps;
 
   const folderOf = (documentId: number) => join(inboxDir, String(documentId));
 
@@ -142,10 +156,23 @@ export const createReceiptExpenseHandler = (deps: ReceiptExpenseDeps): ReceiptHa
   };
 
   /**
-   * The seam for the daily AI budget (R-12, R-8 AC2): whether a received receipt is read now or
-   * stays queued with its images on disk. Until the budget exists, it is always read now.
+   * The daily AI budget (R-12 AC2, R-8 AC2): whether a receipt is read now or stays queued with
+   * its images on disk. A yes reserves the reader's processor call against today's cap.
    */
-  const mayReadNow = (_documentId: number): boolean => true;
+  const mayReadNow = (_documentId: number): boolean => budget === undefined || budget.tryConsume();
+
+  /** R-8 AC2, R-12 AC2: queued for 24 hours; S-10 once that day, nothing after it. */
+  const queue = (receipt: PrincipalReceipt, documentId: number): Reply | null => {
+    queueReceipt(db, {
+      documentId,
+      channelRef: receipt.channelRef,
+      receivedAt: receipt.receivedAt,
+      caption: receipt.caption,
+      now: now().toISOString(),
+    });
+    logger.info('daily AI budget exhausted; receipt queued', { documentId });
+    return budget?.claimLimitNotice() === true ? { text: strings.aiLimitReached() } : null;
+  };
 
   /** §10 step 2 and R-8 AC1: read the images, then delete them whatever the outcome. */
   const read = async (documentId: number, caption: string | null) => {
@@ -319,11 +346,7 @@ export const createReceiptExpenseHandler = (deps: ReceiptExpenseDeps): ReceiptHa
     };
   };
 
-  return async (receipt) => {
-    const documentId = await receive(receipt);
-    if (!mayReadNow(documentId)) {
-      throw new Error('queued receipts are not supported yet (R-12)');
-    }
+  const readAndRegister = async (receipt: PrincipalReceipt, documentId: number) => {
     const reading = await read(documentId, receipt.caption);
     if (reading.kind === 'unreadable') {
       // R-3 AC3: S-5, verbatim, and no expense.
@@ -332,4 +355,24 @@ export const createReceiptExpenseHandler = (deps: ReceiptExpenseDeps): ReceiptHa
     }
     return register(receipt, documentId, reading);
   };
+
+  return {
+    onReceipt: async (receipt) => {
+      const documentId = await receive(receipt);
+      if (!mayReadNow(documentId)) return queue(receipt, documentId);
+      return readAndRegister(receipt, documentId);
+    },
+    readQueued: async (documentId) => {
+      const waiting = findWaitingReceipt(db, documentId);
+      if (waiting === null) throw new Error(`receipt ${documentId} is not waiting to be read`);
+      if (!mayReadNow(documentId)) return null;
+      // The images are already on disk; the rest of the cycle is the same (R-12 AC3).
+      const { channelRef, receivedAt, caption } = waiting;
+      return readAndRegister({ images: [], caption, channelRef, receivedAt }, documentId);
+    },
+  };
 };
+
+/** The `ReceiptHandler` of the front door; a receipt queued after the day's S-10 gets no reply. */
+export const createReceiptExpenseHandler = (deps: ReceiptExpenseDeps): ReceiptHandler =>
+  createReceiptExpenseCycle(deps).onReceipt;

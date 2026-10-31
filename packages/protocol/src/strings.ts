@@ -54,6 +54,9 @@ export const strings = {
     'Algo ha fallado y no he podido procesar tu mensaje. ¿Me lo vuelves a enviar en un rato?',
   discarded: (total: number, merchant: string) =>
     `Descartado: no he apuntado ${formatAmount(total)} en ${merchant}.`,
+  receiptKept: (lastDay: string) =>
+    `Vale, lo guardo hasta poder leerlo, como mucho hasta el ${formatDate(lastDay)}.`,
+  receiptNotKept: () => 'Vale, si no consigo leerlo antes, lo borro en una hora.',
 } as const;
 
 /** PRD §12 button labels (R-6 AC3; S-11, S-12, S-13 and S-15 use `Sí` and `No`). */
