@@ -17,7 +17,7 @@ export interface PhraseRequest {
 /** Always resolves to a text that can be sent: the phrased one or the reference. */
 export type ReplyPhraser = (request: PhraseRequest) => Promise<string>;
 
-export const REPLY_PHRASER_PROMPT = `You word the replies of a personal expenses assistant that talks to its user in Spanish (es-ES). You can only answer; you have no tools.
+export const REPLY_PHRASER_PROMPT = `You word the replies of a personal assistant that talks to its user in Spanish (es-ES). You can only answer; you have no tools.
 
 The user turn is a JSON object with "reference" (the reply to send), "facts" and "message" (what the user wrote).
 Rewrite the reference as one short, warm reply in Spanish (es-ES) that says the same thing.

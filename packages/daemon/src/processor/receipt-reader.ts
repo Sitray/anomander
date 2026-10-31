@@ -52,7 +52,7 @@ export type ReceiptReading = ReceiptRead | { kind: 'unreadable'; reason: string 
 /** The vision processor port. */
 export type ReceiptReader = (input: ReceiptReaderInput) => Promise<ReceiptReading>;
 
-export const RECEIPT_READER_PROMPT = `You read the images of one shop receipt for a personal expenses assistant. You can only answer; you have no tools and you never store anything.
+export const RECEIPT_READER_PROMPT = `You read the images of one shop receipt for a personal assistant. You can only answer; you have no tools and you never store anything.
 
 Reply with exactly one JSON object and nothing else.
 

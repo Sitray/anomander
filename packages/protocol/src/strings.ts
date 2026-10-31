@@ -14,6 +14,54 @@ export const formatAmount = (cents: number): string => amountFormat.format(cents
 export const formatDate = (isoDate: string): string =>
   dateFormat.format(new Date(`${isoDate}T00:00:00Z`));
 
+/** R-25 AC11: `9:00 → a las 9:00`, but `1:00 → a la 1:00`. `time` is `HH:mm`. */
+const atTime = (time: string): string => {
+  const [hours = '0', minutes = '00'] = time.split(':');
+  const hour = Number(hours);
+  return `${hour === 1 ? 'a la' : 'a las'} ${hour}:${minutes}`;
+};
+
+/** `['a', 'b', 'c']` → `a, b y c`. */
+const joined = (items: readonly string[]): string =>
+  items.length <= 1 ? (items[0] ?? '') : `${items.slice(0, -1).join(', ')} y ${items.at(-1)}`;
+
+const DAY_MS = 86_400_000;
+
+/**
+ * `{cuando}` of a one-time reminder (R-25 AC11), from its local date (`YYYY-MM-DD`) and time
+ * (`HH:mm`) in `TZ` and today there: `hoy a las 9:00`, `mañana …`, `ayer …` or
+ * `el 29 de octubre a las 9:00`.
+ */
+export const formatWhenOnce = (date: string, time: string, today: string): string => {
+  const days = Math.round(
+    (Date.parse(`${date}T00:00:00Z`) - Date.parse(`${today}T00:00:00Z`)) / DAY_MS,
+  );
+  const day =
+    days === 0 ? 'hoy' : days === 1 ? 'mañana' : days === -1 ? 'ayer' : `el ${formatDate(date)}`;
+  return `${day} ${atTime(time)}`;
+};
+
+/** A repetition as stored in `recurrence_json` (PRD §13): `days` 1 Monday to 7 Sunday. */
+export interface RecurrenceWhen {
+  freq: 'daily' | 'weekly' | 'monthly';
+  days?: readonly number[];
+  day?: number;
+  time: string;
+}
+
+const WEEKDAYS = ['lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábados', 'domingos'];
+
+/**
+ * `{cuando}` of a repeating reminder (R-25 AC11): `todos los días a las 9:00`,
+ * `todos los lunes y jueves a las 8:00` or `el día 15 de cada mes a las 9:00`.
+ */
+export const formatRecurrence = ({ freq, days = [], day, time }: RecurrenceWhen): string => {
+  if (freq === 'daily') return `todos los días ${atTime(time)}`;
+  if (freq === 'monthly') return `el día ${day} de cada mes ${atTime(time)}`;
+  const names = [...new Set(days)].sort((a, b) => a - b).map((d) => WEEKDAYS[d - 1] ?? '');
+  return `todos los ${joined(names)} ${atTime(time)}`;
+};
+
 /** `{categoria}` when there is no category. */
 export const UNCATEGORIZED = 'sin clasificar';
 
@@ -113,6 +161,12 @@ export const strings = {
     `Hecho, he guardado la regla «${merchant} es ${categoryName}».`,
   policyExists: (merchant: string, categoryName: string) =>
     `Ya tengo la regla «${merchant} es ${categoryName}».`,
+  /** S-40, with `when` from `formatWhenOnce` or `formatRecurrence`. */
+  reminderSet: (when: string, text: string) => `Te lo recuerdo ${when}: ${text}.`,
+  taskAdded: (text: string) => `Apuntado en tus pendientes: ${text}.`,
+  recurrenceUnsupported: () =>
+    'Todavía no sé repetir recordatorios así. Puedo cada día, cada semana o cada mes.',
+  timePassed: () => 'Esa hora ya pasó. ¿Para cuándo lo quieres?',
 } as const;
 
 /** PRD §12 button labels (R-6 AC3; S-11, S-12, S-13, S-15 and S-29 use `Sí` and `No`). */

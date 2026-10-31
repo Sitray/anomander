@@ -240,12 +240,36 @@ CREATE TRIGGER memory_texts_unindexed AFTER DELETE ON memory_texts BEGIN
 END;
 ```
 
+Reminders and tasks (PRD R-25) are added by the migration `0005_reminders.sql`. Each one rests on a `reminder` assertion about it (subject type `reminder`, mode `declared`, actor `principal`, source the Telegram message); the assertion's value only points at the row, so the text lives in `reminders` alone. A task is a row with no `due_at`:
+
+```sql
+-- Reminders and tasks (R-25): each one rests on a `reminder` assertion declared by the principal
+CREATE TABLE reminders (
+  id INTEGER PRIMARY KEY,
+  text TEXT NOT NULL,               -- what to remember, quoted from the principal's message
+  due_at TEXT,                      -- next time to send it, UTC; NULL for a task
+  recurrence_json TEXT,             -- {"freq": "weekly", "days": [1, 4], "time": "08:00"}; NULL when it happens once
+  status TEXT NOT NULL CHECK (status IN ('pending', 'sent', 'done', 'cancelled')),
+  declared_by_assertion_id INTEGER NOT NULL REFERENCES assertions(id),
+  created_at TEXT NOT NULL,
+  last_sent_at TEXT,
+  closed_at TEXT,                   -- when it became sent, done or cancelled
+  CHECK (recurrence_json IS NULL OR due_at IS NOT NULL)
+);
+
+-- The every-minute send (R-25 AC7) reads only pending reminders that have a time
+CREATE INDEX reminders_due ON reminders (due_at) WHERE status = 'pending' AND due_at IS NOT NULL;
+```
+
+In `recurrence_json`, `freq` is `daily`, `weekly` with `days` (1 Monday to 7 Sunday) or `monthly` with `day` (1 to 31); `time` is local `HH:mm` in `TZ`. A repeating reminder's `due_at` is always its next occurrence.
+
 Schema decisions:
 
 - **Money is stored in cents** (`INTEGER`), never as decimals, so that sums add up exactly.
 - **Nothing is deleted or overwritten in `assertions`.** A correction of mine creates a new assertion that points to the earlier one (`supersedes_id`) and marks it as refuted. Two triggers enforce it: only `status` may change, and no row may be deleted.
 - **A confirmation points at what it confirms** (`confirms_id`). Its actor is `principal` when I confirm, or `code` when a deterministic check corroborates the assertion.
 - **Receipt images are temporary.** `documents.status` and `keep_until` track the queue used when the daily AI budget runs out (PRD R-8, R-12).
+- **Reminders keep their time in UTC and their repetition in local time.** `due_at` is the next instant to send, so the every-minute send reads one indexed column; `recurrence_json.time` stays local in `TZ`, so a daily 9:00 is still 9:00 after a daylight-saving change (PRD R-25).
 - **The daily AI budget is counted in the database** (`ai_usage`, one row per day in `TZ`), so a restart does not reset it, and `limit_notified` makes the limit notice go out once a day (PRD R-12).
 - **At most one pending decision waits for my text** (`awaiting_text`), enforced by a partial unique index (PRD R-17).
 - **The database does not stop the processor from writing "confirmed"; the code does.** The processor never writes directly: it returns inferences and proposals, and only the code that checks authority turns them into rows.

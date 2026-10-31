@@ -248,3 +248,14 @@ describe('0004_conversation_memory.sql', () => {
     );
   });
 });
+
+// PRD §13: reminders and tasks (R-25) are the fourth SQL block of the data model.
+describe('0005_reminders.sql', () => {
+  it('equals the fourth SQL block of PRD §13', () => {
+    const prd = readFileSync(resolve(import.meta.dirname, '../../../../PRD.md'), 'utf8');
+    const section = prd.split('## 13. Data model')[1]?.split('\n## ')[0] ?? '';
+    const block = section.split('```sql\n')[4]?.split('```')[0] ?? '';
+    expect(block).toContain('CREATE TABLE reminders');
+    expect(readFileSync(resolve(MIGRATIONS_DIR, '0005_reminders.sql'), 'utf8')).toBe(block);
+  });
+});

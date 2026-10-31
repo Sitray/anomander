@@ -123,6 +123,8 @@ describe('text expense handler', () => {
       categories: ['restaurantes', 'supermercado'],
       recent: [],
       memories: [],
+      // R-25 AC1: the registered capabilities add their context.
+      capabilities: { reminders: expect.objectContaining({ pending: [] }) },
     });
     expect(reply.text).toBe('Apuntado: 23,00\u00a0€ (restaurantes).');
     const row = onlyExpense();
