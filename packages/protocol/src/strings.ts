@@ -50,6 +50,10 @@ export const strings = {
   imageTooLarge: () => 'La imagen es demasiado grande. ¿Me mandas una foto más ligera?',
   futureDate: (date: string) =>
     `La fecha ${formatDate(date)} es posterior a hoy. ¿Me dices cuándo fue el gasto?`,
+  processingFailed: () =>
+    'Algo ha fallado y no he podido procesar tu mensaje. ¿Me lo vuelves a enviar en un rato?',
+  discarded: (total: number, merchant: string) =>
+    `Descartado: no he apuntado ${formatAmount(total)} en ${merchant}.`,
 } as const;
 
 /** PRD §12 button labels (R-6 AC3; S-11, S-12, S-13 and S-15 use `Sí` and `No`). */
