@@ -120,6 +120,68 @@ export const readReminder = (db: Database.Database, id: number): Reminder => {
   return fromRow(row);
 };
 
+export interface TaskSchedule {
+  /** UTC. */
+  dueAt: string;
+  recurrence: Recurrence | null;
+}
+
+/**
+ * R-25 AC5: a pending task gets a time and becomes a reminder; the row and its assertion stay,
+ * only `due_at` and `recurrence_json` change. Returns whether it was still a pending task.
+ */
+export const scheduleTask = (db: Database.Database, id: number, schedule: TaskSchedule): boolean =>
+  db
+    .prepare(
+      `UPDATE reminders SET due_at = ?, recurrence_json = ?
+       WHERE id = ? AND status = 'pending' AND due_at IS NULL`,
+    )
+    .run(
+      schedule.dueAt,
+      schedule.recurrence === null ? null : JSON.stringify(canonical(schedule.recurrence)),
+      id,
+    ).changes === 1;
+
+/**
+ * R-25 AC9: each given reminder or task still pending becomes `cancelled` and its `reminder`
+ * assertion `expired`. Call it inside the transaction that answers the decision. Returns the ids
+ * cancelled.
+ */
+export const cancelReminders = (
+  db: Database.Database,
+  ids: readonly number[],
+  now: string,
+): number[] =>
+  ids.filter((id) => {
+    const changed = db
+      .prepare(
+        "UPDATE reminders SET status = 'cancelled', closed_at = ? WHERE id = ? AND status = 'pending'",
+      )
+      .run(now, id).changes;
+    if (changed !== 1) return false;
+    db.prepare(
+      `UPDATE assertions SET status = 'expired'
+       WHERE id = (SELECT declared_by_assertion_id FROM reminders WHERE id = ?)`,
+    ).run(id);
+    return true;
+  });
+
+/**
+ * R-25 AC10: each given reminder or task still pending becomes `done`; the row is kept, never
+ * deleted. Returns the ids marked done.
+ */
+export const markDone = (db: Database.Database, ids: readonly number[], now: string): number[] =>
+  db.transaction(() =>
+    ids.filter(
+      (id) =>
+        db
+          .prepare(
+            "UPDATE reminders SET status = 'done', closed_at = ? WHERE id = ? AND status = 'pending'",
+          )
+          .run(now, id).changes === 1,
+    ),
+  )();
+
 /** R-25 AC1, AC8: pending reminders, soonest first, then pending tasks, oldest first. */
 export const listPending = (db: Database.Database): Reminder[] =>
   db

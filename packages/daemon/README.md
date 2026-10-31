@@ -89,7 +89,8 @@ Every incoming message has exactly one destination, decided by code (R-17):
    (AC1). Otherwise the answer goes to the handler of the proposal's `operation`, from the
    dispatch table (`createDecisionAnswers`, a plain record; add another operation by spreading
    it: `{ ...createDecisionAnswers(deps), keep_receipt: ... }`). `app.ts` adds `keep_receipt`
-   (R-8), `forget_memory` (R-23 AC6) and `create_category` (R-18).
+   (R-8), `forget_memory` (R-23 AC6), `create_category` (R-18), `create_policy` (R-13) and
+   `cancel_reminder` (R-25 AC9).
 2. **A text** goes through `createTextRouter` (`src/decisions/router.ts`), in this order:
    - a Telegram reply to the message of an `open` or `awaiting_text` decision corrects that
      decision (AC2);
@@ -354,6 +355,19 @@ writes the row and its declared `reminder` assertion in one transaction and the 
 S-41 for a task, phrased in the same call and checked by `checkedPhrasing`. `src/reminders/when.ts`
 holds the date math in `TZ`: local time to UTC, the next occurrence of a repetition (a monthly
 day a month lacks falls on its last day) and `{cuando}`. Never log a reminder's text (AC12).
+
+A `reminder_create` with an `id` gives that pending task a time (AC5): by the same rules (S-51,
+S-52), `scheduleTask` sets only `due_at` and `recurrence_json` on the same row, which keeps its
+text and assertion, and the reply is S-40; an id that is not a pending task gets S-49. The other
+kinds carry ids the processor picked; code keeps only the pending ones (`pendingAmong`).
+`reminder_list` is listed by code (AC8): S-44, reminders soonest first then tasks oldest first, as
+`listPending` orders them, or S-45. `reminder_done` (AC10) sets each one `done` at once, without
+buttons, and replies S-50 with the texts joined, or S-49; the rows are kept. `reminder_cancel`
+(AC9) follows the forget pattern: S-49 when nothing matches, otherwise a `cancel_reminder`
+proposal (`openCancelReminderDecision`, only the S-46 header stored as the question) asked with
+`Sí` and `No`. Its answer (`src/decisions/cancel-reminder-decision.ts`) on `Sí` runs
+`cancelReminders` in the answering transaction: each item still pending becomes `cancelled` and its
+`reminder` assertion `expired`, then S-47; `No` changes nothing, S-48.
 
 ## The processor ports
 

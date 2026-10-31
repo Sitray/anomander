@@ -363,6 +363,41 @@ export const openForgetMemoryDecision = (
     });
   })();
 
+export interface CancelReminderQuestion {
+  reminderIds: readonly number[];
+  /** The S-46 header only: a reminder's text stays in `reminders` (R-25 AC9). */
+  question: string;
+  options: readonly string[];
+  now: string;
+}
+
+/**
+ * R-25 AC9: a `cancel_reminder` proposal, `asked`, naming the pending reminders and tasks to
+ * cancel, and its pending decision. Reminders belong to no matter. Returns the decision.
+ */
+export const openCancelReminderDecision = (
+  db: Database.Database,
+  ask: CancelReminderQuestion,
+): number =>
+  db.transaction(() => {
+    const proposal = db
+      .prepare(
+        `INSERT INTO proposals (matter_id, operation, payload_json, basis_json, status, created_at)
+         VALUES (NULL, 'cancel_reminder', ?, ?, 'asked', ?)`,
+      )
+      .run(
+        JSON.stringify({ reminder_ids: ask.reminderIds }),
+        JSON.stringify({ rule: 'R-25 AC9' }),
+        ask.now,
+      );
+    return openPendingDecision(db, {
+      proposalId: Number(proposal.lastInsertRowid),
+      question: ask.question,
+      options: ask.options,
+      now: ask.now,
+    });
+  })();
+
 export interface CreateCategoryQuestion {
   /** The name the principal wrote, lowercase (R-18 AC2). */
   name: string;

@@ -10,10 +10,10 @@ A capability is a module that declares four things to the daemon (`packages/daem
 
 | Part | What it is | Reminders |
 | --- | --- | --- |
-| `kinds` | The envelope kinds it handles; no two capabilities share one | `reminder_create` |
+| `kinds` | The envelope kinds it handles; no two capabilities share one | `reminder_create`, `reminder_list`, `reminder_cancel`, `reminder_done` |
 | `prompt` | The instructions and JSON shape it adds to the text interpreter's prompt | "If the user asks you to remind them…" |
-| `schema` | The Zod schema code validates the processor's call with | `text`, `at`, `recurrence`, `unsupported_recurrence`, `reply` |
-| `handle` | The handler that carries out a validated call and returns the reply | Stores the reminder and replies S-40 or S-41 |
+| `schema` | The Zod schema code validates the processor's call with | One `z.discriminatedUnion('kind', …)` over the four kinds |
+| `handle` | The handler that carries out a validated call and returns the reply | Stores, lists, cancels or completes reminders and replies S-40 to S-52 |
 
 It may also declare `context`: what the processor needs to read the message, sent in the interpreter's user turn under the capability's `name`. Reminders sends the local time in `TZ` and the pending reminders and tasks (R-25 AC1).
 
@@ -51,5 +51,15 @@ The processor never carries out anything: it has no tools and never writes (R-14
 The handler checks, in this order: an unsupported repetition (S-51); that `text` is the principal's own words, with `quotedFrom` (otherwise S-22, nothing stored); that a one-time `at` has not passed (S-52). Then `createReminder` stores the row and its `reminder` assertion (mode `declared`, actor `principal`, source the Telegram message) in one transaction. A repeating reminder's `due_at` is its first occurrence after now, computed in `TZ` by `src/reminders/when.ts`; a monthly day a month does not have falls on its last day.
 
 The reply is built from the stored row: `{cuando}` comes from `whenOf`, and the processor's `reply` is sent only if `checkedPhrasing` finds the text and `{cuando}` in it; otherwise S-40 or S-41 goes out verbatim.
+
+A `reminder_create` with an `id` naming a pending task gives that task a time: the same checks apply, the row keeps its text and assertion, and only `due_at` and `recurrence_json` change (R-25 AC5).
+
+The other three kinds work on the pending items the processor was given; any id that is not pending is dropped:
+
+- `reminder_list` is listed by code, never worded by the processor: S-44 or S-45 (R-25 AC8).
+- `reminder_cancel` copies the forget pattern: code asks S-46 with `Sí` and `No` through a `cancel_reminder` decision, and only `Sí` cancels (R-25 AC9).
+- `reminder_done` marks the items `done` at once and keeps them (R-25 AC10).
+
+Sending is not part of the capability: it is a scheduler job. `src/reminders/send-due.ts` runs at startup and every minute, before the receipt queue (R-25 AC7). It sends each pending reminder whose `due_at` has come through `notify`, so the message is recorded as a turn (R-16 AC3): S-42, or S-43 with `{cuando}` when it goes out more than 10 minutes late. A one-time reminder then becomes `sent`; a repeating one sends only its latest missed occurrence and moves `due_at` to its next occurrence after now. A reminder is marked only after its send succeeds, so a failed send is logged by id and retried on the next minute. Tasks have no `due_at` and are never sent.
 
 Reminder text is the principal's private data. It never appears in a log (R-25 AC12): log calls carry the channel reference and reasons, never the text, the quote or the reply.

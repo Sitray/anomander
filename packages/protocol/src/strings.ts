@@ -70,8 +70,21 @@ const category = (name: string | null): string => name ?? UNCATEGORIZED;
 /** S-9 writes each category name with a capital letter: `supermercado` → `Supermercado`. */
 const capitalized = (name: string): string => name.charAt(0).toUpperCase() + name.slice(1);
 
-// S-27 and S-29: a header followed by one line per item.
+// S-27, S-29, S-44 and S-46: a header followed by one line per item.
 const lines = (header: string, items: readonly string[]): string => [header, ...items].join('\n');
+
+/** A pending reminder (`when` is its `{cuando}`) or task (`when` is `null`) in S-44 and S-46. */
+export interface PendingItem {
+  text: string;
+  when: string | null;
+}
+
+/** S-44 and S-46: `· {texto} ({cuando})` for a reminder, `· {texto}` for a task. */
+const pendingLines = (header: string, items: readonly PendingItem[]): string =>
+  lines(
+    header,
+    items.map(({ text, when }) => (when === null ? `· ${text}` : `· ${text} (${when})`)),
+  );
 
 export const strings = {
   registered: (total: number, merchant: string, categoryName: string | null) =>
@@ -167,9 +180,22 @@ export const strings = {
   recurrenceUnsupported: () =>
     'Todavía no sé repetir recordatorios así. Puedo cada día, cada semana o cada mes.',
   timePassed: () => 'Esa hora ya pasó. ¿Para cuándo lo quieres?',
+  reminderDue: (text: string) => `Recordatorio: ${text}.`,
+  /** S-43: sent more than 10 minutes late (R-25 AC7), with `when` from `formatWhenOnce`. */
+  reminderLate: (when: string, text: string) => `Recordatorio (era para ${when}): ${text}.`,
+  /** S-44: reminders soonest first, then tasks oldest first (R-25 AC8). */
+  pending: (items: readonly PendingItem[]) => pendingLines('Esto tienes pendiente:', items),
+  nothingPending: () => 'No tienes nada pendiente.',
+  /** S-46: the header, then one line per item. With no items, the header alone. */
+  confirmCancel: (items: readonly PendingItem[]) => pendingLines('¿Cancelo esto?', items),
+  cancelled: () => 'Hecho, cancelado.',
+  notCancelled: () => 'Vale, no cancelo nada.',
+  nothingPendingMatches: () => 'No encuentro nada así en tus pendientes.',
+  /** S-50: the texts joined with `, ` and ` y ` before the last one. */
+  markedDone: (texts: readonly string[]) => `Hecho: ${joined(texts)}.`,
 } as const;
 
-/** PRD §12 button labels (R-6 AC3; S-11, S-12, S-13, S-15 and S-29 use `Sí` and `No`). */
+/** PRD §12 button labels (R-6 AC3; S-11, S-12, S-13, S-15, S-29 and S-46 use `Sí` and `No`). */
 export const buttons = {
   register: 'Apuntar',
   correct: 'Corregir',
