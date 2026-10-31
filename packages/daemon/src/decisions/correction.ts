@@ -2,6 +2,7 @@ import { isCalendarDate, isLiteralAmount, todayIn } from '@anomander/core';
 import { type PrincipalText, type Reply, strings } from '@anomander/protocol';
 import type Database from 'better-sqlite3';
 import { textValue, writtenIn } from '../expenses/declarations.ts';
+import { type PatternOffers, thenOfferPattern } from '../patterns/pattern-offers.ts';
 import type { CorrectionInterpreter } from '../processor/correction-interpreter.ts';
 import type { Logger } from '../processor/text-interpreter.ts';
 import {
@@ -34,6 +35,8 @@ export interface ExpenseCorrectionDeps {
   timeZone: string;
   now: () => Date;
   logger: Logger;
+  /** Offers S-12 after a correction completes a pattern (R-13 AC2); none when absent. */
+  patterns?: PatternOffers;
 }
 
 /** The correction of a pending `register_expense` decision: the expense is corrected and registered. */
@@ -43,6 +46,7 @@ export const createExpenseCorrection = ({
   timeZone,
   now,
   logger,
+  patterns,
 }: ExpenseCorrectionDeps): CorrectionHandler => {
   /** Only what the principal actually wrote counts as their declaration (R-2 AC6, R-3 AC5). */
   const acceptedCorrection = async (
@@ -165,6 +169,6 @@ export const createExpenseCorrection = ({
     // R-9 AC1: S-8 from the stored row, verbatim (R-21 AC3: only S-1, S-2, S-16, S-21 are phrased).
     const stored = readExpense(db, expenseId);
     const text = strings.corrected(stored.total_cents, stored.merchant ?? '', stored.category);
-    return verifiedReply(db, actionId, text, now, logger);
+    return thenOfferPattern(verifiedReply(db, actionId, text, now, logger), expenseId, patterns);
   };
 };

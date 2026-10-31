@@ -1,5 +1,6 @@
 import { buttons, formatAmount, type Reply, strings, UNCATEGORIZED } from '@anomander/protocol';
 import type Database from 'better-sqlite3';
+import { type PatternOffers, thenOfferPattern } from '../patterns/pattern-offers.ts';
 import type { ReplyPhraser } from '../processor/reply-phraser.ts';
 import type { Logger } from '../processor/text-interpreter.ts';
 import {
@@ -18,6 +19,8 @@ export interface RegisterExpenseDecisionDeps {
   /** Words S-1 and S-2 (R-21). */
   phraser: ReplyPhraser;
   logger: Logger;
+  /** Offers S-12 after "Apuntar" completes a pattern (R-13 AC2); none when absent. */
+  patterns?: PatternOffers;
 }
 
 /** R-9 AC2: the delivered reply becomes the observation that verifies the action. */
@@ -37,7 +40,7 @@ export const verifiedReply = (
 });
 
 export const createRegisterExpenseDecision =
-  ({ phraser, logger }: RegisterExpenseDecisionDeps): DecisionAnswerHandler =>
+  ({ phraser, logger, patterns }: RegisterExpenseDecisionDeps): DecisionAnswerHandler =>
   async ({ db, decision, option, now }) => {
     const expenseId = pendingExpenseOf(db, decision);
     const at = now().toISOString();
@@ -89,5 +92,5 @@ export const createRegisterExpenseDecision =
             facts: [formatAmount(stored.total_cents), stored.merchant, category],
             message: option,
           });
-    return verifiedReply(db, actionId, text, now, logger);
+    return thenOfferPattern(verifiedReply(db, actionId, text, now, logger), expenseId, patterns);
   };

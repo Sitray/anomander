@@ -28,9 +28,10 @@ Every string of PRD §12 lives here, verbatim, with the button labels (`Apuntar`
 `Descartar`, `Sí`, `No`) in `buttons`. S-27 (`remembered`) and S-29 (`confirmForget`) are a
 header followed by one line per memory, joined with `\n`; with no memories, `confirmForget` is the
 header alone. S-9 (`weeklySummary`) takes the categories already sorted (R-10 AC4), writes each
-name with a capital letter and appends `Sin clasificar` last. Beside them are `formatAmount` (`23,40 €`, written by `Intl` with a no-break
+name with a capital letter and appends `Sin clasificar` last. S-12 (`proposePattern`) takes `{patron}`, built with
+`pattern(merchant, category)`. Beside them are `formatAmount` (`23,40 €`, written by `Intl` with a no-break
 space before `€`) and `formatDate` (`29 de octubre`). No other module may write
-bot text. S-1, S-2, S-16, S-21 and S-36 are also the reference and the fallback when the
+bot text. S-1, S-2, S-16, S-21, S-36 and S-39 are also the reference and the fallback when the
 assistant words a reply in its own voice (R-21, see `packages/daemon/README.md`); every other string is sent
 exactly as written.
 

@@ -50,13 +50,19 @@ export type Interpretation =
    * (R-21). Code proposes the category; the processor never creates one (R-5 AC3).
    */
   | { kind: 'category'; name: string; reply: string | null }
+  /**
+   * The principal states a rule, "Mercadona es supermercado" (R-13 AC1): the merchant and the
+   * category as written, and a conversational reply sent only when that rule is already active.
+   * Code asks S-11 before storing anything; the processor never stores a policy (§13).
+   */
+  | { kind: 'policy'; merchant: string; category: string; reply: string }
   | { kind: 'invalid'; reason: string }
   /** The processor failed or did not answer in time: nothing to interpret (R-22 AC1). */
   | { kind: 'failed'; reason: string }
   /** The daily AI budget is spent, so the processor was not called (R-12 AC4). */
   | { kind: 'budget_exhausted' };
 
-/** The processor port. A1: policies (R-13) arrive in M4. */
+/** The processor port. */
 export type TextInterpreter = (input: TextInterpreterInput) => Promise<Interpretation>;
 
 /** `models.complete` of pi-ai, or a recorded response in tests. */
@@ -97,6 +103,10 @@ If the user asks to create a category ("crea la categoría gasolina"), reply:
 {"kind":"category","name":"<the category name, written as the user wrote it>","reply":"<a short, friendly reply in Spanish (es-ES), at most 280 characters, saying the same as: La categoría «<name in lowercase>» ya existe.>"}
 You never create the category: the assistant asks the user first, and sends "reply" only if the category is already in "categories". Copy the name in "reply" exactly and add no number or amount.
 
+If the user states that a merchant always belongs to a category, as a rule and with no amount ("Mercadona es supermercado"), reply:
+{"kind":"policy","merchant":"<the merchant, written as the user wrote it>","category":"<the category, written as the user wrote it>","reply":"<a short, friendly reply in Spanish (es-ES), at most 280 characters, saying the same as: Ya tengo la regla «<merchant> es <category in lowercase>».>"}
+You never save the rule: the assistant asks the user first, and sends "reply" only if the rule is already saved. Copy both names in "reply" exactly and add no number or amount.
+
 The expense and conversation replies may also carry "memories": lasting facts about the user found in "message", such as "soy vegetariano" or "vivo en Madrid", never passing states such as "tengo hambre". Each memory is an object with these fields and no others:
 {"text":"<the fact, short, in Spanish>","quote":"<the words of the message it rests on>","said":<true if the user stated it, false if you deduced it>,"confidence":<number from 0 to 1>,"replaces":<the id of a listed memory it contradicts, or null>}
 Leave "memories" out when the message holds no lasting fact.
@@ -122,6 +132,12 @@ const envelopeSchema = z.discriminatedUnion('kind', [
     kind: z.literal('category'),
     name: z.string().trim().min(1),
     reply: z.string().trim().min(1).optional(),
+  }),
+  z.object({
+    kind: z.literal('policy'),
+    merchant: z.string().trim().min(1),
+    category: z.string().trim().min(1),
+    reply: z.string().trim().min(1),
   }),
 ]);
 
@@ -227,6 +243,11 @@ export const createPiAiTextInterpreter =
     // R-18 AC1: code checks the name is written and proposes it; the processor only points at it.
     if (envelope.data.kind === 'category') {
       return { kind: 'category', name: envelope.data.name, reply: envelope.data.reply ?? null };
+    }
+    // R-13 AC1: code checks both are written and asks S-11; the processor only points at them.
+    if (envelope.data.kind === 'policy') {
+      const { merchant, category, reply } = envelope.data;
+      return { kind: 'policy', merchant, category, reply };
     }
     const facts = memoryFactsOf(envelope.data.memories, logger);
     if (envelope.data.kind === 'conversation') {
