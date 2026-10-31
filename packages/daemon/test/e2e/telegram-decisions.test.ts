@@ -12,6 +12,7 @@ import {
 import type { AssistantMessage, Context } from '@earendil-works/pi-ai';
 import type Database from 'better-sqlite3';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { AiBudgetExhaustedError } from '../../src/budget/ai-budget.ts';
 import { createButtonHandler, createDecisionAnswers } from '../../src/decisions/answer.ts';
 import { createExpenseCorrection } from '../../src/decisions/correction.ts';
 import { createTextRouter } from '../../src/decisions/router.ts';
@@ -51,10 +52,13 @@ let db: Database.Database;
 let bot: ReturnType<typeof createTelegramBot>;
 let polling: Promise<void>;
 let clock: Date;
+/** `true` refuses processor calls as `budgeted` does once the daily cap is reached (R-12). */
+let budgetSpent: boolean;
 
 beforeEach(async () => {
   scratch = mkdtempSync(join(tmpdir(), 'anomander-e2e-decisions-'));
   clock = NOW;
+  budgetSpent = false;
   const now = () => clock;
   const logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn() };
   api = await startFakeTelegramApi();
@@ -65,6 +69,7 @@ beforeEach(async () => {
       return recorded('receipt-reader/lines-mismatch');
     }
     if (context.systemPrompt === CORRECTION_INTERPRETER_PROMPT) {
+      if (budgetSpent) throw new AiBudgetExhaustedError();
       return recorded('correction-interpreter/total-28-40');
     }
     return recorded('text-interpreter/conversation');
@@ -279,6 +284,20 @@ describe('answering a pending receipt decision', () => {
         { authorized_by: 'principal', status: 'verified' },
       ]),
     );
+  });
+
+  it('with the daily AI budget spent, a correction gets S-26 and keeps waiting (R-12 AC4)', async () => {
+    const { decisionId, question } = await askS3();
+    await press(question, decisionId, CORREGIR);
+    const before = ledger();
+    budgetSpent = true;
+
+    const reply = await say('total 28,40');
+
+    expect(reply?.text).toBe(
+      'He llegado al límite diario de IA y hoy no puedo procesar más mensajes. ¿Me lo vuelves a enviar mañana?',
+    );
+    expect(ledger()).toEqual(before);
   });
 
   it('a Telegram reply to the decision message corrects it (R-17 AC2)', async () => {
