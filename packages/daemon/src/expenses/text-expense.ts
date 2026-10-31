@@ -7,6 +7,8 @@ import {
   todayIn,
 } from '@anomander/core';
 import {
+  buttons,
+  decisionButtons,
   formatAmount,
   formatDate,
   strings,
@@ -17,6 +19,7 @@ import type Database from 'better-sqlite3';
 import type { RecentTurn } from '../conversation/recent-turns.ts';
 import type { ReplyPhraser } from '../processor/reply-phraser.ts';
 import type { Logger, MemoryFact, TextInterpreter } from '../processor/text-interpreter.ts';
+import { openForgetMemoryDecision } from '../store/decisions.ts';
 import {
   listActivePolicies,
   listCategories,
@@ -24,7 +27,8 @@ import {
   recordReplyDelivery,
   registerTextExpense,
 } from '../store/expenses.ts';
-import { memoriesForPrompt, saveMemory } from '../store/memory.ts';
+import { listMemories, memoriesForPrompt, saveMemory } from '../store/memory.ts';
+import { recordDecisionMessage } from '../store/receipts.ts';
 import { textValue, writtenIn } from './declarations.ts';
 
 // PRD §10 for a text such as "23 € cena": interpret (processor), check the amount against the
@@ -96,6 +100,36 @@ export const createTextExpenseHandler = (deps: TextExpenseDeps): TextHandler => 
     if (interpretation.kind === 'conversation') {
       remember(interpretation.memories);
       return { text: interpretation.reply };
+    }
+    // R-23 AC5: code lists every current memory from the store; the processor never words it.
+    if (interpretation.kind === 'memory_list') {
+      const memories = listMemories(db);
+      return {
+        text: memories.length === 0 ? strings.rememberNothing() : strings.remembered(memories),
+      };
+    }
+    // R-23 AC6: the processor picked the memories; code asks before erasing them. The stored
+    // question is only the S-29 header, so a forgotten text survives in no decision.
+    if (interpretation.kind === 'forget') {
+      const picked = new Set(interpretation.ids);
+      const matches = listMemories(db).filter(({ id }) => picked.has(id));
+      if (matches.length === 0) return { text: strings.nothingToForget() };
+      const options = [buttons.yes, buttons.no];
+      const decisionId = openForgetMemoryDecision(db, {
+        memoryIds: matches.map(({ id }) => id),
+        question: strings.confirmForget([]),
+        options,
+        now: now().toISOString(),
+      });
+      return {
+        text: strings.confirmForget(matches.map(({ text }) => text)),
+        buttons: decisionButtons(decisionId, options),
+        onDelivered: (delivery) => {
+          if (!recordDecisionMessage(db, decisionId, delivery.channelRef)) {
+            logger.warn('decision message already recorded', { decisionId });
+          }
+        },
+      };
     }
     // R-12 AC4: the daily AI budget is spent; nothing was stored.
     if (interpretation.kind === 'budget_exhausted') return { text: strings.textLimitReached() };

@@ -3,6 +3,7 @@ import type Database from 'better-sqlite3';
 import { z } from 'zod';
 import type { OpenDecision } from '../decisions/types.ts';
 import { categoryIdOf, findOrCreateMerchant, insertAction, insertAssertion } from './expenses.ts';
+import { openPendingDecision } from './receipts.ts';
 
 // Rows of PRD §13 for answering pending decisions (R-6 AC4, R-7, R-17).
 
@@ -114,7 +115,8 @@ export const answerDecision = (
   if (changed !== 1) throw new Error(`decision ${decisionId} is not open`);
 };
 
-const settleProposal = (
+/** The asked proposal is settled; it throws if it was not `asked`, so the caller's work rolls back. */
+export const settleProposal = (
   db: Database.Database,
   proposalId: number,
   status: 'executed' | 'rejected',
@@ -310,3 +312,38 @@ export const correctExpense = (
   }
   return ids;
 };
+
+export interface ForgetMemoryQuestion {
+  memoryIds: readonly number[];
+  /** The S-29 header only: the memories' text never leaves `memory_texts` (R-23 AC6). */
+  question: string;
+  options: readonly string[];
+  now: string;
+}
+
+/**
+ * R-23 AC6: a `forget_memory` proposal, `asked`, naming the memories to forget, and its pending
+ * decision. Memory belongs to no matter. Returns the decision.
+ */
+export const openForgetMemoryDecision = (
+  db: Database.Database,
+  ask: ForgetMemoryQuestion,
+): number =>
+  db.transaction(() => {
+    const proposal = db
+      .prepare(
+        `INSERT INTO proposals (matter_id, operation, payload_json, basis_json, status, created_at)
+         VALUES (NULL, 'forget_memory', ?, ?, 'asked', ?)`,
+      )
+      .run(
+        JSON.stringify({ memory_ids: ask.memoryIds }),
+        JSON.stringify({ rule: 'R-23 AC6' }),
+        ask.now,
+      );
+    return openPendingDecision(db, {
+      proposalId: Number(proposal.lastInsertRowid),
+      question: ask.question,
+      options: ask.options,
+      now: ask.now,
+    });
+  })();

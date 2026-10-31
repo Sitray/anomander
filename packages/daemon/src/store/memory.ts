@@ -79,12 +79,13 @@ const isCurrentMemory = (db: Database.Database, id: number): boolean =>
  * R-23 AC2, AC3: stores the fact as a `memory` assertion about the principal and its text and
  * quote in `memory_texts`, in one transaction. It is `declared` by the principal only when the
  * processor says they said it and the quote is in the message; otherwise `inferred` by the
- * processor. When it replaces a current memory, it supersedes it and the old one is `refuted`;
- * a `replaces` that names no current memory is ignored and the fact is stored as new. Returns
- * the new memory's id.
+ * processor. When it replaces a current memory, it supersedes it, the old one is `refuted` and
+ * its text is erased as a forget erases it (AC6, AC7), so no outdated text is ever kept; a
+ * `replaces` that names no current memory is ignored and the fact is stored as new. Returns the
+ * new memory's id.
  */
-export const saveMemory = (db: Database.Database, capture: MemoryCapture): number =>
-  db.transaction(() => {
+export const saveMemory = (db: Database.Database, capture: MemoryCapture): number => {
+  const { id, replaced } = db.transaction(() => {
     const declared = capture.said && quotedFrom(capture.quote, capture.message);
     const replaced =
       capture.replaces !== null && isCurrentMemory(db, capture.replaces) ? capture.replaces : null;
@@ -115,9 +116,14 @@ export const saveMemory = (db: Database.Database, capture: MemoryCapture): numbe
     );
     if (replaced !== null) {
       db.prepare("UPDATE assertions SET status = 'refuted' WHERE id = ?").run(replaced);
+      db.prepare('DELETE FROM memory_texts WHERE assertion_id = ?').run(replaced);
     }
-    return id;
+    return { id, replaced };
   })();
+  // The checkpoint cannot run inside the transaction (see forgetMemories).
+  if (replaced !== null) db.pragma('wal_checkpoint(TRUNCATE)');
+  return id;
+};
 
 /** R-23 AC5: every current memory, in the order it was remembered. */
 export const listMemories = (db: Database.Database): Memory[] =>

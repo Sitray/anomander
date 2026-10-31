@@ -2,8 +2,8 @@ import type { Reply } from '@anomander/protocol';
 import type Database from 'better-sqlite3';
 
 // The answer to a pending decision (R-17 AC1) is dispatched by the operation of its proposal:
-// `register_expense` (R-6 AC4, R-7) or `keep_receipt` (R-8 AC3, AC4). Each operation owns one
-// handler; `src/decisions/answer.ts` holds the dispatch table.
+// `register_expense` (R-6 AC4, R-7), `keep_receipt` (R-8 AC3, AC4) or `forget_memory` (R-23 AC6).
+// Each operation owns one handler; `src/decisions/answer.ts` holds the dispatch table.
 
 export interface OpenDecision {
   id: number;

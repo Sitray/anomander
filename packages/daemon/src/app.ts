@@ -11,6 +11,7 @@ import {
 } from './conversation/recent-turns.ts';
 import { createButtonHandler, createDecisionAnswers, pressedOption } from './decisions/answer.ts';
 import { createExpenseCorrection } from './decisions/correction.ts';
+import { createForgetMemoryAnswerHandler } from './decisions/forget-memory-decision.ts';
 import { createTextRouter } from './decisions/router.ts';
 import { createReceiptExpenseCycle } from './expenses/receipt-expense.ts';
 import { createTextExpenseHandler } from './expenses/text-expense.ts';
@@ -109,6 +110,8 @@ export const startAnomander = <M>(config: Config, deps: AnomanderDeps<M>): Anoma
     answers: {
       ...createDecisionAnswers({ phraser, logger }),
       keep_receipt: createKeepReceiptAnswerHandler({ timeZone: config.timeZone }),
+      // R-16 AC3: a confirmed forget empties the recent turns.
+      forget_memory: createForgetMemoryAnswerHandler({ clearRecentTurns: turns.clear }),
     },
     now,
     logger,

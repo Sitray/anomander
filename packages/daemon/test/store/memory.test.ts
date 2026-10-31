@@ -101,8 +101,8 @@ describe('saveMemory', () => {
     ]);
   });
 
-  // R-23 AC3: "ya no soy vegetariano" refutes the memory it replaces.
-  it('refutes the memory a new one replaces and links it with supersedes_id', () => {
+  // R-23 AC3: "ya no soy vegetariano" refutes the memory it replaces and erases its text.
+  it('refutes the memory a new one replaces, erases its text and links it with supersedes_id', () => {
     const old = saveMemory(db, capture());
     const replacement = saveMemory(
       db,
@@ -118,6 +118,9 @@ describe('saveMemory', () => {
     expect(assertion(replacement)).toMatchObject({ status: 'current', supersedes_id: old });
     expect(listMemories(db)).toEqual([
       { id: replacement, text: 'Ya no es vegetariano', mode: 'declared' },
+    ]);
+    expect(db.prepare('SELECT assertion_id FROM memory_texts').all()).toEqual([
+      { assertion_id: replacement },
     ]);
   });
 });

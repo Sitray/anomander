@@ -86,7 +86,8 @@ Every incoming message has exactly one destination, decided by code (R-17):
    id, malformed data or an option the decision does not have gets S-19 and changes nothing
    (AC1). Otherwise the answer goes to the handler of the proposal's `operation`, from the
    dispatch table (`createDecisionAnswers`, a plain record; add another operation by spreading
-   it: `{ ...createDecisionAnswers(deps), keep_receipt: ... }`).
+   it: `{ ...createDecisionAnswers(deps), keep_receipt: ... }`). `app.ts` adds `keep_receipt`
+   (R-8) and `forget_memory` (R-23 AC6).
 2. **A text** goes through `createTextRouter` (`src/decisions/router.ts`), in this order:
    - a Telegram reply to the message of an `open` or `awaiting_text` decision corrects that
      decision (AC2);
@@ -182,8 +183,10 @@ and button handlers (a receipt is `[foto de ticket]` and its caption, a press `[
 and `recordingNotices` wraps `notify`, so a message sent unasked is a turn with no principal part.
 Turns live only in this process: they are never written to the database or logged, and a restart
 loses them. They give context only: an expense's amount must still be written in the current message
-(R-2 AC6), so a recent turn never becomes an expense fact. `clear()` empties them; a confirmed forget
-calls it (R-23 AC6) so the forgotten fact leaves the context as well.
+(R-2 AC6), so a recent turn never becomes an expense fact. `clear()` empties them: `app.ts` hands
+it to the `forget_memory` answer, which calls it on `Sí` (R-23 AC6), so the forgotten fact and the
+S-29 question that showed it leave the context. The press itself (`[botón: Sí]` and S-30) is then
+recorded as the first turn of the emptied window.
 
 ## Conversation memory (R-23)
 
@@ -195,7 +198,8 @@ assertion about the principal entity with predicate `memory`. Its text and quote
 **Mode (AC2).** `saveMemory` stores `declared` by the principal only when the processor says the
 principal said it and the quote is in the message, compared ignoring case and runs of spaces;
 otherwise `inferred` by the processor, with its confidence. A fact that `replaces` a current
-memory supersedes it and refutes it (AC3); an id that is not a current memory is ignored.
+memory supersedes it, refutes it and erases its text the way a forget does (AC3), so no
+outdated text is kept; an id that is not a current memory is ignored.
 
 **Prompt (AC4).** `memoriesForPrompt` gives every current memory up to 50, and beyond that the 50
 that best match the message in `memory_search`. Each word of the message is quoted, so the
@@ -212,6 +216,29 @@ save that fails is logged and the reply stays the same.
 user turn as `memories`; the prompt allows them only in conversation replies. Code enforces it:
 the interpreter rejects any expense inference whose `basis_json.quote` is not in the message,
 with the same `quotedFrom` rule as the mode decision, and logs only its predicate.
+
+**Listing (AC5).** When the principal asks what ANOMANDER remembers, the interpreter answers
+`{"kind":"memory_list"}` and code replies S-27 from `listMemories`, one line per current memory
+with `(me lo dijiste)` for `declared` and `(lo deduje)` for `inferred`, or S-28 when there is none.
+The model never words the list, so it is complete whatever the prompt held.
+
+**Asking to forget (AC6).** When the principal asks to forget something, the interpreter answers
+`{"kind":"forget","ids":[...]}` with the ids of the matching memories among the `memories` it was
+given; code keeps only those ids, once each. The candidates are therefore the prompt's memories:
+all of them up to 50, and beyond that the 50 that best match the request's own words, which are
+the words of the fact to forget. The text handler keeps the ids that are still current
+(`listMemories`) and replies S-32 when none is left; otherwise it opens a `forget_memory` proposal
+(`asked`, payload `{"memory_ids":[...]}`, no matter) with a pending decision and asks S-29 with
+`Sí` and `No`. The stored `question` is only the S-29 header, so a memory's text is never copied
+into `pending_decisions`. A text sent as a reply to S-29 is not a correction: the router has no
+correction for `forget_memory`, so it goes to the interpreter (R-17).
+
+**Answering (AC6).** `createForgetMemoryAnswerHandler` (`src/decisions/forget-memory-decision.ts`)
+records the answer first. `No` rejects the proposal, erases nothing and replies S-31. `Sí`
+executes the proposal with an action authorized by the principal, then calls `forgetMemories`
+with the ids (a memory forgotten or replaced since the question is skipped), empties the recent
+turns and replies S-30. Listing and forgetting go through the same interpreter call as any text,
+so a spent budget gets S-26 and a failed call S-22 (S5).
 
 **Forgetting (AC6, AC7).** `forgetMemories` deletes the `memory_texts` rows (the triggers remove
 them from the index) and sets the assertions to `expired`, in one transaction. The erase is real:

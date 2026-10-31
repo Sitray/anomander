@@ -196,6 +196,20 @@ describe('pi-ai text interpreter', () => {
     expect(JSON.stringify(logger.warn.mock.calls)).not.toContain('"item"');
   });
 
+  it('keeps only forget ids among the memories it was given (R-23 AC6)', async () => {
+    const { interpret } = interpreterAnswering({ kind: 'forget', ids: [3, 99, 3] });
+
+    const interpretation = await interpret({
+      ...input('olvida que soy vegetariano'),
+      memories: [
+        { id: 3, text: 'Es vegetariano', mode: 'declared' },
+        { id: 4, text: 'Vive en Madrid', mode: 'declared' },
+      ],
+    });
+
+    expect(interpretation).toEqual({ kind: 'forget', ids: [3] });
+  });
+
   it('returns invalid for a response that is not the JSON envelope (A3)', async () => {
     const { interpret, logger } = interpreterFor('malformed');
 

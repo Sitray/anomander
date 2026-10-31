@@ -37,6 +37,13 @@ export interface MemoryFact {
 export type Interpretation =
   | { kind: 'expense'; inferences: ProcessorInference[]; memories: MemoryFact[] }
   | { kind: 'conversation'; reply: string; memories: MemoryFact[] }
+  /** The principal asks what ANOMANDER remembers; code lists it (R-23 AC5). */
+  | { kind: 'memory_list' }
+  /**
+   * The principal asks to forget something: the ids of the matching memories among the ones the
+   * processor was given, possibly none. Code asks before erasing anything (R-23 AC6).
+   */
+  | { kind: 'forget'; ids: number[] }
   | { kind: 'invalid'; reason: string }
   /** The processor failed or did not answer in time: nothing to interpret (R-22 AC1). */
   | { kind: 'failed'; reason: string }
@@ -72,11 +79,19 @@ Predicates:
 Otherwise the message is conversation. Reply:
 {"kind":"conversation","reply":"<a short, friendly reply in Spanish (es-ES)>"}
 
-Either reply may also carry "memories": lasting facts about the user found in "message", such as "soy vegetariano" or "vivo en Madrid", never passing states such as "tengo hambre". Each memory is an object with these fields and no others:
+If the user asks what you remember or know about them ("qué sabes de mí"), reply:
+{"kind":"memory_list"}
+Never write the list yourself; the assistant lists the memories.
+
+If the user asks you to forget something about them ("olvida que soy vegetariano"), reply:
+{"kind":"forget","ids":[<the "id" of each listed memory that matches what to forget>]}
+Use an empty list when no listed memory matches. Nothing is forgotten until the user confirms.
+
+The expense and conversation replies may also carry "memories": lasting facts about the user found in "message", such as "soy vegetariano" or "vivo en Madrid", never passing states such as "tengo hambre". Each memory is an object with these fields and no others:
 {"text":"<the fact, short, in Spanish>","quote":"<the words of the message it rests on>","said":<true if the user stated it, false if you deduced it>,"confidence":<number from 0 to 1>,"replaces":<the id of a listed memory it contradicts, or null>}
 Leave "memories" out when the message holds no lasting fact.
 
-The user turn is a JSON object with the fields "today", "categories", "recent", "memories" and "message". "recent" lists the previous turns of this conversation, oldest first, each with what the user wrote ("principal") and what you answered ("reply"); use it to understand references such as "ese" or "lo de antes". "memories" lists what you remember about the user, each with its "id", "text" and "mode"; use them only to shape a conversation reply, never as the source of an expense inference: every expense quote must be words of "message". Interpret only "message".`;
+The user turn is a JSON object with the fields "today", "categories", "recent", "memories" and "message". "recent" lists the previous turns of this conversation, oldest first, each with what the user wrote ("principal") and what you answered ("reply"); use it to understand references such as "ese" or "lo de antes". "memories" lists what you remember about the user, each with its "id", "text" and "mode"; use them only to shape a conversation reply and to pick what to forget, never as the source of an expense inference: every expense quote must be words of "message". Interpret only "message".`;
 
 const PREDICATES = new Set(['total', 'merchant', 'occurred_on', 'category', 'declared_category']);
 
@@ -91,6 +106,8 @@ const envelopeSchema = z.discriminatedUnion('kind', [
     reply: z.string().trim().min(1),
     memories: z.unknown().optional(),
   }),
+  z.object({ kind: z.literal('memory_list') }),
+  z.object({ kind: z.literal('forget'), ids: z.array(z.int().positive()) }),
 ]);
 
 const memoryFactSchema = z.strictObject({
@@ -185,6 +202,12 @@ export const createPiAiTextInterpreter =
       const reason = 'processor response is not the expected JSON envelope';
       logger.warn('text interpretation failed', { reason });
       return { kind: 'invalid', reason };
+    }
+    if (envelope.data.kind === 'memory_list') return { kind: 'memory_list' };
+    // R-23 AC6: the processor only picks; code keeps the ids of memories it was given, once each.
+    if (envelope.data.kind === 'forget') {
+      const given = new Set(memories.map(({ id }) => id));
+      return { kind: 'forget', ids: [...new Set(envelope.data.ids)].filter((id) => given.has(id)) };
     }
     const facts = memoryFactsOf(envelope.data.memories, logger);
     if (envelope.data.kind === 'conversation') {
