@@ -97,3 +97,15 @@ export const whenOf = (
   const { date, time } = localParts(new Date(reminder.due_at), timeZone);
   return formatWhenOnce(date, time, localParts(now, timeZone).date);
 };
+
+/** R-25 AC7: the last occurrence of `recurrence` at or before `at`, at its local time in `timeZone`. */
+export const latestOccurrence = (recurrence: Recurrence, at: Date, timeZone: string): Date => {
+  const today = localParts(at, timeZone).date;
+  for (let offset = 0; offset <= 62; offset += 1) {
+    const date = addDays(today, -offset);
+    if (!falls(recurrence, date)) continue;
+    const occurrence = utcOf(date, recurrence.time, timeZone);
+    if (occurrence <= at) return occurrence;
+  }
+  throw new Error(`no occurrence of a ${recurrence.freq} reminder in 62 days`);
+};

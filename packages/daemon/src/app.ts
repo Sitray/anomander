@@ -11,6 +11,7 @@ import {
   recordingTurns,
 } from './conversation/recent-turns.ts';
 import { createButtonHandler, createDecisionAnswers, pressedOption } from './decisions/answer.ts';
+import { createCancelReminderAnswerHandler } from './decisions/cancel-reminder-decision.ts';
 import { createExpenseCorrection } from './decisions/correction.ts';
 import { createCreateCategoryAnswerHandler } from './decisions/create-category-decision.ts';
 import { createCreatePolicyAnswerHandler } from './decisions/create-policy-decision.ts';
@@ -24,6 +25,7 @@ import { createPiAiReceiptReader } from './processor/receipt-reader.ts';
 import { createPiAiReplyPhraser } from './processor/reply-phraser.ts';
 import { type Complete, createPiAiTextInterpreter } from './processor/text-interpreter.ts';
 import { withTimeout } from './processor/timeout.ts';
+import { createDueReminders } from './reminders/send-due.ts';
 import { createKeepReceiptAnswerHandler } from './retention/keep-receipt-decision.ts';
 import { createRetention } from './retention/retention-job.ts';
 import { startScheduler } from './scheduler/scheduler.ts';
@@ -130,6 +132,8 @@ export const startAnomander = <M>(config: Config, deps: AnomanderDeps<M>): Anoma
       create_category: createCreateCategoryAnswerHandler({ logger }),
       // R-13 AC1, AC2: "Sí" to S-11 or S-12 stores the policy.
       create_policy: createCreatePolicyAnswerHandler(),
+      // R-25 AC9: "Sí" to S-46 cancels the reminders and tasks it named.
+      cancel_reminder: createCancelReminderAnswerHandler(),
     },
     now,
     logger,
@@ -145,7 +149,7 @@ export const startAnomander = <M>(config: Config, deps: AnomanderDeps<M>): Anoma
     ...(deps.telegramApiRoot === undefined ? {} : { apiRoot: deps.telegramApiRoot }),
   });
 
-  // R-8, R-10, R-12 AC3, R-13 AC2 and R-19 send messages the principal did not ask for.
+  // R-8, R-10, R-12 AC3, R-13 AC2, R-19 and R-25 AC7 send messages the principal did not ask for.
   notify = recordingNotices(turns, createTelegramNotify(bot, config.principalChatId));
   const retention = createRetention({
     db,
@@ -157,12 +161,14 @@ export const startAnomander = <M>(config: Config, deps: AnomanderDeps<M>): Anoma
   });
   const summary = createWeeklySummary({ db, timeZone: config.timeZone, now, notify });
   const queue = createReceiptQueue({ db, readQueued: receipts.readQueued, notify, now, logger });
+  const dueReminders = createDueReminders({ db, timeZone: config.timeZone, now, notify, logger });
   const scheduler = startScheduler({
     retentionCron: config.retentionCron,
     weeklySummaryCron: config.weeklySummaryCron,
     timeZone: config.timeZone,
     jobs: {
       retain: retention.retain,
+      sendDueReminders: dueReminders.send,
       drainQueue: queue.drain,
       watchReceipts: retention.watchQueuedReceipts,
       sendWeeklySummary: summary.send,

@@ -9,21 +9,17 @@ import { insertAssertion } from './expenses.ts';
 /** The assertion points at the row that holds the text, as `memory` does (R-23 AC2). */
 const REMINDER_VALUE = { text_in: 'reminders' };
 
-const TIME = /^([01]\d|2[0-3]):[0-5]\d$/;
+/** `HH:mm`; `H:mm` from the processor is read the same and stored as `HH:mm` (R-24 AC2). */
+const time = z
+  .string()
+  .regex(/^([01]?\d|2[0-3]):[0-5]\d$/)
+  .transform((value) => value.padStart(5, '0'));
 
 /** §13 `recurrence_json`: `daily`, `weekly` with `days` 1 Monday to 7 Sunday, or `monthly`. */
 export const recurrenceSchema = z.discriminatedUnion('freq', [
-  z.object({ freq: z.literal('daily'), time: z.string().regex(TIME) }),
-  z.object({
-    freq: z.literal('weekly'),
-    days: z.array(z.int().min(1).max(7)).min(1),
-    time: z.string().regex(TIME),
-  }),
-  z.object({
-    freq: z.literal('monthly'),
-    day: z.int().min(1).max(31),
-    time: z.string().regex(TIME),
-  }),
+  z.object({ freq: z.literal('daily'), time }),
+  z.object({ freq: z.literal('weekly'), days: z.array(z.int().min(1).max(7)).min(1), time }),
+  z.object({ freq: z.literal('monthly'), day: z.int().min(1).max(31), time }),
 ]);
 
 /** One stored shape per repetition: weekly days sorted and once each. */
@@ -119,6 +115,68 @@ export const readReminder = (db: Database.Database, id: number): Reminder => {
   if (row === undefined) throw new Error(`reminder ${id} not found`);
   return fromRow(row);
 };
+
+export interface TaskSchedule {
+  /** UTC. */
+  dueAt: string;
+  recurrence: Recurrence | null;
+}
+
+/**
+ * R-25 AC5: a pending task gets a time and becomes a reminder; the row and its assertion stay,
+ * only `due_at` and `recurrence_json` change. Returns whether it was still a pending task.
+ */
+export const scheduleTask = (db: Database.Database, id: number, schedule: TaskSchedule): boolean =>
+  db
+    .prepare(
+      `UPDATE reminders SET due_at = ?, recurrence_json = ?
+       WHERE id = ? AND status = 'pending' AND due_at IS NULL`,
+    )
+    .run(
+      schedule.dueAt,
+      schedule.recurrence === null ? null : JSON.stringify(canonical(schedule.recurrence)),
+      id,
+    ).changes === 1;
+
+/**
+ * R-25 AC9: each given reminder or task still pending becomes `cancelled` and its `reminder`
+ * assertion `expired`. Call it inside the transaction that answers the decision. Returns the ids
+ * cancelled.
+ */
+export const cancelReminders = (
+  db: Database.Database,
+  ids: readonly number[],
+  now: string,
+): number[] =>
+  ids.filter((id) => {
+    const changed = db
+      .prepare(
+        "UPDATE reminders SET status = 'cancelled', closed_at = ? WHERE id = ? AND status = 'pending'",
+      )
+      .run(now, id).changes;
+    if (changed !== 1) return false;
+    db.prepare(
+      `UPDATE assertions SET status = 'expired'
+       WHERE id = (SELECT declared_by_assertion_id FROM reminders WHERE id = ?)`,
+    ).run(id);
+    return true;
+  });
+
+/**
+ * R-25 AC10: each given reminder or task still pending becomes `done`; the row is kept, never
+ * deleted. Returns the ids marked done.
+ */
+export const markDone = (db: Database.Database, ids: readonly number[], now: string): number[] =>
+  db.transaction(() =>
+    ids.filter(
+      (id) =>
+        db
+          .prepare(
+            "UPDATE reminders SET status = 'done', closed_at = ? WHERE id = ? AND status = 'pending'",
+          )
+          .run(now, id).changes === 1,
+    ),
+  )();
 
 /** R-25 AC1, AC8: pending reminders, soonest first, then pending tasks, oldest first. */
 export const listPending = (db: Database.Database): Reminder[] =>

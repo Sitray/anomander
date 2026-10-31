@@ -13,7 +13,7 @@ import { type Anomander, startAnomander } from '../../src/app.ts';
 import { loadConfig } from '../../src/config.ts';
 import { TEXT_INTERPRETER_PROMPT } from '../../src/processor/text-interpreter.ts';
 
-// End to end (PRD §15): creating reminders and tasks (R-25 AC1-AC6, AC12), the first capability
+// End to end (PRD §15): reminders and tasks (R-25 AC1-AC6, AC8-AC10, AC12), the first capability
 // (R-24), through the fake Telegram API, the real bot and a SQLite file.
 const PRINCIPAL = 4242;
 const principal = { chatId: PRINCIPAL };
@@ -194,6 +194,31 @@ describe('creating reminders and tasks over Telegram (R-25)', () => {
     ]);
   });
 
+  it('R-24 AC2: small format slips in a reminder call are read as meant, not rejected', async () => {
+    const once = await say(
+      'recuérdame mañana llamar a mamá',
+      create({ text: 'llamar a mamá', at: '2026-10-31T9:00:00', reply: '' }),
+    );
+    const weekly = await say(
+      'recuérdame los lunes a las 8 sacar la basura',
+      create({
+        text: 'sacar la basura',
+        recurrence: { freq: 'weekly', days: [1], time: '8:00' },
+        reply: null,
+      }),
+    );
+
+    expect(once).toBe('Te lo recuerdo mañana a las 9:00: llamar a mamá.');
+    expect(weekly).toBe('Te lo recuerdo todos los lunes a las 8:00: sacar la basura.');
+    expect(reminders()).toMatchObject([
+      { due_at: '2026-10-31T08:00:00.000Z', recurrence_json: null },
+      {
+        due_at: '2026-11-02T07:00:00.000Z',
+        recurrence_json: '{"freq":"weekly","days":[1],"time":"08:00"}',
+      },
+    ]);
+  });
+
   it('AC3: a repetition it cannot keep gets S-51 and stores nothing', async () => {
     const reply = await say(
       'recuérdame cada dos semanas regar las plantas',
@@ -277,5 +302,149 @@ describe('creating reminders and tasks over Telegram (R-25)', () => {
       },
       message: 'hola',
     });
+  });
+});
+
+describe('listing, cancelling and finishing reminders and tasks over Telegram (R-25)', () => {
+  /** Presses option `index` of the only decision once its question is recorded; the reply text. */
+  const press = async (index: number) => {
+    await vi.waitFor(() =>
+      expect(query('SELECT id FROM pending_decisions WHERE channel_ref IS NOT NULL')).toHaveLength(
+        1,
+      ),
+    );
+    const [decision] = query<{ id: number }>('SELECT id FROM pending_decisions');
+    const question = api.sent.at(-1);
+    const before = api.sent.length;
+    const data = `decision:${decision?.id}:${index}`;
+    api.push(updates.callbackQuery(principal, data, question?.messageId ?? 0));
+    return (await api.waitForSent(before + 1)).at(-1)?.text;
+  };
+  const statuses = () =>
+    query(`SELECT r.status, r.closed_at IS NOT NULL AS closed, a.status AS assertion
+           FROM reminders r JOIN assertions a ON a.id = r.declared_by_assertion_id ORDER BY r.id`);
+  const addTask = (text: string) => say(`tengo que ${text}`, create({ text }));
+
+  it('AC8: code lists pending reminders soonest first, then tasks oldest first, or S-45', async () => {
+    const none = await say('¿qué tengo pendiente?', { kind: 'reminder_list' });
+    await addTask('comprar pilas');
+    await say(
+      'recuérdame mañana llamar a mamá',
+      create({ text: 'llamar a mamá', at: '2026-10-31T09:00' }),
+    );
+    await addTask('pagar la luz');
+    await say(
+      'recuérdame hoy a las 18 sacar la basura',
+      create({ text: 'sacar la basura', at: '2026-10-30T18:00' }),
+    );
+
+    const some = await say('¿qué tengo pendiente?', { kind: 'reminder_list' });
+
+    expect(none).toBe('No tienes nada pendiente.');
+    expect(some).toBe(
+      [
+        'Esto tienes pendiente:',
+        '· sacar la basura (hoy a las 18:00)',
+        '· llamar a mamá (mañana a las 9:00)',
+        '· comprar pilas',
+        '· pagar la luz',
+      ].join('\n'),
+    );
+  });
+
+  it('AC9: "Sí" to S-46 cancels the picked pending items and expires their assertions', async () => {
+    await addTask('comprar pilas');
+    await addTask('pagar la luz');
+
+    const question = await say('cancela lo de las pilas', {
+      kind: 'reminder_cancel',
+      ids: [1, 99],
+    });
+    expect(question).toBe('¿Cancelo esto?\n· comprar pilas');
+    expect(api.sent.at(-1)?.payload.reply_markup).toEqual({
+      inline_keyboard: [
+        [
+          { text: 'Sí', callback_data: expect.stringMatching(/^decision:\d+:0$/) },
+          { text: 'No', callback_data: expect.stringMatching(/^decision:\d+:1$/) },
+        ],
+      ],
+    });
+
+    expect(await press(0)).toBe('Hecho, cancelado.');
+    expect(statuses()).toEqual([
+      { status: 'cancelled', closed: 1, assertion: 'expired' },
+      { status: 'pending', closed: 0, assertion: 'current' },
+    ]);
+    // Only the S-46 header is stored with the decision; the texts stay in `reminders`.
+    expect(query('SELECT question FROM pending_decisions')).toEqual([
+      { question: '¿Cancelo esto?' },
+    ]);
+    expect(logged()).not.toContain('pilas');
+  });
+
+  it('AC9: "No" to S-46 changes nothing', async () => {
+    await addTask('comprar pilas');
+    await say('cancela lo de las pilas', { kind: 'reminder_cancel', ids: [1] });
+
+    expect(await press(1)).toBe('Vale, no cancelo nada.');
+    expect(statuses()).toEqual([{ status: 'pending', closed: 0, assertion: 'current' }]);
+  });
+
+  it('AC9, AC10: nothing matching gets S-49, asks nothing and changes nothing', async () => {
+    await addTask('comprar pilas');
+
+    const cancel = await say('cancela lo del dentista', { kind: 'reminder_cancel', ids: [] });
+    const done = await say('ya fui al dentista', { kind: 'reminder_done', ids: [7] });
+
+    expect(cancel).toBe('No encuentro nada así en tus pendientes.');
+    expect(done).toBe('No encuentro nada así en tus pendientes.');
+    expect(query('SELECT id FROM pending_decisions')).toEqual([]);
+    expect(statuses()).toEqual([{ status: 'pending', closed: 0, assertion: 'current' }]);
+  });
+
+  it('AC10: the picked pending items are done at once and kept; S-50 joins their texts', async () => {
+    await addTask('comprar pilas');
+    await addTask('pagar la luz');
+    await addTask('regar las plantas');
+    await say(
+      'recuérdame mañana llamar a mamá',
+      create({ text: 'llamar a mamá', at: '2026-10-31T09:00' }),
+    );
+
+    const reply = await say('ya he hecho todo menos regar', {
+      kind: 'reminder_done',
+      ids: [1, 2, 4],
+    });
+
+    expect(reply).toBe('Hecho: llamar a mamá, comprar pilas y pagar la luz.');
+    expect(api.sent.at(-1)?.payload.reply_markup).toBeUndefined();
+    expect(statuses()).toEqual([
+      { status: 'done', closed: 1, assertion: 'current' },
+      { status: 'done', closed: 1, assertion: 'current' },
+      { status: 'pending', closed: 0, assertion: 'current' },
+      { status: 'done', closed: 1, assertion: 'current' },
+    ]);
+    expect(logged()).not.toContain('pilas');
+  });
+
+  it('AC5: giving a pending task a time turns that same row into a reminder, S-40', async () => {
+    await addTask('comprar pilas');
+
+    const reply = await say(
+      'lo de las pilas, recuérdamelo el sábado',
+      create({ id: 1, text: 'comprar pilas', at: '2026-10-31T09:00' }),
+    );
+
+    expect(reply).toBe('Te lo recuerdo mañana a las 9:00: comprar pilas.');
+    expect(reminders()).toEqual([
+      {
+        text: 'comprar pilas',
+        due_at: '2026-10-31T08:00:00.000Z',
+        recurrence_json: null,
+        status: 'pending',
+        closed_at: null,
+      },
+    ]);
+    expect(reminderAssertions()).toHaveLength(1);
   });
 });
