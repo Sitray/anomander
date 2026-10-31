@@ -2,6 +2,7 @@ import { type ProcessorInference, validateProcessorOutput } from '@anomander/cor
 import type { AssistantMessage, Context } from '@earendil-works/pi-ai';
 import { z } from 'zod';
 import { AiBudgetExhaustedError } from '../budget/ai-budget.ts';
+import type { RecentTurn } from '../conversation/recent-turns.ts';
 
 // R-17 AC5 and R-2 AC6: the processor classifies a text and returns inferences only. It never
 // writes (R-14 AC1); the expense cycle decides what to store.
@@ -14,6 +15,8 @@ export interface TextInterpreterInput {
   today: string;
   /** The existing categories; the processor may only pick one of them (R-5 AC2). */
   categories: string[];
+  /** The recent turns, oldest first (R-16 AC3). */
+  recent: RecentTurn[];
 }
 
 export type Interpretation =
@@ -54,7 +57,7 @@ Predicates:
 Otherwise the message is conversation. Reply:
 {"kind":"conversation","reply":"<a short, friendly reply in Spanish (es-ES)>"}
 
-The user turn is a JSON object with the fields "today", "categories" and "message".`;
+The user turn is a JSON object with the fields "today", "categories", "recent" and "message". "recent" lists the previous turns of this conversation, oldest first, each with what the user wrote ("principal") and what you answered ("reply"); use it to understand references such as "ese" or "lo de antes". Interpret only "message".`;
 
 const PREDICATES = new Set(['total', 'merchant', 'occurred_on', 'category', 'declared_category']);
 
@@ -89,14 +92,14 @@ export interface PiAiTextInterpreterDeps<M> {
 
 export const createPiAiTextInterpreter =
   <M>({ complete, model, logger }: PiAiTextInterpreterDeps<M>): TextInterpreter =>
-  async ({ text, today, categories }) => {
+  async ({ text, today, categories, recent }) => {
     // R-14 AC3: one system prompt and one user turn; the context never carries `tools`.
     const context: Context = {
       systemPrompt: TEXT_INTERPRETER_PROMPT,
       messages: [
         {
           role: 'user',
-          content: JSON.stringify({ today, categories, message: text }),
+          content: JSON.stringify({ today, categories, recent, message: text }),
           timestamp: Date.now(),
         },
       ],

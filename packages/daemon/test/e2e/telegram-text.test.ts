@@ -28,10 +28,16 @@ let anomander: Anomander;
 let config: ReturnType<typeof loadConfig>;
 /** `false` makes the processor never answer, as a hung model would. */
 let processorAnswers: boolean;
+/** The user turns the text interpreter received, parsed. */
+let interpreted: { recent: unknown; message: string }[];
 
 const complete = async (_model: string, context: Context) => {
   if (!processorAnswers) return new Promise<never>(() => {});
   const phrasing = context.systemPrompt === REPLY_PHRASER_PROMPT;
+  const [turn] = context.messages;
+  if (!phrasing && turn?.role === 'user' && typeof turn.content === 'string') {
+    interpreted.push(JSON.parse(turn.content));
+  }
   const reply = recorded('expense-23-space-euro');
   return phrasing ? { ...reply, content: [{ type: 'text' as const, text: PHRASED }] } : reply;
 };
@@ -60,6 +66,7 @@ beforeEach(async () => {
     ANOMANDER_VISION_MODEL: 'openai/gpt-4o-mini',
   });
   processorAnswers = true;
+  interpreted = [];
   await start();
 });
 
@@ -131,6 +138,18 @@ describe('a text expense over Telegram', () => {
     );
     expect(api.sent[1]?.text).toBe(PHRASED);
     expect(query('SELECT total_cents FROM expenses')).toEqual([{ total_cents: 2300 }]);
+  });
+
+  it('R-16 AC3: the interpreter receives the previous turn with the reply that was sent', async () => {
+    api.push(updates.text({ chatId: PRINCIPAL }, '23 € cena'));
+    await api.waitForSent(1);
+    api.push(updates.text({ chatId: PRINCIPAL }, 'y otros 23 € cena'));
+    await api.waitForSent(2);
+
+    expect(interpreted.map(({ recent }) => recent)).toEqual([
+      [],
+      [{ principal: '23 € cena', reply: PHRASED }],
+    ]);
   });
 
   it('R-12 AC4: with the daily AI budget spent, a text gets S-26 and nothing is stored', async () => {

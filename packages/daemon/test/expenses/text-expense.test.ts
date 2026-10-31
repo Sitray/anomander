@@ -119,6 +119,7 @@ describe('text expense handler', () => {
       text: '23 € cena',
       today: TODAY,
       categories: ['restaurantes', 'supermercado'],
+      recent: [],
     });
     expect(reply.text).toBe('Apuntado: 23,00\u00a0€ (restaurantes).');
     const row = onlyExpense();

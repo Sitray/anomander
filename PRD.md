@@ -325,6 +325,7 @@ Code checks every proposed receipt expense.
 ### R-16 Open conversation
 - AC1: A message that is not an expense, a policy or an answer to a pending decision gets a conversational reply.
 - AC2: Open conversation persists nothing except the memories of R-23.
+- AC3: The text interpreter receives the recent turns of the conversation, oldest first, at most the last 10 and none older than 30 minutes. A turn is each principal text, receipt (as `[foto de ticket]` and its caption) or button press (as `[botón: {opción}]`) with the reply that was sent, and each message sent to the principal unasked. Turns are kept only in the daemon's memory, never written to the database or logged, and lost on restart; a confirmed forget (R-23 AC6) empties them.
 
 ### R-17 Message routing
 Every incoming message has exactly one destination, decided by code in this order.
@@ -379,7 +380,7 @@ ANOMANDER remembers lasting facts about the principal, such as "soy vegetariano"
 - AC1: In the same processor call that interprets a principal text (R-2, R-16), the processor may return lasting facts about the principal, each with its text, the words of the message it rests on, and whether the principal said it. No extra processor call is made.
 - AC2: Code stores each fact as an assertion about the principal with predicate `memory`: mode `declared` and actor `principal` only when the processor says the principal said it and its quote appears in the message; otherwise mode `inferred` and actor `processor`. The source is the Telegram message. The fact's text and quote are stored in `memory_texts`, not in the assertion.
 - AC3: A fact that replaces a current memory ("ya no soy vegetariano") stores the new memory with `supersedes_id` and sets the old one to `refuted`.
-- AC4: Conversation replies receive the current memories: all of them up to 50, and beyond that the 50 the message matches best in the FTS5 index. Memories may only shape the conversational reply: code rejects any expense inference whose quote is not in the message (R-14 AC2), so a memory never becomes an expense fact.
+- AC4: Conversation replies receive the current memories: all of them up to 50, and beyond that the 50 the message matches best in the FTS5 index. Memories may only shape the conversational reply: code rejects any expense inference whose quote is not in the message (R-14 AC2), so neither a memory nor a recent turn ever becomes an expense fact.
 - AC5: When the principal asks what ANOMANDER remembers, code replies S-27 with every current memory, or S-28 when there is none.
 - AC6: When the principal asks to forget something, the processor only picks the matching current memories; code asks S-29 with `Sí` and `No`, or replies S-32 when none matches. `Sí` erases each memory's text and quote from `memory_texts` and the FTS5 index, sets its assertion to `expired`, and replies S-30; `No` erases nothing and replies S-31. The assertion stays, with no text, as the mark that something was remembered and forgotten.
 - AC7: Erasing is real: the connection runs with `PRAGMA secure_delete = ON`, the FTS5 index with `secure-delete`, and the WAL is checkpointed after each erase, so the text does not survive in free pages. Backups taken before the erase are outside this guarantee.
@@ -783,7 +784,7 @@ Checks every feature document should run:
 | M1 Core and truth store | Ontology types, authority check, consistency check, migrations, seed data | R-4, R-5, R-6 AC5, R-7 AC3, R-14 |
 | M2 Telegram text expenses | Principal-only bot, text expenses, verification reply, open conversation, text routing, unsupported inputs | R-1, R-2, R-9, R-16, R-17 AC5, R-20 (text and unsupported rows), R-21 |
 | M3 Receipts | Receipt reading, albums, decisions with buttons, corrections, image retention and queue, AI budget, retention job, receipt evaluation set | R-3, R-6, R-7, R-8, R-12, R-17, R-19, R-20, R-22 |
-| M3b Conversation memory | Facts remembered from open conversation with epistemic modes, "qué sabes de mí", confirmed real forgetting | R-16 AC2, R-23 |
+| M3b Conversation memory | Recent turns as context, facts remembered from open conversation with epistemic modes, "qué sabes de mí", confirmed real forgetting | R-16 AC2, AC3, R-23 |
 | M4 Summary, policies, categories and dashboard view | Weekly summary, policies and patterns, category creation, supermarket view | R-10, R-11, R-13, R-18 |
 | M5 Next matter | A second delegated matter chosen by the principal; read access to the ledger from other applications or the AI assistant (API or MCP) | To be specified |
 | M6 Desktop | Tauri 2 app with Rust, talking to the same daemon | To be specified |

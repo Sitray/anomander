@@ -14,6 +14,7 @@ import {
   UNCATEGORIZED,
 } from '@anomander/protocol';
 import type Database from 'better-sqlite3';
+import type { RecentTurn } from '../conversation/recent-turns.ts';
 import type { ReplyPhraser } from '../processor/reply-phraser.ts';
 import type { Logger, TextInterpreter } from '../processor/text-interpreter.ts';
 import {
@@ -40,6 +41,8 @@ export interface TextExpenseDeps {
   /** Words S-1, S-2, S-16 and S-21 (R-21). */
   phraser: ReplyPhraser;
   logger: Logger;
+  /** The recent turns given to the interpreter (R-16 AC3); none when absent. */
+  recent?: () => RecentTurn[];
 }
 
 const inferenceOf = (inferences: readonly ProcessorInference[], predicate: string) =>
@@ -50,6 +53,7 @@ const inferredValue = (inferences: readonly ProcessorInference[], predicate: str
 
 export const createTextExpenseHandler = (deps: TextExpenseDeps): TextHandler => {
   const { db, interpreter, timeZone, now, processorSource, phraser, logger } = deps;
+  const recent = deps.recent ?? (() => []);
 
   return async (message) => {
     const phrase = (reference: string, facts: string[]) =>
@@ -58,7 +62,12 @@ export const createTextExpenseHandler = (deps: TextExpenseDeps): TextHandler => 
 
     const today = todayIn(timeZone, now());
     const categories = listCategories(db);
-    const interpretation = await interpreter({ text: message.text, today, categories });
+    const interpretation = await interpreter({
+      text: message.text,
+      today,
+      categories,
+      recent: recent(),
+    });
 
     // R-16: open conversation gets its reply and nothing is persisted.
     if (interpretation.kind === 'conversation') return { text: interpretation.reply };

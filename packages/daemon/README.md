@@ -173,6 +173,17 @@ without storing anything; a failed correction keeps the decision waiting for the
 The front door replies S-22 too when a handler throws. A receipt is stored before it is read,
 so a failed reading is S-5, as before.
 
+## Recent turns (R-16 AC3)
+
+So the interpreter understands "ese" or "lo de antes", `src/conversation/recent-turns.ts` keeps the
+last 10 exchanges with the principal, none older than 30 minutes, and the text interpreter gets
+them as `recent`. `app.ts` records them at the front door: `recordingTurns` wraps the text, receipt
+and button handlers (a receipt is `[foto de ticket]` and its caption, a press `[botón: Apuntar]`),
+and `recordingNotices` wraps `notify`, so a message sent unasked is a turn with no principal part.
+Turns live only in this process: they are never written to the database or logged, and a restart
+loses them. They give context only: an expense's amount must still be written in the current message
+(R-2 AC6), so a recent turn never becomes an expense fact.
+
 ## Conversation memory (R-23)
 
 `src/store/memory.ts` keeps what ANOMANDER remembers about the principal. Each memory is an

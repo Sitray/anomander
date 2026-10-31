@@ -28,6 +28,7 @@ const input = (text: string) => ({
   text,
   today: '2026-10-30',
   categories: ['restaurantes', 'supermercado'],
+  recent: [],
 });
 
 describe('pi-ai text interpreter', () => {
@@ -53,6 +54,7 @@ describe('pi-ai text interpreter', () => {
     expect(JSON.parse(String(userTurn))).toEqual({
       today: '2026-10-30',
       categories: ['restaurantes', 'supermercado'],
+      recent: [],
       message: text,
     });
   });
