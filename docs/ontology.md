@@ -52,7 +52,7 @@ Four actors can touch the system, and each has a different role. The processor (
 | Goal, Preference, Policy | Creates, changes and retires them | No | Stores them | Only proposes them |
 | Matter | Opens and closes it | No | Tracks its state | Proposes state changes |
 | Pending decision | Answers it | No | Raises it | Formulates it |
-| Pattern | Turns it into a policy or discards it | No | No | Proposes it |
+| Pattern | Turns it into a policy or discards it | No | Proposes it (for expenses, by counting, PRD R-13 AC2) | May propose it (not used for expenses) |
 | Permission | Grants, limits and revokes it | No | Checks it | Never, not even for itself |
 | Action | Authorizes it (or a permission covers it) | No | Executes and verifies it | Proposes it |
 

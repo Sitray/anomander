@@ -295,7 +295,7 @@ Code checks every proposed receipt expense.
 
 ### R-10 Weekly summary
 - AC1: Sent on Sundays at the time set by `ANOMANDER_WEEKLY_SUMMARY_CRON` (default `0 20 * * 0`) in `TZ` (default `Europe/Madrid`).
-- AC2: Totals per category and the number of unconfirmed expenses are computed in code. The model may only write the surrounding text.
+- AC2: Totals per category and the number of expenses pending confirmation are computed in code, and S-9 is sent verbatim (R-21 AC3). `{pendientes}` counts the expenses whose status is `pending` when the summary is sent, whatever their week.
 - AC3: The message follows S-9; every figure in it equals the sum of the corresponding rows.
 - AC4: `{desglose}` lists every existing category as `{Categoria} {importe}`, joined by ` · `, sorted by amount from highest to lowest, with `Sin clasificar {importe}` always last. Categories with no expenses that week show `0,00 €`.
 
@@ -311,7 +311,7 @@ Code checks every proposed receipt expense.
 
 ### R-13 Policies
 - AC1: A message such as "Mercadona es supermercado" proposes a policy; it is stored only after the principal confirms with S-11.
-- AC2: A pattern noticed by the processor is only ever offered as a proposal (S-12); it never becomes a policy without confirmation.
+- AC2: A pattern is noticed by code, not by the processor: when a merchant without a policy has 3 current expenses with the same category, and the principal confirmed or declared that category, code offers it as a proposal with S-12, where `{patron}` is `{comercio} siempre es {categoria}`. It never becomes a policy without confirmation, and a pattern the principal rejected is never offered again.
 
 ### R-14 Processor isolation
 - AC1: The processor never writes to the database. It returns inferences and proposals; only deterministic code persists rows: `packages/core` decides, and the daemon stores what it decided.
