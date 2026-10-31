@@ -349,6 +349,18 @@ describe('policies over Telegram (R-13 AC1)', () => {
     expect(reply?.text).toBe('Ya tengo la regla «Mercadona es supermercado».');
   });
 
+  it('a rule already active with no phrased reply gets S-39 verbatim (R-21 AC2)', async () => {
+    addPolicy('Mercadona', 'supermercado');
+    interpretations.set(
+      'Mercadona es supermercado',
+      answering({ kind: 'policy', merchant: 'Mercadona', category: 'supermercado' }),
+    );
+
+    const [reply] = await say('Mercadona es supermercado');
+
+    expect(reply?.text).toBe('Ya tengo la regla «Mercadona es supermercado».');
+  });
+
   it('R-18: a rule naming a category that does not exist asks S-15 instead', async () => {
     interpretations.set(
       'Repsol es gasolina',

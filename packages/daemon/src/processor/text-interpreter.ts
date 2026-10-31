@@ -55,7 +55,7 @@ export type Interpretation =
    * category as written, and a conversational reply sent only when that rule is already active.
    * Code asks S-11 before storing anything; the processor never stores a policy (§13).
    */
-  | { kind: 'policy'; merchant: string; category: string; reply: string }
+  | { kind: 'policy'; merchant: string; category: string; reply: string | null }
   | { kind: 'invalid'; reason: string }
   /** The processor failed or did not answer in time: nothing to interpret (R-22 AC1). */
   | { kind: 'failed'; reason: string }
@@ -137,7 +137,7 @@ const envelopeSchema = z.discriminatedUnion('kind', [
     kind: z.literal('policy'),
     merchant: z.string().trim().min(1),
     category: z.string().trim().min(1),
-    reply: z.string().trim().min(1),
+    reply: z.string().trim().min(1).optional(),
   }),
 ]);
 
@@ -247,7 +247,7 @@ export const createPiAiTextInterpreter =
     // R-13 AC1: code checks both are written and asks S-11; the processor only points at them.
     if (envelope.data.kind === 'policy') {
       const { merchant, category, reply } = envelope.data;
-      return { kind: 'policy', merchant, category, reply };
+      return { kind: 'policy', merchant, category, reply: reply ?? null };
     }
     const facts = memoryFactsOf(envelope.data.memories, logger);
     if (envelope.data.kind === 'conversation') {
