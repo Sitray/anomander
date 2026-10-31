@@ -31,4 +31,5 @@ No trimming is needed: the 10 vocabulary classes cost nothing, and the 16 data c
 - [x] Tests: unit, property, contract, integration, end to end and a receipt evaluation (see [stack.md](stack.md)).
 - [x] Models: first through a subscription or an API; local models later.
 - [x] Memory: the SQLite ledger is the only memory. Engram, if used, is a read-only external source; ANOMANDER never writes to it.
+- [x] Conversation memory (PRD R-23): captured automatically from each text, used only to converse, listed on request, and erased for real after a confirmation with buttons. Its text lives in `memory_texts` so that forgetting does not touch the append-only ledger.
 - [x] Hosting: local during development (M0 to M3) and a VPS with Docker once it is ready to run 24/7.

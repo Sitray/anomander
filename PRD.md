@@ -61,13 +61,13 @@ The first version delegates **one matter end to end: keeping track of my expense
 - G4. Send a weekly summary whose figures are computed by code and traceable to each expense.
 - G5. Keep the model replaceable: switching between API, subscription and local models requires configuration only.
 - G6. Answer open conversation from day one.
+- G7. Remember the lasting facts the principal tells it in open conversation, each with its mode and provenance, use them only to converse, and forget them for real when asked.
 
 ### Non-goals (v1)
 
 - Multi-user installations.
 - Moving money: payments, transfers or any banking write access. These operations do not exist.
 - Price tracking, subscriptions, budgets, bank connections, web dashboard, desktop app, voice and computer control (later matters, §17).
-- Long-term memory of open conversation (only expense-related facts are persisted in v1).
 - Storing receipt images beyond what R-8 allows.
 - Reading PDFs, voice notes or any input other than text and images (R-20).
 - External read access to the ledger from other applications (an API or an MCP server for the AI assistant). It comes after the Telegram bot; until then the `supermarket_purchases` view is the only contract.
@@ -324,7 +324,7 @@ Code checks every proposed receipt expense.
 
 ### R-16 Open conversation
 - AC1: A message that is not an expense, a policy or an answer to a pending decision gets a conversational reply.
-- AC2: In v1 nothing from open conversation is persisted.
+- AC2: Open conversation persists nothing except the memories of R-23.
 
 ### R-17 Message routing
 Every incoming message has exactly one destination, decided by code in this order.
@@ -374,6 +374,17 @@ The principal always gets an answer.
 - AC1: If handling a principal message fails before anything is stored (the processor errors or does not answer within its timeout, or an internal error), the reply is S-22, verbatim, and the error is logged.
 - AC2: Every processor call has a timeout, so a model that does not answer never blocks later messages.
 
+### R-23 Conversation memory
+ANOMANDER remembers lasting facts about the principal, such as "soy vegetariano", and uses them only to converse (G7).
+- AC1: In the same processor call that interprets a principal text (R-2, R-16), the processor may return lasting facts about the principal, each with its text, the words of the message it rests on, and whether the principal said it. No extra processor call is made.
+- AC2: Code stores each fact as an assertion about the principal with predicate `memory`: mode `declared` and actor `principal` only when the processor says the principal said it and its quote appears in the message; otherwise mode `inferred` and actor `processor`. The source is the Telegram message. The fact's text and quote are stored in `memory_texts`, not in the assertion.
+- AC3: A fact that replaces a current memory ("ya no soy vegetariano") stores the new memory with `supersedes_id` and sets the old one to `refuted`.
+- AC4: Conversation replies receive the current memories: all of them up to 50, and beyond that the 50 the message matches best in the FTS5 index. Memories may only shape the conversational reply: code rejects any expense inference whose quote is not in the message (R-14 AC2), so a memory never becomes an expense fact.
+- AC5: When the principal asks what ANOMANDER remembers, code replies S-27 with every current memory, or S-28 when there is none.
+- AC6: When the principal asks to forget something, the processor only picks the matching current memories; code asks S-29 with `Sí` and `No`, or replies S-32 when none matches. `Sí` erases each memory's text and quote from `memory_texts` and the FTS5 index, sets its assertion to `expired`, and replies S-30; `No` erases nothing and replies S-31. The assertion stays, with no text, as the mark that something was remembered and forgotten.
+- AC7: Erasing is real: the connection runs with `PRAGMA secure_delete = ON`, the FTS5 index with `secure-delete`, and the WAL is checkpointed after each erase, so the text does not survive in free pages. Backups taken before the erase are outside this guarantee.
+- AC8: Memory text never appears in logs and is never written to Engram (§19).
+
 ## 12. User-facing strings (verbatim, `es-ES`)
 
 S-1, S-2, S-16 and S-21 are the reference and the fallback for the phrased replies of R-21; every other string is sent exactly as written.
@@ -408,8 +419,14 @@ Amounts are formatted with `Intl.NumberFormat('es-ES', { style: 'currency', curr
 | S-24 | `Vale, lo guardo hasta poder leerlo, como mucho hasta el {fecha}.` |
 | S-25 | `Vale, si no consigo leerlo antes, lo borro en una hora.` |
 | S-26 | `He llegado al límite diario de IA y hoy no puedo procesar más mensajes. ¿Me lo vuelves a enviar mañana?` |
+| S-27 | `Esto es lo que recuerdo de ti:` followed by one line per memory, `· {texto} (me lo dijiste)` when declared or `· {texto} (lo deduje)` when inferred |
+| S-28 | `Todavía no recuerdo nada de ti.` |
+| S-29 | `¿Olvido esto?` followed by one line per memory, `· {texto}` |
+| S-30 | `Hecho, lo he olvidado.` |
+| S-31 | `Vale, no olvido nada.` |
+| S-32 | `No encuentro nada así en lo que recuerdo.` |
 
-When there is no category, `{categoria}` is `sin clasificar`. In S-9, each category name in `{desglose}` starts with a capital letter (R-10 AC4), for example `Supermercado 45,20 € · Restaurantes 23,00 € · Sin clasificar 0,00 €`. Button labels: `Apuntar`, `Corregir`, `Descartar`, and for S-11, S-12, S-13 and S-15 `Sí` and `No`.
+When there is no category, `{categoria}` is `sin clasificar`. In S-9, each category name in `{desglose}` starts with a capital letter (R-10 AC4), for example `Supermercado 45,20 € · Restaurantes 23,00 € · Sin clasificar 0,00 €`. Button labels: `Apuntar`, `Corregir`, `Descartar`, and for S-11, S-12, S-13, S-15 and S-29 `Sí` and `No`.
 
 ## 13. Data model
 
@@ -605,6 +622,31 @@ CREATE TABLE ai_usage (
 );
 ```
 
+Conversation memory (R-23) keeps the erasable text outside the append-only ledger, added by a later migration:
+
+```sql
+-- Conversation memory (R-23): the text of each `memory` assertion, erased on a confirmed forget
+CREATE TABLE memory_texts (
+  assertion_id INTEGER PRIMARY KEY REFERENCES assertions(id),
+  text TEXT NOT NULL,               -- the fact, as the processor worded it
+  quote TEXT NOT NULL               -- the words of the message it rests on
+);
+
+-- FTS5 index of the memory text, kept in step with memory_texts by triggers
+CREATE VIRTUAL TABLE memory_search USING fts5(
+  text, content = 'memory_texts', content_rowid = 'assertion_id', tokenize = 'unicode61 remove_diacritics 2'
+);
+INSERT INTO memory_search (memory_search, rank) VALUES ('secure-delete', 1);
+
+CREATE TRIGGER memory_texts_indexed AFTER INSERT ON memory_texts BEGIN
+  INSERT INTO memory_search (rowid, text) VALUES (NEW.assertion_id, NEW.text);
+END;
+
+CREATE TRIGGER memory_texts_unindexed AFTER DELETE ON memory_texts BEGIN
+  INSERT INTO memory_search (memory_search, rowid, text) VALUES ('delete', OLD.assertion_id, OLD.text);
+END;
+```
+
 Migrations are versioned SQL files applied at startup. Seed data: the principal entity, the two categories, the "Keep my expenses" matter and the starting permission.
 
 ## 14. Technical architecture
@@ -741,8 +783,9 @@ Checks every feature document should run:
 | M1 Core and truth store | Ontology types, authority check, consistency check, migrations, seed data | R-4, R-5, R-6 AC5, R-7 AC3, R-14 |
 | M2 Telegram text expenses | Principal-only bot, text expenses, verification reply, open conversation, text routing, unsupported inputs | R-1, R-2, R-9, R-16, R-17 AC5, R-20 (text and unsupported rows), R-21 |
 | M3 Receipts | Receipt reading, albums, decisions with buttons, corrections, image retention and queue, AI budget, retention job, receipt evaluation set | R-3, R-6, R-7, R-8, R-12, R-17, R-19, R-20, R-22 |
+| M3b Conversation memory | Facts remembered from open conversation with epistemic modes, "qué sabes de mí", confirmed real forgetting | R-16 AC2, R-23 |
 | M4 Summary, policies, categories and dashboard view | Weekly summary, policies and patterns, category creation, supermarket view | R-10, R-11, R-13, R-18 |
-| M5 Next matter | A second delegated matter chosen by the principal; open-conversation memory with epistemic modes; read access to the ledger from other applications or the AI assistant (API or MCP) | To be specified |
+| M5 Next matter | A second delegated matter chosen by the principal; read access to the ledger from other applications or the AI assistant (API or MCP) | To be specified |
 | M6 Desktop | Tauri 2 app with Rust, talking to the same daemon | To be specified |
 
 ## 18. Suggested ODD feature documents
@@ -758,7 +801,7 @@ For each one, `L1` in `## Log` should be the request that starts it, and `## Spe
 ## 19. Decisions on models and memory
 
 - **Models first through a subscription or an API key.** `ANOMANDER_MODEL` and `ANOMANDER_VISION_MODEL` are chosen at install time; no specific model is hard-coded. Local models come later, possibly served from the principal's Windows machine (for example with Ollama) and reached over a private network. Because no local model is required at first, the daemon can run on a small always-on server.
-- **The SQLite ledger is the only memory.** Everything ANOMANDER remembers, including open-conversation memory in M5, lives in the assertion ledger with its mode and provenance. Search uses SQLite FTS5 in the same file.
+- **The SQLite ledger is the only memory.** Everything ANOMANDER remembers, including open-conversation memory (R-23), lives in the assertion ledger with its mode and provenance; only a memory's erasable text sits beside it in `memory_texts`. Search uses SQLite FTS5 in the same file.
 - **Engram is an external source, not ANOMANDER's memory.** If ANOMANDER ever reads what the principal's coding agents stored in Engram, it does so read-only, and each item enters the ledger as an assertion with source `engram` and the mode it deserves (usually inferred). ANOMANDER never writes to Engram, so personal data such as expenses never leaks into coding-agent memory.
 
 ## 20. Hosting
