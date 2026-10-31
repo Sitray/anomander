@@ -44,9 +44,9 @@ photo, an image file or an album (PRD §10). Each step enforces a PRD rule:
    sender chose reaches the file system. One transaction stores the `documents` row (`kind
    'receipt'`, `status 'queued'`, `image_count`, `source` = the message or album) and an
    `observed` assertion `images_received` about it (R-3 AC1).
-2. **Budget seam.** `mayReadNow` decides whether the receipt is read now. It always says yes
-   until the daily AI budget (R-12, R-8 AC2) arrives in T3, which keeps the document `queued`
-   with its images instead.
+2. **Budget seam.** `mayReadNow` decides whether the receipt is read now: it reserves one call
+   of the daily AI budget (R-12). Past the cap the document stays `queued` with its images
+   instead (R-8 AC2; see the queue below).
 3. **Read.** The images are read back from disk and sent, with the caption, in one call to the
    `ReceiptReader` (R-3 AC4, AC5). Invalid output is unreadable (R-3 AC2).
 4. **Delete the images.** Whatever the outcome, the folder is deleted, the document becomes
@@ -99,8 +99,9 @@ Every incoming message has exactly one destination, decided by code (R-17):
 3. **A photo or an image file** always starts a new receipt and never answers a decision
    (AC4); it does not pass through the router.
 
-A decision `awaiting_text` for 15 minutes is `open` again (AC6). There is no scheduler: the
-button handler and the router move stale decisions back to `open` before routing.
+A decision `awaiting_text` for 15 minutes is `open` again (AC6). The button handler and the
+router move stale decisions back to `open` before routing, and the retention job does too, so a
+forgotten decision can still expire (R-19 AC2).
 
 `register_expense` (`src/decisions/register-expense-decision.ts`) answers S-3, S-4 and S-6:
 

@@ -21,12 +21,13 @@ from `@anomander/protocol`.
 - **Albums (R-3 AC4).** Telegram sends each photo of an album as its own update, sharing a
   `media_group_id`. The bot collects them for 2 seconds after the first one arrives and hands
   them to `onReceipt` as one receipt (`telegram:album:<media_group_id>`), in arrival order, with
-  their captions joined. The PRD says "the daemon collects"; it happens here because grouping
-  updates is Telegram transport, and the daemon only ever sees one receipt.
+  their captions joined. Grouping updates is Telegram transport, so it happens here and the
+  daemon only ever sees one receipt.
 - **Failures (R-22).** When a handler throws, the error is logged and the principal gets S-22.
   A `ReceiptHandler` that answers `null` sends nothing. A `sendMessage` that Telegram refuses
-  with 429 (after its `retry_after`) or 5xx is sent again, up to 3 attempts; a network error is
-  not retried, because the message may have arrived and must not arrive twice.
+  with 429 (after its `retry_after`, up to 30 s; a longer one gives up) or 5xx is sent again, up
+  to 3 attempts; a network error is not retried, because the message may have arrived and must
+  not arrive twice.
 
 ## How a receipt travels
 

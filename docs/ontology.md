@@ -79,7 +79,7 @@ Every stored assertion carries seven fields. Without them it is not stored.
 
 Lifecycles:
 
-- **Assertion:** born in its mode. An inference can become confirmed (I validate it or an observation corroborates it), refuted or expired. It never changes mode silently. A confirmation is a new assertion that points at what it confirms (PRD §7.2).
+- **Assertion:** born in its mode. An inference can become confirmed (I validate it or a deterministic check corroborates it), refuted or expired. It never changes mode silently. A confirmation is a new assertion that points at what it confirms (PRD §7.2).
 - **Matter:** open → active → waiting for a decision (when there is a pending decision) → resolved or abandoned. Only I open and close it; matters do not expire in v1.
 - **Permission:** granted → active → revoked or expired. A permission with no expiry can still be revoked at any time.
 - **Action:** the cycle in the diagram below.

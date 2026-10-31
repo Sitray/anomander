@@ -47,7 +47,7 @@ anomander/
 └── apps/desktop        # later: Tauri 2 and Rust
 ```
 
-One rule is enforced by a test: `packages/core` cannot import anything from `packages/daemon` or from any app. It is a package-boundary test like the one in pi-subagent (`package-boundary.test.ts`).
+One rule is enforced by a test: `packages/core` cannot import anything from `packages/daemon`, from any app or from any provider SDK; it imports only its own files and `zod`. It is a package-boundary test like the one in pi-subagent (`package-boundary.test.ts`).
 
 ## Tests and Docker
 
@@ -64,7 +64,7 @@ Each layer of the ontology is tested with the kind of test that fits it:
 
 The receipt evaluation is not a pass/fail test: it is a measurement. It decides with data whether a new model (or a local one) reads as well as the current one.
 
-**Docker:** a `Dockerfile` for the daemon and a `compose.yaml` with the daemon and a volume for the SQLite file; in the test environment, a server that fakes the Telegram API. The end-to-end tests run against that compose setup, as Gentle AI does with its Docker e2e tests.
+**Docker:** a `Dockerfile` for the daemon and a `compose.yaml` with the daemon and a volume for the SQLite file; in the test environment, a server that fakes the Telegram API. The end-to-end tests are meant to run against that compose setup, as Gentle AI does with its Docker e2e tests; that setup is not built yet, so today they run in-process with `pnpm test`, against the fake Telegram API.
 
 ## Providers and processes
 
@@ -87,5 +87,5 @@ Receipts are read by default with an external vision model, because it reads cro
 
 **Where pi and Engram fit:**
 
-- **pi** is not the core. It is the processor: it receives context and returns inferences and proposals. Its tools are the operations in the capabilities table, and every call goes through the authority check before it runs.
+- **pi** is not the core. It is the processor: it receives context and returns inferences and proposals. It is given no tools (PRD R-14 AC3); every proposal it returns goes through the authority check, in code, before anything runs.
 - **Engram** is not ANOMANDER's memory. The SQLite ledger is the only memory, with full-text search through SQLite FTS5 in the same file. If ANOMANDER ever reads what the principal's coding agents stored in Engram, it does so read-only, and each item enters the ledger as an assertion with source `engram` and the mode it deserves (usually inferred). ANOMANDER never writes to Engram, so personal data such as expenses never ends up in coding-agent memory.
