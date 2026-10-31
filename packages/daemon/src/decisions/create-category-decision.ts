@@ -8,7 +8,7 @@ import type { DecisionAnswerHandler } from './types.ts';
 
 // R-18 AC1, AC3: the answer to S-15. "Sí" creates the category (an action authorized by the
 // principal) and, when it was declared for an expense, assigns it with `category_basis =
-// 'declared'`; the reply is S-36. "No" creates nothing and replies S-34.
+// 'declared'`; the reply is S-37. "No" creates nothing and replies S-34.
 
 export interface CreateCategoryDecisionDeps {
   logger: Logger;

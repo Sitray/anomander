@@ -22,7 +22,7 @@ export const createCategory = (db: Database.Database, name: string, now: string)
  * R-18 AC3: the expense registered without a category takes the one the principal declared in its
  * message. The declaration is already in the ledger (`registerTextExpense` stores the declared
  * category even when it does not exist), so no assertion is added. Returns whether it changed: an
- * expense that has a category by now keeps it.
+ * expense that has a category by now, or is no longer current, keeps it.
  */
 export const assignDeclaredCategory = (
   db: Database.Database,
@@ -32,6 +32,6 @@ export const assignDeclaredCategory = (
   db
     .prepare(
       `UPDATE expenses SET category_id = ?, category_basis = 'declared'
-       WHERE id = ? AND category_id IS NULL`,
+       WHERE id = ? AND category_id IS NULL AND status = 'current'`,
     )
     .run(categoryId, expenseId).changes === 1;
