@@ -6,7 +6,8 @@ import { forgetMemories } from '../store/memory.ts';
 import type { DecisionAnswerHandler } from './types.ts';
 
 // R-23 AC6: the answer to S-29. "Sí" erases the memories it named and replies S-30; "No" erases
-// nothing and replies S-31. A memory forgotten or replaced since it was asked is left alone.
+// nothing and replies S-31. A memory forgotten or replaced since it was asked has no text left
+// to erase: a replacement erases the old text (R-23 AC3), so S-30 is always true.
 
 export interface ForgetMemoryDecisionDeps {
   /** Empties the recent turns, so the forgotten text leaves the conversation (R-16 AC3). */

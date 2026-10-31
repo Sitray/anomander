@@ -198,7 +198,8 @@ assertion about the principal entity with predicate `memory`. Its text and quote
 **Mode (AC2).** `saveMemory` stores `declared` by the principal only when the processor says the
 principal said it and the quote is in the message, compared ignoring case and runs of spaces;
 otherwise `inferred` by the processor, with its confidence. A fact that `replaces` a current
-memory supersedes it and refutes it (AC3); an id that is not a current memory is ignored.
+memory supersedes it, refutes it and erases its text the way a forget does (AC3), so no
+outdated text is kept; an id that is not a current memory is ignored.
 
 **Prompt (AC4).** `memoriesForPrompt` gives every current memory up to 50, and beyond that the 50
 that best match the message in `memory_search`. Each word of the message is quoted, so the
