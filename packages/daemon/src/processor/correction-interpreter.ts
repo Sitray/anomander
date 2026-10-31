@@ -1,6 +1,7 @@
 import { type ProcessorInference, validateProcessorOutput } from '@anomander/core';
 import type { AssistantMessage, Context } from '@earendil-works/pi-ai';
 import { z } from 'zod';
+import { AiBudgetExhaustedError } from '../budget/ai-budget.ts';
 import type { Complete, Logger } from './text-interpreter.ts';
 
 // R-7 AC2: the processor reads the principal's correction of one expense and points at the
@@ -18,7 +19,9 @@ export type CorrectionInterpretation =
   | { kind: 'correction'; inferences: ProcessorInference[] }
   | { kind: 'invalid'; reason: string }
   /** The processor failed or did not answer in time (R-22 AC1). */
-  | { kind: 'failed'; reason: string };
+  | { kind: 'failed'; reason: string }
+  /** The daily AI budget is spent, so the processor was not called (R-12 AC4). */
+  | { kind: 'budget_exhausted' };
 
 export type CorrectionInterpreter = (
   input: CorrectionInterpreterInput,
@@ -96,6 +99,7 @@ export const createPiAiCorrectionInterpreter =
     try {
       response = await complete(model, context);
     } catch (error) {
+      if (error instanceof AiBudgetExhaustedError) return { kind: 'budget_exhausted' };
       return failed(`processor call failed: ${(error as Error).message}`);
     }
     if (response.stopReason === 'error' || response.stopReason === 'aborted') {

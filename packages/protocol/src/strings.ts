@@ -57,6 +57,8 @@ export const strings = {
   receiptKept: (lastDay: string) =>
     `Vale, lo guardo hasta poder leerlo, como mucho hasta el ${formatDate(lastDay)}.`,
   receiptNotKept: () => 'Vale, si no consigo leerlo antes, lo borro en una hora.',
+  textLimitReached: () =>
+    'He llegado al límite diario de IA y hoy no puedo procesar más mensajes. ¿Me lo vuelves a enviar mañana?',
 } as const;
 
 /** PRD §12 button labels (R-6 AC3; S-11, S-12, S-13 and S-15 use `Sí` and `No`). */

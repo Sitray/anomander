@@ -62,6 +62,8 @@ export const createTextExpenseHandler = (deps: TextExpenseDeps): TextHandler => 
 
     // R-16: open conversation gets its reply and nothing is persisted.
     if (interpretation.kind === 'conversation') return { text: interpretation.reply };
+    // R-12 AC4: the daily AI budget is spent; nothing was stored.
+    if (interpretation.kind === 'budget_exhausted') return { text: strings.textLimitReached() };
     // R-22 AC1: the processor failed before anything was stored.
     if (interpretation.kind === 'failed') {
       logger.error('text not handled: the processor failed', {

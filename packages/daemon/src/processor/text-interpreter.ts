@@ -1,6 +1,7 @@
 import { type ProcessorInference, validateProcessorOutput } from '@anomander/core';
 import type { AssistantMessage, Context } from '@earendil-works/pi-ai';
 import { z } from 'zod';
+import { AiBudgetExhaustedError } from '../budget/ai-budget.ts';
 
 // R-17 AC5 and R-2 AC6: the processor classifies a text and returns inferences only. It never
 // writes (R-14 AC1); the expense cycle decides what to store.
@@ -20,7 +21,9 @@ export type Interpretation =
   | { kind: 'conversation'; reply: string }
   | { kind: 'invalid'; reason: string }
   /** The processor failed or did not answer in time: nothing to interpret (R-22 AC1). */
-  | { kind: 'failed'; reason: string };
+  | { kind: 'failed'; reason: string }
+  /** The daily AI budget is spent, so the processor was not called (R-12 AC4). */
+  | { kind: 'budget_exhausted' };
 
 /** The processor port. A1: policies and categories (R-13, R-18) arrive in M4. */
 export type TextInterpreter = (input: TextInterpreterInput) => Promise<Interpretation>;
@@ -103,6 +106,7 @@ export const createPiAiTextInterpreter =
     try {
       response = await complete(model, context);
     } catch (error) {
+      if (error instanceof AiBudgetExhaustedError) return { kind: 'budget_exhausted' };
       const reason = `processor call failed: ${(error as Error).message}`;
       logger.warn('text interpretation failed', { reason });
       return { kind: 'failed', reason };
