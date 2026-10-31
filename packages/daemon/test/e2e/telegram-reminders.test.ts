@@ -194,6 +194,31 @@ describe('creating reminders and tasks over Telegram (R-25)', () => {
     ]);
   });
 
+  it('R-24 AC2: small format slips in a reminder call are read as meant, not rejected', async () => {
+    const once = await say(
+      'recuérdame mañana llamar a mamá',
+      create({ text: 'llamar a mamá', at: '2026-10-31T9:00:00', reply: '' }),
+    );
+    const weekly = await say(
+      'recuérdame los lunes a las 8 sacar la basura',
+      create({
+        text: 'sacar la basura',
+        recurrence: { freq: 'weekly', days: [1], time: '8:00' },
+        reply: null,
+      }),
+    );
+
+    expect(once).toBe('Te lo recuerdo mañana a las 9:00: llamar a mamá.');
+    expect(weekly).toBe('Te lo recuerdo todos los lunes a las 8:00: sacar la basura.');
+    expect(reminders()).toMatchObject([
+      { due_at: '2026-10-31T08:00:00.000Z', recurrence_json: null },
+      {
+        due_at: '2026-11-02T07:00:00.000Z',
+        recurrence_json: '{"freq":"weekly","days":[1],"time":"08:00"}',
+      },
+    ]);
+  });
+
   it('AC3: a repetition it cannot keep gets S-51 and stores nothing', async () => {
     const reply = await say(
       'recuérdame cada dos semanas regar las plantas',

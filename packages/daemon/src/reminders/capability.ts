@@ -28,7 +28,8 @@ import { localParts, nextOccurrence, utcOf, whenOf } from './when.ts';
 // cancelling asks first (AC9). The text is never logged (AC12): log calls here carry the channel
 // reference, ids and reasons only.
 
-const LOCAL_DATE_TIME = /^(\d{4}-\d{2}-\d{2})T([01]\d|2[0-3]):([0-5]\d)$/;
+/** Local `YYYY-MM-DDTHH:mm`; an `H:mm` hour or trailing seconds are read the same (R-24 AC2). */
+const LOCAL_DATE_TIME = /^(\d{4}-\d{2}-\d{2})T([01]?\d|2[0-3]):([0-5]\d)(:[0-5]\d)?$/;
 
 const createSchema = z.object({
   kind: z.literal('reminder_create'),
@@ -40,12 +41,16 @@ const createSchema = z.object({
     .string()
     .regex(LOCAL_DATE_TIME)
     .refine((value) => isCalendarDate(value.slice(0, 10)))
+    .transform((value) => {
+      const [, date, hour, minute] = LOCAL_DATE_TIME.exec(value) ?? [];
+      return `${date}T${hour?.padStart(2, '0')}:${minute}`;
+    })
     .nullable()
     .optional(),
   recurrence: recurrenceSchema.nullable().optional(),
   unsupported_recurrence: z.boolean().optional(),
-  /** S-40 or S-41 worded in the same call (R-25 AC6). */
-  reply: z.string().trim().min(1).optional(),
+  /** S-40 or S-41 worded in the same call (R-25 AC6); missing or empty means the verbatim string. */
+  reply: z.string().trim().nullable().optional(),
 });
 
 /** R-25 AC8: code lists what is pending; the processor never words the list. */
@@ -70,7 +75,7 @@ type CreateCall = z.infer<typeof createSchema>;
 const PROMPT = `If the user asks you to remind them of something ("recuérdame mañana llamar a mamá") or notes something they have to do, with or without a date ("tengo que comprar pilas"), reply:
 {"kind":"reminder_create","text":"<what to remember, copied word for word from the message>","at":"<YYYY-MM-DDTHH:mm, the local time to remind them>","recurrence":null,"unsupported_recurrence":false,"reply":"<a short, friendly reply in Spanish (es-ES), at most 280 characters, saying the same as: Te lo recuerdo <cuando>: <text>.>"}
 Work out "at" from the "now" and "weekday" fields of "reminders" ("mañana", "en dos horas", "el viernes"). A day without a time means 09:00.
-If it repeats every day, every week on some days, or every month on one day, always at one time, set "at" to null and "recurrence" to {"freq":"daily","time":"HH:mm"}, {"freq":"weekly","days":[<1 Monday to 7 Sunday>],"time":"HH:mm"} or {"freq":"monthly","day":<1 to 31>,"time":"HH:mm"}.
+If it repeats every day, every week on some days, or every month on one day, always at one time, set "at" to null and "recurrence" to {"freq":"daily","time":"09:00"}, {"freq":"weekly","days":[<1 Monday to 7 Sunday>],"time":"09:00"} or {"freq":"monthly","day":<1 to 31>,"time":"09:00"}, with the time they asked for as HH:mm.
 If it repeats in any other way ("cada dos semanas", "el último viernes de cada mes"), set "unsupported_recurrence" to true.
 If it has no date at all, set "at" and "recurrence" to null, and "reply" says the same as: Apuntado en tus pendientes: <text>.
 If the user gives a time to a pending task, one whose "when" is null ("lo de las pilas, recuérdamelo el sábado"), add "id":<the "id" of that task> and copy its "text" exactly into "text".
@@ -81,9 +86,9 @@ If the user asks what they have pending ("¿qué tengo pendiente?"), reply:
 {"kind":"reminder_list"}
 Never write the list yourself; the assistant lists them.
 
-If the user asks to cancel a pending reminder or task ("cancela lo del dentista"), reply:
+If the user asks to cancel a pending reminder or task ("cancela lo del dentista"), even when they word it as forgetting or deleting it ("olvídate de lo del dentista", "borra lo de las pilas"), reply:
 {"kind":"reminder_cancel","ids":[<the "id" of each pending reminder or task that matches>]}
-Use an empty list when none matches. Nothing is cancelled until the user confirms.
+Use an empty list when none matches. Nothing is cancelled until the user confirms. "forget" is only for facts about the user, never for pending reminders or tasks.
 
 If the user says they already did a pending reminder or task ("ya compré las pilas"), reply:
 {"kind":"reminder_done","ids":[<the "id" of each pending reminder or task that matches>]}
@@ -121,7 +126,7 @@ const storedReply = (id: number, call: CreateCall, at: Date, env: CapabilityEnv)
     when === null
       ? { reference: strings.taskAdded(stored.text), facts: [stored.text] }
       : { reference: strings.reminderSet(when, stored.text), facts: [stored.text, when] };
-  return { text: checkedPhrasing(call.reply ?? null, request, env.logger) };
+  return { text: checkedPhrasing(call.reply || null, request, env.logger) };
 };
 
 /**

@@ -9,21 +9,17 @@ import { insertAssertion } from './expenses.ts';
 /** The assertion points at the row that holds the text, as `memory` does (R-23 AC2). */
 const REMINDER_VALUE = { text_in: 'reminders' };
 
-const TIME = /^([01]\d|2[0-3]):[0-5]\d$/;
+/** `HH:mm`; `H:mm` from the processor is read the same and stored as `HH:mm` (R-24 AC2). */
+const time = z
+  .string()
+  .regex(/^([01]?\d|2[0-3]):[0-5]\d$/)
+  .transform((value) => value.padStart(5, '0'));
 
 /** §13 `recurrence_json`: `daily`, `weekly` with `days` 1 Monday to 7 Sunday, or `monthly`. */
 export const recurrenceSchema = z.discriminatedUnion('freq', [
-  z.object({ freq: z.literal('daily'), time: z.string().regex(TIME) }),
-  z.object({
-    freq: z.literal('weekly'),
-    days: z.array(z.int().min(1).max(7)).min(1),
-    time: z.string().regex(TIME),
-  }),
-  z.object({
-    freq: z.literal('monthly'),
-    day: z.int().min(1).max(31),
-    time: z.string().regex(TIME),
-  }),
+  z.object({ freq: z.literal('daily'), time }),
+  z.object({ freq: z.literal('weekly'), days: z.array(z.int().min(1).max(7)).min(1), time }),
+  z.object({ freq: z.literal('monthly'), day: z.int().min(1).max(31), time }),
 ]);
 
 /** One stored shape per repetition: weekly days sorted and once each. */
