@@ -206,9 +206,12 @@ export const createPiAiTextInterpreter =
         predicate: typeof predicate === 'string' ? predicate : null,
       });
     }
-    // R-23 AC4: an expense rests on the message alone, so neither a memory nor a recent turn can
-    // become an expense fact. Logged without the item: its quote could be a memory's text (AC8).
+    // R-23 AC4: what an expense states rests on the message alone, so neither a memory nor a
+    // recent turn can become an expense fact. The inferred category is exempt: it is picked among
+    // the existing categories and yields to a declared one and to policies (R-5).
+    // Logged without the item: its quote could be a memory's text (AC8).
     const quoted = inferences.filter((inference) => {
+      if (inference.predicate === 'category') return true;
       const quote = quoteOf(inference);
       const inMessage = typeof quote === 'string' && quotedFrom(quote, text);
       if (!inMessage) {

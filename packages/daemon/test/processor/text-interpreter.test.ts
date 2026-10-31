@@ -170,12 +170,13 @@ describe('pi-ai text interpreter', () => {
 
     const interpretation = await interpret(input('23 € CENA'));
 
+    // The inferred category is a choice among existing categories, not a fact of the message.
     expect(interpretation.kind === 'expense' && interpretation.inferences).toEqual([
       expect.objectContaining({ predicate: 'total', value_json: 2300 }),
+      expect.objectContaining({ predicate: 'category', value_json: 'restaurantes' }),
     ]);
     expect(logger.warn.mock.calls).toEqual([
       ['processor output rejected', { reason: 'quote_not_in_message', predicate: 'merchant' }],
-      ['processor output rejected', { reason: 'quote_not_in_message', predicate: 'category' }],
     ]);
   });
 
