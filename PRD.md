@@ -415,6 +415,15 @@ The principal asks ANOMANDER to remember things for them: at a time, on a schedu
 - AC11: `{cuando}` is written by code in `TZ`: `hoy a las 9:00`, `mañana a las 9:00`, `ayer a las 9:00` or `el 29 de octubre a las 9:00` for one time; `todos los días a las 9:00`, `todos los lunes y jueves a las 8:00` or `el día 15 de cada mes a las 9:00` for a repetition. At 1:00 it reads `a la 1:00`.
 - AC12: Reminder text never appears in logs and is never written to Engram (§19).
 
+### R-26 Morning digest
+A short message each morning with what the principal has today. It is off by default and exists only when the principal asks for it; ANOMANDER never offers it.
+- AC1: A message such as "mándame un resumen cada mañana a las 7:30" asks S-53 with `Sí` and `No`; without a time it asks for 8:00. The processor only returns the time; code asks. It is the second capability (R-24).
+- AC2: `Sí` grants a permission with operation `send_morning_digest` and `conditions_json` `{"time": "HH:mm"}`, revoking any earlier one, and replies S-54; `No` grants nothing and replies S-55. ANOMANDER never grants this permission itself (§8.1).
+- AC3: Asking for another time ("pásame el resumen a las 9") asks S-53 again with the new time, because it changes what was authorized. Asking for the time already active replies S-59 and asks nothing.
+- AC4: A message such as "deja de mandarme el resumen" revokes the permission at once, without buttons, and replies S-56, or S-58 when none is active.
+- AC5: While the permission is active, code sends S-57 at its time in `TZ`, once a day, unasked (R-16 AC3), built by code with no processor call and no AI budget: the pending reminders due today from now on, soonest first; every pending task, oldest first; and the number of expenses whose status is `pending`. A part with nothing is left out, and on a day when every part is empty nothing is sent.
+- AC6: If the daemon was down at the digest's time, it is sent at startup when that is still before 12:00 in `TZ`; later than that, the day is skipped (assumption). A digest is never sent twice on the same day.
+- AC7: Digest and reminder text never appear in logs (R-25 AC12).
 ### R-27 Model login from Telegram
 The principal can connect ANOMANDER to a model through their subscription (ChatGPT, Kimi Code) instead of an API key, from Telegram or from a terminal (R-15 AC3).
 - AC1: `/login` replies S-60 with one button per account that supports login: `ChatGPT` (pi-ai provider `openai`) and `Kimi Code` (`kimi-coding`). Claude and GitHub Copilot are not offered, because their providers may suspend accounts whose subscription is used outside their own apps; they and the providers without a subscription login (for example opencode, Gemini or DeepSeek) are reached with an API key in `.env`, never pasted in the chat. It is a command handled by code, so it works when no model is reachable yet.
@@ -494,6 +503,13 @@ Amounts are formatted with `Intl.NumberFormat('es-ES', { style: 'currency', curr
 | S-50 | `Hecho: {texto}.` |
 | S-51 | `Todavía no sé repetir recordatorios así. Puedo cada día, cada semana o cada mes.` |
 | S-52 | `Esa hora ya pasó. ¿Para cuándo lo quieres?` |
+| S-53 | `¿Te mando cada mañana a las {hora} un resumen con tus recordatorios del día, tus pendientes y los gastos por confirmar?` |
+| S-54 | `Hecho: te lo mando cada mañana a las {hora}.` |
+| S-55 | `Vale, no te lo mando.` |
+| S-56 | `Hecho, ya no te mando el resumen de la mañana.` |
+| S-57 | `Buenos días.` followed by the parts that have something: `Hoy:` with one line per reminder, `· {hora} {texto}`; `Pendientes:` with one line per task, `· {texto}`; and `Gastos por confirmar: {n}` |
+| S-58 | `No tenía activado el resumen de la mañana.` |
+| S-59 | `Ya te lo mando cada mañana a las {hora}.` |
 | S-60 | `¿Con qué cuenta me conecto?` |
 | S-61 | Retired: it was Claude's copy-code login, no longer offered (R-27 AC1). |
 | S-62 | `Abre el enlace y acepta. Cuando el navegador dé error, copia la dirección completa de esa página y pégamela aquí.` |
@@ -509,7 +525,7 @@ Amounts are formatted with `Intl.NumberFormat('es-ES', { style: 'currency', curr
 | S-72 | `- Un modelo que exista en {variable}: {modelo} no lo encuentro.` |
 | S-73 | `- Conectar tu cuenta de {proveedor} (/login o su API key en el .env).` |
 
-When there is no category, `{categoria}` is `sin clasificar`. In S-9, each category name in `{desglose}` starts with a capital letter (R-10 AC4), for example `Supermercado 45,20 € · Restaurantes 23,00 € · Sin clasificar 0,00 €`. Telegram commands are always in English (`/start`, `/login`, `/logout`); what the principal reads stays in Spanish. Button labels: `Apuntar`, `Corregir`, `Descartar`, and for S-11, S-12, S-13, S-15, S-29 and S-46 `Sí` and `No`; S-60 and S-66 have one button per account (`ChatGPT`, `Kimi Code`), and S-62 and S-63 an `Abrir` button with the link. In S-50, `{texto}` lists the texts joined with `, ` and ` y ` before the last one.
+When there is no category, `{categoria}` is `sin clasificar`. In S-9, each category name in `{desglose}` starts with a capital letter (R-10 AC4), for example `Supermercado 45,20 € · Restaurantes 23,00 € · Sin clasificar 0,00 €`. Telegram commands are always in English (`/start`, `/login`, `/logout`); what the principal reads stays in Spanish. Button labels: `Apuntar`, `Corregir`, `Descartar`, and for S-11, S-12, S-13, S-15, S-29, S-46 and S-53 `Sí` and `No`; S-60 and S-66 have one button per account (`ChatGPT`, `Kimi Code`), and S-62 and S-63 an `Abrir` button with the link. In S-53, S-54 and S-59, `{hora}` is written `7:30` or `8:00`; at 1:00 the sentence reads `a la 1:00`. In S-50, `{texto}` lists the texts joined with `, ` and ` y ` before the last one.
 
 ## 13. Data model
 
@@ -753,6 +769,16 @@ CREATE INDEX reminders_due ON reminders (due_at) WHERE status = 'pending' AND du
 
 In `recurrence_json`, `freq` is `daily`, `weekly` with `days` (1 Monday to 7 Sunday) or `monthly` with `day` (1 to 31); `time` is local `HH:mm` in `TZ`.
 
+The morning digest (R-26) needs no table for its permission, which lives in `permissions`; the days it was sent are added by a later migration:
+
+```sql
+-- Morning digest (R-26 AC6): one row per day it was sent, so it is never sent twice
+CREATE TABLE digest_sends (
+  day TEXT PRIMARY KEY,             -- 'YYYY-MM-DD' in TZ
+  sent_at TEXT NOT NULL
+);
+```
+
 Migrations are versioned SQL files applied at startup. Seed data: the principal entity, the two categories, the "Keep my expenses" matter and the starting permission.
 
 ## 14. Technical architecture
@@ -895,6 +921,7 @@ Checks every feature document should run:
 | M3b Conversation memory | Recent turns as context, facts remembered from open conversation with epistemic modes, "qué sabes de mí", confirmed real forgetting | R-16 AC2, AC3, R-23 |
 | M4 Summary, policies, categories and dashboard view | Weekly summary, policies and patterns, category creation, supermarket view | R-10, R-11, R-13, R-18 |
 | M5 Capability layer and reminders | A generic capability layer for the text interpreter; reminders and tasks as its first capability | R-24, R-25 |
+| M5c Morning digest | An opt-in morning digest, the second capability | R-26 |
 | M5d Model login | Connecting the model with a subscription login, from Telegram or a terminal | R-15 AC3, R-27 |
 | M5e Setup guide | `/start` and a guide to what `.env` still needs | R-17 AC8, R-28 |
 | M5b Ledger read access | Read access to the ledger from other applications or the AI assistant (API or MCP) | To be specified |
@@ -908,6 +935,7 @@ Checks every feature document should run:
 - `odd/tasks/receipt-expenses.md` (M3)
 - `odd/tasks/weekly-summary-policies-view.md` (M4)
 - `odd/tasks/m5-capabilities-reminders.md` (M5)
+- `odd/tasks/morning-digest.md` (M5c)
 - `odd/tasks/model-login.md` (M5d)
 
 For each one, `L1` in `## Log` should be the request that starts it, and `## Specs` should quote the listed `R-#` and §12 strings verbatim.
