@@ -24,6 +24,7 @@ import { createKeepReceiptAnswerHandler } from './retention/keep-receipt-decisio
 import { createRetention } from './retention/retention-job.ts';
 import { startScheduler } from './scheduler/scheduler.ts';
 import { applyMigrations, openDatabase } from './store/database.ts';
+import { createWeeklySummary } from './summary/weekly-summary.ts';
 
 // The composition root: one process, one SQLite file, the Telegram front door in the same
 // process (PRD §14.3). `main.ts` passes pi-ai's `models.complete`; the e2e test passes recorded
@@ -128,7 +129,7 @@ export const startAnomander = <M>(config: Config, deps: AnomanderDeps<M>): Anoma
     ...(deps.telegramApiRoot === undefined ? {} : { apiRoot: deps.telegramApiRoot }),
   });
 
-  // R-8, R-12 AC3 and R-19 run without a message: their replies go to the principal unasked.
+  // R-8, R-10, R-12 AC3 and R-19 run without a message: their replies go to the principal unasked.
   const notify = recordingNotices(turns, createTelegramNotify(bot, config.principalChatId));
   const retention = createRetention({
     db,
@@ -138,14 +139,17 @@ export const startAnomander = <M>(config: Config, deps: AnomanderDeps<M>): Anoma
     notify,
     logger,
   });
+  const summary = createWeeklySummary({ db, timeZone: config.timeZone, now, notify });
   const queue = createReceiptQueue({ db, readQueued: receipts.readQueued, notify, now, logger });
   const scheduler = startScheduler({
     retentionCron: config.retentionCron,
+    weeklySummaryCron: config.weeklySummaryCron,
     timeZone: config.timeZone,
     jobs: {
       retain: retention.retain,
       drainQueue: queue.drain,
       watchReceipts: retention.watchQueuedReceipts,
+      sendWeeklySummary: summary.send,
     },
     logger,
   });

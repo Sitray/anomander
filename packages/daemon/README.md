@@ -160,10 +160,20 @@ days that no current expense or its purchase lines rest on (AC1), and `open` dec
 handles expired queued receipts (AC3). It only changes `status` columns and deletes temporary
 images; a second run changes nothing (AC4).
 
+**Weekly summary (R-10).** `createWeeklySummary().send` (`src/summary/weekly-summary.ts`) covers
+the 7 days that end on the day it runs in `TZ` (today and the 6 days before; with the default
+Sunday cron, Monday to Sunday). It sums, in SQL, the `current` expenses whose `occurred_on` falls in
+those days, per category and without one, and counts every `pending` expense whatever its week
+(AC2). `strings.weeklySummary` writes S-9 with every existing category, highest amount first and
+ties by name, `0,00 €` when a category had nothing, and `Sin clasificar` always last (AC4). The text
+goes out with `notify` exactly as written: no processor call, so it costs no AI budget.
+
 **Scheduler.** `startScheduler` (`src/scheduler/scheduler.ts`, croner) runs retention, the queue
 and the receipt watch once at startup. After that, it runs retention at `ANOMANDER_RETENTION_CRON`
-in `TZ`, and the queue and the receipt watch every minute, so S-13's "lo borro en una hora" holds.
-The jobs share one serial queue and never overlap. `stop()` waits for the job in progress.
+and the weekly summary at `ANOMANDER_WEEKLY_SUMMARY_CRON`, both in `TZ`, and the queue and the
+receipt watch every minute, so S-13's "lo borro en una hora" holds. The weekly summary never runs
+at startup. The jobs share one serial queue and never overlap. `stop()` waits for the job in
+progress.
 
 ## Failures (R-22)
 
