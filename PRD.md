@@ -368,6 +368,11 @@ The assistant may word its confirmations in its own voice; the facts in them alw
 - AC3: Every other string in §12 is sent verbatim and never goes through the processor.
 - AC4: The phrasing call passes no tools (R-14 AC3) and counts against the daily AI budget (R-12).
 
+### R-22 Failure reply
+The principal always gets an answer.
+- AC1: If handling a principal message fails before anything is stored (the processor errors or does not answer within its timeout, or an internal error), the reply is S-22, verbatim, and the error is logged.
+- AC2: Every processor call has a timeout, so a model that does not answer never blocks later messages.
+
 ## 12. User-facing strings (verbatim, `es-ES`)
 
 S-1, S-2, S-16 and S-21 are the reference and the fallback for the phrased replies of R-21; every other string is sent exactly as written.
@@ -397,6 +402,7 @@ Amounts are formatted with `Intl.NumberFormat('es-ES', { style: 'currency', curr
 | S-19 | `Esa pregunta ya no está abierta.` |
 | S-20 | `La imagen es demasiado grande. ¿Me mandas una foto más ligera?` |
 | S-21 | `La fecha {fecha} es posterior a hoy. ¿Me dices cuándo fue el gasto?` |
+| S-22 | `Algo ha fallado y no he podido procesar tu mensaje. ¿Me lo vuelves a enviar en un rato?` |
 
 When there is no category, `{categoria}` is `sin clasificar`. In S-9, each category name in `{desglose}` starts with a capital letter (R-10 AC4), for example `Supermercado 45,20 € · Restaurantes 23,00 € · Sin clasificar 0,00 €`. Button labels: `Apuntar`, `Corregir`, `Descartar`, and for S-11, S-12, S-13 and S-15 `Sí` and `No`.
 
@@ -717,7 +723,7 @@ Checks every feature document should run:
 | M0 Repository bootstrap | pnpm workspace, Biome, Vitest, MIT license, `.env.example`, Dockerfile and compose, `docs/` translated from this PRD, boundary test | R-15 AC2 |
 | M1 Core and truth store | Ontology types, authority check, consistency check, migrations, seed data | R-4, R-5, R-6 AC5, R-7 AC3, R-14 |
 | M2 Telegram text expenses | Principal-only bot, text expenses, verification reply, open conversation, text routing, unsupported inputs | R-1, R-2, R-9, R-16, R-17 AC5, R-20 (text and unsupported rows), R-21 |
-| M3 Receipts | Receipt reading, albums, decisions with buttons, corrections, image retention and queue, AI budget, retention job, receipt evaluation set | R-3, R-6, R-7, R-8, R-12, R-17, R-19, R-20 |
+| M3 Receipts | Receipt reading, albums, decisions with buttons, corrections, image retention and queue, AI budget, retention job, receipt evaluation set | R-3, R-6, R-7, R-8, R-12, R-17, R-19, R-20, R-22 |
 | M4 Summary, policies, categories and dashboard view | Weekly summary, policies and patterns, category creation, supermarket view | R-10, R-11, R-13, R-18 |
 | M5 Next matter | A second delegated matter chosen by the principal; open-conversation memory with epistemic modes; read access to the ledger from other applications or the AI assistant (API or MCP) | To be specified |
 | M6 Desktop | Tauri 2 app with Rust, talking to the same daemon | To be specified |

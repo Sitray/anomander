@@ -214,6 +214,9 @@ importers:
       better-sqlite3:
         specifier: 13.0.3
         version: 13.0.3
+      croner:
+        specifier: 10.0.1
+        version: 10.0.1
       zod:
         specifier: 4.6.7
         version: 4.6.7
@@ -754,6 +757,10 @@ packages:
   chai@6.3.0:
     resolution: {integrity: sha512-XWAtwJ6OHO+tj0EKCs0Y2UamnyOxseZWltU4x2U2wh8g4AigdjwvtUjvLP2tqkA/avxHEtzxNaqGq/YGNwckKg==}
     engines: {node: '>=18'}
+
+  croner@10.0.1:
+    resolution: {integrity: sha512-ixNtAJndqh173VQ4KodSdJEI6nuioBWI0V1ITNKhZZsO0pEMoDxz539T4FTTbSZ/xIOSuDnzxLVRqBVSvPNE2g==}
+    engines: {node: '>=18.0'}
 
   data-uri-to-buffer@4.0.1:
     resolution: {integrity: sha512-0R9ikRb668HB7QDxT1vkpuUBtqc53YyAwMwGeUFKRojY/NWKvdZ+9UYtRfGmhqNbRkTSVpMbmyhXipFFv2cb/A==}
@@ -1706,6 +1713,8 @@ snapshots:
   buffer-equal-constant-time@1.0.1: {}
 
   chai@6.3.0: {}
+
+  croner@10.0.1: {}
 
   data-uri-to-buffer@4.0.1: {}
 

@@ -1,9 +1,17 @@
 // The Telegram front door: decides who may talk (R-1) and which inputs are supported (R-20).
-// What a text means is the daemon's decision, reached through `onText`.
+// What a text or a receipt means is the daemon's decision, reached through `onText` and
+// `onReceipt`.
 
-import { strings, type TextHandler } from '@anomander/protocol';
+import {
+  type PrincipalReceipt,
+  type ReceiptHandler,
+  type ReceiptImage,
+  type Reply,
+  strings,
+  type TextHandler,
+} from '@anomander/protocol';
 import { Bot, type Context } from 'grammy';
-import type { Message } from 'grammy/types';
+import type { InlineKeyboardMarkup, Message } from 'grammy/types';
 
 export interface TelegramLogger {
   info(message: string, fields?: Record<string, unknown>): void;
@@ -16,6 +24,8 @@ export interface TelegramBotOptions {
   /** `ANOMANDER_PRINCIPAL_CHAT_ID`: the principal's private chat ID, equal to their user ID. */
   principalChatId: number;
   onText: TextHandler;
+  /** Photos and image files (R-3, R-20). */
+  onReceipt: ReceiptHandler;
   /** Points grammY at another Bot API server, such as the fake one in tests. */
   apiRoot?: string;
   logger?: TelegramLogger;
@@ -23,33 +33,115 @@ export interface TelegramBotOptions {
 
 // Telegram's bot download limit (R-20).
 const MAX_FILE_BYTES = 20 * 1024 * 1024;
+// R-3 AC4: an album is collected for 2 seconds after its first photo arrives.
+const ALBUM_WINDOW_MS = 2000;
+const TELEGRAM_API_ROOT = 'https://api.telegram.org';
 
 const channelRef = (messageId: number) => `telegram:${messageId}`;
+const receivedAt = (message: Message) => new Date(message.date * 1000).toISOString();
 
-/** What R-20 does with a message that is not text: a reply, or a receipt (M3). */
-type NonTextInput = { kind: 'reply'; text: string } | { kind: 'receipt' };
+/** What R-20 does with a message that is not text: a reply, or a receipt image. */
+type NonTextInput =
+  | { kind: 'reply'; text: string }
+  | { kind: 'receipt'; fileId: string; mimeType: string };
 
 const classify = (message: Message): NonTextInput => {
   const { document, photo } = message;
   if (document?.mime_type === 'application/pdf') {
     return { kind: 'reply', text: strings.pdfNotSupported() };
   }
-  const isImageDocument = document?.mime_type?.startsWith('image/') === true;
-  if (photo !== undefined || isImageDocument) {
-    const size = Math.max(0, ...(photo ?? [document]).map((file) => file?.file_size ?? 0));
-    return size > MAX_FILE_BYTES
-      ? { kind: 'reply', text: strings.imageTooLarge() }
-      : { kind: 'receipt' };
-  }
-  return { kind: 'reply', text: strings.unsupportedInput() };
+  // Telegram lists a photo's sizes smallest first and re-encodes photos as JPEG.
+  const image =
+    photo !== undefined
+      ? { file: photo.at(-1), mimeType: 'image/jpeg' }
+      : document?.mime_type?.startsWith('image/') === true
+        ? { file: document, mimeType: document.mime_type }
+        : undefined;
+  if (image?.file === undefined) return { kind: 'reply', text: strings.unsupportedInput() };
+  const size = Math.max(0, ...(photo ?? [document]).map((file) => file?.file_size ?? 0));
+  return size > MAX_FILE_BYTES
+    ? { kind: 'reply', text: strings.imageTooLarge() }
+    : { kind: 'receipt', fileId: image.file.file_id, mimeType: image.mimeType };
 };
 
+const keyboard = (reply: Reply): { reply_markup: InlineKeyboardMarkup } | undefined =>
+  reply.buttons === undefined || reply.buttons.length === 0
+    ? undefined
+    : {
+        reply_markup: {
+          inline_keyboard: [
+            reply.buttons.map((button) => ({ text: button.label, callback_data: button.data })),
+          ],
+        },
+      };
+
 export const createTelegramBot = (options: TelegramBotOptions): Bot => {
-  const { principalChatId, onText, logger = console } = options;
+  const { principalChatId, onText, onReceipt, logger = console } = options;
   const bot = new Bot(
     options.token,
     options.apiRoot === undefined ? {} : { client: { apiRoot: options.apiRoot } },
   );
+  const fileRoot = `${options.apiRoot ?? TELEGRAM_API_ROOT}/file/bot${options.token}`;
+
+  /** Downloads a file on demand, through the same Bot API server (the fake one in tests). */
+  const download = async (fileId: string): Promise<Uint8Array> => {
+    const file = await bot.api.getFile(fileId);
+    if (file.file_path === undefined) throw new Error(`Telegram gave no path for ${fileId}`);
+    const response = await fetch(`${fileRoot}/${file.file_path}`);
+    if (!response.ok) throw new Error(`Telegram file download failed: ${response.status}`);
+    return new Uint8Array(await response.arrayBuffer());
+  };
+
+  /** Sends the daemon's reply, with its buttons, and reports the delivery (R-9 AC2). */
+  const deliver = async (chatId: number, reply: Reply) => {
+    const sent = await bot.api.sendMessage(chatId, reply.text, keyboard(reply));
+    reply.onDelivered?.({
+      channelRef: channelRef(sent.message_id),
+      deliveredAt: new Date().toISOString(),
+    });
+  };
+
+  const handleReceipt = async (chatId: number, receipt: PrincipalReceipt) => {
+    let reply: Reply;
+    try {
+      reply = await onReceipt(receipt);
+    } catch (error) {
+      logger.error('The daemon failed to handle a receipt', {
+        channelRef: receipt.channelRef,
+        error,
+      });
+      return;
+    }
+    await deliver(chatId, reply);
+  };
+
+  // R-3 AC4: the photos of an album arrive as separate updates sharing `media_group_id`.
+  // Collecting them is Telegram transport, so it happens here, not in the daemon.
+  const albums = new Map<string, { chatId: number; receipt: PrincipalReceipt }>();
+  const collectAlbum = (chatId: number, message: Message, groupId: string, image: ReceiptImage) => {
+    let album = albums.get(groupId);
+    if (album === undefined) {
+      const receipt: PrincipalReceipt = {
+        images: [],
+        caption: null,
+        channelRef: `telegram:album:${groupId}`,
+        receivedAt: receivedAt(message),
+      };
+      album = { chatId, receipt };
+      albums.set(groupId, album);
+      setTimeout(() => {
+        albums.delete(groupId);
+        handleReceipt(chatId, receipt).catch((error: unknown) => {
+          logger.error('Failed to answer an album', { mediaGroupId: groupId, error });
+        });
+      }, ALBUM_WINDOW_MS);
+    }
+    album.receipt.images.push(image);
+    if (message.caption !== undefined) {
+      const { caption } = album.receipt;
+      album.receipt.caption = caption === null ? message.caption : `${caption}\n${message.caption}`;
+    }
+  };
 
   const isPrincipal = (ctx: Context) =>
     ctx.chat?.type === 'private' &&
@@ -78,22 +170,32 @@ export const createTelegramBot = (options: TelegramBotOptions): Bot => {
       const input = classify(message);
       if (input.kind === 'reply') {
         await ctx.api.sendMessage(ctx.chat.id, input.text);
-      } else {
-        // Receipts are M3 (assumption A2).
-        logger.info('Ignored a receipt image until receipts are supported', {
-          chatId: ctx.chat.id,
-          messageId: message.message_id,
-        });
+        return;
       }
+      // R-3: a photo or an image file is a receipt; its bytes are downloaded when read.
+      const image: ReceiptImage = {
+        mimeType: input.mimeType,
+        load: () => download(input.fileId),
+      };
+      if (message.media_group_id !== undefined) {
+        collectAlbum(ctx.chat.id, message, message.media_group_id, image);
+        return;
+      }
+      await handleReceipt(ctx.chat.id, {
+        images: [image],
+        caption: message.caption ?? null,
+        channelRef: channelRef(message.message_id),
+        receivedAt: receivedAt(message),
+      });
       return;
     }
 
-    let reply: Awaited<ReturnType<TextHandler>>;
+    let reply: Reply;
     try {
       reply = await onText({
         text: message.text,
         channelRef: channelRef(message.message_id),
-        receivedAt: new Date(message.date * 1000).toISOString(),
+        receivedAt: receivedAt(message),
       });
     } catch (error) {
       logger.error('The daemon failed to handle a text', {
@@ -102,11 +204,7 @@ export const createTelegramBot = (options: TelegramBotOptions): Bot => {
       });
       return;
     }
-    const sent = await ctx.api.sendMessage(ctx.chat.id, reply.text);
-    reply.onDelivered?.({
-      channelRef: channelRef(sent.message_id),
-      deliveredAt: new Date().toISOString(),
-    });
+    await deliver(ctx.chat.id, reply);
   });
 
   // Without this, grammY stops polling on the first failed update.

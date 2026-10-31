@@ -1,4 +1,4 @@
-import type { Reply, TextHandler } from '@anomander/protocol';
+import type { PrincipalReceipt, ReceiptHandler, Reply, TextHandler } from '@anomander/protocol';
 import type { Bot } from 'grammy';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createTelegramBot } from '../src/index.ts';
@@ -6,6 +6,7 @@ import {
   type FakeTelegramApi,
   type IncomingUpdate,
   MESSAGE_DATE,
+  pngBytes,
   type Sender,
   startFakeTelegramApi,
   updates,
@@ -23,6 +24,15 @@ const onDelivered = vi.fn();
 const onText = vi.fn<TextHandler>(
   async (): Promise<Reply> => ({ text: 'Apuntado: 23,00 € (sin clasificar).', onDelivered }),
 );
+const QUESTION = 'No cuadra: las líneas suman 20,00 € y el total dice 23,40 €. ¿Qué hago?';
+const BUTTONS = [
+  { label: 'Apuntar', data: 'decision:7:0' },
+  { label: 'Corregir', data: 'decision:7:1' },
+  { label: 'Descartar', data: 'decision:7:2' },
+];
+const onReceipt = vi.fn<ReceiptHandler>(
+  async (): Promise<Reply> => ({ text: QUESTION, buttons: BUTTONS, onDelivered }),
+);
 
 beforeEach(async () => {
   vi.clearAllMocks();
@@ -32,6 +42,7 @@ beforeEach(async () => {
     apiRoot: api.apiRoot,
     principalChatId: PRINCIPAL,
     onText,
+    onReceipt,
     logger,
   });
   await new Promise<void>((started) => {
@@ -132,13 +143,104 @@ describe('R-20 supported inputs', () => {
   });
 
   it.each([
-    ['a photo', updates.photo(principal, 20 * 1024 * 1024 + 1)],
-    ['an image file', updates.document(principal, 'image/jpeg', 20 * 1024 * 1024 + 1)],
+    ['a photo', updates.photo(principal, { fileSize: 20 * 1024 * 1024 + 1 })],
+    [
+      'an image file',
+      updates.document(principal, 'image/jpeg', { fileSize: 20 * 1024 * 1024 + 1 }),
+    ],
   ])('answers %s larger than 20 MB with S-20', async (_, update) => {
     api.push(update);
 
     const [reply] = await api.waitForSent(1);
 
     expect(reply?.text).toBe('La imagen es demasiado grande. ¿Me mandas una foto más ligera?');
+  });
+});
+
+describe('R-20 receipts (R-3)', () => {
+  const loaded = async (receipt: PrincipalReceipt | undefined) =>
+    Promise.all((receipt?.images ?? []).map(async (image) => [image.mimeType, await image.load()]));
+
+  it('Photo: hands the largest size to the daemon and sends its buttons', async () => {
+    api.putFile('receipt', pngBytes(10));
+    api.putFile('receipt-small', pngBytes(99));
+    const update = updates.photo(principal, { fileId: 'receipt' });
+    api.push(update);
+
+    const [reply] = await api.waitForSent(1);
+
+    expect(onReceipt).toHaveBeenCalledExactlyOnceWith({
+      images: [{ mimeType: 'image/jpeg', load: expect.any(Function) }],
+      caption: null,
+      channelRef: `telegram:${update.message?.message_id}`,
+      receivedAt: new Date(MESSAGE_DATE * 1000).toISOString(),
+    });
+    expect(await loaded(onReceipt.mock.calls[0]?.[0])).toEqual([['image/jpeg', pngBytes(10)]]);
+    expect(onText).not.toHaveBeenCalled();
+    expect(reply?.text).toBe(QUESTION);
+    expect(reply?.payload.reply_markup).toEqual({
+      inline_keyboard: [
+        [
+          { text: 'Apuntar', callback_data: 'decision:7:0' },
+          { text: 'Corregir', callback_data: 'decision:7:1' },
+          { text: 'Descartar', callback_data: 'decision:7:2' },
+        ],
+      ],
+    });
+    await vi.waitFor(() =>
+      expect(onDelivered).toHaveBeenCalledExactlyOnceWith(
+        expect.objectContaining({ channelRef: `telegram:${reply?.messageId}` }),
+      ),
+    );
+  });
+
+  it('Image as file: an image/* document is a receipt', async () => {
+    api.putFile('scan', pngBytes(20));
+    api.push(updates.document(principal, 'image/png', { fileId: 'scan' }));
+
+    await api.waitForSent(1);
+
+    expect(onReceipt).toHaveBeenCalledOnce();
+    expect(await loaded(onReceipt.mock.calls[0]?.[0])).toEqual([['image/png', pngBytes(20)]]);
+  });
+
+  it('Album: photos with one media_group_id are one receipt, collected for 2 s (R-3 AC4)', async () => {
+    api.putFile('page-1', pngBytes(1));
+    api.putFile('page-2', pngBytes(2));
+    api.push(updates.photo(principal, { fileId: 'page-1', mediaGroupId: 'album-9' }));
+    api.push(updates.photo(principal, { fileId: 'page-2', mediaGroupId: 'album-9' }));
+
+    await api.waitForSent(1, 5000);
+
+    expect(onReceipt).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({ channelRef: 'telegram:album:album-9', caption: null }),
+    );
+    expect(await loaded(onReceipt.mock.calls[0]?.[0])).toEqual([
+      ['image/jpeg', pngBytes(1)],
+      ['image/jpeg', pngBytes(2)],
+    ]);
+  });
+
+  it('Caption: the caption on a photo reaches the daemon as the declaration (R-3 AC5)', async () => {
+    api.putFile('receipt', pngBytes(30));
+    api.push(updates.photo(principal, { fileId: 'receipt', caption: 'cena, restaurantes' }));
+
+    await api.waitForSent(1);
+
+    expect(onReceipt).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({ caption: 'cena, restaurantes' }),
+    );
+  });
+});
+
+describe('fake Telegram API', () => {
+  it('resolves waitForSent at once when enough messages were already sent', async () => {
+    api.push(updates.voice(principal));
+    await api.waitForSent(1);
+
+    const started = performance.now();
+    await api.waitForSent(1, 10_000);
+
+    expect(performance.now() - started).toBeLessThan(500);
   });
 });
