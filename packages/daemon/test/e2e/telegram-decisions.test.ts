@@ -54,11 +54,16 @@ let polling: Promise<void>;
 let clock: Date;
 /** `true` refuses processor calls as `budgeted` does once the daily cap is reached (R-12). */
 let budgetSpent: boolean;
+let correctionFixture: string;
+/** What the correction interpreter received (R-7 AC2). */
+let correctionTurns: unknown[];
 
 beforeEach(async () => {
   scratch = mkdtempSync(join(tmpdir(), 'anomander-e2e-decisions-'));
   clock = NOW;
   budgetSpent = false;
+  correctionFixture = 'total-28-40';
+  correctionTurns = [];
   const now = () => clock;
   const logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn() };
   api = await startFakeTelegramApi();
@@ -70,7 +75,9 @@ beforeEach(async () => {
     }
     if (context.systemPrompt === CORRECTION_INTERPRETER_PROMPT) {
       if (budgetSpent) throw new AiBudgetExhaustedError();
-      return recorded('correction-interpreter/total-28-40');
+      const [turn] = context.messages;
+      if (typeof turn?.content === 'string') correctionTurns.push(JSON.parse(turn.content));
+      return recorded(`correction-interpreter/${correctionFixture}`);
     }
     return recorded('text-interpreter/conversation');
   };
@@ -91,6 +98,7 @@ beforeEach(async () => {
       register_expense: createExpenseCorrection({
         db,
         interpreter: createPiAiCorrectionInterpreter({ complete, model, logger }),
+        timeZone: 'Europe/Madrid',
         now,
         logger,
       }),
@@ -284,6 +292,44 @@ describe('answering a pending receipt decision', () => {
         { authorized_by: 'principal', status: 'verified' },
       ]),
     );
+  });
+
+  it('a corrected date changes the date of the expense (R-7 AC2)', async () => {
+    const { decisionId, question } = await askS3();
+    await press(question, decisionId, CORREGIR);
+    correctionFixture = 'occurred-on-28';
+
+    const reply = await say('fecha 28/10');
+
+    expect(reply?.text).toBe('Corregido: 23,40 € en Mercadona (supermercado).');
+    expect(correctionTurns).toMatchObject([{ today: '2026-10-30' }]);
+    const [old] = query<{ id: number; status: string }>(
+      "SELECT id, status FROM assertions WHERE actor = 'processor' AND predicate = 'occurred_on'",
+    );
+    expect(old?.status).toBe('refuted');
+    expect(
+      query(
+        `SELECT value_json, actor, status, supersedes_id FROM assertions
+         WHERE mode = 'declared' AND predicate = 'occurred_on'`,
+      ),
+    ).toEqual([
+      { value_json: '"2026-10-28"', actor: 'principal', status: 'current', supersedes_id: old?.id },
+    ]);
+    expect(query('SELECT occurred_on, status FROM expenses')).toEqual([
+      { occurred_on: '2026-10-28', status: 'current' },
+    ]);
+  });
+
+  it('a corrected date after today is ignored and S-7 asked again (R-7 AC2)', async () => {
+    const { decisionId, question } = await askS3();
+    await press(question, decisionId, CORREGIR);
+    correctionFixture = 'occurred-on-future';
+    const before = ledger();
+
+    expect((await say('fecha 2/11'))?.text).toBe(S7);
+
+    expect(ledger()).toEqual(before);
+    expect(query('SELECT occurred_on FROM expenses')).toEqual([{ occurred_on: '2026-10-29' }]);
   });
 
   it('with the daily AI budget spent, a correction gets S-26 and keeps waiting (R-12 AC4)', async () => {

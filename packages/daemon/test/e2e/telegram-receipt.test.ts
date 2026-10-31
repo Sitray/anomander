@@ -203,6 +203,31 @@ describe('a receipt photo over Telegram', () => {
     expect(imagesLeft()).toEqual([]);
   });
 
+  it('asks S-33 with three buttons for a receipt dated after today (R-6 AC2)', async () => {
+    addPolicy();
+    readerFixture = 'future-date';
+    sendPhoto('receipt');
+
+    const [reply] = await api.waitForSent(1);
+
+    expect(reply?.text).toBe(
+      '23,40 € en Mercadona, con fecha 2 de noviembre, que aún no ha llegado. ¿Lo apunto así o corrijo la fecha?',
+    );
+    const [decision] = query<{ id: number }>('SELECT id FROM pending_decisions');
+    expect(reply?.payload.reply_markup).toEqual({
+      inline_keyboard: [
+        [
+          { text: 'Apuntar', callback_data: `decision:${decision?.id}:0` },
+          { text: 'Corregir', callback_data: `decision:${decision?.id}:1` },
+          { text: 'Descartar', callback_data: `decision:${decision?.id}:2` },
+        ],
+      ],
+    });
+    expect(query('SELECT occurred_on, status FROM expenses')).toEqual([
+      { occurred_on: '2026-11-02', status: 'pending' },
+    ]);
+  });
+
   it('gives the interpreter the receipt and the button press as recent turns (R-16 AC3)', async () => {
     addPolicy();
     readerFixture = 'lines-mismatch';

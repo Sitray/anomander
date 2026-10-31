@@ -107,8 +107,12 @@ const questionFor = (
         options: [buttons.register, buttons.discard],
       };
     }
-    // §12 has no string for a date after today; S-6 shows the date read and asks.
+    // The reader only returns calendar dates, so an invalid date is one after today.
     case 'invalid_date':
+      return {
+        question: strings.futureReceipt(stored.total_cents, merchant, stored.occurred_on),
+        options: ALL_OPTIONS,
+      };
     case 'needs_confirmation':
       return {
         question: strings.confirmCategory(

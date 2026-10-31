@@ -1,0 +1,29 @@
+{
+  "role": "assistant",
+  "content": [
+    {
+      "type": "text",
+      "text": "{\"kind\":\"correction\",\"inferences\":[{\"subject_type\":\"expense\",\"subject_id\":null,\"predicate\":\"occurred_on\",\"value_json\":\"2026-10-28\",\"mode\":\"inferred\",\"basis_json\":{\"quote\":\"fecha 28/10\"},\"confidence\":0.95}]}"
+    }
+  ],
+  "api": "openai-completions",
+  "provider": "openai",
+  "model": "gpt-4o-mini",
+  "responseId": "chatcmpl-recorded",
+  "usage": {
+    "input": 412,
+    "output": 96,
+    "cacheRead": 0,
+    "cacheWrite": 0,
+    "totalTokens": 508,
+    "cost": {
+      "input": 6.18e-5,
+      "output": 5.76e-5,
+      "cacheRead": 0,
+      "cacheWrite": 0,
+      "total": 0.0001194
+    }
+  },
+  "stopReason": "stop",
+  "timestamp": 1793380800000
+}
