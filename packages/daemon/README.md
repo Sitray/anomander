@@ -201,6 +201,18 @@ memory supersedes it and refutes it (AC3); an id that is not a current memory is
 that best match the message in `memory_search`. Each word of the message is quoted, so the
 principal's text is never read as FTS5 syntax.
 
+**Capture (AC1).** The text interpreter's envelope, `expense` or `conversation`, may carry
+`memories`: facts with `text`, `quote`, `said`, `confidence` and an optional `replaces` id, found
+in the same processor call. Zod drops an invalid fact and the log names only its field and issue
+code. The text handler saves each fact with `saveMemory` (source: the message's `channelRef`),
+for expenses and conversation alike, never for a failed, budget-blocked or invalid message. A
+save that fails is logged and the reply stays the same.
+
+**Use (AC4).** The handler puts `memoriesForPrompt` (`id`, `text`, `mode`) in the interpreter's
+user turn as `memories`; the prompt allows them only in conversation replies. Code enforces it:
+the interpreter rejects any expense inference whose `basis_json.quote` is not in the message,
+with the same `quotedFrom` rule as the mode decision, and logs only its predicate.
+
 **Forgetting (AC6, AC7).** `forgetMemories` deletes the `memory_texts` rows (the triggers remove
 them from the index) and sets the assertions to `expired`, in one transaction. The erase is real:
 `openDatabase` turns on `secure_delete`, the index has FTS5 `secure-delete`, and the WAL is

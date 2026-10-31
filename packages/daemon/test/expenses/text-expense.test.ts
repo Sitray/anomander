@@ -9,6 +9,7 @@ import { type ReplyPhraser, verbatimReplies } from '../../src/processor/reply-ph
 import type { Interpretation, TextInterpreter } from '../../src/processor/text-interpreter.ts';
 import { applyMigrations, openDatabase } from '../../src/store/database.ts';
 import { insertAssertion } from '../../src/store/expenses.ts';
+import { listMemories } from '../../src/store/memory.ts';
 
 // R-2, R-5, R-9, R-16 through the handler, on a real SQLite file and a fake processor.
 // 23:30 UTC on 30 October is already 31 October in Madrid (UTC+1).
@@ -43,6 +44,7 @@ const inferred = (predicate: string, value_json: ProcessorInference['value_json'
 const expense = (...inferences: ProcessorInference[]): Interpretation => ({
   kind: 'expense',
   inferences,
+  memories: [],
 });
 
 const handlerFor = (interpretation: Interpretation, phraser: ReplyPhraser = verbatimReplies) => {
@@ -120,6 +122,7 @@ describe('text expense handler', () => {
       today: TODAY,
       categories: ['restaurantes', 'supermercado'],
       recent: [],
+      memories: [],
     });
     expect(reply.text).toBe('Apuntado: 23,00\u00a0€ (restaurantes).');
     const row = onlyExpense();
@@ -392,9 +395,46 @@ describe('text expense handler', () => {
     expect(rowCounts()).toEqual(before);
   });
 
+  it('remembers the facts found in an expense message without changing the reply (R-23 AC2)', async () => {
+    const { handle } = handlerFor({
+      kind: 'expense',
+      inferences: [inferred('total', 2300), inferred('category', 'restaurantes')],
+      memories: [
+        {
+          text: 'Cena fuera a menudo',
+          quote: 'cena',
+          said: false,
+          confidence: 0.6,
+          replaces: null,
+        },
+      ],
+    });
+
+    const reply = await send(handle, '23 € cena');
+
+    expect(reply.text).toBe('Apuntado: 23,00\u00a0€ (restaurantes).');
+    expect(onlyExpense()).toMatchObject({ total_cents: 2300, category: 'restaurantes' });
+    expect(listMemories(db)).toEqual([
+      { id: expect.any(Number), text: 'Cena fuera a menudo', mode: 'inferred' },
+    ]);
+    expect(
+      db
+        .prepare(
+          "SELECT actor, source, confidence, valid_at FROM assertions WHERE predicate = 'memory'",
+        )
+        .all(),
+    ).toEqual([
+      { actor: 'processor', source: 'telegram:42', confidence: 0.6, valid_at: RECEIVED_AT },
+    ]);
+  });
+
   it('answers open conversation with its reply and persists nothing (R-16)', async () => {
     const before = rowCounts();
-    const { handle } = handlerFor({ kind: 'conversation', reply: '¡Hola! ¿En qué te ayudo?' });
+    const { handle } = handlerFor({
+      kind: 'conversation',
+      reply: '¡Hola! ¿En qué te ayudo?',
+      memories: [],
+    });
 
     const reply = await send(handle, 'hola');
 

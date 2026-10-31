@@ -3,6 +3,7 @@ import type { AssistantMessage, Context } from '@earendil-works/pi-ai';
 import { z } from 'zod';
 import { AiBudgetExhaustedError } from '../budget/ai-budget.ts';
 import type { RecentTurn } from '../conversation/recent-turns.ts';
+import { type Memory, quotedFrom } from '../store/memory.ts';
 
 // R-17 AC5 and R-2 AC6: the processor classifies a text and returns inferences only. It never
 // writes (R-14 AC1); the expense cycle decides what to store.
@@ -17,11 +18,25 @@ export interface TextInterpreterInput {
   categories: string[];
   /** The recent turns, oldest first (R-16 AC3). */
   recent: RecentTurn[];
+  /** The current memories, for conversation replies only (R-23 AC4). */
+  memories: Memory[];
+}
+
+/** A lasting fact about the principal the processor found in the message (R-23 AC1). */
+export interface MemoryFact {
+  text: string;
+  /** The words of the message it rests on. */
+  quote: string;
+  /** Whether the principal said it; code still checks the quote before calling it declared. */
+  said: boolean;
+  confidence: number;
+  /** The id of the current memory it replaces (R-23 AC3). */
+  replaces: number | null;
 }
 
 export type Interpretation =
-  | { kind: 'expense'; inferences: ProcessorInference[] }
-  | { kind: 'conversation'; reply: string }
+  | { kind: 'expense'; inferences: ProcessorInference[]; memories: MemoryFact[] }
+  | { kind: 'conversation'; reply: string; memories: MemoryFact[] }
   | { kind: 'invalid'; reason: string }
   /** The processor failed or did not answer in time: nothing to interpret (R-22 AC1). */
   | { kind: 'failed'; reason: string }
@@ -57,14 +72,59 @@ Predicates:
 Otherwise the message is conversation. Reply:
 {"kind":"conversation","reply":"<a short, friendly reply in Spanish (es-ES)>"}
 
-The user turn is a JSON object with the fields "today", "categories", "recent" and "message". "recent" lists the previous turns of this conversation, oldest first, each with what the user wrote ("principal") and what you answered ("reply"); use it to understand references such as "ese" or "lo de antes". Interpret only "message".`;
+Either reply may also carry "memories": lasting facts about the user found in "message", such as "soy vegetariano" or "vivo en Madrid", never passing states such as "tengo hambre". Each memory is an object with these fields and no others:
+{"text":"<the fact, short, in Spanish>","quote":"<the words of the message it rests on>","said":<true if the user stated it, false if you deduced it>,"confidence":<number from 0 to 1>,"replaces":<the id of a listed memory it contradicts, or null>}
+Leave "memories" out when the message holds no lasting fact.
+
+The user turn is a JSON object with the fields "today", "categories", "recent", "memories" and "message". "recent" lists the previous turns of this conversation, oldest first, each with what the user wrote ("principal") and what you answered ("reply"); use it to understand references such as "ese" or "lo de antes". "memories" lists what you remember about the user, each with its "id", "text" and "mode"; use them only to shape a conversation reply, never as the source of an expense inference: every expense quote must be words of "message". Interpret only "message".`;
 
 const PREDICATES = new Set(['total', 'merchant', 'occurred_on', 'category', 'declared_category']);
 
 const envelopeSchema = z.discriminatedUnion('kind', [
-  z.object({ kind: z.literal('expense'), inferences: z.array(z.unknown()) }),
-  z.object({ kind: z.literal('conversation'), reply: z.string().trim().min(1) }),
+  z.object({
+    kind: z.literal('expense'),
+    inferences: z.array(z.unknown()),
+    memories: z.unknown().optional(),
+  }),
+  z.object({
+    kind: z.literal('conversation'),
+    reply: z.string().trim().min(1),
+    memories: z.unknown().optional(),
+  }),
 ]);
+
+const memoryFactSchema = z.strictObject({
+  text: z.string().trim().min(1),
+  quote: z.string().trim().min(1),
+  said: z.boolean(),
+  confidence: z.number().min(0).max(1),
+  replaces: z.int().positive().nullable().optional(),
+});
+
+// R-23 AC1, AC8: invalid facts are dropped and logged by field and issue code only, never with
+// their text or quote.
+const memoryFactsOf = (raw: unknown, logger: Logger): MemoryFact[] => {
+  if (raw === undefined) return [];
+  if (!Array.isArray(raw)) {
+    logger.warn('processor memory rejected', { reason: 'invalid:memories not_an_array' });
+    return [];
+  }
+  return raw.flatMap((item) => {
+    const parsed = memoryFactSchema.safeParse(item);
+    if (parsed.success) return [{ ...parsed.data, replaces: parsed.data.replaces ?? null }];
+    const issue = parsed.error.issues[0];
+    const reason = issue ? `${issue.path.join('.') || '(root)'} ${issue.code}` : 'unknown';
+    logger.warn('processor memory rejected', { reason: `invalid:${reason}` });
+    return [];
+  });
+};
+
+const quoteOf = (inference: ProcessorInference): unknown => {
+  const basis = inference.basis_json;
+  return typeof basis === 'object' && basis !== null && !Array.isArray(basis)
+    ? basis.quote
+    : undefined;
+};
 
 const FENCED = /```(?:json)?\s*([\s\S]*?)```/;
 
@@ -92,14 +152,14 @@ export interface PiAiTextInterpreterDeps<M> {
 
 export const createPiAiTextInterpreter =
   <M>({ complete, model, logger }: PiAiTextInterpreterDeps<M>): TextInterpreter =>
-  async ({ text, today, categories, recent }) => {
+  async ({ text, today, categories, recent, memories }) => {
     // R-14 AC3: one system prompt and one user turn; the context never carries `tools`.
     const context: Context = {
       systemPrompt: TEXT_INTERPRETER_PROMPT,
       messages: [
         {
           role: 'user',
-          content: JSON.stringify({ today, categories, recent, message: text }),
+          content: JSON.stringify({ today, categories, recent, memories, message: text }),
           timestamp: Date.now(),
         },
       ],
@@ -126,8 +186,9 @@ export const createPiAiTextInterpreter =
       logger.warn('text interpretation failed', { reason });
       return { kind: 'invalid', reason };
     }
+    const facts = memoryFactsOf(envelope.data.memories, logger);
     if (envelope.data.kind === 'conversation') {
-      return { kind: 'conversation', reply: envelope.data.reply };
+      return { kind: 'conversation', reply: envelope.data.reply, memories: facts };
     }
 
     // R-14 AC2: anything that is not a plain inference about the expense is rejected and logged.
@@ -137,8 +198,26 @@ export const createPiAiTextInterpreter =
       if (!known) rejected.push({ item: inference, reason: 'unknown_subject_or_predicate' });
       return known;
     });
+    // R-23 AC8: a rejected item may echo a memory's text, so only its predicate is logged.
     for (const { item, reason } of rejected) {
-      logger.warn('processor output rejected', { reason, item });
+      const predicate = (item as { predicate?: unknown } | null)?.predicate;
+      logger.warn('processor output rejected', {
+        reason,
+        predicate: typeof predicate === 'string' ? predicate : null,
+      });
     }
-    return { kind: 'expense', inferences };
+    // R-23 AC4: an expense rests on the message alone, so neither a memory nor a recent turn can
+    // become an expense fact. Logged without the item: its quote could be a memory's text (AC8).
+    const quoted = inferences.filter((inference) => {
+      const quote = quoteOf(inference);
+      const inMessage = typeof quote === 'string' && quotedFrom(quote, text);
+      if (!inMessage) {
+        logger.warn('processor output rejected', {
+          reason: 'quote_not_in_message',
+          predicate: inference.predicate,
+        });
+      }
+      return inMessage;
+    });
+    return { kind: 'expense', inferences: quoted, memories: facts };
   };

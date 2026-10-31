@@ -16,7 +16,7 @@ import {
 import type Database from 'better-sqlite3';
 import type { RecentTurn } from '../conversation/recent-turns.ts';
 import type { ReplyPhraser } from '../processor/reply-phraser.ts';
-import type { Logger, TextInterpreter } from '../processor/text-interpreter.ts';
+import type { Logger, MemoryFact, TextInterpreter } from '../processor/text-interpreter.ts';
 import {
   listActivePolicies,
   listCategories,
@@ -24,6 +24,7 @@ import {
   recordReplyDelivery,
   registerTextExpense,
 } from '../store/expenses.ts';
+import { memoriesForPrompt, saveMemory } from '../store/memory.ts';
 import { textValue, writtenIn } from './declarations.ts';
 
 // PRD §10 for a text such as "23 € cena": interpret (processor), check the amount against the
@@ -67,10 +68,35 @@ export const createTextExpenseHandler = (deps: TextExpenseDeps): TextHandler => 
       today,
       categories,
       recent: recent(),
+      memories: memoriesForPrompt(db, message.text),
     });
 
-    // R-16: open conversation gets its reply and nothing is persisted.
-    if (interpretation.kind === 'conversation') return { text: interpretation.reply };
+    // R-23 AC1-AC3: the lasting facts of an interpreted message are remembered; a failure to
+    // store them never changes the reply. Logged without their text (AC8).
+    const remember = (facts: readonly MemoryFact[]) => {
+      for (const fact of facts) {
+        try {
+          saveMemory(db, {
+            ...fact,
+            message: message.text,
+            source: message.channelRef,
+            receivedAt: message.receivedAt,
+            now: now().toISOString(),
+          });
+        } catch (error) {
+          logger.error('memory not saved', {
+            channelRef: message.channelRef,
+            reason: (error as Error).message,
+          });
+        }
+      }
+    };
+
+    // R-16: open conversation gets its reply; only its lasting facts are persisted.
+    if (interpretation.kind === 'conversation') {
+      remember(interpretation.memories);
+      return { text: interpretation.reply };
+    }
     // R-12 AC4: the daily AI budget is spent; nothing was stored.
     if (interpretation.kind === 'budget_exhausted') return { text: strings.textLimitReached() };
     // R-22 AC1: the processor failed before anything was stored.
@@ -89,6 +115,7 @@ export const createTextExpenseHandler = (deps: TextExpenseDeps): TextHandler => 
       return unclearAmount();
     }
 
+    remember(interpretation.memories);
     const { inferences } = interpretation;
 
     // R-2 AC6: the amount must be one the principal wrote literally.
