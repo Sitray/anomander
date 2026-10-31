@@ -7,9 +7,9 @@
 | Version | 0.2.0-draft |
 | Author | Eric Marès |
 | Date | 2026-10-30 |
-| Status | Draft, ready for implementation |
+| Status | Draft, in implementation (M0 to M3b built, §17) |
 | License | MIT |
-| Repository | Public monorepo (proposed: `Sitray/anomander`) |
+| Repository | Public monorepo, `Sitray/anomander` |
 
 ---
 
@@ -57,7 +57,7 @@ The first version delegates **one matter end to end: keeping track of my expense
 
 - G1. Register expenses from text messages and receipt photos sent over Telegram, with every stored fact carrying its epistemic mode and provenance.
 - G2. Ask the principal only when a receipt does not check out, a merchant is new, or a decision is required.
-- G3. Expose supermarket purchases (product, quantity, price, merchant, date) through a stable read-only view for the "app of apps" dashboard.
+- G3. Expose supermarket purchases (product, quantity, price, merchant, date) with the mode of each expense, through a stable read-only view for the "app of apps" dashboard.
 - G4. Send a weekly summary whose figures are computed by code and traceable to each expense.
 - G5. Keep the model replaceable: switching between API, subscription and local models requires configuration only.
 - G6. Answer open conversation from day one.
@@ -254,7 +254,7 @@ A photo is read by the document processor and becomes a proposal.
 - AC1: A `documents` row of kind `'receipt'` and an `observed` assertion for the received images are created.
 - AC2: The processor returns merchant, date, lines (name, quantity, amount) and total as `inferred` assertions with `basis_json` and `confidence`. Processor output is validated with Zod; invalid output counts as unreadable.
 - AC3: If the receipt cannot be read, the reply is S-5 and no expense is created.
-- AC4: An album (several photos with the same Telegram `media_group_id`) is one receipt with several images, read together in one processor call. The daemon collects the album's photos for 2 seconds after the first one arrives.
+- AC4: An album (several photos with the same Telegram `media_group_id`) is one receipt with several images, read together in one processor call. The Telegram front door collects the album's photos for 2 seconds after the first one arrives and hands them to the daemon as one receipt.
 - AC5: A caption on the photo is a declaration of the principal, sent to the processor with the images. A category or merchant stated in it has `category_basis = 'declared'` and wins over the receipt.
 
 ### R-4 Consistency checks
@@ -274,7 +274,7 @@ Code checks every proposed receipt expense.
 - AC1: A receipt expense that passed R-4 and has `category_basis = 'policy'` is registered without asking, with `actions.authorized_by = 'permission:<id>'`.
 - AC2: Any other receipt expense creates a pending decision. Lines that do not add up use S-3; a duplicate uses S-4; a new merchant or an inferred category uses S-6.
 - AC3: Buttons are exactly "Apuntar", "Corregir" and "Descartar" (S-4 uses only "Apuntar" and "Descartar").
-- AC4: "Apuntar" registers with `authorized_by = 'principal'` and a `confirmed` assertion. "Descartar" marks the proposal `rejected`, creates no expense and replies S-23.
+- AC4: "Apuntar" registers with `authorized_by = 'principal'` and a `confirmed` assertion. "Descartar" marks the proposal `rejected`, refutes the pending expense so no current expense remains, and replies S-23.
 - AC5: The authority check is a pure function in `packages/core` with unit tests for every level in §8.1.
 
 ### R-7 Corrections
@@ -314,7 +314,7 @@ Code checks every proposed receipt expense.
 - AC2: A pattern noticed by the processor is only ever offered as a proposal (S-12); it never becomes a policy without confirmation.
 
 ### R-14 Processor isolation
-- AC1: The processor never writes to the database. It returns inferences and proposals; only core code persists rows.
+- AC1: The processor never writes to the database. It returns inferences and proposals; only deterministic code persists rows: `packages/core` decides, and the daemon stores what it decided.
 - AC2: Any processor output claiming mode `observed`, `declared` or `confirmed` is rejected and logged.
 - AC3: The processor is called through `@earendil-works/pi-ai` (`complete()` with text and image content) and is given no tools: no shell, no file system, no payments, transfers, permissions or deleting data. A test asserts that no processor call passes tools.
 
@@ -344,7 +344,7 @@ Every incoming message has exactly one destination, decided by code in this orde
 ### R-19 Retention job
 A deterministic job, the internal **retain** operation, runs at `ANOMANDER_RETENTION_CRON` (default `0 3 * * *`) in `TZ` and once at startup. It only changes `status` columns, deletes temporary images and sends the notices below.
 - AC1: Inferences with `status = 'current'` that do not belong to a registered expense and are older than 30 days become `expired`.
-- AC2: Pending decisions still `open` 7 days after `created_at` become `expired`, their proposal becomes `rejected`, and no expense is created.
+- AC2: Pending decisions still `open` 7 days after `created_at` become `expired`, their proposal becomes `rejected`, and their pending expense becomes `refuted`, so no current expense remains.
 - AC3: Queued receipts past `keep_until` are handled as in R-8 AC5.
 - AC4: Running the job twice in a row changes nothing the second time.
 
@@ -722,7 +722,7 @@ flowchart LR
     CYCLE --> AUTH
     CONS --> TRUTH
     AUTH --> TRUTH
-    TRUTH -->|authorized writes| DB
+    CYCLE -->|writes what core authorized| DB
     DASH -->|reads the view| DB
 ```
 
@@ -764,7 +764,7 @@ Checks every feature document should run:
 - `pnpm biome check .`
 - `pnpm -r typecheck`
 - `pnpm test`
-- `pnpm test:e2e` (runs `docker compose -f compose.yaml -f compose.test.yaml up --abort-on-container-exit`)
+- `pnpm test:e2e` (runs `docker compose -f compose.yaml -f compose.test.yaml up --abort-on-container-exit`; not built yet: until then the end-to-end tests run in-process with `pnpm test`, against the fake Telegram API)
 - `pnpm eval:receipts` (when a processor or prompt changes)
 
 ## 16. Security, privacy and open source

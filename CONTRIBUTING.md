@@ -21,13 +21,13 @@ pnpm -r typecheck
 pnpm test
 ```
 
-Later milestones add `pnpm test:e2e` and `pnpm eval:receipts` (PRD §15).
+The end-to-end tests run with `pnpm test`, against the fake Telegram API. When a processor or prompt changes, also run `pnpm eval:receipts`, which calls live models to measure how well they read the receipts (PRD §15). The Docker `pnpm test:e2e` of PRD §15 is not built yet.
 
 ## Rules that are easy to break
 
 - `packages/core` imports nothing outside itself except the packages its boundary test allows (PRD R-15 AC2).
 - Nothing personal goes in the repository: expenses, categories, policies and permissions live in the local database, and secrets live in `.env`.
-- The processor only returns inferences and proposals. Only core code writes to the database.
+- The processor only returns inferences and proposals. Only deterministic code writes to the database: `packages/core` decides, `packages/daemon` stores.
 
 ## Requirements
 

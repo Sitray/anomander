@@ -21,7 +21,7 @@ No trimming is needed: the 10 vocabulary classes cost nothing, and the 16 data c
 - [x] Photos: not stored. Only the extracted information matters.
 - [x] Model for reading receipts: no preference; by default, an external vision model.
 - [x] Ontology: not trimmed; 16 data classes and 10 vocabulary classes.
-- [x] Supermarket dashboard data: product, quantity, price, merchant and date.
+- [x] Supermarket dashboard data: product, quantity, price, merchant, date and the mode of each expense.
 - [x] Stack: TypeScript everywhere; Rust only for the desktop app, with Tauri 2.
 - [x] Open-source project, in a public repository.
 - [x] License: MIT.

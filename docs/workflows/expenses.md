@@ -1,6 +1,6 @@
 # Workflow: keeping my expenses
 
-The first matter delegated end to end. I send a photo of a Mercadona receipt over Telegram; this is the full cycle, with what is created at each step. A message such as "23 € cena" follows the same path but shorter: the amount is my declaration, so it skips steps 2 and 3.
+The first matter delegated end to end. I send a photo of a Mercadona receipt over Telegram; this is the full cycle, with what is created at each step. A message such as "23 € cena" follows the same path but shorter: the processor interprets the text (step 2) and code checks that the amount it extracted is written literally in my message, but the receipt checks of step 3 do not apply, because the amount is my declaration.
 
 | Step | What happens | What is created or changes | Who decides |
 | --- | --- | --- | --- |
@@ -38,14 +38,14 @@ sequenceDiagram
     C-->>D: supermercado (from a policy)
     D->>C: Check authority for the proposal
     C-->>D: Covered by permission
-    C->>DB: Expense, lines and assertions
+    D->>DB: Expense, lines and assertions
     D->>DB: Read the expense back
     D->>TG: Apuntado: 23,40 € en Mercadona (supermercado).
     TG->>P: Reply
     D->>DB: Observation: reply delivered
 ```
 
-When a check fails or no permission covers the proposal, the core returns "ask" instead, and the bot shows the pending decision with its buttons before anything is written.
+When a check fails or no permission covers the proposal, the core returns "ask" instead. The daemon stores the expense as `pending` (never current), with its proposal and the pending decision, and the bot shows the decision with its buttons. "Apuntar" makes the expense current; "Descartar" refutes it.
 
 The bot speaks Spanish in v1. The exact user-facing strings are listed in the [PRD](../../PRD.md) (§12).
 

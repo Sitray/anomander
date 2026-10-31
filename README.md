@@ -2,7 +2,7 @@
 
 A personal assistant that understands your world, knows what is true, knows what it may do, and carries a matter to a verifiable result.
 
-> Status: design. The product requirements are in [PRD.md](PRD.md); the design is in [`docs/`](docs).
+> Status: in development. Milestones M0 to M3b of the [PRD](PRD.md) roadmap (§17) are built: text and receipt expenses over Telegram, decisions, corrections and conversation memory; M4 (weekly summary, policies, categories) is next. The design is in [`docs/`](docs).
 
 ## Vision
 
@@ -66,11 +66,11 @@ flowchart LR
     CYCLE --> AUTH
     CONS --> TRUTH
     AUTH --> TRUTH
-    TRUTH -->|authorized writes| DB
+    CYCLE -->|writes what core authorized| DB
     DASH -->|reads the view| DB
 ```
 
-The front doors only send messages and show answers. The processor never writes: it returns inferences and proposals. Only `packages/core` writes to the ledger, after checking consistency and authority. The dashboard reads a view and never touches the tables.
+The front doors only send messages and show answers. The processor never writes: it returns inferences and proposals. `packages/core` checks consistency and authority as pure functions, and only the daemon's deterministic code writes to the ledger what those checks allowed. The dashboard reads a view and never touches the tables.
 
 ## Principles
 
