@@ -114,7 +114,7 @@ const { values } = parseArgs({
 const modelIds = values.model ?? [process.env.ANOMANDER_VISION_MODEL ?? ''];
 // pnpm runs the script in this package; a relative `--dir` means where the command was typed.
 const dir = resolve(process.env.INIT_CWD ?? process.cwd(), values.dir);
-const cases = loadCases(dir);
+const cases = existsSync(dir) ? loadCases(dir) : [];
 if (cases.length === 0) {
   console.error(`no cases in ${dir}; see evals/receipts/README.md`);
   process.exit(1);
