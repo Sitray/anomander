@@ -30,8 +30,8 @@ header followed by one line per memory, joined with `\n`; with no memories, `con
 header alone. S-9 (`weeklySummary`) takes the categories already sorted (R-10 AC4), writes each
 name with a capital letter and appends `Sin clasificar` last. Beside them are `formatAmount` (`23,40 €`, written by `Intl` with a no-break
 space before `€`) and `formatDate` (`29 de octubre`). No other module may write
-bot text. S-1, S-2, S-16 and S-21 are also the reference and the fallback when the assistant
-words a reply in its own voice (R-21, see `packages/daemon/README.md`); every other string is sent
+bot text. S-1, S-2, S-16, S-21 and S-36 are also the reference and the fallback when the
+assistant words a reply in its own voice (R-21, see `packages/daemon/README.md`); every other string is sent
 exactly as written.
 
 To change a string, change PRD §12 first, then this file; tests assert the PRD text literally.

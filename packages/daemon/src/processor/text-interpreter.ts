@@ -44,13 +44,19 @@ export type Interpretation =
    * processor was given, possibly none. Code asks before erasing anything (R-23 AC6).
    */
   | { kind: 'forget'; ids: number[] }
+  /**
+   * The principal asks to create a category (R-18 AC1): the name as written, and S-36 worded by
+   * the processor, sent only if the category already exists and the wording keeps the facts
+   * (R-21). Code proposes the category; the processor never creates one (R-5 AC3).
+   */
+  | { kind: 'category'; name: string; reply: string | null }
   | { kind: 'invalid'; reason: string }
   /** The processor failed or did not answer in time: nothing to interpret (R-22 AC1). */
   | { kind: 'failed'; reason: string }
   /** The daily AI budget is spent, so the processor was not called (R-12 AC4). */
   | { kind: 'budget_exhausted' };
 
-/** The processor port. A1: policies and categories (R-13, R-18) arrive in M4. */
+/** The processor port. A1: policies (R-13) arrive in M4. */
 export type TextInterpreter = (input: TextInterpreterInput) => Promise<Interpretation>;
 
 /** `models.complete` of pi-ai, or a recorded response in tests. */
@@ -87,6 +93,10 @@ If the user asks you to forget something about them ("olvida que soy vegetariano
 {"kind":"forget","ids":[<the "id" of each listed memory that matches what to forget>]}
 Use an empty list when no listed memory matches. Nothing is forgotten until the user confirms.
 
+If the user asks to create a category ("crea la categoría gasolina"), reply:
+{"kind":"category","name":"<the category name, written as the user wrote it>","reply":"<a short, friendly reply in Spanish (es-ES), at most 280 characters, saying the same as: La categoría «<name in lowercase>» ya existe.>"}
+You never create the category: the assistant asks the user first, and sends "reply" only if the category is already in "categories". Copy the name in "reply" exactly and add no number or amount.
+
 The expense and conversation replies may also carry "memories": lasting facts about the user found in "message", such as "soy vegetariano" or "vivo en Madrid", never passing states such as "tengo hambre". Each memory is an object with these fields and no others:
 {"text":"<the fact, short, in Spanish>","quote":"<the words of the message it rests on>","said":<true if the user stated it, false if you deduced it>,"confidence":<number from 0 to 1>,"replaces":<the id of a listed memory it contradicts, or null>}
 Leave "memories" out when the message holds no lasting fact.
@@ -108,6 +118,11 @@ const envelopeSchema = z.discriminatedUnion('kind', [
   }),
   z.object({ kind: z.literal('memory_list') }),
   z.object({ kind: z.literal('forget'), ids: z.array(z.int().positive()) }),
+  z.object({
+    kind: z.literal('category'),
+    name: z.string().trim().min(1),
+    reply: z.string().trim().min(1).optional(),
+  }),
 ]);
 
 const memoryFactSchema = z.strictObject({
@@ -208,6 +223,10 @@ export const createPiAiTextInterpreter =
     if (envelope.data.kind === 'forget') {
       const given = new Set(memories.map(({ id }) => id));
       return { kind: 'forget', ids: [...new Set(envelope.data.ids)].filter((id) => given.has(id)) };
+    }
+    // R-18 AC1: code checks the name is written and proposes it; the processor only points at it.
+    if (envelope.data.kind === 'category') {
+      return { kind: 'category', name: envelope.data.name, reply: envelope.data.reply ?? null };
     }
     const facts = memoryFactsOf(envelope.data.memories, logger);
     if (envelope.data.kind === 'conversation') {

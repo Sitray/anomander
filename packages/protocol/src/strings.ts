@@ -102,6 +102,9 @@ export const strings = {
   nothingToForget: () => 'No encuentro nada así en lo que recuerdo.',
   futureReceipt: (total: number, merchant: string, date: string) =>
     `${formatAmount(total)} en ${merchant}, con fecha ${formatDate(date)}, que aún no ha llegado. ¿Lo apunto así o corrijo la fecha?`,
+  categoryNotCreated: () => 'Vale, no la creo.',
+  categoryExists: (categoryName: string) => `La categoría «${categoryName}» ya existe.`,
+  categoryCreated: (categoryName: string) => `Hecho, he creado la categoría «${categoryName}».`,
 } as const;
 
 /** PRD §12 button labels (R-6 AC3; S-11, S-12, S-13, S-15 and S-29 use `Sí` and `No`). */

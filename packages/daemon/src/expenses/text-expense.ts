@@ -8,6 +8,7 @@ import {
 } from '@anomander/core';
 import {
   buttons,
+  type Delivery,
   decisionButtons,
   formatAmount,
   formatDate,
@@ -17,9 +18,9 @@ import {
 } from '@anomander/protocol';
 import type Database from 'better-sqlite3';
 import type { RecentTurn } from '../conversation/recent-turns.ts';
-import type { ReplyPhraser } from '../processor/reply-phraser.ts';
+import { checkedPhrasing, type ReplyPhraser } from '../processor/reply-phraser.ts';
 import type { Logger, MemoryFact, TextInterpreter } from '../processor/text-interpreter.ts';
-import { openForgetMemoryDecision } from '../store/decisions.ts';
+import { openCreateCategoryDecision, openForgetMemoryDecision } from '../store/decisions.ts';
 import {
   listActivePolicies,
   listCategories,
@@ -43,7 +44,7 @@ export interface TextExpenseDeps {
   now: () => Date;
   /** The assertion source of processor inferences, e.g. `processor:openai/gpt-4o-mini`. */
   processorSource: string;
-  /** Words S-1, S-2, S-16 and S-21 (R-21). */
+  /** Words S-1, S-2, S-16 and S-21 (R-21); S-36 comes worded by the interpreter. */
   phraser: ReplyPhraser;
   logger: Logger;
   /** The recent turns given to the interpreter (R-16 AC3); none when absent. */
@@ -64,6 +65,27 @@ export const createTextExpenseHandler = (deps: TextExpenseDeps): TextHandler => 
     const phrase = (reference: string, facts: string[]) =>
       phraser({ reference, facts, message: message.text });
     const unclearAmount = async () => ({ text: await phrase(strings.unclearAmount(), []) });
+    /** S-15 as a pending decision (R-18 AC1, AC3); its message is recorded once delivered. */
+    const askToCreate = (name: string, expenseId: number | null) => {
+      const options = [buttons.yes, buttons.no];
+      const decisionId = openCreateCategoryDecision(db, {
+        name,
+        expenseId,
+        source: message.channelRef,
+        question: strings.confirmNewCategory(name),
+        options,
+        now: now().toISOString(),
+      });
+      return {
+        question: strings.confirmNewCategory(name),
+        buttons: decisionButtons(decisionId, options),
+        shown: (delivery: Delivery) => {
+          if (!recordDecisionMessage(db, decisionId, delivery.channelRef)) {
+            logger.warn('decision message already recorded', { decisionId });
+          }
+        },
+      };
+    };
 
     const today = todayIn(timeZone, now());
     const categories = listCategories(db);
@@ -130,6 +152,26 @@ export const createTextExpenseHandler = (deps: TextExpenseDeps): TextHandler => 
           }
         },
       };
+    }
+    // R-18 AC1: the processor only points at the name; code proposes it only if the principal
+    // wrote it (R-5 AC3), and never twice: an existing category gets S-36, worded in this same
+    // call and sent only if it keeps the facts (R-21 AC1, AC2).
+    if (interpretation.kind === 'category') {
+      if (!writtenIn(message.text, interpretation.name)) {
+        logger.warn('category name not written in the message; not proposed', {
+          channelRef: message.channelRef,
+        });
+        return unclearAmount();
+      }
+      const name = interpretation.name.toLowerCase();
+      if (categories.includes(name)) {
+        const reference = strings.categoryExists(name);
+        return {
+          text: checkedPhrasing(interpretation.reply, { reference, facts: [name] }, logger),
+        };
+      }
+      const ask = askToCreate(name, null);
+      return { text: ask.question, buttons: ask.buttons, onDelivered: ask.shown };
     }
     // R-12 AC4: the daily AI budget is spent; nothing was stored.
     if (interpretation.kind === 'budget_exhausted') return { text: strings.textLimitReached() };
@@ -201,13 +243,9 @@ export const createTextExpenseHandler = (deps: TextExpenseDeps): TextHandler => 
       declaredCategory,
       suggestedCategory: textValue(inferredValue(inferences, 'category')),
     });
-    if (categorization.missingDeclaredCategory !== null) {
-      // R-18 AC3 asks S-15 here; that arrives in M4, so the expense stays uncategorized.
-      logger.info('declared category does not exist; registered without a category', {
-        channelRef: message.channelRef,
-        category: categorization.missingDeclaredCategory,
-      });
-    }
+    // R-18 AC3: a declared category that does not exist leaves the expense uncategorized, and
+    // S-15 is asked with the reply.
+    const missingCategory = categorization.missingDeclaredCategory;
 
     // R-2 AC2: the authority check is code; a text expense is authorized by the principal's own
     // message, so no permission is looked up.
@@ -227,20 +265,25 @@ export const createTextExpenseHandler = (deps: TextExpenseDeps): TextHandler => 
       categorization.basis === 'inferred' ? inferenceOf(inferences, 'category') : undefined,
     ].filter((inference) => inference !== undefined);
 
-    const { expenseId, actionId } = registerTextExpense(db, {
-      total_cents: total,
-      merchant,
-      occurred_on: occurredOn,
-      category: categorization.category,
-      category_basis: categorization.basis,
-      authorized_by: authority.authorized_by,
-      channelRef: message.channelRef,
-      receivedAt: message.receivedAt,
-      declaredCategory,
-      inferences: used,
-      processorSource,
-      now: now().toISOString(),
-    });
+    const { expenseId, actionId, ask } = db.transaction(() => {
+      const registered = registerTextExpense(db, {
+        total_cents: total,
+        merchant,
+        occurred_on: occurredOn,
+        category: categorization.category,
+        category_basis: categorization.basis,
+        authorized_by: authority.authorized_by,
+        channelRef: message.channelRef,
+        receivedAt: message.receivedAt,
+        declaredCategory,
+        inferences: used,
+        processorSource,
+        now: now().toISOString(),
+      });
+      const asked =
+        missingCategory === null ? null : askToCreate(missingCategory, registered.expenseId);
+      return { ...registered, ask: asked };
+    })();
 
     // R-9 AC1: the reply comes from the stored row, not from what was proposed.
     const stored = readExpense(db, expenseId);
@@ -256,12 +299,20 @@ export const createTextExpenseHandler = (deps: TextExpenseDeps): TextHandler => 
             stored.category ?? UNCATEGORIZED,
           ]);
 
+    // R-9 AC2: the delivery of the expense reply verifies the action, without the S-15 after it.
+    const verify = (delivery: Delivery) => {
+      if (!recordReplyDelivery(db, actionId, delivery, text, now().toISOString())) {
+        logger.warn('reply delivery already recorded', { actionId });
+      }
+    };
+    if (ask === null) return { text, onDelivered: verify };
+    // R-18 AC3: one message, the expense reply then S-15, with the S-15 buttons.
     return {
-      text,
+      text: `${text}\n${ask.question}`,
+      buttons: ask.buttons,
       onDelivered: (delivery) => {
-        if (!recordReplyDelivery(db, actionId, delivery, text, now().toISOString())) {
-          logger.warn('reply delivery already recorded', { actionId });
-        }
+        verify(delivery);
+        ask.shown(delivery);
       },
     };
   };

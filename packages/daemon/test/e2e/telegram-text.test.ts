@@ -33,10 +33,13 @@ let processorAnswers: boolean;
 let interpreted: { recent: unknown; memories: unknown; message: string }[];
 /** What the text interpreter answers, by message; the recorded expense when absent. */
 let interpretations: Map<string, AssistantMessage>;
+/** How many reply-phraser calls were made. */
+let phrasings: number;
 
 const complete = async (_model: string, context: Context) => {
   if (!processorAnswers) return new Promise<never>(() => {});
   const phrasing = context.systemPrompt === REPLY_PHRASER_PROMPT;
+  if (phrasing) phrasings += 1;
   const [turn] = context.messages;
   let reply = recorded('expense-23-space-euro');
   if (!phrasing && turn?.role === 'user' && typeof turn.content === 'string') {
@@ -96,6 +99,7 @@ beforeEach(async () => {
   processorAnswers = true;
   interpreted = [];
   interpretations = new Map();
+  phrasings = 0;
   await start();
 });
 
@@ -120,6 +124,7 @@ describe('a text expense over Telegram', () => {
 
     const [reply] = await api.waitForSent(1);
     expect(reply).toMatchObject({ chatId: PRINCIPAL, text: PHRASED });
+    expect(reply?.payload.reply_markup).toBeUndefined();
 
     // R-2 AC1, R-9 AC2: the stored expense and the observation of the reply that was sent.
     await vi.waitFor(() =>
@@ -336,5 +341,210 @@ describe('conversation memory over Telegram (R-23 AC5, AC6)', () => {
     expect(reply?.text).toBe('No encuentro nada así en lo que recuerdo.');
     expect(reply?.payload.reply_markup).toBeUndefined();
     expect(query('SELECT id FROM pending_decisions')).toEqual([]);
+  });
+});
+
+describe('categories over Telegram (R-18)', () => {
+  const S15 = '¿Creo la categoría «gasolina»?';
+  const say = async (text: string) => {
+    const before = api.sent.length;
+    api.push(updates.text({ chatId: PRINCIPAL }, text));
+    return (await api.waitForSent(before + 1)).at(-1);
+  };
+  const press = async (question: { messageId: number }, data: string) => {
+    const before = api.sent.length;
+    api.push(updates.callbackQuery({ chatId: PRINCIPAL }, data, question.messageId));
+    return (await api.waitForSent(before + 1)).at(-1);
+  };
+  const yesNo = (decisionId: number) => ({
+    inline_keyboard: [
+      [
+        { text: 'Sí', callback_data: `decision:${decisionId}:0` },
+        { text: 'No', callback_data: `decision:${decisionId}:1` },
+      ],
+    ],
+  });
+  /** The one decision asked, once its message is recorded (R-17 AC2). */
+  const askedDecision = async () => {
+    await vi.waitFor(() =>
+      expect(query('SELECT id FROM pending_decisions WHERE channel_ref IS NOT NULL')).toHaveLength(
+        1,
+      ),
+    );
+    const [decision] = query<{ id: number }>('SELECT id FROM pending_decisions');
+    if (decision === undefined) throw new Error('no decision');
+    return decision.id;
+  };
+  const categories = () => query<{ name: string }>('SELECT name FROM categories ORDER BY name');
+  /** Asks to create "Gasolina"; resolves with S-15 and its decision id. */
+  const askToCreate = async () => {
+    interpretations.set(
+      'crea la categoría Gasolina',
+      answering({
+        kind: 'category',
+        name: 'Gasolina',
+        reply: 'La categoría «gasolina» ya existe.',
+      }),
+    );
+    const question = await say('crea la categoría Gasolina');
+    const decisionId = await askedDecision();
+    if (question === undefined) throw new Error('no question');
+    return { question, decisionId };
+  };
+
+  it('AC1, AC2: "Sí" to S-15 creates the category in lowercase', async () => {
+    const { question, decisionId } = await askToCreate();
+
+    expect(question.text).toBe(S15);
+    expect(question.payload.reply_markup).toEqual(yesNo(decisionId));
+    expect(categories()).toEqual([{ name: 'restaurantes' }, { name: 'supermercado' }]);
+
+    const done = await press(question, `decision:${decisionId}:0`);
+
+    expect(done?.text).toBe('Hecho, he creado la categoría «gasolina».');
+    expect(categories()).toEqual([
+      { name: 'gasolina' },
+      { name: 'restaurantes' },
+      { name: 'supermercado' },
+    ]);
+    expect(
+      query(`SELECT p.operation, p.status, d.status AS decision, x.authorized_by
+             FROM proposals p JOIN pending_decisions d ON d.proposal_id = p.id
+             JOIN actions x ON x.proposal_id = p.id`),
+    ).toEqual([
+      {
+        operation: 'create_category',
+        status: 'executed',
+        decision: 'answered',
+        authorized_by: 'principal',
+      },
+    ]);
+  });
+
+  it('AC1: "No" to S-15 replies S-34 and creates nothing', async () => {
+    const { question, decisionId } = await askToCreate();
+
+    const kept = await press(question, `decision:${decisionId}:1`);
+
+    expect(kept?.text).toBe('Vale, no la creo.');
+    expect(categories()).toEqual([{ name: 'restaurantes' }, { name: 'supermercado' }]);
+    expect(
+      query(`SELECT p.status, d.status AS decision FROM proposals p
+             JOIN pending_decisions d ON d.proposal_id = p.id`),
+    ).toEqual([{ status: 'rejected', decision: 'answered' }]);
+    expect(query('SELECT id FROM actions')).toEqual([]);
+  });
+
+  it('AC1, R-21: an existing category gets S-36 phrased in the same call, or verbatim', async () => {
+    const phrased = 'Ya tienes la categoría supermercado, no hace falta crearla.';
+    interpretations.set(
+      'crea la categoría supermercado',
+      answering({ kind: 'category', name: 'supermercado', reply: phrased }),
+    );
+    // The phrasing drops the name, so it fails the R-21 AC2 check.
+    interpretations.set(
+      'crea la categoría Supermercado',
+      answering({ kind: 'category', name: 'Supermercado', reply: 'Esa ya la tienes.' }),
+    );
+
+    const kept = await say('crea la categoría supermercado');
+    const verbatim = await say('crea la categoría Supermercado');
+
+    expect(kept?.text).toBe(phrased);
+    expect(kept?.payload.reply_markup).toBeUndefined();
+    expect(verbatim?.text).toBe('La categoría «supermercado» ya existe.');
+    expect(verbatim?.payload.reply_markup).toBeUndefined();
+    expect(phrasings).toBe(0);
+    expect(query('SELECT id FROM proposals')).toEqual([]);
+    expect(categories()).toEqual([{ name: 'restaurantes' }, { name: 'supermercado' }]);
+  });
+
+  it('AC1, R-5 AC3: a name the principal did not write is not proposed', async () => {
+    interpretations.set(
+      'crea una categoría para el coche',
+      answering({
+        kind: 'category',
+        name: 'gasolina',
+        reply: 'La categoría «gasolina» ya existe.',
+      }),
+    );
+
+    const reply = await say('crea una categoría para el coche');
+
+    expect(reply?.text).toBe('No tengo claro el importe. ¿Me lo escribes? Por ejemplo: 23,40');
+    expect(reply?.payload.reply_markup).toBeUndefined();
+    expect(query('SELECT id FROM proposals')).toEqual([]);
+    expect(categories()).toEqual([{ name: 'restaurantes' }, { name: 'supermercado' }]);
+  });
+
+  it('AC3: a stated category that does not exist registers uncategorized; "Sí" assigns it as declared', async () => {
+    const text = '40 € gasolina, categoría gasolina';
+    interpretations.set(
+      text,
+      answering({
+        kind: 'expense',
+        inferences: [
+          {
+            subject_type: 'expense',
+            subject_id: null,
+            predicate: 'total',
+            value_json: 4000,
+            mode: 'inferred',
+            basis_json: { quote: '40 €' },
+            confidence: 0.98,
+          },
+          {
+            subject_type: 'expense',
+            subject_id: null,
+            predicate: 'declared_category',
+            value_json: 'gasolina',
+            mode: 'inferred',
+            basis_json: { quote: 'categoría gasolina' },
+            confidence: 0.95,
+          },
+        ],
+      }),
+    );
+
+    const question = await say(text);
+    const decisionId = await askedDecision();
+
+    // S-2 (the phrasing fails the check, so it is verbatim), then S-15 with its buttons.
+    expect(question?.text).toBe(`Apuntado: 40,00 € (sin clasificar).\n${S15}`);
+    expect(question?.payload.reply_markup).toEqual(yesNo(decisionId));
+    expect(query('SELECT total_cents, category_id, category_basis, status FROM expenses')).toEqual([
+      { total_cents: 4000, category_id: null, category_basis: null, status: 'current' },
+    ]);
+    // R-9 AC2: the delivery of the expense reply verifies its action.
+    await vi.waitFor(() =>
+      expect(
+        query(`SELECT a.value_json FROM actions x
+               JOIN assertions a ON a.id = x.verification_assertion_id`),
+      ).toEqual([{ value_json: JSON.stringify({ text: 'Apuntado: 40,00 € (sin clasificar).' }) }]),
+    );
+    if (question === undefined) throw new Error('no question');
+
+    const done = await press(question, `decision:${decisionId}:0`);
+
+    expect(done?.text).toBe('Hecho, he creado la categoría «gasolina».');
+    expect(
+      query(`SELECT c.name, e.category_basis FROM expenses e
+             JOIN categories c ON c.id = e.category_id`),
+    ).toEqual([{ name: 'gasolina', category_basis: 'declared' }]);
+    expect(
+      query(`SELECT predicate, value_json, mode, actor, status FROM assertions
+             WHERE subject_type = 'expense' AND predicate = 'category'`),
+    ).toEqual([
+      {
+        predicate: 'category',
+        value_json: '"gasolina"',
+        mode: 'declared',
+        actor: 'principal',
+        status: 'current',
+      },
+    ]);
+    expect(query("SELECT status FROM proposals WHERE operation = 'create_category'")).toEqual([
+      { status: 'executed' },
+    ]);
   });
 });
