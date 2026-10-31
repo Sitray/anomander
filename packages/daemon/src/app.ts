@@ -1,3 +1,4 @@
+import type { Notify } from '@anomander/protocol';
 import { createTelegramBot, createTelegramNotify, type TelegramLogger } from '@anomander/telegram';
 import { budgeted, createAiBudget } from './budget/ai-budget.ts';
 import { createReceiptQueue } from './budget/receipt-queue.ts';
@@ -12,10 +13,12 @@ import {
 import { createButtonHandler, createDecisionAnswers, pressedOption } from './decisions/answer.ts';
 import { createExpenseCorrection } from './decisions/correction.ts';
 import { createCreateCategoryAnswerHandler } from './decisions/create-category-decision.ts';
+import { createCreatePolicyAnswerHandler } from './decisions/create-policy-decision.ts';
 import { createForgetMemoryAnswerHandler } from './decisions/forget-memory-decision.ts';
 import { createTextRouter } from './decisions/router.ts';
 import { createReceiptExpenseCycle } from './expenses/receipt-expense.ts';
 import { createTextExpenseHandler } from './expenses/text-expense.ts';
+import { createPatternOffers } from './patterns/pattern-offers.ts';
 import { createPiAiCorrectionInterpreter } from './processor/correction-interpreter.ts';
 import { createPiAiReceiptReader } from './processor/receipt-reader.ts';
 import { createPiAiReplyPhraser } from './processor/reply-phraser.ts';
@@ -73,6 +76,12 @@ export const startAnomander = <M>(config: Config, deps: AnomanderDeps<M>): Anoma
   const phraser = createPiAiReplyPhraser({ complete: ai, model, logger });
   // R-16 AC3: every exchange with the principal is a recent turn, kept only in memory.
   const turns = createRecentTurns({ now });
+  // R-13 AC2: S-12 goes out unasked through `notify`, which needs the bot, while the bot needs the
+  // handlers that offer it; it is bound below, before the bot starts polling.
+  let notify: Notify = async () => {
+    throw new Error('notify used before the bot was created');
+  };
+  const patterns = createPatternOffers({ db, now, logger, notify: (message) => notify(message) });
   const onText = createTextRouter({
     db,
     corrections: {
@@ -82,6 +91,7 @@ export const startAnomander = <M>(config: Config, deps: AnomanderDeps<M>): Anoma
         timeZone: config.timeZone,
         now,
         logger,
+        patterns,
       }),
     },
     otherwise: createTextExpenseHandler({
@@ -93,6 +103,7 @@ export const startAnomander = <M>(config: Config, deps: AnomanderDeps<M>): Anoma
       processorSource: `processor:${config.model.provider}/${config.model.id}`,
       logger,
       recent: turns.recent,
+      patterns,
     }),
     now,
   });
@@ -111,12 +122,14 @@ export const startAnomander = <M>(config: Config, deps: AnomanderDeps<M>): Anoma
   const onButton = createButtonHandler({
     db,
     answers: {
-      ...createDecisionAnswers({ phraser, logger }),
+      ...createDecisionAnswers({ phraser, logger, patterns }),
       keep_receipt: createKeepReceiptAnswerHandler({ timeZone: config.timeZone }),
       // R-16 AC3: a confirmed forget empties the recent turns.
       forget_memory: createForgetMemoryAnswerHandler({ clearRecentTurns: turns.clear }),
       // R-18 AC1, AC3: "Sí" to S-15 creates the category.
       create_category: createCreateCategoryAnswerHandler({ logger }),
+      // R-13 AC1, AC2: "Sí" to S-11 or S-12 stores the policy.
+      create_policy: createCreatePolicyAnswerHandler(),
     },
     now,
     logger,
@@ -132,8 +145,8 @@ export const startAnomander = <M>(config: Config, deps: AnomanderDeps<M>): Anoma
     ...(deps.telegramApiRoot === undefined ? {} : { apiRoot: deps.telegramApiRoot }),
   });
 
-  // R-8, R-10, R-12 AC3 and R-19 run without a message: their replies go to the principal unasked.
-  const notify = recordingNotices(turns, createTelegramNotify(bot, config.principalChatId));
+  // R-8, R-10, R-12 AC3, R-13 AC2 and R-19 send messages the principal did not ask for.
+  notify = recordingNotices(turns, createTelegramNotify(bot, config.principalChatId));
   const retention = createRetention({
     db,
     inboxDir: config.inboxDir,

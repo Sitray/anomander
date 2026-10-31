@@ -310,7 +310,7 @@ Code checks every proposed receipt expense.
 - AC4: When the cap is reached, a principal text that needs the processor (an expense, a conversation or a correction) is not interpreted, nothing is stored, and the reply is S-26.
 
 ### R-13 Policies
-- AC1: A message such as "Mercadona es supermercado" proposes a policy; it is stored only after the principal confirms with S-11. "No" to S-11 or S-12 replies S-35.
+- AC1: A message such as "Mercadona es supermercado" proposes a policy; it is stored only after the principal confirms with S-11. "Sí" to S-11 or S-12 replies S-38 and "No" replies S-35. A rule already active is not asked again: the reply is S-39.
 - AC2: A pattern is noticed by code, not by the processor: when a merchant without a policy has 3 current expenses with the same category, and the principal confirmed or declared that category, code offers it as a proposal with S-12, where `{patron}` is `{comercio} siempre es {categoria}`. It never becomes a policy without confirmation, and a pattern the principal rejected is never offered again.
 
 ### R-14 Processor isolation
@@ -365,7 +365,7 @@ A deterministic job, the internal **retain** operation, runs at `ANOMANDER_RETEN
 
 ### R-21 Phrased replies
 The assistant may word its confirmations in its own voice; the facts in them always come from code.
-- AC1: The replies S-1, S-2, S-16, S-21 and S-36 may be phrased by the processor. Code passes it the §12 string as the reference and the facts read from the database (S-1 and S-2: total, merchant and category of the stored row; S-21: the date; S-36: the category name). S-36 is phrased in the same processor call that read the message.
+- AC1: The replies S-1, S-2, S-16, S-21, S-36 and S-39 may be phrased by the processor. Code passes it the §12 string as the reference and the facts read from the database (S-1 and S-2: total, merchant and category of the stored row; S-21: the date; S-36: the category name; S-39: the merchant and the category). S-36 and S-39 are phrased in the same processor call that read the message.
 - AC2: Code sends the phrased text only if it contains every fact, formatted as in §12, contains no amount that is not among the facts or in the reference string, and is at most 280 characters. Otherwise, or when the processor fails or the daily AI budget is exhausted (R-12), it sends the §12 string unchanged.
 - AC3: Every other string in §12 is sent verbatim and never goes through the processor.
 - AC4: The phrasing call passes no tools (R-14 AC3) and counts against the daily AI budget (R-12).
@@ -388,7 +388,7 @@ ANOMANDER remembers lasting facts about the principal, such as "soy vegetariano"
 
 ## 12. User-facing strings (verbatim, `es-ES`)
 
-S-1, S-2, S-16, S-21 and S-36 are the reference and the fallback for the phrased replies of R-21; every other string is sent exactly as written.
+S-1, S-2, S-16, S-21, S-36 and S-39 are the reference and the fallback for the phrased replies of R-21; every other string is sent exactly as written.
 
 Amounts are formatted with `Intl.NumberFormat('es-ES', { style: 'currency', currency: 'EUR' })`, for example `23,40 €`. Dates use `d 'de' MMMM`, for example `29 de octubre`.
 
@@ -431,6 +431,8 @@ Amounts are formatted with `Intl.NumberFormat('es-ES', { style: 'currency', curr
 | S-35 | `Vale, no guardo la regla.` |
 | S-36 | `La categoría «{categoria}» ya existe.` |
 | S-37 | `Hecho, he creado la categoría «{categoria}».` |
+| S-38 | `Hecho, he guardado la regla «{comercio} es {categoria}».` |
+| S-39 | `Ya tengo la regla «{comercio} es {categoria}».` |
 
 When there is no category, `{categoria}` is `sin clasificar`. In S-9, each category name in `{desglose}` starts with a capital letter (R-10 AC4), for example `Supermercado 45,20 € · Restaurantes 23,00 € · Sin clasificar 0,00 €`. Button labels: `Apuntar`, `Corregir`, `Descartar`, and for S-11, S-12, S-13, S-15 and S-29 `Sí` and `No`.
 

@@ -63,8 +63,13 @@ export const checkedPhrasing = (
   request: Pick<PhraseRequest, 'reference' | 'facts'>,
   logger: Logger,
 ): string => {
-  if (text === null || !keepsTheFacts(text, request)) {
-    logger.warn('phrased reply changed the facts; sending the §12 string', { text });
+  // Never the text: a reply from the text interpreter may echo a memory or a recent turn (R-23 AC8).
+  if (text === null) {
+    logger.warn('no phrased reply; sending the §12 string', {});
+    return request.reference;
+  }
+  if (!keepsTheFacts(text, request)) {
+    logger.warn('phrased reply changed the facts; sending the §12 string', { length: text.length });
     return request.reference;
   }
   return text;

@@ -10,9 +10,9 @@ through the types of `@anomander/protocol`.
 `createTextExpenseHandler` (`src/expenses/text-expense.ts`) is the `TextHandler` for a text the
 principal sent, such as `23 € cena`. Each step enforces a PRD rule:
 
-1. **Interpret.** The processor classifies the text as an expense, conversation or a category
-   request (R-17 AC5, see "Categories" below) and returns inferences only. A1: policies (R-13)
-   arrive in M4.
+1. **Interpret.** The processor classifies the text as an expense, conversation, a category
+   request or a policy (R-17 AC5, see "Categories" and "Policies and patterns" below) and returns
+   inferences only.
 2. **Conversation.** It gets the processor's reply and nothing is stored (R-16).
 3. **Unusable response.** It is logged and answered with S-16; nothing is stored (A3).
 4. **Amount.** The inferred `total` is accepted only if the principal wrote it literally, in one
@@ -293,6 +293,50 @@ it, creates nothing and replies S-34.
 A receipt caption or a correction text that names a category that does not exist does not ask
 S-15: the expense is only proposed and answers its own decision first.
 
+## Policies and patterns (R-13)
+
+A policy (`policies`, §13) says which category a merchant always takes; `categorize` (core) uses
+the active ones through `listActivePolicies` (R-5 AC1), so a receipt from that merchant that adds
+up is registered without asking (R-6 AC1). Policies are declared only by the principal: the
+processor and code may only propose one, and it is stored only after `Sí`.
+
+**Stating a rule (AC1).** For `Mercadona es supermercado`, the interpreter answers
+`{"kind":"policy","merchant":"Mercadona","category":"supermercado","reply":"..."}`. The text
+handler accepts it only if the principal wrote both names (`writtenIn`); otherwise it is logged
+without the message and answered with S-16, like any unusable response. A category that does not
+exist is asked with S-15 first (R-18; the rule itself is not proposed, so the principal states it
+again once the category exists). A rule already active is not asked again: the reply is the
+interpreter's wording of S-39, checked with `checkedPhrasing` (merchant and category as the facts),
+or S-39 verbatim. Otherwise `openCreatePolicyDecision`
+(`src/store/policies.ts`) stores a `create_policy` proposal (`asked`, in the "Keep my expenses"
+matter, payload `{"merchant","category","source"}` with the principal's message as `source`) with
+a pending decision, and the reply is S-11 with `Sí` and `No`.
+
+**Noticing a pattern (AC2).** Code, never the processor, looks for patterns
+(`src/patterns/pattern-offers.ts`), right after a registration that can complete one: a text
+expense, `Apuntar` or a correction. `thenOfferPattern` wraps that reply, so once it is delivered,
+`findPattern` (`src/store/policies.ts`) checks the expense. An expense counts when it is `current`
+and the principal declared its category (`category_basis = 'declared'`: written in the text, a
+caption or a correction) or confirmed it (`category_basis = 'inferred'` and `mode = 'confirmed'`:
+`Apuntar` on S-6). An inferred category the principal never saw a question about, and a category
+from a policy, do not count. There is a pattern when the expense counts, at least 3 counting
+expenses share its merchant and category, the merchant has no active policy, and no
+`create_policy` decision for the same merchant and category is open or was rejected by the
+principal as a pattern. A pattern decision that expired unanswered (R-19) was not rejected, so it
+may be offered again. The proposal (basis `{"rule":"R-13 AC2","expense_ids":[...]}`, payload
+`source: null`) and its decision are opened in one transaction, and S-12 goes out as its own
+message through `notify`, with `{patron}` = `{comercio} siempre es {categoria}` and `Sí` and `No`.
+If sending fails, the decision stays open until it expires, so the pattern is not offered twice.
+
+**Answering.** `createCreatePolicyAnswerHandler` (`src/decisions/create-policy-decision.ts`)
+answers S-11 and S-12 alike. `Sí` executes the proposal with an action authorized by the principal
+and `declarePolicy` stores the rule: a `declared` assertion by the principal (`subject_type
+'policy'`, `predicate 'rule'`, the rule as its value; `source` is the principal's message for S-11,
+or the pressed button `decision:<id>:0` for S-12), then the `policies` row that points at it. The
+assertion answers the decision. An active policy for the same merchant with another category is
+revoked (`active = 0`, `revoked_at`) and its declaration refuted and superseded by the new one; the
+same rule already active is kept as it is. The reply to `Sí` is S-38 (`policySaved`). `No` rejects the proposal, stores nothing and replies S-35.
+
 ## The processor ports
 
 `CorrectionInterpreter` (`src/processor/correction-interpreter.ts`) reads a correction text.
@@ -337,10 +381,9 @@ tools, and sends the result only if:
 - it contains no amount that is not among the facts or in the §12 string;
 - it is at most 280 characters.
 
-Otherwise, or if the call fails, the §12 string is sent unchanged. S-36 is worded by the text
-interpreter in the call that read the message, and goes through the same checks
-(`checkedPhrasing`). Every other string (S-17,
-S-18, S-20...) is sent verbatim and never reaches the processor. The delivery observation
+Otherwise, or if the call fails, the §12 string is sent unchanged. S-36 and S-39 are worded by
+the text interpreter in the call that read the message, and go through the same checks
+(`checkedPhrasing`). Every other string (S-17, S-18, S-20...) is sent verbatim and never reaches the processor. The delivery observation
 stores the text that was actually sent. `verbatimReplies` skips the processor, for tests.
 
 ## Running the daemon

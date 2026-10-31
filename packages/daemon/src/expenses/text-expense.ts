@@ -18,6 +18,7 @@ import {
 } from '@anomander/protocol';
 import type Database from 'better-sqlite3';
 import type { RecentTurn } from '../conversation/recent-turns.ts';
+import { type PatternOffers, thenOfferPattern } from '../patterns/pattern-offers.ts';
 import { checkedPhrasing, type ReplyPhraser } from '../processor/reply-phraser.ts';
 import type { Logger, MemoryFact, TextInterpreter } from '../processor/text-interpreter.ts';
 import { openCreateCategoryDecision, openForgetMemoryDecision } from '../store/decisions.ts';
@@ -29,6 +30,7 @@ import {
   registerTextExpense,
 } from '../store/expenses.ts';
 import { listMemories, memoriesForPrompt, saveMemory } from '../store/memory.ts';
+import { hasActivePolicy, openCreatePolicyDecision } from '../store/policies.ts';
 import { recordDecisionMessage } from '../store/receipts.ts';
 import { textValue, writtenIn } from './declarations.ts';
 
@@ -49,6 +51,8 @@ export interface TextExpenseDeps {
   logger: Logger;
   /** The recent turns given to the interpreter (R-16 AC3); none when absent. */
   recent?: () => RecentTurn[];
+  /** Offers S-12 after a registration that completes a pattern (R-13 AC2); none when absent. */
+  patterns?: PatternOffers;
 }
 
 const inferenceOf = (inferences: readonly ProcessorInference[], predicate: string) =>
@@ -172,6 +176,48 @@ export const createTextExpenseHandler = (deps: TextExpenseDeps): TextHandler => 
       }
       const ask = askToCreate(name, null);
       return { text: ask.question, buttons: ask.buttons, onDelivered: ask.shown };
+    }
+    // R-13 AC1: the processor only points at the rule; code asks S-11 only if the principal wrote
+    // both names and the category exists. A category that does not exist is asked first (S-15,
+    // R-18); a rule already active is not asked again: the interpreter's wording of S-39, checked
+    // like S-36 (R-21 AC2), or S-39 verbatim.
+    if (interpretation.kind === 'policy') {
+      const { merchant, reply } = interpretation;
+      if (!writtenIn(message.text, merchant) || !writtenIn(message.text, interpretation.category)) {
+        logger.warn('policy merchant or category not written in the message; not proposed', {
+          channelRef: message.channelRef,
+        });
+        return unclearAmount();
+      }
+      const category = interpretation.category.toLowerCase();
+      if (!categories.includes(category)) {
+        const ask = askToCreate(category, null);
+        return { text: ask.question, buttons: ask.buttons, onDelivered: ask.shown };
+      }
+      if (hasActivePolicy(db, merchant, category)) {
+        const reference = strings.policyExists(merchant, category);
+        return { text: checkedPhrasing(reply, { reference, facts: [merchant, category] }, logger) };
+      }
+      const options = [buttons.yes, buttons.no];
+      const question = strings.confirmPolicy(merchant, category);
+      const decisionId = openCreatePolicyDecision(db, {
+        merchant,
+        category,
+        source: message.channelRef,
+        basis: { rule: 'R-13 AC1', source: message.channelRef },
+        question,
+        options,
+        now: now().toISOString(),
+      });
+      return {
+        text: question,
+        buttons: decisionButtons(decisionId, options),
+        onDelivered: (delivery) => {
+          if (!recordDecisionMessage(db, decisionId, delivery.channelRef)) {
+            logger.warn('decision message already recorded', { decisionId });
+          }
+        },
+      };
     }
     // R-12 AC4: the daily AI budget is spent; nothing was stored.
     if (interpretation.kind === 'budget_exhausted') return { text: strings.textLimitReached() };
@@ -305,7 +351,9 @@ export const createTextExpenseHandler = (deps: TextExpenseDeps): TextHandler => 
         logger.warn('reply delivery already recorded', { actionId });
       }
     };
-    if (ask === null) return { text, onDelivered: verify };
+    // R-13 AC2: S-12 follows as its own message when this expense completes a pattern.
+    if (ask === null)
+      return thenOfferPattern({ text, onDelivered: verify }, expenseId, deps.patterns);
     // R-18 AC3: one message, the expense reply then S-15, with the S-15 buttons.
     return {
       text: `${text}\n${ask.question}`,

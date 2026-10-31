@@ -61,6 +61,8 @@ export const strings = {
   confirmPolicy: (merchant: string, categoryName: string) =>
     `¿Guardo la regla «${merchant} es ${categoryName}»?`,
   proposePattern: (pattern: string) => `He notado que ${pattern}. ¿Lo convierto en regla?`,
+  /** `{patron}` of S-12 (R-13 AC2). */
+  pattern: (merchant: string, categoryName: string) => `${merchant} siempre es ${categoryName}`,
   keepUnreadReceipt: (date: string) =>
     `Todavía no he podido leer el ticket que me enviaste el ${formatDate(date)}. ¿Lo guardo hasta poder leerlo? Si no, lo borro en una hora.`,
   deletedUnreadReceipt: (date: string) =>
@@ -105,6 +107,12 @@ export const strings = {
   categoryNotCreated: () => 'Vale, no la creo.',
   categoryExists: (categoryName: string) => `La categoría «${categoryName}» ya existe.`,
   categoryCreated: (categoryName: string) => `Hecho, he creado la categoría «${categoryName}».`,
+  policyNotSaved: () => 'Vale, no guardo la regla.',
+  /** S-38: the reply to "Sí" to S-11 or S-12. */
+  policySaved: (merchant: string, categoryName: string) =>
+    `Hecho, he guardado la regla «${merchant} es ${categoryName}».`,
+  policyExists: (merchant: string, categoryName: string) =>
+    `Ya tengo la regla «${merchant} es ${categoryName}».`,
 } as const;
 
 /** PRD §12 button labels (R-6 AC3; S-11, S-12, S-13, S-15 and S-29 use `Sí` and `No`). */
