@@ -19,6 +19,9 @@ export const UNCATEGORIZED = 'sin clasificar';
 
 const category = (name: string | null): string => name ?? UNCATEGORIZED;
 
+// S-27 and S-29: a header followed by one line per item.
+const lines = (header: string, items: readonly string[]): string => [header, ...items].join('\n');
+
 export const strings = {
   registered: (total: number, merchant: string, categoryName: string | null) =>
     `Apuntado: ${formatAmount(total)} en ${merchant} (${category(categoryName)}).`,
@@ -59,9 +62,27 @@ export const strings = {
   receiptNotKept: () => 'Vale, si no consigo leerlo antes, lo borro en una hora.',
   textLimitReached: () =>
     'He llegado al límite diario de IA y hoy no puedo procesar más mensajes. ¿Me lo vuelves a enviar mañana?',
+  /** S-27: the header, then one line per memory with how it was learnt. */
+  remembered: (memories: readonly { text: string; mode: 'declared' | 'inferred' }[]) =>
+    lines(
+      'Esto es lo que recuerdo de ti:',
+      memories.map(
+        ({ text, mode }) => `· ${text} (${mode === 'declared' ? 'me lo dijiste' : 'lo deduje'})`,
+      ),
+    ),
+  rememberNothing: () => 'Todavía no recuerdo nada de ti.',
+  /** S-29: the header, then one line per memory. With no texts, the header alone. */
+  confirmForget: (texts: readonly string[]) =>
+    lines(
+      '¿Olvido esto?',
+      texts.map((text) => `· ${text}`),
+    ),
+  forgotten: () => 'Hecho, lo he olvidado.',
+  notForgotten: () => 'Vale, no olvido nada.',
+  nothingToForget: () => 'No encuentro nada así en lo que recuerdo.',
 } as const;
 
-/** PRD §12 button labels (R-6 AC3; S-11, S-12, S-13 and S-15 use `Sí` and `No`). */
+/** PRD §12 button labels (R-6 AC3; S-11, S-12, S-13, S-15 and S-29 use `Sí` and `No`). */
 export const buttons = {
   register: 'Apuntar',
   correct: 'Corregir',

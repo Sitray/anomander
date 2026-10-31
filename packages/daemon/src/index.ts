@@ -25,6 +25,10 @@ export {
   type ExpenseCorrectionDeps,
 } from './decisions/correction.ts';
 export {
+  createForgetMemoryAnswerHandler,
+  type ForgetMemoryDecisionDeps,
+} from './decisions/forget-memory-decision.ts';
+export {
   createRegisterExpenseDecision,
   type RegisterExpenseDecisionDeps,
 } from './decisions/register-expense-decision.ts';

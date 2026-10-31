@@ -64,6 +64,12 @@ const vegetarian = (reply: string): AssistantMessage => ({
   ],
 });
 
+/** A recorded response whose JSON envelope is replaced, for cases no recording covers. */
+const answering = (envelope: unknown): AssistantMessage => ({
+  ...recorded('conversation'),
+  content: [{ type: 'text', text: JSON.stringify(envelope) }],
+});
+
 const start = async (overrides: Partial<ReturnType<typeof loadConfig>> = {}) => {
   anomander = startAnomander(
     { ...config, processorTimeoutMs: 200, ...overrides },
@@ -222,5 +228,113 @@ describe('a text expense over Telegram', () => {
       'He llegado al límite diario de IA y hoy no puedo procesar más mensajes. ¿Me lo vuelves a enviar mañana?',
     );
     expect(query('SELECT id FROM expenses')).toEqual([]);
+  });
+});
+
+describe('conversation memory over Telegram (R-23 AC5, AC6)', () => {
+  const say = async (text: string) => {
+    const before = api.sent.length;
+    api.push(updates.text({ chatId: PRINCIPAL }, text));
+    return (await api.waitForSent(before + 1)).at(-1);
+  };
+  const press = async (question: { messageId: number }, data: string) => {
+    const before = api.sent.length;
+    api.push(updates.callbackQuery({ chatId: PRINCIPAL }, data, question.messageId));
+    return (await api.waitForSent(before + 1)).at(-1);
+  };
+  const memories = () => {
+    const db = new Database(join(scratch, 'anomander.db'), { readonly: true });
+    try {
+      return listMemories(db);
+    } finally {
+      db.close();
+    }
+  };
+  /** Remembers "Es vegetariano" and returns its id. */
+  const rememberVegetarian = async () => {
+    interpretations.set('soy vegetariano', vegetarian('Tomo nota.'));
+    await say('soy vegetariano');
+    const [memory] = memories();
+    if (memory === undefined) throw new Error('nothing remembered');
+    return memory.id;
+  };
+  /** Asks to forget "Es vegetariano"; resolves with S-29 and its decision id. */
+  const askToForget = async () => {
+    const id = await rememberVegetarian();
+    interpretations.set('olvida que soy vegetariano', answering({ kind: 'forget', ids: [id] }));
+    const question = await say('olvida que soy vegetariano');
+    await vi.waitFor(() =>
+      expect(query('SELECT id FROM pending_decisions WHERE channel_ref IS NOT NULL')).toHaveLength(
+        1,
+      ),
+    );
+    const [decision] = query<{ id: number }>('SELECT id FROM pending_decisions');
+    if (question === undefined || decision === undefined) throw new Error('no decision');
+    return { question, decisionId: decision.id };
+  };
+
+  it('AC5: lists every current memory with its mode, or S-28 when there is none', async () => {
+    interpretations.set('qué sabes de mí', answering({ kind: 'memory_list' }));
+
+    const none = await say('qué sabes de mí');
+    await rememberVegetarian();
+    const some = await say('qué sabes de mí');
+
+    expect(none?.text).toBe('Todavía no recuerdo nada de ti.');
+    expect(some?.text).toBe('Esto es lo que recuerdo de ti:\n· Es vegetariano (me lo dijiste)');
+  });
+
+  it('AC6, R-16 AC3: "Sí" erases the memory and empties the recent turns', async () => {
+    const { question, decisionId } = await askToForget();
+
+    expect(question.text).toBe('¿Olvido esto?\n· Es vegetariano');
+    expect(question.payload.reply_markup).toEqual({
+      inline_keyboard: [
+        [
+          { text: 'Sí', callback_data: `decision:${decisionId}:0` },
+          { text: 'No', callback_data: `decision:${decisionId}:1` },
+        ],
+      ],
+    });
+
+    const done = await press(question, `decision:${decisionId}:0`);
+    expect(done?.text).toBe('Hecho, lo he olvidado.');
+    expect(memories()).toEqual([]);
+    // The text is gone from every table; only the expired assertion marks it.
+    expect(query('SELECT * FROM memory_texts')).toEqual([]);
+    expect(query('SELECT question FROM pending_decisions')).toEqual([
+      { question: '¿Olvido esto?' },
+    ]);
+    expect(query("SELECT status FROM assertions WHERE predicate = 'memory'")).toEqual([
+      { status: 'expired' },
+    ]);
+
+    // The next interpretation sees neither the memory nor the turns that mentioned it.
+    await say('¿qué ceno hoy?');
+    const next = interpreted.at(-1);
+    expect(next?.memories).toEqual([]);
+    expect(next?.recent).toEqual([{ principal: '[botón: Sí]', reply: 'Hecho, lo he olvidado.' }]);
+  });
+
+  it('AC6: "No" erases nothing', async () => {
+    const { question, decisionId } = await askToForget();
+
+    const kept = await press(question, `decision:${decisionId}:1`);
+
+    expect(kept?.text).toBe('Vale, no olvido nada.');
+    expect(memories()).toEqual([
+      { id: expect.any(Number), text: 'Es vegetariano', mode: 'declared' },
+    ]);
+  });
+
+  it('AC6: asking to forget something not remembered gets S-32 and asks nothing', async () => {
+    await rememberVegetarian();
+    interpretations.set('olvida dónde vivo', answering({ kind: 'forget', ids: [] }));
+
+    const reply = await say('olvida dónde vivo');
+
+    expect(reply?.text).toBe('No encuentro nada así en lo que recuerdo.');
+    expect(reply?.payload.reply_markup).toBeUndefined();
+    expect(query('SELECT id FROM pending_decisions')).toEqual([]);
   });
 });

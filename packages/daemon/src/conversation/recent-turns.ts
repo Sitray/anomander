@@ -20,7 +20,10 @@ export interface RecentTurns {
   add(principal: string | null, reply: string): void;
   /** The last turns, oldest first, none older than 30 minutes. */
   recent(): RecentTurn[];
-  /** Empties the turns: a confirmed forget (R-23 AC6) calls it, so the fact leaves the context. */
+  /**
+   * Empties the turns. The `forget_memory` answer calls it on `Sí` (R-23 AC6), so the forgotten
+   * fact and the question that showed it leave the context.
+   */
   clear(): void;
 }
 
