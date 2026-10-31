@@ -25,13 +25,34 @@ const PHRASED = '¡Hecho! He apuntado 23,00 € de la cena en restaurantes.';
 let scratch: string;
 let api: FakeTelegramApi;
 let anomander: Anomander;
+let config: ReturnType<typeof loadConfig>;
 /** `false` makes the processor never answer, as a hung model would. */
 let processorAnswers: boolean;
+
+const complete = async (_model: string, context: Context) => {
+  if (!processorAnswers) return new Promise<never>(() => {});
+  const phrasing = context.systemPrompt === REPLY_PHRASER_PROMPT;
+  const reply = recorded('expense-23-space-euro');
+  return phrasing ? { ...reply, content: [{ type: 'text' as const, text: PHRASED }] } : reply;
+};
+
+const start = async (overrides: Partial<ReturnType<typeof loadConfig>> = {}) => {
+  anomander = startAnomander(
+    { ...config, processorTimeoutMs: 200, ...overrides },
+    {
+      complete,
+      model: 'openai/gpt-4o-mini',
+      telegramApiRoot: api.apiRoot,
+      logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+    },
+  );
+  await anomander.started;
+};
 
 beforeEach(async () => {
   scratch = mkdtempSync(join(tmpdir(), 'anomander-e2e-'));
   api = await startFakeTelegramApi();
-  const config = loadConfig({
+  config = loadConfig({
     TELEGRAM_BOT_TOKEN: api.token,
     ANOMANDER_PRINCIPAL_CHAT_ID: String(PRINCIPAL),
     ANOMANDER_DB_PATH: join(scratch, 'anomander.db'),
@@ -39,23 +60,7 @@ beforeEach(async () => {
     ANOMANDER_VISION_MODEL: 'openai/gpt-4o-mini',
   });
   processorAnswers = true;
-  const complete = async (_model: string, context: Context) => {
-    if (!processorAnswers) return new Promise<never>(() => {});
-    const phrasing = context.systemPrompt === REPLY_PHRASER_PROMPT;
-    const reply = recorded('expense-23-space-euro');
-    return phrasing ? { ...reply, content: [{ type: 'text' as const, text: PHRASED }] } : reply;
-  };
-  const logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn() };
-  anomander = startAnomander(
-    { ...config, processorTimeoutMs: 200 },
-    {
-      complete,
-      model: 'openai/gpt-4o-mini',
-      telegramApiRoot: api.apiRoot,
-      logger,
-    },
-  );
-  await anomander.started;
+  await start();
 });
 
 afterEach(async () => {
@@ -126,5 +131,18 @@ describe('a text expense over Telegram', () => {
     );
     expect(api.sent[1]?.text).toBe(PHRASED);
     expect(query('SELECT total_cents FROM expenses')).toEqual([{ total_cents: 2300 }]);
+  });
+
+  it('R-12 AC4: with the daily AI budget spent, a text gets S-26 and nothing is stored', async () => {
+    await anomander.stop();
+    await start({ dailyAiCallLimit: 0 });
+
+    api.push(updates.text({ chatId: PRINCIPAL }, '23 € cena'));
+    const [reply] = await api.waitForSent(1);
+
+    expect(reply?.text).toBe(
+      'He llegado al límite diario de IA y hoy no puedo procesar más mensajes. ¿Me lo vuelves a enviar mañana?',
+    );
+    expect(query('SELECT id FROM expenses')).toEqual([]);
   });
 });

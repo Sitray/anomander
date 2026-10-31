@@ -133,7 +133,8 @@ waiting.
 `TZ` in the `ai_usage` table (PRD §13), so a restart does not reset it. `ANOMANDER_DAILY_AI_CALL_LIMIT`
 is the cap (AC1). `budgeted(complete, budget)` wraps the processor call of the text interpreter,
 the correction interpreter and the phraser: past the cap it throws without calling the processor,
-and the phraser then sends the §12 string (R-21 AC2, AC4). A receipt reserves its reader call in
+and the phraser then sends the §12 string (R-21 AC2, AC4). The interpreters report it as
+`budget_exhausted`, and a text or a correction gets S-26 with nothing stored (AC4). A receipt reserves its reader call in
 `mayReadNow` instead, so `app.ts` gives the reader the raw call and a refusal can never make a
 receipt unreadable.
 

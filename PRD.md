@@ -307,6 +307,7 @@ Code checks every proposed receipt expense.
 - AC1: `ANOMANDER_DAILY_AI_CALL_LIMIT` caps processor calls per day (default 200).
 - AC2: When the cap is reached, the processor is not called, the receipt is queued (R-8 AC2), and the principal receives S-10 once that day.
 - AC3: When the day changes in `TZ`, queued receipts are processed in arrival order, counting against the new day's cap.
+- AC4: When the cap is reached, a principal text that needs the processor (an expense, a conversation or a correction) is not interpreted, nothing is stored, and the reply is S-26.
 
 ### R-13 Policies
 - AC1: A message such as "Mercadona es supermercado" proposes a policy; it is stored only after the principal confirms with S-11.
@@ -406,6 +407,7 @@ Amounts are formatted with `Intl.NumberFormat('es-ES', { style: 'currency', curr
 | S-23 | `Descartado: no he apuntado {total} en {comercio}.` |
 | S-24 | `Vale, lo guardo hasta poder leerlo, como mucho hasta el {fecha}.` |
 | S-25 | `Vale, si no consigo leerlo antes, lo borro en una hora.` |
+| S-26 | `He llegado al límite diario de IA y hoy no puedo procesar más mensajes. ¿Me lo vuelves a enviar mañana?` |
 
 When there is no category, `{categoria}` is `sin clasificar`. In S-9, each category name in `{desglose}` starts with a capital letter (R-10 AC4), for example `Supermercado 45,20 € · Restaurantes 23,00 € · Sin clasificar 0,00 €`. Button labels: `Apuntar`, `Corregir`, `Descartar`, and for S-11, S-12, S-13 and S-15 `Sí` and `No`.
 
