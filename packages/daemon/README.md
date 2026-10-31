@@ -10,8 +10,9 @@ through the types of `@anomander/protocol`.
 `createTextExpenseHandler` (`src/expenses/text-expense.ts`) is the `TextHandler` for a text the
 principal sent, such as `23 € cena`. Each step enforces a PRD rule:
 
-1. **Interpret.** The processor classifies the text as an expense or conversation (R-17 AC5) and
-   returns inferences only. A1: policies and new categories (R-13, R-18) arrive in M4.
+1. **Interpret.** The processor classifies the text as an expense, conversation or a category
+   request (R-17 AC5, see "Categories" below) and returns inferences only. A1: policies (R-13)
+   arrive in M4.
 2. **Conversation.** It gets the processor's reply and nothing is stored (R-16).
 3. **Unusable response.** It is logged and answered with S-16; nothing is stored (A3).
 4. **Amount.** The inferred `total` is accepted only if the principal wrote it literally, in one
@@ -22,7 +23,7 @@ principal sent, such as `23 € cena`. Each step enforces a PRD rule:
    stored (R-2 AC7).
 6. **Category.** `categorize` (R-5): a category the principal wrote in the text is `declared`,
    then an active policy, then an existing inferred category, else none (R-2 AC3). A declared
-   category that does not exist is logged and left out; asking S-15 is M4 (R-18 AC3).
+   category that does not exist is left out, and S-15 is asked with the reply (R-18 AC3, below).
 7. **Authority.** `checkAuthority` decides; a text expense is authorized by the principal's own
    message, with no permission lookup (R-2 AC2, §8).
 8. **Act.** One transaction stores the merchant entity (found case-insensitively), the proposal,
@@ -55,7 +56,8 @@ photo, an image file or an album (PRD §10). Each step enforces a PRD rule:
 6. **Declarations.** A merchant or category the caption states counts as `declared` only if the
    principal actually wrote it there; then it wins over the receipt (R-3 AC5).
 7. **Categorize.** `categorize` (R-5): declared, then an active policy, then an existing inferred
-   category, else none. A declared category that does not exist is logged (R-18 AC3 is M4).
+   category, else none. A declared category that does not exist is logged and left out; S-15 is
+   not asked, because the receipt is only proposed (R-18 AC3 covers expenses registered at once).
 8. **Check consistency.** `checkConsistency` with the current expenses and today in `TZ`: the
    lines sum to the total, the date is not later than today, no duplicate (R-4).
 9. **Check authority.** `checkAuthority` with the permissions that are neither revoked nor
@@ -87,7 +89,7 @@ Every incoming message has exactly one destination, decided by code (R-17):
    (AC1). Otherwise the answer goes to the handler of the proposal's `operation`, from the
    dispatch table (`createDecisionAnswers`, a plain record; add another operation by spreading
    it: `{ ...createDecisionAnswers(deps), keep_receipt: ... }`). `app.ts` adds `keep_receipt`
-   (R-8) and `forget_memory` (R-23 AC6).
+   (R-8), `forget_memory` (R-23 AC6) and `create_category` (R-18).
 2. **A text** goes through `createTextRouter` (`src/decisions/router.ts`), in this order:
    - a Telegram reply to the message of an `open` or `awaiting_text` decision corrects that
      decision (AC2);
@@ -258,6 +260,39 @@ them from the index) and sets the assertions to `expired`, in one transaction. T
 checkpointed and truncated afterwards, so the text is in neither the database file nor its WAL.
 The test proves it by reading the raw bytes. Never log a memory's text or quote (AC8).
 
+## Categories (R-18)
+
+Categories are created only by the principal, after `Sí` to S-15; the processor can never create
+one (R-5 AC3).
+
+**Asking for one (AC1).** For a text such as `crea la categoría gasolina`, the interpreter answers
+`{"kind":"category","name":"gasolina","reply":"..."}`: the name as the principal wrote it, and S-36
+worded in the same call. The text handler accepts the name only if the principal wrote it
+(`writtenIn`); otherwise it is logged without the message and answered like any unusable response
+(S-16). The name is lowercased (AC2). If the category already exists, it is not proposed again:
+the reply is the interpreter's wording of S-36, checked with `checkedPhrasing` (the R-21 AC2 checks
+of `src/processor/reply-phraser.ts`, with the name as the fact), or S-36 verbatim. Otherwise
+`openCreateCategoryDecision` stores a `create_category` proposal (`asked`, in the "Keep my
+expenses" matter, payload `{"name":"gasolina","expense_id":null}`) with a pending decision, and
+the reply is S-15 with `Sí` and `No`.
+
+**A stated category that does not exist (AC3).** For `40 € gasolina, categoría gasolina`, the
+expense is registered without a category, as before; its declared `category` assertion is stored
+anyway. In the same transaction a `create_category` proposal is opened with the expense's id in
+`expense_id`. The principal gets one message: S-1 or S-2, then S-15 on the next line, with the S-15
+buttons. Only the S-1 or S-2 part is stored as the delivery observation that verifies the expense
+(R-9 AC2).
+
+**Answering.** `createCreateCategoryAnswerHandler` (`src/decisions/create-category-decision.ts`)
+answers the decision and settles the proposal. `Sí` executes it with an action authorized by the
+principal, creates the category (`createCategory` in `src/store/categories.ts`; a name created
+meanwhile is reused) and, when `expense_id` is set and the expense still has no category, assigns
+it with `category_basis = 'declared'` (`assignDeclaredCategory`); the reply is S-37. `No` rejects
+it, creates nothing and replies S-34.
+
+A receipt caption or a correction text that names a category that does not exist does not ask
+S-15: the expense is only proposed and answers its own decision first.
+
 ## The processor ports
 
 `CorrectionInterpreter` (`src/processor/correction-interpreter.ts`) reads a correction text.
@@ -302,7 +337,9 @@ tools, and sends the result only if:
 - it contains no amount that is not among the facts or in the §12 string;
 - it is at most 280 characters.
 
-Otherwise, or if the call fails, the §12 string is sent unchanged. Every other string (S-17,
+Otherwise, or if the call fails, the §12 string is sent unchanged. S-36 is worded by the text
+interpreter in the call that read the message, and goes through the same checks
+(`checkedPhrasing`). Every other string (S-17,
 S-18, S-20...) is sent verbatim and never reaches the processor. The delivery observation
 stores the text that was actually sent. `verbatimReplies` skips the processor, for tests.
 

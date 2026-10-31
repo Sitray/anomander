@@ -89,7 +89,8 @@ export const createExpenseCorrection = ({
     if (category !== null && writtenIn(text, category) && categories.includes(category)) {
       correction.category = category;
     } else if (category !== null) {
-      // R-18 AC3 asks S-15 for a category that does not exist; that arrives in M4.
+      // R-18 AC3 covers an expense registered at once (a text): a correction answers a pending
+      // decision, so a category that does not exist is ignored and S-15 is not asked.
       logger.info('corrected category not written or not existing; ignored', {
         channelRef,
         category,

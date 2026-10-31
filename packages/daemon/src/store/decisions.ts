@@ -2,7 +2,13 @@ import type { DecisionStatus } from '@anomander/core';
 import type Database from 'better-sqlite3';
 import { z } from 'zod';
 import type { OpenDecision } from '../decisions/types.ts';
-import { categoryIdOf, findOrCreateMerchant, insertAction, insertAssertion } from './expenses.ts';
+import {
+  categoryIdOf,
+  expensesMatterId,
+  findOrCreateMerchant,
+  insertAction,
+  insertAssertion,
+} from './expenses.ts';
 import { openPendingDecision } from './receipts.ts';
 
 // Rows of PRD §13 for answering pending decisions (R-6 AC4, R-7, R-17).
@@ -347,6 +353,50 @@ export const openForgetMemoryDecision = (
       .run(
         JSON.stringify({ memory_ids: ask.memoryIds }),
         JSON.stringify({ rule: 'R-23 AC6' }),
+        ask.now,
+      );
+    return openPendingDecision(db, {
+      proposalId: Number(proposal.lastInsertRowid),
+      question: ask.question,
+      options: ask.options,
+      now: ask.now,
+    });
+  })();
+
+export interface CreateCategoryQuestion {
+  /** The name the principal wrote, lowercase (R-18 AC2). */
+  name: string;
+  /** The expense registered without it, to assign on "Sí" (R-18 AC3); `null` for R-18 AC1. */
+  expenseId: number | null;
+  /** The principal's message, `telegram:<message_id>`. */
+  source: string;
+  /** S-15. */
+  question: string;
+  options: readonly string[];
+  now: string;
+}
+
+/**
+ * R-18 AC1, AC3: a `create_category` proposal, `asked`, in the "Keep my expenses" matter, and its
+ * pending decision. Nothing is created until the principal answers "Sí". Returns the decision.
+ */
+export const openCreateCategoryDecision = (
+  db: Database.Database,
+  ask: CreateCategoryQuestion,
+): number =>
+  db.transaction(() => {
+    const proposal = db
+      .prepare(
+        `INSERT INTO proposals (matter_id, operation, payload_json, basis_json, status, created_at)
+         VALUES (?, 'create_category', ?, ?, 'asked', ?)`,
+      )
+      .run(
+        expensesMatterId(db),
+        JSON.stringify({ name: ask.name, expense_id: ask.expenseId }),
+        JSON.stringify({
+          rule: ask.expenseId === null ? 'R-18 AC1' : 'R-18 AC3',
+          source: ask.source,
+        }),
         ask.now,
       );
     return openPendingDecision(db, {

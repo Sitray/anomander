@@ -1,9 +1,9 @@
 import type { AssistantMessage, Context } from '@earendil-works/pi-ai';
 import type { Complete, Logger } from './text-interpreter.ts';
 
-// R-21: the assistant words S-1, S-2, S-16 and S-21 in its own voice, but the facts come from
-// code. The phrased text is sent only if it keeps every fact and adds none; otherwise the §12
-// string is sent unchanged.
+// R-21: the assistant words S-1, S-2, S-16 and S-21 in its own voice, and the text interpreter
+// words S-36, but the facts come from code. The phrased text is sent only if it keeps every fact
+// and adds none; otherwise the §12 string is sent unchanged.
 
 export interface PhraseRequest {
   /** The §12 string: what the processor rewords, and the fallback (R-21 AC1, AC2). */
@@ -43,12 +43,31 @@ const within = (found: Set<string>, allowed: Set<string>): boolean =>
  * R-21 AC2: every fact is there; every number and every amount in the reply already appears in
  * the facts or the reference (a date's day is a number, not an amount); short enough.
  */
-const keepsTheFacts = (text: string, request: PhraseRequest): boolean => {
+const keepsTheFacts = (
+  text: string,
+  request: Pick<PhraseRequest, 'reference' | 'facts'>,
+): boolean => {
   if (text === '' || text.length > MAX_LENGTH) return false;
   const phrased = normalize(text);
   if (!request.facts.every((fact) => phrased.includes(normalize(fact)))) return false;
   const supplied = normalize([request.reference, ...request.facts].join(' '));
   return within(numbers(phrased), numbers(supplied)) && within(amounts(phrased), amounts(supplied));
+};
+
+/**
+ * R-21 AC2: the phrased text when it keeps the facts, otherwise the §12 string. Also for a reply
+ * phrased in another processor call, such as S-36 in the text interpreter's (R-21 AC1).
+ */
+export const checkedPhrasing = (
+  text: string | null,
+  request: Pick<PhraseRequest, 'reference' | 'facts'>,
+  logger: Logger,
+): string => {
+  if (text === null || !keepsTheFacts(text, request)) {
+    logger.warn('phrased reply changed the facts; sending the §12 string', { text });
+    return request.reference;
+  }
+  return text;
 };
 
 const responseText = (message: AssistantMessage): string =>
@@ -100,11 +119,7 @@ export const createPiAiReplyPhraser =
       return request.reference;
     }
 
-    if (!keepsTheFacts(text, request)) {
-      logger.warn('phrased reply changed the facts; sending the §12 string', { text });
-      return request.reference;
-    }
-    return text;
+    return checkedPhrasing(text, request, logger);
   };
 
 /** Sends the §12 string as it is: for tests and when no processor may be used. */

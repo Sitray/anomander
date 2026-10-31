@@ -337,7 +337,7 @@ Every incoming message has exactly one destination, decided by code in this orde
 - AC6: A decision `awaiting_text` for 15 minutes without receiving text returns to `open`; its buttons still work.
 
 ### R-18 Categories
-- AC1: A message such as "crea la categoría gasolina" proposes a category; it is created only after the principal answers "Sí" to S-15, and "No" replies S-34. A category that already exists is not proposed again: the reply is S-36. The processor can never create one by itself (R-5 AC3).
+- AC1: A message such as "crea la categoría gasolina" proposes a category; it is created only after the principal answers "Sí" to S-15, which replies S-37, and "No" replies S-34. A category that already exists is not proposed again: the reply is S-36. The processor can never create one by itself (R-5 AC3).
 - AC2: Category names are stored in lowercase and must be unique.
 - AC3: If the principal states a category that does not exist ("40 € gasolina, categoría gasolina"), the expense is registered without a category and S-15 is sent. On "Sí", the category is created and assigned to that expense with `category_basis = 'declared'`.
 
@@ -430,6 +430,7 @@ Amounts are formatted with `Intl.NumberFormat('es-ES', { style: 'currency', curr
 | S-34 | `Vale, no la creo.` |
 | S-35 | `Vale, no guardo la regla.` |
 | S-36 | `La categoría «{categoria}» ya existe.` |
+| S-37 | `Hecho, he creado la categoría «{categoria}».` |
 
 When there is no category, `{categoria}` is `sin clasificar`. In S-9, each category name in `{desglose}` starts with a capital letter (R-10 AC4), for example `Supermercado 45,20 € · Restaurantes 23,00 € · Sin clasificar 0,00 €`. Button labels: `Apuntar`, `Corregir`, `Descartar`, and for S-11, S-12, S-13, S-15 and S-29 `Sí` and `No`.
 

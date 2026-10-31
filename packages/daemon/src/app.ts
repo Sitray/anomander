@@ -11,6 +11,7 @@ import {
 } from './conversation/recent-turns.ts';
 import { createButtonHandler, createDecisionAnswers, pressedOption } from './decisions/answer.ts';
 import { createExpenseCorrection } from './decisions/correction.ts';
+import { createCreateCategoryAnswerHandler } from './decisions/create-category-decision.ts';
 import { createForgetMemoryAnswerHandler } from './decisions/forget-memory-decision.ts';
 import { createTextRouter } from './decisions/router.ts';
 import { createReceiptExpenseCycle } from './expenses/receipt-expense.ts';
@@ -114,6 +115,8 @@ export const startAnomander = <M>(config: Config, deps: AnomanderDeps<M>): Anoma
       keep_receipt: createKeepReceiptAnswerHandler({ timeZone: config.timeZone }),
       // R-16 AC3: a confirmed forget empties the recent turns.
       forget_memory: createForgetMemoryAnswerHandler({ clearRecentTurns: turns.clear }),
+      // R-18 AC1, AC3: "Sí" to S-15 creates the category.
+      create_category: createCreateCategoryAnswerHandler({ logger }),
     },
     now,
     logger,

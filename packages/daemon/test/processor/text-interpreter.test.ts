@@ -210,6 +210,22 @@ describe('pi-ai text interpreter', () => {
     expect(interpretation).toEqual({ kind: 'forget', ids: [3] });
   });
 
+  it('returns a category request with its phrased S-36, and rejects one without a name (R-18 AC1)', async () => {
+    const reply = 'Ya tienes la categoría gasolina.';
+    const asked = interpreterAnswering({ kind: 'category', name: ' Gasolina ', reply });
+    const nameless = interpreterAnswering({ kind: 'category', name: '', reply });
+
+    expect(await asked.interpret(input('crea la categoría Gasolina'))).toEqual({
+      kind: 'category',
+      name: 'Gasolina',
+      reply,
+    });
+    expect((await nameless.interpret(input('crea la categoría Gasolina'))).kind).toBe('invalid');
+    // Logged without the message or the reply (R-23 AC8 style).
+    const logged = JSON.stringify(nameless.logger.warn.mock.calls);
+    expect(logged).not.toContain('asolina');
+  });
+
   it('returns invalid for a response that is not the JSON envelope (A3)', async () => {
     const { interpret, logger } = interpreterFor('malformed');
 

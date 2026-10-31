@@ -103,13 +103,17 @@ export interface ProposalRow {
   now: string;
 }
 
-/** A `register_expense` proposal in the "Keep my expenses" matter (§8.2). Returns its id. */
-export const insertProposal = (db: Database.Database, proposal: ProposalRow): number => {
-  const matterId = idOf(
+/** The open "Keep my expenses" matter (§8.2), which groups expense and category proposals. */
+export const expensesMatterId = (db: Database.Database): number | null =>
+  idOf(
     db,
     "SELECT id FROM matters WHERE title = ? AND status IN ('open', 'active', 'waiting')",
     EXPENSES_MATTER,
   );
+
+/** A `register_expense` proposal in the "Keep my expenses" matter (§8.2). Returns its id. */
+export const insertProposal = (db: Database.Database, proposal: ProposalRow): number => {
+  const matterId = expensesMatterId(db);
   const result = db
     .prepare(
       `INSERT INTO proposals (matter_id, operation, payload_json, basis_json, status, created_at)

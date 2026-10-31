@@ -238,7 +238,8 @@ export const createReceiptExpenseCycle = (deps: ReceiptExpenseDeps): ReceiptExpe
       suggestedCategory: reading.category?.value ?? null,
     });
     if (categorization.missingDeclaredCategory !== null) {
-      // R-18 AC3 asks S-15 here; that arrives in M4, so the expense stays uncategorized.
+      // R-18 AC3 covers an expense registered at once (a text): a receipt without a category is
+      // only proposed and asked with its own decision first, so S-15 is not asked here.
       logger.info('declared category does not exist; proposed without a category', {
         channelRef: receipt.channelRef,
         category: categorization.missingDeclaredCategory,
