@@ -36,6 +36,7 @@ describe('loadConfig', () => {
       weeklySummaryCron: '0 20 * * 0',
       retentionCron: '0 3 * * *',
       inboxDir: './data/inbox',
+      authPath: './data/auth.json',
       timeZone: 'Europe/Madrid',
     });
   });

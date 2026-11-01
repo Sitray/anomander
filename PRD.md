@@ -418,9 +418,9 @@ The principal can connect ANOMANDER to a model through their subscription (Claud
 - AC2: Pressing an account starts that provider's login in pi-ai and sends its link as a URL button `Abrir`: S-61 for Claude, which uses the copy-code method; S-62 for ChatGPT, whose redirect fails on a phone; S-63 with the device code for GitHub Copilot, which needs nothing pasted back.
 - AC3: While a login waits for a pasted code or address, the next principal text goes to it, before any other route (R-17 AC7). The bot deletes that message from the chat once read. The pasted text is never stored, logged or added to the recent turns (R-16 AC3).
 - AC4: On success the reply is S-64; on failure, or after 10 minutes without an answer, the login is abandoned and the reply is S-65. Only one login runs at a time; `/login` during one abandons it first.
-- AC5: The credentials are stored in the file at `ANOMANDER_AUTH_PATH` (default `./data/auth.json`), created with permissions `600`, written atomically, and read on every request, so a login made from a terminal is used without a restart. pi-ai refreshes expired tokens. Tokens are never sent to the chat, logged or written anywhere else.
+- AC5: The credentials are stored in the file at `ANOMANDER_AUTH_PATH` (default `./data/auth.json`), created with permissions `600`, written atomically, and read on every request, so a login made from a terminal is used without a restart. pi-ai refreshes expired tokens. Tokens are never sent to the chat, logged or written anywhere else. A stable installation ID that ChatGPT's login requires is kept beside it, in `<ANOMANDER_AUTH_PATH>.device-id`, also `600`. Writes from two processes are not locked against each other: the rename keeps the file whole, and a login lost to a simultaneous token refresh has to be repeated.
 - AC6: `/logout` replies S-66 with one button per connected account, or S-68 when there is none; pressing one deletes its credentials and replies S-67.
-- AC7: `pnpm login [provider]` and `pnpm logout <provider>` do the same from a terminal on the server, with the same file.
+- AC7: `pnpm run login [provider]` and `pnpm run logout <provider>` do the same from a terminal on the server, with the same file (`pnpm login` alone is pnpm's own registry command).
 - AC8: Each provider sets its own terms for using a subscription outside its apps; the README asks the principal to check them before connecting.
 
 ## 12. User-facing strings (verbatim, `es-ES`)
@@ -832,6 +832,7 @@ One Node process (the daemon) and one SQLite file. The Telegram front door runs 
 | `ANOMANDER_WEEKLY_SUMMARY_CRON` | Weekly summary schedule | `0 20 * * 0` |
 | `ANOMANDER_RETENTION_CRON` | Retention job schedule (R-19) | `0 3 * * *` |
 | `ANOMANDER_INBOX_DIR` | Temporary folder for receipt images (R-8) | `./data/inbox` |
+| `ANOMANDER_AUTH_PATH` | Model login credentials (R-27 AC5) | `./data/auth.json` |
 | `TZ` | Time zone | `Europe/Madrid` |
 
 Secrets live only in `.env`, which is git-ignored. `.env.example` lists every variable. Model credentials are not ANOMANDER variables: pi-ai reads each provider's own variable (for example `OPENAI_API_KEY` or `ANTHROPIC_API_KEY`), which also goes in `.env`.

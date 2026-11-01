@@ -1,7 +1,10 @@
 // Daemon entry point: reads the configuration (PRD §14.4), resolves the model through pi-ai
-// (R-15 AC1) and starts the store and the Telegram front door.
+// (R-15 AC1) and starts the store and the Telegram front door. pi-ai reads the stored logins from
+// `ANOMANDER_AUTH_PATH` on every request (R-15 AC3, R-27 AC5).
 import { builtinModels } from '@earendil-works/pi-ai/providers/all';
 import { startAnomander } from './app.ts';
+import { createDeviceId } from './auth/device-id.ts';
+import { createFileCredentialStore } from './auth/file-credential-store.ts';
 import { loadConfig } from './config.ts';
 
 const fail = (message: string): never => {
@@ -21,7 +24,8 @@ const config = (() => {
   }
 })();
 
-const models = builtinModels();
+const credentials = createFileCredentialStore(config.authPath);
+const models = builtinModels({ credentials });
 const model =
   models.getModel(config.model.provider, config.model.id) ??
   fail(`unknown model ${config.model.provider}/${config.model.id} (ANOMANDER_MODEL)`);
@@ -38,6 +42,15 @@ const anomander = (() => {
         models.complete(target, context, signal === undefined ? {} : { signal }),
       model,
       visionModel,
+      login: {
+        models: {
+          login: (providerId, type, interaction, options) =>
+            models.login(providerId, type, interaction, options),
+          logout: (providerId) => models.logout(providerId),
+        },
+        credentials,
+        getDeviceId: createDeviceId(config.authPath),
+      },
     });
   } catch (error) {
     return fail(`could not open the store at ${config.dbPath}: ${reason(error)}`);

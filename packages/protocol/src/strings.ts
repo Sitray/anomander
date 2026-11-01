@@ -193,13 +193,40 @@ export const strings = {
   nothingPendingMatches: () => 'No encuentro nada así en tus pendientes.',
   /** S-50: the texts joined with `, ` and ` y ` before the last one. */
   markedDone: (texts: readonly string[]) => `Hecho: ${joined(texts)}.`,
+  /** S-60: the `/login` reply, with one button per account (R-27 AC1). */
+  chooseLoginAccount: () => '¿Con qué cuenta me conecto?',
+  /** S-61: Claude's copy-code login, with an `Abrir` link (R-27 AC2). */
+  loginPasteCode: () => 'Abre el enlace, acepta y pégame aquí el código que te muestre.',
+  /** S-62: ChatGPT's login, whose redirect fails on a phone (R-27 AC2). */
+  loginPasteAddress: () =>
+    'Abre el enlace y acepta. Cuando el navegador dé error, copia la dirección completa de esa página y pégamela aquí.',
+  /** S-63: GitHub Copilot's device code (R-27 AC2). */
+  loginDeviceCode: (code: string) => `Abre el enlace y escribe este código: ${code}`,
+  /** S-64. `account` is the button label, such as `Claude`. */
+  loginConnected: (account: string) => `Conectado con tu cuenta de ${account}.`,
+  /** S-65. */
+  loginFailed: (account: string) =>
+    `No he podido conectar con tu cuenta de ${account}. Puedes intentarlo otra vez con /login.`,
+  /** S-66: the `/logout` reply, with one button per connected account (R-27 AC6). */
+  chooseLogoutAccount: () => '¿Qué cuenta desconecto?',
+  /** S-67. */
+  loggedOut: (account: string) => `Hecho, he desconectado tu cuenta de ${account}.`,
+  /** S-68. */
+  noAccountConnected: () => 'No hay ninguna cuenta conectada.',
 } as const;
 
-/** PRD §12 button labels (R-6 AC3; S-11, S-12, S-13, S-15, S-29 and S-46 use `Sí` and `No`). */
+/**
+ * PRD §12 button labels (R-6 AC3; S-11, S-12, S-13, S-15, S-29 and S-46 use `Sí` and `No`; S-60
+ * and S-66 one account each; S-61 to S-63 `Abrir`, a link).
+ */
 export const buttons = {
   register: 'Apuntar',
   correct: 'Corregir',
   discard: 'Descartar',
   yes: 'Sí',
   no: 'No',
+  claude: 'Claude',
+  chatGpt: 'ChatGPT',
+  gitHubCopilot: 'GitHub Copilot',
+  open: 'Abrir',
 } as const;
