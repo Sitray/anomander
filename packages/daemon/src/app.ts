@@ -1,5 +1,12 @@
 import type { Notify } from '@anomander/protocol';
-import { createTelegramBot, createTelegramNotify, type TelegramLogger } from '@anomander/telegram';
+import {
+  createTelegramBot,
+  createTelegramDelete,
+  createTelegramNotify,
+  type TelegramLogger,
+  type TelegramReply,
+} from '@anomander/telegram';
+import { createTelegramLogin, type TelegramLoginDeps } from './auth/telegram-login.ts';
 import { budgeted, createAiBudget } from './budget/ai-budget.ts';
 import { createReceiptQueue } from './budget/receipt-queue.ts';
 import type { Config } from './config.ts';
@@ -46,6 +53,11 @@ export interface AnomanderDeps<M> {
    * it, receipts are read with `model`.
    */
   visionModel?: M;
+  /**
+   * Model login from Telegram (R-27): pi-ai's `models`, the credential store it uses and the
+   * device ID. `main.ts` always passes it; tests that leave it out get no `/login` or `/logout`.
+   */
+  login?: Pick<TelegramLoginDeps, 'models' | 'credentials' | 'getDeviceId' | 'timeoutMs'>;
   /** Points the bot at another Bot API server, such as the fake one in tests. */
   telegramApiRoot?: string;
   logger?: TelegramLogger;
@@ -139,18 +151,52 @@ export const startAnomander = <M>(config: Config, deps: AnomanderDeps<M>): Anoma
     logger,
   });
 
+  // R-27: a login's messages go straight to the bot, never through `recordingNotices`. Like
+  // `notify`, both are bound below, once the bot exists.
+  let send = async (_: TelegramReply): Promise<void> => {
+    throw new Error('send used before the bot was created');
+  };
+  let deleteMessage = async (_: string): Promise<void> => {
+    throw new Error('deleteMessage used before the bot was created');
+  };
+  const login =
+    deps.login === undefined
+      ? undefined
+      : createTelegramLogin({
+          ...deps.login,
+          send: (message) => send(message),
+          deleteMessage: (channelRef) => deleteMessage(channelRef),
+          logger,
+        });
+  const recordedText = recordingTurns(turns, (message) => message.text, onText);
+  const recordedButton = recordingTurns(
+    turns,
+    (press) => buttonTurn(pressedOption(db, press.data)),
+    onButton,
+  );
+
   const bot = createTelegramBot({
     token: config.telegramBotToken,
     principalChatId: config.principalChatId,
-    onText: recordingTurns(turns, (message) => message.text, onText),
+    // R-17 AC7: `/login`, `/logout`, their buttons and the text a running login waits for come
+    // before every other route. They never reach the processor and are never recent turns.
+    onText: async (message) => {
+      const handled = await login?.handleText(message);
+      return handled === undefined ? recordedText(message) : handled.reply;
+    },
     onReceipt: recordingTurns(turns, (receipt) => receiptTurn(receipt.caption), receipts.onReceipt),
-    onButton: recordingTurns(turns, (press) => buttonTurn(pressedOption(db, press.data)), onButton),
+    onButton: async (press) => {
+      const handled = await login?.handleButton(press);
+      return handled === undefined ? recordedButton(press) : handled.reply;
+    },
     logger,
     ...(deps.telegramApiRoot === undefined ? {} : { apiRoot: deps.telegramApiRoot }),
   });
 
   // R-8, R-10, R-12 AC3, R-13 AC2, R-19 and R-25 AC7 send messages the principal did not ask for.
   notify = recordingNotices(turns, createTelegramNotify(bot, config.principalChatId));
+  send = createTelegramNotify(bot, config.principalChatId);
+  deleteMessage = createTelegramDelete(bot, config.principalChatId);
   const retention = createRetention({
     db,
     inboxDir: config.inboxDir,
@@ -184,6 +230,7 @@ export const startAnomander = <M>(config: Config, deps: AnomanderDeps<M>): Anoma
   return {
     started,
     stop: async () => {
+      login?.stop();
       await bot.stop();
       await scheduler.stop();
       db.close();

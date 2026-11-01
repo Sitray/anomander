@@ -80,7 +80,7 @@ The receipt and text evaluations are not pass/fail tests: they are measurements.
 
 Receipts are read by default with an external vision model, because it reads crooked or crumpled photos best. Since the photo is deleted afterwards, it only leaves the server while it is being read. Switching to a local model is a provider decision: the ontology does not change.
 
-**Models:** first through a subscription or an API key, chosen at install time; no model is hard-coded. Local models come later, for example served by Ollama on another machine and reached over a private network.
+**Models:** first through a subscription or an API key, chosen at install time; no model is hard-coded. An API key goes in `.env`; a subscription login (Claude, ChatGPT or GitHub Copilot) is made with `/login` in Telegram or `pnpm run login` on the server and stored by pi-ai in the file at `ANOMANDER_AUTH_PATH` (default `./data/auth.json`, mode 600, in the data volume). Each provider sets its own terms for using a subscription outside its apps; check them before connecting. Local models come later, for example served by Ollama on another machine and reached over a private network.
 
 **Hosting:** locally with `docker compose up` during development, and a small VPS with Docker and a persistent volume once it should run 24/7. Telegram long polling needs no public URL or open port.
 

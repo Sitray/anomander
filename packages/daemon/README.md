@@ -418,14 +418,52 @@ worded by the text interpreter in the call that read the message, and go through
 (`checkedPhrasing`). Every other string (S-17, S-18, S-20...) is sent verbatim and never reaches the processor. The delivery observation
 stores the text that was actually sent. `verbatimReplies` skips the processor, for tests.
 
+## Model login (R-27)
+
+A model is reached with an API key in `.env` (for example `ANTHROPIC_API_KEY`) or with the
+principal's subscription through a login: Claude (pi-ai provider `anthropic`), ChatGPT (`openai`)
+or GitHub Copilot (`github-copilot`). A stored login takes precedence over that provider's API
+key (R-15 AC3).
+
+- **From Telegram.** `/login` replies S-60 with one button per account. Pressing one runs pi-ai's
+  `models.login` (`src/auth/telegram-login.ts`) and sends its link as an `Abrir` button: S-61 for
+  Claude (the copy-code method), S-62 for ChatGPT (paste the address the browser fails to open),
+  S-63 with the device code for GitHub Copilot. The next text the principal sends answers the login,
+  is deleted from the chat and is never stored, logged or a recent turn. Success replies S-64;
+  failure, or 10 minutes without an answer, S-65. One login runs at a time: a new `/login`
+  abandons the running one, with no S-65. `/logout` replies S-66 with one button per connected
+  account, or S-68; pressing one deletes it (S-67). These commands, their buttons (`login:<provider>`
+  and `logout:<provider>`, apart from `decision:` data) and the awaited text are handled in
+  `app.ts` before every other route, so they work when no model is reachable (R-17 AC7).
+- **From a terminal on the server.** `pnpm run login [provider]` and `pnpm run logout <provider>`
+  (`scripts/login.ts`, `scripts/logout.ts`) do the same and print the link or device code. Plain
+  `pnpm login` is pnpm's own npm-registry login, so `run` is needed. Run them from the directory
+  the daemon runs in (the repository root, or `/app` in the container:
+  `docker compose exec daemon pnpm run login`), so a relative `ANOMANDER_AUTH_PATH` names the same
+  file.
+
+The credentials live in the file at `ANOMANDER_AUTH_PATH` (default `./data/auth.json`, in the
+data volume in Docker), keyed by provider ID. `src/auth/file-credential-store.ts` is the pi-ai
+`CredentialStore` behind `builtinModels({ credentials })`: it reads the file on every request (so a
+terminal login is used without a restart), writes it to a temporary file with mode 600 and renames
+it over the old one, and serializes writes inside the process. There is no lock across processes:
+the rename keeps the file whole, but if the daemon refreshes a token at the very moment a terminal
+login writes, one of the two writes is lost and that login has to be repeated. pi-ai refreshes
+expired tokens itself. Sign in with ChatGPT also needs a stable installation ID, kept in
+`<ANOMANDER_AUTH_PATH>.device-id`. Logs carry the provider ID and the outcome only, never a
+token, link or pasted text.
+
+Each provider sets its own terms for using a subscription outside its own apps. Check them before
+connecting an account.
+
 ## Running the daemon
 
 `src/main.ts` reads the configuration, resolves `ANOMANDER_MODEL` through pi-ai's
-`builtinModels()` and calls `startAnomander` (`src/app.ts`), the composition root that opens the
-store, builds the text and receipt cycles and starts the Telegram bot with long polling.
-`startAnomander` takes the resolved `ANOMANDER_VISION_MODEL` as `visionModel`; without it,
-receipts are read with `model`. Model credentials come
-from the provider's usual environment variable (for example `OPENAI_API_KEY`), as pi-ai
+`builtinModels({ credentials })` and calls `startAnomander` (`src/app.ts`), the composition root
+that opens the store, builds the text and receipt cycles and starts the Telegram bot with long
+polling. `startAnomander` takes the resolved `ANOMANDER_VISION_MODEL` as `visionModel`; without
+it, receipts are read with `model`. Model credentials come from a stored login (see "Model login"
+above) or from the provider's usual environment variable (for example `OPENAI_API_KEY`), as pi-ai
 resolves them.
 
 ## Configuration
@@ -445,6 +483,7 @@ The error names every missing required variable.
 | `ANOMANDER_WEEKLY_SUMMARY_CRON` | `0 20 * * 0` |
 | `ANOMANDER_RETENTION_CRON` | `0 3 * * *` |
 | `ANOMANDER_INBOX_DIR` | `./data/inbox` |
+| `ANOMANDER_AUTH_PATH` | `./data/auth.json` |
 | `TZ` | `Europe/Madrid` |
 
 `parseModelId` splits a model ID at its first `/`: `openrouter/anthropic/x` is provider
@@ -482,5 +521,7 @@ expected kind and fields for the cases in `evals/text/cases.json`, also out of g
 - Every assertion goes through `assertionDraftSchema` before it is inserted (§7.2), and the
   ledger is append-only except `status` (R-7 AC3, enforced by triggers).
 - The reply is built from the stored row, never from the proposal (R-9 AC1).
+- Tokens and what the principal pastes during a login are never logged, stored outside
+  `ANOMANDER_AUTH_PATH` or sent to the chat (R-27 AC3, AC5).
 - Bot text comes from `strings` in `@anomander/protocol`, except the processor's
   conversational reply (R-16) and the phrased replies that passed the R-21 guard.

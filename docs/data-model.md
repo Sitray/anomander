@@ -4,6 +4,8 @@ The schema follows from the 16 data classes of the [ontology](ontology.md). The 
 
 The database is one SQLite file, opened with `PRAGMA journal_mode = WAL`, `PRAGMA foreign_keys = ON` and `PRAGMA recursive_triggers = ON` (without it, `REPLACE` would bypass the ledger triggers).
 
+Model login credentials are not in the database: they live in their own file at `ANOMANDER_AUTH_PATH` (PRD R-27 AC5).
+
 How the tables relate:
 
 ```mermaid

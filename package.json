@@ -11,7 +11,9 @@
     "typecheck": "pnpm -r typecheck",
     "test": "vitest run",
     "eval:receipts": "pnpm -F @anomander/daemon eval:receipts",
-    "eval:text": "pnpm -F @anomander/daemon eval:text"
+    "eval:text": "pnpm -F @anomander/daemon eval:text",
+    "login": "pnpm -F @anomander/daemon run login",
+    "logout": "pnpm -F @anomander/daemon run logout"
   },
   "devDependencies": {
     "@biomejs/biome": "2.5.15",

@@ -32,6 +32,8 @@ export interface Config {
   weeklySummaryCron: string;
   retentionCron: string;
   inboxDir: string;
+  /** `ANOMANDER_AUTH_PATH`: the model login credentials (R-27 AC5). */
+  authPath: string;
   timeZone: string;
 }
 
@@ -76,10 +78,18 @@ const envSchema = z.object({
   ANOMANDER_WEEKLY_SUMMARY_CRON: z.string().default('0 20 * * 0'),
   ANOMANDER_RETENTION_CRON: z.string().default('0 3 * * *'),
   ANOMANDER_INBOX_DIR: z.string().default('./data/inbox'),
+  ANOMANDER_AUTH_PATH: z.string().default('./data/auth.json'),
   TZ: z.string().refine(isTimeZone, 'must be an IANA time zone').default('Europe/Madrid'),
 });
 
 type EnvKey = keyof typeof envSchema.shape;
+
+/**
+ * `ANOMANDER_AUTH_PATH` alone, for `pnpm run login` and `pnpm run logout`, which need no bot or
+ * model (R-27 AC7). An empty value counts as unset, as in `loadConfig`.
+ */
+export const loadAuthPath = (env: Record<string, string | undefined>): string =>
+  envSchema.shape.ANOMANDER_AUTH_PATH.parse(env.ANOMANDER_AUTH_PATH || undefined);
 
 /** Reads §14.4 from `env`. An empty value counts as unset, so its default applies. */
 export const loadConfig = (env: Record<string, string | undefined>): Config => {
@@ -113,6 +123,7 @@ export const loadConfig = (env: Record<string, string | undefined>): Config => {
     weeklySummaryCron: values.ANOMANDER_WEEKLY_SUMMARY_CRON,
     retentionCron: values.ANOMANDER_RETENTION_CRON,
     inboxDir: values.ANOMANDER_INBOX_DIR,
+    authPath: values.ANOMANDER_AUTH_PATH,
     timeZone: values.TZ,
   };
 };
