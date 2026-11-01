@@ -5,6 +5,7 @@ data/
 coverage/
 odd/
 evals/receipts/cases/
+evals/text/cases.json
 .env.*
 !.env.example
 .atl/
