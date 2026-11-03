@@ -58,7 +58,7 @@ export const LOGIN_TIMEOUT_MS = 10 * 60 * 1000;
 interface Account {
   providerId: string;
   label: string;
-  /** The text sent with the login link (S-61 or S-62); a device-code flow sends S-63 instead. */
+  /** The text sent with the login link (S-62); a device-code flow sends S-63 instead. */
   linkText?: () => string;
   /** Answers to prompts that are not for the principal. */
   answers: { select?: string; text?: string };
@@ -66,23 +66,16 @@ interface Account {
 
 const ACCOUNTS: readonly Account[] = [
   {
-    providerId: 'anthropic',
-    label: buttons.claude,
-    linkText: strings.loginPasteCode,
-    // The copy-code method shows a code to paste back; the browser method needs a local browser.
-    answers: { select: 'copy_code' },
-  },
-  {
     providerId: 'openai',
     label: buttons.chatGpt,
     linkText: strings.loginPasteAddress,
     answers: {},
   },
   {
-    providerId: 'github-copilot',
-    label: buttons.gitHubCopilot,
-    // Its first prompt asks for a GitHub Enterprise domain; empty is github.com.
-    answers: { text: '' },
+    // Its device-code flow needs nothing pasted back.
+    providerId: 'kimi-coding',
+    label: buttons.kimiCode,
+    answers: {},
   },
 ];
 

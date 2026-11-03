@@ -1,7 +1,7 @@
 // Model logout from a terminal on the server (R-27 AC7): deletes one account's credentials from
 // `ANOMANDER_AUTH_PATH`, the file the daemon reads on every request.
 //
-//   pnpm run logout <anthropic | openai | github-copilot>
+//   pnpm run logout <openai | kimi-coding>
 //
 // `pnpm logout` without `run` is pnpm's own npm-registry logout. Run it from the directory the
 // daemon runs in, so a relative `ANOMANDER_AUTH_PATH` names the same file.

@@ -30,8 +30,8 @@ const FIXTURES = resolve(import.meta.dirname, '../fixtures');
 const CONVERSATION: AssistantMessage = JSON.parse(
   readFileSync(resolve(FIXTURES, 'text-interpreter/conversation.json'), 'utf8'),
 );
-const AUTH_URL = 'https://claude.ai/oauth/authorize?code=true&state=s';
-const PASTED_CODE = 'pasted-code#s';
+const AUTH_URL = 'https://auth.openai.com/oauth/authorize?state=s';
+const PASTED_CODE = 'http://127.0.0.1:1455/auth/callback?code=pasted-code&state=s';
 const TOKEN: Credential = {
   type: 'oauth',
   access: 'access-token',
@@ -53,24 +53,15 @@ let flows: Map<string, (interaction: AuthInteraction) => Promise<Credential>>;
 /** The interaction of every login started, in order. */
 let interactions: AuthInteraction[];
 
-/** Claude's copy-code flow: pi-ai asks for the method, shows the link, waits for the code. */
-const claudeFlow = async (interaction: AuthInteraction): Promise<Credential> => {
-  const method = await interaction.prompt({
-    type: 'select',
-    message: 'Select Anthropic login method:',
-    options: [
-      { id: 'browser', label: 'Browser login (default)' },
-      { id: 'copy_code', label: 'Copy code login (headless)' },
-    ],
-  });
-  if (method !== 'copy_code') throw new Error(`unexpected method ${method}`);
+/** ChatGPT's flow: pi-ai shows the link and waits for the address the browser failed to open. */
+const chatGptFlow = async (interaction: AuthInteraction): Promise<Credential> => {
   interaction.notify({ type: 'auth_url', url: AUTH_URL });
-  const code = await interaction.prompt({
+  const address = await interaction.prompt({
     type: 'manual_code',
-    message: 'Paste the code',
+    message: 'Paste the redirect URL',
     ...(interaction.signal === undefined ? {} : { signal: interaction.signal }),
   });
-  if (code !== PASTED_CODE) throw new Error('wrong code');
+  if (address !== PASTED_CODE) throw new Error('wrong address');
   return TOKEN;
 };
 
@@ -78,7 +69,7 @@ beforeEach(async () => {
   scratch = mkdtempSync(join(tmpdir(), 'anomander-e2e-login-'));
   interpreted = [];
   interactions = [];
-  flows = new Map([['anthropic', claudeFlow]]);
+  flows = new Map([['openai', chatGptFlow]]);
   api = await startFakeTelegramApi();
   const config = loadConfig({
     TELEGRAM_BOT_TOKEN: api.token,
@@ -170,27 +161,28 @@ describe('model login from Telegram (R-27)', () => {
     expect(reply.text).toBe('¿Con qué cuenta me conecto?');
     expect(keyboardOf(reply)).toEqual([
       [
-        { text: 'Claude', callback_data: 'login:anthropic' },
         { text: 'ChatGPT', callback_data: 'login:openai' },
-        { text: 'GitHub Copilot', callback_data: 'login:github-copilot' },
+        { text: 'Kimi Code', callback_data: 'login:kimi-coding' },
       ],
     ]);
     expect(interpreted).toEqual([]);
   });
 
-  it('AC2-AC4: Claude sends S-61 with Abrir; the pasted code is deleted, never logged or a recent turn, and S-64 follows', async () => {
+  it('AC2-AC4: ChatGPT sends S-62 with Abrir; the pasted address is deleted, never logged or a recent turn, and S-64 follows', async () => {
     const choose = await next(updates.text(principal, '/login'));
-    const link = await next(press('login:anthropic', choose));
+    const link = await next(press('login:openai', choose));
 
-    expect(link.text).toBe('Abre el enlace, acepta y pégame aquí el código que te muestre.');
+    expect(link.text).toBe(
+      'Abre el enlace y acepta. Cuando el navegador dé error, copia la dirección completa de esa página y pégamela aquí.',
+    );
     expect(keyboardOf(link)).toEqual([[{ text: 'Abrir', url: AUTH_URL }]]);
 
     const pasted = updates.text(principal, PASTED_CODE);
     const connected = await next(pasted);
 
-    expect(connected.text).toBe('Conectado con tu cuenta de Claude.');
+    expect(connected.text).toBe('Conectado con tu cuenta de ChatGPT.');
     expect(api.deleted).toEqual([{ chatId: PRINCIPAL, messageId: pasted.message?.message_id }]);
-    expect(await store.read('anthropic')).toEqual(TOKEN);
+    expect(await store.read('openai')).toEqual(TOKEN);
 
     // R-17 AC5 still holds afterwards, and nothing of the login is a recent turn (R-16 AC3).
     const chat = await next(updates.text(principal, 'hola'));
@@ -204,25 +196,24 @@ describe('model login from Telegram (R-27)', () => {
     expect(logged()).not.toContain('access-token');
   });
 
-  it('AC2: GitHub Copilot sends S-63 with the device code and an Abrir link, and needs nothing pasted', async () => {
-    flows.set('github-copilot', async (interaction) => {
-      // github.com, not an Enterprise domain: answered without asking the principal.
-      const domain = await interaction.prompt({ type: 'text', message: 'GitHub Enterprise URL' });
-      if (domain !== '') throw new Error('unexpected domain');
+  it('AC2: Kimi Code sends S-63 with the device code and an Abrir link, and needs nothing pasted', async () => {
+    flows.set('kimi-coding', async (interaction) => {
       interaction.notify({
         type: 'device_code',
         userCode: 'ABCD-1234',
-        verificationUri: 'https://github.com/login/device',
+        verificationUri: 'https://www.kimi.com/code/authorize_device?user_code=ABCD-1234',
       });
       return TOKEN;
     });
     const choose = await next(updates.text(principal, '/login'));
-    const code = await next(press('login:github-copilot', choose));
+    const code = await next(press('login:kimi-coding', choose));
 
     expect(code.text).toBe('Abre el enlace y escribe este código: ABCD-1234');
-    expect(keyboardOf(code)).toEqual([[{ text: 'Abrir', url: 'https://github.com/login/device' }]]);
+    expect(keyboardOf(code)).toEqual([
+      [{ text: 'Abrir', url: 'https://www.kimi.com/code/authorize_device?user_code=ABCD-1234' }],
+    ]);
     const [connected] = (await api.waitForSent(3)).slice(2);
-    expect(connected?.text).toBe('Conectado con tu cuenta de GitHub Copilot.');
+    expect(connected?.text).toBe('Conectado con tu cuenta de Kimi Code.');
   });
 
   it('AC4: a login that fails replies S-65', async () => {
@@ -247,12 +238,12 @@ describe('model login from Telegram (R-27)', () => {
 
   it('AC4: a login with no answer for its timeout is abandoned and replies S-65', async () => {
     const choose = await next(updates.text(principal, '/login'));
-    await next(press('login:anthropic', choose));
+    await next(press('login:openai', choose));
 
     const [failed] = (await api.waitForSent(3, LOGIN_TIMEOUT_MS * 10)).slice(2);
 
     expect(failed?.text).toBe(
-      'No he podido conectar con tu cuenta de Claude. Puedes intentarlo otra vez con /login.',
+      'No he podido conectar con tu cuenta de ChatGPT. Puedes intentarlo otra vez con /login.',
     );
     expect(interactions[0]?.signal?.aborted).toBe(true);
     // The login no longer waits: the next text goes to the processor.
@@ -262,7 +253,7 @@ describe('model login from Telegram (R-27)', () => {
 
   it('AC4: /login during a login abandons the running one first', async () => {
     const choose = await next(updates.text(principal, '/login'));
-    await next(press('login:anthropic', choose));
+    await next(press('login:openai', choose));
 
     const again = await next(updates.text(principal, '/login'));
 
@@ -271,27 +262,27 @@ describe('model login from Telegram (R-27)', () => {
     // Abandoned by the principal, not failed: no S-65 follows.
     await new Promise((r) => setTimeout(r, 100));
     expect(api.sent.map(({ text }) => text)).not.toContain(
-      'No he podido conectar con tu cuenta de Claude. Puedes intentarlo otra vez con /login.',
+      'No he podido conectar con tu cuenta de ChatGPT. Puedes intentarlo otra vez con /login.',
     );
   });
 
   it('AC6: /logout offers the connected accounts and pressing one deletes its credentials (S-67)', async () => {
-    await store.modify('anthropic', async () => TOKEN);
-    await store.modify('github-copilot', async () => TOKEN);
+    await store.modify('openai', async () => TOKEN);
+    await store.modify('kimi-coding', async () => TOKEN);
 
     const choose = await next(updates.text(principal, '/logout'));
 
     expect(choose.text).toBe('¿Qué cuenta desconecto?');
     expect(keyboardOf(choose)).toEqual([
       [
-        { text: 'Claude', callback_data: 'logout:anthropic' },
-        { text: 'GitHub Copilot', callback_data: 'logout:github-copilot' },
+        { text: 'ChatGPT', callback_data: 'logout:openai' },
+        { text: 'Kimi Code', callback_data: 'logout:kimi-coding' },
       ],
     ]);
-    const done = await next(press('logout:anthropic', choose));
+    const done = await next(press('logout:openai', choose));
 
-    expect(done.text).toBe('Hecho, he desconectado tu cuenta de Claude.');
-    expect(await store.list()).toEqual([{ providerId: 'github-copilot', type: 'oauth' }]);
+    expect(done.text).toBe('Hecho, he desconectado tu cuenta de ChatGPT.');
+    expect(await store.list()).toEqual([{ providerId: 'kimi-coding', type: 'oauth' }]);
     expect(interpreted).toEqual([]);
   });
 

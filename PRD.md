@@ -414,9 +414,9 @@ The principal asks ANOMANDER to remember things for them: at a time, on a schedu
 - AC12: Reminder text never appears in logs and is never written to Engram (§19).
 
 ### R-27 Model login from Telegram
-The principal can connect ANOMANDER to a model through their subscription (Claude Pro or Max, ChatGPT, GitHub Copilot) instead of an API key, from Telegram or from a terminal (R-15 AC3).
-- AC1: `/login` replies S-60 with one button per account that supports login: `Claude` (pi-ai provider `anthropic`), `ChatGPT` (`openai`) and `GitHub Copilot` (`github-copilot`). It is a command handled by code, so it works when no model is reachable yet.
-- AC2: Pressing an account starts that provider's login in pi-ai and sends its link as a URL button `Abrir`: S-61 for Claude, which uses the copy-code method; S-62 for ChatGPT, whose redirect fails on a phone; S-63 with the device code for GitHub Copilot, which needs nothing pasted back.
+The principal can connect ANOMANDER to a model through their subscription (ChatGPT, Kimi Code) instead of an API key, from Telegram or from a terminal (R-15 AC3).
+- AC1: `/login` replies S-60 with one button per account that supports login: `ChatGPT` (pi-ai provider `openai`) and `Kimi Code` (`kimi-coding`). Claude and GitHub Copilot are not offered, because their providers may suspend accounts whose subscription is used outside their own apps; they and the providers without a subscription login (for example opencode, Gemini or DeepSeek) are reached with an API key in `.env`, never pasted in the chat. It is a command handled by code, so it works when no model is reachable yet.
+- AC2: Pressing an account starts that provider's login in pi-ai and sends its link as a URL button `Abrir`: S-62 for ChatGPT, whose redirect fails on a phone; S-63 with the device code for Kimi Code, which needs nothing pasted back.
 - AC3: While a login waits for a pasted code or address, the next principal text goes to it, before any other route (R-17 AC7). The bot deletes that message from the chat once read. The pasted text is never stored, logged or added to the recent turns (R-16 AC3).
 - AC4: On success the reply is S-64; on failure, or after 10 minutes without an answer, the login is abandoned and the reply is S-65. Only one login runs at a time; `/login` during one abandons it first.
 - AC5: The credentials are stored in the file at `ANOMANDER_AUTH_PATH` (default `./data/auth.json`), created with permissions `600`, written atomically, and read on every request, so a login made from a terminal is used without a restart. pi-ai refreshes expired tokens. Tokens are never sent to the chat, logged or written anywhere else. A stable installation ID that ChatGPT's login requires is kept beside it, in `<ANOMANDER_AUTH_PATH>.device-id`, also `600`. Writes from two processes are not locked against each other: the rename keeps the file whole, and a login lost to a simultaneous token refresh has to be repeated.
@@ -493,7 +493,7 @@ Amounts are formatted with `Intl.NumberFormat('es-ES', { style: 'currency', curr
 | S-51 | `Todavía no sé repetir recordatorios así. Puedo cada día, cada semana o cada mes.` |
 | S-52 | `Esa hora ya pasó. ¿Para cuándo lo quieres?` |
 | S-60 | `¿Con qué cuenta me conecto?` |
-| S-61 | `Abre el enlace, acepta y pégame aquí el código que te muestre.` |
+| S-61 | Retired: it was Claude's copy-code login, no longer offered (R-27 AC1). |
 | S-62 | `Abre el enlace y acepta. Cuando el navegador dé error, copia la dirección completa de esa página y pégamela aquí.` |
 | S-63 | `Abre el enlace y escribe este código: {codigo}` |
 | S-64 | `Conectado con tu cuenta de {cuenta}.` |
@@ -507,7 +507,7 @@ Amounts are formatted with `Intl.NumberFormat('es-ES', { style: 'currency', curr
 | S-72 | `- Un modelo que exista en {variable}: {modelo} no lo encuentro.` |
 | S-73 | `- Conectar tu cuenta de {proveedor} (/login o su API key en el .env).` |
 
-When there is no category, `{categoria}` is `sin clasificar`. In S-9, each category name in `{desglose}` starts with a capital letter (R-10 AC4), for example `Supermercado 45,20 € · Restaurantes 23,00 € · Sin clasificar 0,00 €`. Telegram commands are always in English (`/start`, `/login`, `/logout`); what the principal reads stays in Spanish. Button labels: `Apuntar`, `Corregir`, `Descartar`, and for S-11, S-12, S-13, S-15, S-29 and S-46 `Sí` and `No`; S-60 and S-66 have one button per account (`Claude`, `ChatGPT`, `GitHub Copilot`), and S-61 to S-63 an `Abrir` button with the link. In S-50, `{texto}` lists the texts joined with `, ` and ` y ` before the last one.
+When there is no category, `{categoria}` is `sin clasificar`. In S-9, each category name in `{desglose}` starts with a capital letter (R-10 AC4), for example `Supermercado 45,20 € · Restaurantes 23,00 € · Sin clasificar 0,00 €`. Telegram commands are always in English (`/start`, `/login`, `/logout`); what the principal reads stays in Spanish. Button labels: `Apuntar`, `Corregir`, `Descartar`, and for S-11, S-12, S-13, S-15, S-29 and S-46 `Sí` and `No`; S-60 and S-66 have one button per account (`ChatGPT`, `Kimi Code`), and S-62 and S-63 an `Abrir` button with the link. In S-50, `{texto}` lists the texts joined with `, ` and ` y ` before the last one.
 
 ## 13. Data model
 

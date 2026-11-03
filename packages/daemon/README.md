@@ -421,14 +421,15 @@ stores the text that was actually sent. `verbatimReplies` skips the processor, f
 ## Model login (R-27)
 
 A model is reached with an API key in `.env` (for example `ANTHROPIC_API_KEY`) or with the
-principal's subscription through a login: Claude (pi-ai provider `anthropic`), ChatGPT (`openai`)
-or GitHub Copilot (`github-copilot`). A stored login takes precedence over that provider's API
+principal's subscription through a login: ChatGPT (pi-ai provider `openai`) or Kimi Code
+(`kimi-coding`). Claude and GitHub Copilot are left out because their providers may suspend
+accounts whose subscription is used outside their own apps (R-27 AC1). A stored login takes precedence over that provider's API
 key (R-15 AC3).
 
 - **From Telegram.** `/login` replies S-60 with one button per account. Pressing one runs pi-ai's
-  `models.login` (`src/auth/telegram-login.ts`) and sends its link as an `Abrir` button: S-61 for
-  Claude (the copy-code method), S-62 for ChatGPT (paste the address the browser fails to open),
-  S-63 with the device code for GitHub Copilot. The next text the principal sends answers the login,
+  `models.login` (`src/auth/telegram-login.ts`) and sends its link as an `Abrir` button: S-62 for
+  ChatGPT (paste the address the browser fails to open), S-63 with the device code for Kimi Code.
+  The next text the principal sends answers the login,
   is deleted from the chat and is never stored, logged or a recent turn. Success replies S-64;
   failure, or 10 minutes without an answer, S-65. One login runs at a time: a new `/login`
   abandons the running one, with no S-65. `/logout` replies S-66 with one button per connected

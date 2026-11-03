@@ -2,7 +2,7 @@
 // stored in the same file, `ANOMANDER_AUTH_PATH`. The running daemon reads that file on every
 // request, so it uses the login without a restart.
 //
-//   pnpm run login [anthropic | openai | github-copilot]
+//   pnpm run login [openai | kimi-coding]
 //
 // `pnpm login` without `run` is pnpm's own npm-registry login. Run it from the directory the
 // daemon runs in, so a relative `ANOMANDER_AUTH_PATH` names the same file. It prints links, device
