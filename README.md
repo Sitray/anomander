@@ -90,6 +90,17 @@ ANOMANDER is an open-source project in a public repository, released under the [
 3. **Providers are chosen at install time.** Whoever runs it picks their model (API, subscription or local) and their front door; the core assumes none.
 4. **The ontology is public.** These documents are the specification: every contribution must respect it, and any app can be built on top of it.
 
+## Connecting a model
+
+ANOMANDER reaches its model through [pi-ai](https://github.com/earendil-works/pi), either way:
+
+- **An API key** in `.env`, in the provider's own variable (for example `ANTHROPIC_API_KEY` or `OPENAI_API_KEY`).
+- **Your subscription**: Claude Pro or Max, ChatGPT or GitHub Copilot. Send `/login` to the bot and follow the link, or run `pnpm run login` in a terminal on the server. `/logout` or `pnpm run logout <provider>` disconnects it. A login takes precedence over that provider's API key.
+
+Logins are stored in the file at `ANOMANDER_AUTH_PATH` (default `./data/auth.json`), readable only by its owner and never committed. See [`packages/daemon/README.md`](packages/daemon/README.md#model-login-r-27).
+
+Each provider sets its own terms for using a subscription outside its own apps. Check them before connecting an account.
+
 ## Documentation
 
 The documentation lives in a `docs/` folder:

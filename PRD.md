@@ -322,6 +322,7 @@ Code checks every proposed receipt expense.
 ### R-15 Replaceable providers
 - AC1: The model is chosen with `ANOMANDER_MODEL` and `ANOMANDER_VISION_MODEL` (provider-qualified IDs such as `openai/gpt-…` or a local `ollama/…` entry); changing them requires no code change.
 - AC2: `packages/core` imports nothing from `packages/daemon`, any app, or any provider SDK. A boundary test enforces it.
+- AC3: Besides an API key, a provider can be reached with the principal's subscription through its login (R-27). A stored login takes precedence over that provider's API key, as pi-ai resolves it.
 
 ### R-16 Open conversation
 - AC1: A message that is not an expense, a policy or an answer to a pending decision gets a conversational reply.
@@ -336,6 +337,7 @@ Every incoming message has exactly one destination, decided by code in this orde
 - AC4: Photos and image files always start a new receipt (R-3) and never answer a decision, even while one is `awaiting_text`.
 - AC5: Any other text goes to the processor, which classifies it as an expense (R-2), a policy (R-13), a new category (R-18), a capability call (R-24) or conversation (R-16).
 - AC6: A decision `awaiting_text` for 15 minutes without receiving text returns to `open`; its buttons still work.
+- AC7: The commands `/login` and `/logout`, their buttons, and the text a running login waits for (R-27) are handled by code before AC1 to AC5 and never reach the processor.
 
 ### R-18 Categories
 - AC1: A message such as "crea la categoría gasolina" proposes a category; it is created only after the principal answers "Sí" to S-15, which replies S-37, and "No" replies S-34. A category that already exists is not proposed again: the reply is S-36. The processor can never create one by itself (R-5 AC3).
@@ -410,6 +412,17 @@ The principal asks ANOMANDER to remember things for them: at a time, on a schedu
 - AC11: `{cuando}` is written by code in `TZ`: `hoy a las 9:00`, `mañana a las 9:00`, `ayer a las 9:00` or `el 29 de octubre a las 9:00` for one time; `todos los días a las 9:00`, `todos los lunes y jueves a las 8:00` or `el día 15 de cada mes a las 9:00` for a repetition. At 1:00 it reads `a la 1:00`.
 - AC12: Reminder text never appears in logs and is never written to Engram (§19).
 
+### R-27 Model login from Telegram
+The principal can connect ANOMANDER to a model through their subscription (Claude Pro or Max, ChatGPT, GitHub Copilot) instead of an API key, from Telegram or from a terminal (R-15 AC3).
+- AC1: `/login` replies S-60 with one button per account that supports login: `Claude` (pi-ai provider `anthropic`), `ChatGPT` (`openai`) and `GitHub Copilot` (`github-copilot`). It is a command handled by code, so it works when no model is reachable yet.
+- AC2: Pressing an account starts that provider's login in pi-ai and sends its link as a URL button `Abrir`: S-61 for Claude, which uses the copy-code method; S-62 for ChatGPT, whose redirect fails on a phone; S-63 with the device code for GitHub Copilot, which needs nothing pasted back.
+- AC3: While a login waits for a pasted code or address, the next principal text goes to it, before any other route (R-17 AC7). The bot deletes that message from the chat once read. The pasted text is never stored, logged or added to the recent turns (R-16 AC3).
+- AC4: On success the reply is S-64; on failure, or after 10 minutes without an answer, the login is abandoned and the reply is S-65. Only one login runs at a time; `/login` during one abandons it first.
+- AC5: The credentials are stored in the file at `ANOMANDER_AUTH_PATH` (default `./data/auth.json`), created with permissions `600`, written atomically, and read on every request, so a login made from a terminal is used without a restart. pi-ai refreshes expired tokens. Tokens are never sent to the chat, logged or written anywhere else. A stable installation ID that ChatGPT's login requires is kept beside it, in `<ANOMANDER_AUTH_PATH>.device-id`, also `600`. Writes from two processes are not locked against each other: the rename keeps the file whole, and a login lost to a simultaneous token refresh has to be repeated.
+- AC6: `/logout` replies S-66 with one button per connected account, or S-68 when there is none; pressing one deletes its credentials and replies S-67.
+- AC7: `pnpm run login [provider]` and `pnpm run logout <provider>` do the same from a terminal on the server, with the same file (`pnpm login` alone is pnpm's own registry command).
+- AC8: Each provider sets its own terms for using a subscription outside its apps; the README asks the principal to check them before connecting.
+
 ## 12. User-facing strings (verbatim, `es-ES`)
 
 S-1, S-2, S-16, S-21, S-36, S-39, S-40 and S-41 are the reference and the fallback for the phrased replies of R-21; every other string is sent exactly as written.
@@ -470,8 +483,17 @@ Amounts are formatted with `Intl.NumberFormat('es-ES', { style: 'currency', curr
 | S-50 | `Hecho: {texto}.` |
 | S-51 | `Todavía no sé repetir recordatorios así. Puedo cada día, cada semana o cada mes.` |
 | S-52 | `Esa hora ya pasó. ¿Para cuándo lo quieres?` |
+| S-60 | `¿Con qué cuenta me conecto?` |
+| S-61 | `Abre el enlace, acepta y pégame aquí el código que te muestre.` |
+| S-62 | `Abre el enlace y acepta. Cuando el navegador dé error, copia la dirección completa de esa página y pégamela aquí.` |
+| S-63 | `Abre el enlace y escribe este código: {codigo}` |
+| S-64 | `Conectado con tu cuenta de {cuenta}.` |
+| S-65 | `No he podido conectar con tu cuenta de {cuenta}. Puedes intentarlo otra vez con /login.` |
+| S-66 | `¿Qué cuenta desconecto?` |
+| S-67 | `Hecho, he desconectado tu cuenta de {cuenta}.` |
+| S-68 | `No hay ninguna cuenta conectada.` |
 
-When there is no category, `{categoria}` is `sin clasificar`. In S-9, each category name in `{desglose}` starts with a capital letter (R-10 AC4), for example `Supermercado 45,20 € · Restaurantes 23,00 € · Sin clasificar 0,00 €`. Button labels: `Apuntar`, `Corregir`, `Descartar`, and for S-11, S-12, S-13, S-15, S-29 and S-46 `Sí` and `No`. In S-50, `{texto}` lists the texts joined with `, ` and ` y ` before the last one.
+When there is no category, `{categoria}` is `sin clasificar`. In S-9, each category name in `{desglose}` starts with a capital letter (R-10 AC4), for example `Supermercado 45,20 € · Restaurantes 23,00 € · Sin clasificar 0,00 €`. Telegram commands are always in English (`/login`, `/logout`); what the principal reads stays in Spanish. Button labels: `Apuntar`, `Corregir`, `Descartar`, and for S-11, S-12, S-13, S-15, S-29 and S-46 `Sí` and `No`; S-60 and S-66 have one button per account (`Claude`, `ChatGPT`, `GitHub Copilot`), and S-61 to S-63 an `Abrir` button with the link. In S-50, `{texto}` lists the texts joined with `, ` and ` y ` before the last one.
 
 ## 13. Data model
 
@@ -810,6 +832,7 @@ One Node process (the daemon) and one SQLite file. The Telegram front door runs 
 | `ANOMANDER_WEEKLY_SUMMARY_CRON` | Weekly summary schedule | `0 20 * * 0` |
 | `ANOMANDER_RETENTION_CRON` | Retention job schedule (R-19) | `0 3 * * *` |
 | `ANOMANDER_INBOX_DIR` | Temporary folder for receipt images (R-8) | `./data/inbox` |
+| `ANOMANDER_AUTH_PATH` | Model login credentials (R-27 AC5) | `./data/auth.json` |
 | `TZ` | Time zone | `Europe/Madrid` |
 
 Secrets live only in `.env`, which is git-ignored. `.env.example` lists every variable. Model credentials are not ANOMANDER variables: pi-ai reads each provider's own variable (for example `OPENAI_API_KEY` or `ANTHROPIC_API_KEY`), which also goes in `.env`.
@@ -855,6 +878,7 @@ Checks every feature document should run:
 | M3b Conversation memory | Recent turns as context, facts remembered from open conversation with epistemic modes, "qué sabes de mí", confirmed real forgetting | R-16 AC2, AC3, R-23 |
 | M4 Summary, policies, categories and dashboard view | Weekly summary, policies and patterns, category creation, supermarket view | R-10, R-11, R-13, R-18 |
 | M5 Capability layer and reminders | A generic capability layer for the text interpreter; reminders and tasks as its first capability | R-24, R-25 |
+| M5d Model login | Connecting the model with a subscription login, from Telegram or a terminal | R-15 AC3, R-27 |
 | M5b Ledger read access | Read access to the ledger from other applications or the AI assistant (API or MCP) | To be specified |
 | M6 Desktop | Tauri 2 app with Rust, talking to the same daemon | To be specified |
 
@@ -866,6 +890,7 @@ Checks every feature document should run:
 - `odd/tasks/receipt-expenses.md` (M3)
 - `odd/tasks/weekly-summary-policies-view.md` (M4)
 - `odd/tasks/m5-capabilities-reminders.md` (M5)
+- `odd/tasks/model-login.md` (M5d)
 
 For each one, `L1` in `## Log` should be the request that starts it, and `## Specs` should quote the listed `R-#` and §12 strings verbatim.
 

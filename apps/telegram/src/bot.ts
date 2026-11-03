@@ -3,14 +3,14 @@
 // `onText`, `onReceipt` and `onButton`.
 
 import {
-  type ButtonHandler,
-  type Notify,
+  type ButtonPress,
   type PrincipalReceipt,
+  type PrincipalText,
   type ReceiptHandler,
   type ReceiptImage,
   type Reply,
+  type ReplyButton,
   strings,
-  type TextHandler,
 } from '@anomander/protocol';
 import { type Api, Bot, type Context, type Transformer } from 'grammy';
 import type { InlineKeyboardMarkup, Message } from 'grammy/types';
@@ -21,15 +21,36 @@ export interface TelegramLogger {
   error(message: string, fields?: Record<string, unknown>): void;
 }
 
+/** A button that opens `url` instead of coming back as a press, such as `Abrir` (R-27 AC2). */
+export interface LinkButton {
+  label: string;
+  url: string;
+}
+
+export type TelegramButton = ReplyButton | LinkButton;
+
+/** A `Reply` whose buttons may also be links. */
+export type TelegramReply = Omit<Reply, 'buttons'> & { buttons?: readonly TelegramButton[] };
+
+/**
+ * The daemon's answer to a text or a press. `null` sends nothing, such as a pasted login code
+ * whose outcome the daemon sends later (R-27 AC3).
+ */
+export type TelegramTextHandler = (message: PrincipalText) => Promise<TelegramReply | null>;
+export type TelegramButtonHandler = (press: ButtonPress) => Promise<TelegramReply | null>;
+
 export interface TelegramBotOptions {
   token: string;
   /** `ANOMANDER_PRINCIPAL_CHAT_ID`: the principal's private chat ID, equal to their user ID. */
   principalChatId: number;
-  onText: TextHandler;
+  onText: TelegramTextHandler;
   /** Photos and image files (R-3, R-20). */
   onReceipt: ReceiptHandler;
-  /** Presses on the buttons of a pending decision (R-17 AC1). Without it, presses are ignored. */
-  onButton?: ButtonHandler;
+  /**
+   * Presses on the buttons of a pending decision (R-17 AC1) or of a login (R-27). Without it,
+   * presses are ignored.
+   */
+  onButton?: TelegramButtonHandler;
   /** Points grammY at another Bot API server, such as the fake one in tests. */
   apiRoot?: string;
   logger?: TelegramLogger;
@@ -75,13 +96,17 @@ const classify = (message: Message): NonTextInput => {
     : { kind: 'receipt', fileId: image.file.file_id, mimeType: image.mimeType };
 };
 
-const keyboard = (reply: Reply): { reply_markup: InlineKeyboardMarkup } | undefined =>
+const keyboard = (reply: TelegramReply): { reply_markup: InlineKeyboardMarkup } | undefined =>
   reply.buttons === undefined || reply.buttons.length === 0
     ? undefined
     : {
         reply_markup: {
           inline_keyboard: [
-            reply.buttons.map((button) => ({ text: button.label, callback_data: button.data })),
+            reply.buttons.map((button) =>
+              'url' in button
+                ? { text: button.label, url: button.url }
+                : { text: button.label, callback_data: button.data },
+            ),
           ],
         },
       };
@@ -104,7 +129,7 @@ const retryRefusedSends: Transformer = async (prev, method, payload, signal) => 
 };
 
 /** Sends a reply, with its buttons, and reports the delivery (R-9 AC2, R-17 AC2). */
-const deliverReply = async (api: Api, chatId: number, reply: Reply): Promise<void> => {
+const deliverReply = async (api: Api, chatId: number, reply: TelegramReply): Promise<void> => {
   const sent = await api.sendMessage(chatId, reply.text, keyboard(reply));
   reply.onDelivered?.({
     channelRef: channelRef(sent.message_id),
@@ -117,9 +142,21 @@ const deliverReply = async (api: Api, chatId: number, reply: Reply): Promise<voi
  * the bot that `createTelegramBot` returned.
  */
 export const createTelegramNotify =
-  (bot: Bot, principalChatId: number): Notify =>
+  (bot: Bot, principalChatId: number): ((message: TelegramReply) => Promise<void>) =>
   (message) =>
     deliverReply(bot.api, principalChatId, message);
+
+/**
+ * Deletes a message of the principal's chat by its `telegram:<message_id>`, such as a pasted login
+ * code once read (R-27 AC3).
+ */
+export const createTelegramDelete =
+  (bot: Bot, principalChatId: number): ((channelRef: string) => Promise<void>) =>
+  async (ref) => {
+    const messageId = Number(/^telegram:(\d+)$/.exec(ref)?.[1]);
+    if (!Number.isSafeInteger(messageId)) throw new Error(`not a Telegram message: ${ref}`);
+    await bot.api.deleteMessage(principalChatId, messageId);
+  };
 
 export const createTelegramBot = (options: TelegramBotOptions): Bot => {
   const { principalChatId, onText, onReceipt, onButton, logger = console } = options;
@@ -139,7 +176,7 @@ export const createTelegramBot = (options: TelegramBotOptions): Bot => {
     return new Uint8Array(await response.arrayBuffer());
   };
 
-  const deliver = (chatId: number, reply: Reply) => deliverReply(bot.api, chatId, reply);
+  const deliver = (chatId: number, reply: TelegramReply) => deliverReply(bot.api, chatId, reply);
 
   const handleReceipt = async (chatId: number, receipt: PrincipalReceipt) => {
     let reply: Reply | null;
@@ -230,7 +267,7 @@ export const createTelegramBot = (options: TelegramBotOptions): Bot => {
       return;
     }
 
-    let reply: Reply;
+    let reply: TelegramReply | null;
     try {
       const replyTo = message.reply_to_message?.message_id;
       reply = await onText({
@@ -247,7 +284,7 @@ export const createTelegramBot = (options: TelegramBotOptions): Bot => {
       });
       reply = FAILED;
     }
-    await deliver(ctx.chat.id, reply);
+    if (reply !== null) await deliver(ctx.chat.id, reply);
   });
 
   // R-17 AC1: a press carries its decision in the data; the daemon decides what it answers.
@@ -259,14 +296,14 @@ export const createTelegramBot = (options: TelegramBotOptions): Bot => {
       return;
     }
     const ref = channelRef(message.message_id);
-    let reply: Reply;
+    let reply: TelegramReply | null;
     try {
       reply = await onButton({ data, channelRef: ref, pressedAt: new Date().toISOString() });
     } catch (error) {
       logger.error('The daemon failed to handle a button press', { channelRef: ref, error });
       reply = FAILED;
     }
-    await deliver(ctx.chat?.id ?? principalChatId, reply);
+    if (reply !== null) await deliver(ctx.chat?.id ?? principalChatId, reply);
   });
 
   // Without this, grammY stops polling on the first failed update.

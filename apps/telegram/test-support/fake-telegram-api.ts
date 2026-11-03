@@ -23,6 +23,12 @@ export interface SentMessage {
   payload: Record<string, unknown>;
 }
 
+/** A `deleteMessage` call the bot made. */
+export interface DeletedMessage {
+  chatId: number;
+  messageId: number;
+}
+
 export interface FakeTelegramApi {
   /** Pass to grammY as `client.apiRoot`. */
   apiRoot: string;
@@ -35,6 +41,8 @@ export interface FakeTelegramApi {
   sent: SentMessage[];
   /** The `callback_query_id` of every `answerCallbackQuery` call, in order. */
   answeredCallbacks: string[];
+  /** Every `deleteMessage` call, in order (R-27 AC3). */
+  deleted: DeletedMessage[];
   /** The next `count` sendMessage calls fail with `errorCode` and are not recorded in `sent`. */
   refuseNextSends(count: number, errorCode: number): void;
   /** Resolves once at least `count` messages were sent; rejects after `timeoutMs`. */
@@ -61,6 +69,7 @@ export const startFakeTelegramApi = async (): Promise<FakeTelegramApi> => {
   const queue: Update[] = [];
   const sent: SentMessage[] = [];
   const answeredCallbacks: string[] = [];
+  const deleted: DeletedMessage[] = [];
   const refusals = { count: 0, errorCode: 500 };
   const onChange = new Set<() => void>();
   const notify = () => {
@@ -76,6 +85,11 @@ export const startFakeTelegramApi = async (): Promise<FakeTelegramApi> => {
     getUpdates: (body) => getUpdates(body),
     answerCallbackQuery: (body) => {
       answeredCallbacks.push(String(body.callback_query_id));
+      notify();
+      return true;
+    },
+    deleteMessage: (body) => {
+      deleted.push({ chatId: Number(body.chat_id), messageId: Number(body.message_id) });
       notify();
       return true;
     },
@@ -192,6 +206,7 @@ export const startFakeTelegramApi = async (): Promise<FakeTelegramApi> => {
     token: TOKEN,
     sent,
     answeredCallbacks,
+    deleted,
     refuseNextSends: (count, errorCode) => {
       refusals.count = count;
       refusals.errorCode = errorCode;
