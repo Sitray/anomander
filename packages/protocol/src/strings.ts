@@ -195,14 +195,12 @@ export const strings = {
   markedDone: (texts: readonly string[]) => `Hecho: ${joined(texts)}.`,
   /** S-60: the `/login` reply, with one button per account (R-27 AC1). */
   chooseLoginAccount: () => '¿Con qué cuenta me conecto?',
-  /** S-61: Claude's copy-code login, with an `Abrir` link (R-27 AC2). */
-  loginPasteCode: () => 'Abre el enlace, acepta y pégame aquí el código que te muestre.',
   /** S-62: ChatGPT's login, whose redirect fails on a phone (R-27 AC2). */
   loginPasteAddress: () =>
     'Abre el enlace y acepta. Cuando el navegador dé error, copia la dirección completa de esa página y pégamela aquí.',
-  /** S-63: GitHub Copilot's device code (R-27 AC2). */
+  /** S-63: Kimi Code's device code (R-27 AC2). */
   loginDeviceCode: (code: string) => `Abre el enlace y escribe este código: ${code}`,
-  /** S-64. `account` is the button label, such as `Claude`. */
+  /** S-64. `account` is the button label, such as `ChatGPT`. */
   loginConnected: (account: string) => `Conectado con tu cuenta de ${account}.`,
   /** S-65. */
   loginFailed: (account: string) =>
@@ -223,14 +221,14 @@ export const strings = {
   /** S-72. `variable` is `ANOMANDER_MODEL` or `ANOMANDER_VISION_MODEL`. */
   setupModelUnknown: (variable: string, model: string) =>
     `- Un modelo que exista en ${variable}: ${model} no lo encuentro.`,
-  /** S-73. `provider` is the login button label, such as `Claude`, or the pi-ai provider ID. */
+  /** S-73. `provider` is the login button label, such as `ChatGPT`, or the pi-ai provider ID. */
   setupProviderUnconnected: (provider: string) =>
     `- Conectar tu cuenta de ${provider} (/login o su API key en el .env).`,
 } as const;
 
 /**
  * PRD §12 button labels (R-6 AC3; S-11, S-12, S-13, S-15, S-29 and S-46 use `Sí` and `No`; S-60
- * and S-66 one account each; S-61 to S-63 `Abrir`, a link).
+ * and S-66 one account each, and S-66 also the accounts no longer offered for login; S-62 and S-63 `Abrir`, a link).
  */
 export const buttons = {
   register: 'Apuntar',
@@ -238,8 +236,9 @@ export const buttons = {
   discard: 'Descartar',
   yes: 'Sí',
   no: 'No',
-  claude: 'Claude',
   chatGpt: 'ChatGPT',
+  kimiCode: 'Kimi Code',
+  claude: 'Claude',
   gitHubCopilot: 'GitHub Copilot',
   open: 'Abrir',
 } as const;

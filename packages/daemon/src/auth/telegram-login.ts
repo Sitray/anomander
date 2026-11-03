@@ -58,7 +58,7 @@ export const LOGIN_TIMEOUT_MS = 10 * 60 * 1000;
 interface Account {
   providerId: string;
   label: string;
-  /** The text sent with the login link (S-61 or S-62); a device-code flow sends S-63 instead. */
+  /** The text sent with the login link (S-62); a device-code flow sends S-63 instead. */
   linkText?: () => string;
   /** Answers to prompts that are not for the principal. */
   answers: { select?: string; text?: string };
@@ -66,23 +66,16 @@ interface Account {
 
 const ACCOUNTS: readonly Account[] = [
   {
-    providerId: 'anthropic',
-    label: buttons.claude,
-    linkText: strings.loginPasteCode,
-    // The copy-code method shows a code to paste back; the browser method needs a local browser.
-    answers: { select: 'copy_code' },
-  },
-  {
     providerId: 'openai',
     label: buttons.chatGpt,
     linkText: strings.loginPasteAddress,
     answers: {},
   },
   {
-    providerId: 'github-copilot',
-    label: buttons.gitHubCopilot,
-    // Its first prompt asks for a GitHub Enterprise domain; empty is github.com.
-    answers: { text: '' },
+    // Its device-code flow needs nothing pasted back.
+    providerId: 'kimi-coding',
+    label: buttons.kimiCode,
+    answers: {},
   },
 ];
 
@@ -90,6 +83,16 @@ const ACCOUNTS: readonly Account[] = [
 export const LOGIN_ACCOUNTS: readonly { providerId: string; label: string }[] = ACCOUNTS.map(
   ({ providerId, label }) => ({ providerId, label }),
 );
+
+/**
+ * The accounts that can be disconnected (R-27 AC6): every login account, plus those no longer
+ * offered for login (R-27 AC1), so a login stored before can still be removed.
+ */
+export const LOGOUT_ACCOUNTS: readonly { providerId: string; label: string }[] = [
+  ...LOGIN_ACCOUNTS,
+  { providerId: 'anthropic', label: buttons.claude },
+  { providerId: 'github-copilot', label: buttons.gitHubCopilot },
+];
 
 const account = (providerId: string | undefined) =>
   ACCOUNTS.find((candidate) => candidate.providerId === providerId);
@@ -228,7 +231,7 @@ export const createTelegramLogin = (deps: TelegramLoginDeps): TelegramLogin => {
         .filter(({ type }) => type === 'oauth')
         .map(({ providerId }) => providerId),
     );
-    const connected = ACCOUNTS.filter(({ providerId }) => stored.has(providerId));
+    const connected = LOGOUT_ACCOUNTS.filter(({ providerId }) => stored.has(providerId));
     return connected.length === 0
       ? { text: strings.noAccountConnected() }
       : {
@@ -275,7 +278,8 @@ export const createTelegramLogin = (deps: TelegramLoginDeps): TelegramLogin => {
         return { reply: null };
       }
       if (press.data.startsWith(LOGOUT_DATA)) {
-        const chosen = account(press.data.slice(LOGOUT_DATA.length));
+        const providerId = press.data.slice(LOGOUT_DATA.length);
+        const chosen = LOGOUT_ACCOUNTS.find((candidate) => candidate.providerId === providerId);
         if (chosen === undefined) return undefined;
         await models.logout(chosen.providerId);
         logger.info('Model logout', { provider: chosen.providerId });
