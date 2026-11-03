@@ -30,6 +30,7 @@ import { createPatternOffers } from './patterns/pattern-offers.ts';
 import { createPiAiCorrectionInterpreter } from './processor/correction-interpreter.ts';
 import { createPiAiReceiptReader } from './processor/receipt-reader.ts';
 import { createPiAiReplyPhraser } from './processor/reply-phraser.ts';
+import { withRetry } from './processor/retry.ts';
 import { type Complete, createPiAiTextInterpreter } from './processor/text-interpreter.ts';
 import { withTimeout } from './processor/timeout.ts';
 import { createDueReminders } from './reminders/send-due.ts';
@@ -183,7 +184,11 @@ export const startAnomander = <M>(config: Config, deps: AnomanderDeps<M>): Anoma
     timeZone: config.timeZone,
     now,
   });
-  const timed = withTimeout(complete, config.processorTimeoutMs);
+  // R-22 AC2, AC3: each attempt has its own timeout; each retry counts against the budget.
+  const timed = withRetry(withTimeout(complete, config.processorTimeoutMs), {
+    mayRetry: () => budget.tryConsume(),
+    logger,
+  });
   const ai = budgeted(timed, budget);
 
   const phraser = createPiAiReplyPhraser({ complete: ai, model, logger });
