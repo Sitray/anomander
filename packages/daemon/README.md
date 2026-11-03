@@ -183,7 +183,11 @@ progress.
 The principal always gets an answer. `withTimeout` (`src/processor/timeout.ts`) gives every
 processor call `ANOMANDER_PROCESSOR_TIMEOUT_SECONDS`: it aborts the call through its `signal` and
 rejects even if the provider ignores the signal, so a hung model never blocks later messages
-(AC2). In `app.ts` it wraps the raw call first and the budget second. An interpreter that gets a
+(AC2). `withRetry` (`src/processor/retry.ts`) retries a call that fails with an error pi-ai's
+`isRetryableAssistantError` calls transient, such as a 503 or 429, twice, after 1 s and 2 s;
+each retry consumes one more call of the daily budget, and none is made past it (AC3). In
+`app.ts` the timeout wraps the raw call first, so each attempt has its own, then the retry,
+then the budget. An interpreter that gets a
 thrown or failed call returns `failed` (not `invalid`), and the handler replies S-22 verbatim
 without storing anything; a failed correction keeps the decision waiting for the text (AC1).
 The front door replies S-22 too when a handler throws. A receipt is stored before it is read,
