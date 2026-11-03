@@ -228,7 +228,7 @@ export const strings = {
 
 /**
  * PRD §12 button labels (R-6 AC3; S-11, S-12, S-13, S-15, S-29 and S-46 use `Sí` and `No`; S-60
- * and S-66 one account each; S-62 and S-63 `Abrir`, a link).
+ * and S-66 one account each, and S-66 also the accounts no longer offered for login; S-62 and S-63 `Abrir`, a link).
  */
 export const buttons = {
   register: 'Apuntar',
@@ -238,5 +238,7 @@ export const buttons = {
   no: 'No',
   chatGpt: 'ChatGPT',
   kimiCode: 'Kimi Code',
+  claude: 'Claude',
+  gitHubCopilot: 'GitHub Copilot',
   open: 'Abrir',
 } as const;

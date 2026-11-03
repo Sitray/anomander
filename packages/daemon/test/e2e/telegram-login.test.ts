@@ -266,9 +266,9 @@ describe('model login from Telegram (R-27)', () => {
     );
   });
 
-  it('AC6: /logout offers the connected accounts and pressing one deletes its credentials (S-67)', async () => {
+  it('AC6: /logout offers the connected accounts, also one no longer offered for login, and pressing one deletes it (S-67)', async () => {
     await store.modify('openai', async () => TOKEN);
-    await store.modify('kimi-coding', async () => TOKEN);
+    await store.modify('anthropic', async () => TOKEN);
 
     const choose = await next(updates.text(principal, '/logout'));
 
@@ -276,13 +276,13 @@ describe('model login from Telegram (R-27)', () => {
     expect(keyboardOf(choose)).toEqual([
       [
         { text: 'ChatGPT', callback_data: 'logout:openai' },
-        { text: 'Kimi Code', callback_data: 'logout:kimi-coding' },
+        { text: 'Claude', callback_data: 'logout:anthropic' },
       ],
     ]);
-    const done = await next(press('logout:openai', choose));
+    const done = await next(press('logout:anthropic', choose));
 
-    expect(done.text).toBe('Hecho, he desconectado tu cuenta de ChatGPT.');
-    expect(await store.list()).toEqual([{ providerId: 'kimi-coding', type: 'oauth' }]);
+    expect(done.text).toBe('Hecho, he desconectado tu cuenta de Claude.');
+    expect(await store.list()).toEqual([{ providerId: 'openai', type: 'oauth' }]);
     expect(interpreted).toEqual([]);
   });
 

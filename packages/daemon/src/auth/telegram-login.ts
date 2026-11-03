@@ -84,6 +84,16 @@ export const LOGIN_ACCOUNTS: readonly { providerId: string; label: string }[] = 
   ({ providerId, label }) => ({ providerId, label }),
 );
 
+/**
+ * The accounts that can be disconnected (R-27 AC6): every login account, plus those no longer
+ * offered for login (R-27 AC1), so a login stored before can still be removed.
+ */
+export const LOGOUT_ACCOUNTS: readonly { providerId: string; label: string }[] = [
+  ...LOGIN_ACCOUNTS,
+  { providerId: 'anthropic', label: buttons.claude },
+  { providerId: 'github-copilot', label: buttons.gitHubCopilot },
+];
+
 const account = (providerId: string | undefined) =>
   ACCOUNTS.find((candidate) => candidate.providerId === providerId);
 
@@ -221,7 +231,7 @@ export const createTelegramLogin = (deps: TelegramLoginDeps): TelegramLogin => {
         .filter(({ type }) => type === 'oauth')
         .map(({ providerId }) => providerId),
     );
-    const connected = ACCOUNTS.filter(({ providerId }) => stored.has(providerId));
+    const connected = LOGOUT_ACCOUNTS.filter(({ providerId }) => stored.has(providerId));
     return connected.length === 0
       ? { text: strings.noAccountConnected() }
       : {
@@ -268,7 +278,8 @@ export const createTelegramLogin = (deps: TelegramLoginDeps): TelegramLogin => {
         return { reply: null };
       }
       if (press.data.startsWith(LOGOUT_DATA)) {
-        const chosen = account(press.data.slice(LOGOUT_DATA.length));
+        const providerId = press.data.slice(LOGOUT_DATA.length);
+        const chosen = LOGOUT_ACCOUNTS.find((candidate) => candidate.providerId === providerId);
         if (chosen === undefined) return undefined;
         await models.logout(chosen.providerId);
         logger.info('Model logout', { provider: chosen.providerId });
