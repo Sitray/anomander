@@ -1,4 +1,4 @@
-import type { Notify } from '@anomander/protocol';
+import { type Notify, strings } from '@anomander/protocol';
 import {
   createTelegramBot,
   createTelegramDelete,
@@ -36,6 +36,7 @@ import { createDueReminders } from './reminders/send-due.ts';
 import { createKeepReceiptAnswerHandler } from './retention/keep-receipt-decision.ts';
 import { createRetention } from './retention/retention-job.ts';
 import { startScheduler } from './scheduler/scheduler.ts';
+import { describeGap, type SetupGap, setupGuide } from './setup/setup-guide.ts';
 import { applyMigrations, openDatabase } from './store/database.ts';
 import { createWeeklySummary } from './summary/weekly-summary.ts';
 
@@ -57,12 +58,19 @@ export interface AnomanderDeps<M> {
    * Model login from Telegram (R-27): pi-ai's `models`, the credential store it uses and the
    * device ID. `main.ts` always passes it; tests that leave it out get no `/login` or `/logout`.
    */
-  login?: Pick<TelegramLoginDeps, 'models' | 'credentials' | 'getDeviceId' | 'timeoutMs'>;
+  login?: LoginDeps;
+  /**
+   * The connection gaps, checked on every message (R-28 AC4). `main.ts` passes pi-ai's
+   * `checkAuth` for both models' providers; without it, setup is always complete.
+   */
+  setupGaps?: () => Promise<readonly SetupGap[]>;
   /** Points the bot at another Bot API server, such as the fake one in tests. */
   telegramApiRoot?: string;
   logger?: TelegramLogger;
   now?: () => Date;
 }
+
+type LoginDeps = Pick<TelegramLoginDeps, 'models' | 'credentials' | 'getDeviceId' | 'timeoutMs'>;
 
 export interface Anomander {
   /** Resolves when the store is ready and the bot polls for messages. */
@@ -70,8 +78,99 @@ export interface Anomander {
   stop(): Promise<void>;
 }
 
+/** `/start`, `/start@bot` or `/start anything`, as Telegram sends a command. */
+const isStart = (text: string) => /^\/start(?:@\w+)?(?:\s|$)/.test(text.trim());
+
+/** Logs the gaps in English and sends the guide, once the bot listens (R-28 AC3). */
+const announceGaps = async (
+  gaps: readonly SetupGap[],
+  send: (message: TelegramReply) => Promise<void>,
+  logger: TelegramLogger,
+): Promise<void> => {
+  if (gaps.length === 0) return;
+  for (const gap of gaps) logger.warn(`setup incomplete: ${describeGap(gap)}`);
+  await send({ text: setupGuide(gaps) }).catch((error: unknown) => {
+    logger.error('Could not send the setup guide', { error });
+  });
+};
+
+/** Resolves when the bot polls for messages; `bot.start()` resolves only when polling stops. */
+const polling = (bot: ReturnType<typeof createTelegramBot>) =>
+  new Promise<void>((resolve, reject) => {
+    bot.start({ onStart: () => resolve() }).catch(reject);
+  });
+
+export interface SetupGuideDeps {
+  /** The model gaps `resolveModels` found: never empty. */
+  gaps: readonly SetupGap[];
+  login?: LoginDeps;
+  telegramApiRoot?: string;
+  logger?: TelegramLogger;
+}
+
+/**
+ * R-28: the bot that runs while `.env` names no usable model. It answers everything with the
+ * guide, except `/login` and `/logout` (R-17 AC7); no processor, store or scheduled job runs.
+ */
+export const startSetupGuide = (config: Config, deps: SetupGuideDeps): Anomander => {
+  const { gaps, logger = console } = deps;
+  const guide = { text: setupGuide(gaps) };
+  let send = async (_: TelegramReply): Promise<void> => {
+    throw new Error('send used before the bot was created');
+  };
+  let deleteMessage = async (_: string): Promise<void> => {
+    throw new Error('deleteMessage used before the bot was created');
+  };
+  const login =
+    deps.login === undefined
+      ? undefined
+      : createTelegramLogin({
+          ...deps.login,
+          send: (message) => send(message),
+          deleteMessage: (channelRef) => deleteMessage(channelRef),
+          logger,
+        });
+  const bot = createTelegramBot({
+    token: config.telegramBotToken,
+    principalChatId: config.principalChatId,
+    onText: async (message) => {
+      const handled = await login?.handleText(message);
+      return handled === undefined ? guide : handled.reply;
+    },
+    onReceipt: async () => guide,
+    onButton: async (press) => {
+      const handled = await login?.handleButton(press);
+      return handled === undefined ? guide : handled.reply;
+    },
+    logger,
+    ...(deps.telegramApiRoot === undefined ? {} : { apiRoot: deps.telegramApiRoot }),
+  });
+  send = createTelegramNotify(bot, config.principalChatId);
+  deleteMessage = createTelegramDelete(bot, config.principalChatId);
+
+  const started = polling(bot);
+  // A failed start is the caller's to report, through `started`.
+  started.then(
+    () => announceGaps(gaps, send, logger),
+    () => {},
+  );
+  return {
+    started,
+    stop: async () => {
+      login?.stop();
+      await bot.stop();
+    },
+  };
+};
+
 export const startAnomander = <M>(config: Config, deps: AnomanderDeps<M>): Anomander => {
   const { complete, model, logger = console, now = () => new Date() } = deps;
+  const textModel = config.model;
+  const visionModel = config.visionModel;
+  if (textModel === undefined || visionModel === undefined) {
+    throw new Error('both models must be set; without them, start the setup guide (R-28)');
+  }
+  const setupGaps = deps.setupGaps ?? (async () => []);
   const db = openDatabase(config.dbPath);
   const applied = applyMigrations(db);
   logger.info(`anomander store ready at ${config.dbPath} (${applied} migrations applied)`);
@@ -114,14 +213,14 @@ export const startAnomander = <M>(config: Config, deps: AnomanderDeps<M>): Anoma
       phraser,
       timeZone: config.timeZone,
       now,
-      processorSource: `processor:${config.model.provider}/${config.model.id}`,
+      processorSource: `processor:${textModel.provider}/${textModel.id}`,
       logger,
       recent: turns.recent,
       patterns,
     }),
     now,
   });
-  const vision = deps.visionModel === undefined ? config.model : config.visionModel;
+  const vision = deps.visionModel === undefined ? textModel : visionModel;
   const receipts = createReceiptExpenseCycle({
     db,
     reader: createPiAiReceiptReader({ complete: timed, model: deps.visionModel ?? model, logger }),
@@ -174,20 +273,34 @@ export const startAnomander = <M>(config: Config, deps: AnomanderDeps<M>): Anoma
     (press) => buttonTurn(pressedOption(db, press.data)),
     onButton,
   );
+  const recordedReceipt = recordingTurns(
+    turns,
+    (receipt) => receiptTurn(receipt.caption),
+    receipts.onReceipt,
+  );
 
   const bot = createTelegramBot({
     token: config.telegramBotToken,
     principalChatId: config.principalChatId,
     // R-17 AC7: `/login`, `/logout`, their buttons and the text a running login waits for come
     // before every other route. They never reach the processor and are never recent turns.
+    // R-28: then `/start`, and the guide while a provider is not connected.
     onText: async (message) => {
       const handled = await login?.handleText(message);
-      return handled === undefined ? recordedText(message) : handled.reply;
+      if (handled !== undefined) return handled.reply;
+      const gaps = await setupGaps();
+      if (gaps.length > 0) return { text: setupGuide(gaps) };
+      return isStart(message.text) ? { text: strings.hello() } : recordedText(message);
     },
-    onReceipt: recordingTurns(turns, (receipt) => receiptTurn(receipt.caption), receipts.onReceipt),
+    onReceipt: async (receipt) => {
+      const gaps = await setupGaps();
+      return gaps.length > 0 ? { text: setupGuide(gaps) } : recordedReceipt(receipt);
+    },
     onButton: async (press) => {
       const handled = await login?.handleButton(press);
-      return handled === undefined ? recordedButton(press) : handled.reply;
+      if (handled !== undefined) return handled.reply;
+      const gaps = await setupGaps();
+      return gaps.length > 0 ? { text: setupGuide(gaps) } : recordedButton(press);
     },
     logger,
     ...(deps.telegramApiRoot === undefined ? {} : { apiRoot: deps.telegramApiRoot }),
@@ -222,10 +335,11 @@ export const startAnomander = <M>(config: Config, deps: AnomanderDeps<M>): Anoma
     logger,
   });
 
-  // `bot.start()` resolves only when polling stops; `onStart` marks the bot as listening.
-  const started = new Promise<void>((resolve, reject) => {
-    bot.start({ onStart: () => resolve() }).catch(reject);
-  });
+  const started = polling(bot);
+  started.then(
+    async () => announceGaps(await setupGaps(), send, logger),
+    () => {},
+  );
 
   return {
     started,

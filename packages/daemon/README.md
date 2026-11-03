@@ -456,6 +456,24 @@ token, link or pasted text.
 Each provider sets its own terms for using a subscription outside its own apps. Check them before
 connecting an account.
 
+## Setup guide (R-28)
+
+The daemon starts as long as `TELEGRAM_BOT_TOKEN` and `ANOMANDER_PRINCIPAL_CHAT_ID` are set;
+without them it exits, and the log says where to get each one. Everything else that blocks a
+processor call is a gap (`src/setup/setup-guide.ts`), sent as S-70 with one line per gap:
+
+- **Model gaps**, found once in `main.ts` by `resolveModels`: a model variable unset (S-71) or
+  naming a model pi-ai does not know (S-72). Only a restart rereads `.env`, so `main.ts` starts
+  `startSetupGuide` instead of the daemon: a bot with no store, processor or scheduler that
+  answers everything with the guide except `/login` and `/logout`.
+- **Connection gaps**, found on every message by `createConnectionGaps` with pi-ai's `checkAuth`:
+  a provider of either model with no login and no API key (S-73). The full daemon replies the
+  guide instead of calling the processor, so a `/login` completes setup without a restart.
+
+Either way the guide is logged in English and sent once when the bot starts. `/start` replies
+S-69 once setup is complete, or the guide; like the login routes, it never reaches the processor
+and is never a recent turn (R-17 AC8).
+
 ## Running the daemon
 
 `src/main.ts` reads the configuration, resolves `ANOMANDER_MODEL` through pi-ai's

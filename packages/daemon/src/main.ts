@@ -1,11 +1,13 @@
 // Daemon entry point: reads the configuration (PRD §14.4), resolves the model through pi-ai
-// (R-15 AC1) and starts the store and the Telegram front door. pi-ai reads the stored logins from
-// `ANOMANDER_AUTH_PATH` on every request (R-15 AC3, R-27 AC5).
+// (R-15 AC1) and starts the store and the Telegram front door, or the setup guide while `.env`
+// names no usable model (R-28). pi-ai reads the stored logins from `ANOMANDER_AUTH_PATH` on every
+// request (R-15 AC3, R-27 AC5).
 import { builtinModels } from '@earendil-works/pi-ai/providers/all';
-import { startAnomander } from './app.ts';
+import { startAnomander, startSetupGuide } from './app.ts';
 import { createDeviceId } from './auth/device-id.ts';
 import { createFileCredentialStore } from './auth/file-credential-store.ts';
 import { loadConfig } from './config.ts';
+import { createConnectionGaps, resolveModels } from './setup/setup-guide.ts';
 
 const fail = (message: string): never => {
   console.error(`anomander daemon failed to start: ${message}`);
@@ -26,31 +28,30 @@ const config = (() => {
 
 const credentials = createFileCredentialStore(config.authPath);
 const models = builtinModels({ credentials });
-const model =
-  models.getModel(config.model.provider, config.model.id) ??
-  fail(`unknown model ${config.model.provider}/${config.model.id} (ANOMANDER_MODEL)`);
-const visionModel =
-  models.getModel(config.visionModel.provider, config.visionModel.id) ??
-  fail(
-    `unknown model ${config.visionModel.provider}/${config.visionModel.id} (ANOMANDER_VISION_MODEL)`,
-  );
+const resolved = resolveModels(config, (provider, id) => models.getModel(provider, id));
+const login = {
+  models: {
+    login: (...args: Parameters<typeof models.login>) => models.login(...args),
+    logout: (providerId: string) => models.logout(providerId),
+  },
+  credentials,
+  getDeviceId: createDeviceId(config.authPath),
+};
 
 const anomander = (() => {
+  if (!resolved.ready) return startSetupGuide(config, { gaps: resolved.gaps, login });
   try {
     return startAnomander(config, {
       complete: (target, context, signal) =>
         models.complete(target, context, signal === undefined ? {} : { signal }),
-      model,
-      visionModel,
-      login: {
-        models: {
-          login: (providerId, type, interaction, options) =>
-            models.login(providerId, type, interaction, options),
-          logout: (providerId) => models.logout(providerId),
-        },
-        credentials,
-        getDeviceId: createDeviceId(config.authPath),
-      },
+      model: resolved.model,
+      visionModel: resolved.visionModel,
+      login,
+      setupGaps: createConnectionGaps({
+        providerIds: resolved.providerIds,
+        checkAuth: (providerId) => models.checkAuth(providerId),
+        logger: console,
+      }),
     });
   } catch (error) {
     return fail(`could not open the store at ${config.dbPath}: ${reason(error)}`);

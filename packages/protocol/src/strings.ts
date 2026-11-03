@@ -213,6 +213,19 @@ export const strings = {
   loggedOut: (account: string) => `Hecho, he desconectado tu cuenta de ${account}.`,
   /** S-68. */
   noAccountConnected: () => 'No hay ninguna cuenta conectada.',
+  /** S-69: the `/start` reply once setup is complete (R-28 AC1). */
+  hello: () => '¡Hola!',
+  /** S-70: the setup guide, one line per gap (S-71 to S-73) after it (R-28 AC3). */
+  setupGuide: (lines: readonly string[]) => ['¡Hola! Me falta:', ...lines].join('\n'),
+  /** S-71. */
+  setupModelUnset: () =>
+    '- El modelo y el modelo de visión (ANOMANDER_MODEL y ANOMANDER_VISION_MODEL en el .env).',
+  /** S-72. `variable` is `ANOMANDER_MODEL` or `ANOMANDER_VISION_MODEL`. */
+  setupModelUnknown: (variable: string, model: string) =>
+    `- Un modelo que exista en ${variable}: ${model} no lo encuentro.`,
+  /** S-73. `provider` is the login button label, such as `Claude`, or the pi-ai provider ID. */
+  setupProviderUnconnected: (provider: string) =>
+    `- Conectar tu cuenta de ${provider} (/login o su API key en el .env).`,
 } as const;
 
 /**

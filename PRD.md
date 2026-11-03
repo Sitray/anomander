@@ -320,7 +320,7 @@ Code checks every proposed receipt expense.
 - AC3: The processor is called through `@earendil-works/pi-ai` (`complete()` with text and image content) and is given no tools: no shell, no file system, no payments, transfers, permissions or deleting data. A test asserts that no processor call passes tools.
 
 ### R-15 Replaceable providers
-- AC1: The model is chosen with `ANOMANDER_MODEL` and `ANOMANDER_VISION_MODEL` (provider-qualified IDs such as `openai/gpt-…` or a local `ollama/…` entry); changing them requires no code change.
+- AC1: The model is chosen with `ANOMANDER_MODEL` and `ANOMANDER_VISION_MODEL` (provider-qualified IDs such as `openai/gpt-…` or a local `ollama/…` entry); changing them requires no code change. If either is unset or names a model pi-ai does not know, the daemon still starts and guides the principal (R-28).
 - AC2: `packages/core` imports nothing from `packages/daemon`, any app, or any provider SDK. A boundary test enforces it.
 - AC3: Besides an API key, a provider can be reached with the principal's subscription through its login (R-27). A stored login takes precedence over that provider's API key, as pi-ai resolves it.
 
@@ -338,6 +338,7 @@ Every incoming message has exactly one destination, decided by code in this orde
 - AC5: Any other text goes to the processor, which classifies it as an expense (R-2), a policy (R-13), a new category (R-18), a capability call (R-24) or conversation (R-16).
 - AC6: A decision `awaiting_text` for 15 minutes without receiving text returns to `open`; its buttons still work.
 - AC7: The commands `/login` and `/logout`, their buttons, and the text a running login waits for (R-27) are handled by code before AC1 to AC5 and never reach the processor.
+- AC8: After AC7 and before AC1 to AC5, `/start` and, while setup is incomplete, every message are handled by code (R-28) and never reach the processor.
 
 ### R-18 Categories
 - AC1: A message such as "crea la categoría gasolina" proposes a category; it is created only after the principal answers "Sí" to S-15, which replies S-37, and "No" replies S-34. A category that already exists is not proposed again: the reply is S-36. The processor can never create one by itself (R-5 AC3).
@@ -423,6 +424,14 @@ The principal can connect ANOMANDER to a model through their subscription (Claud
 - AC7: `pnpm run login [provider]` and `pnpm run logout <provider>` do the same from a terminal on the server, with the same file (`pnpm login` alone is pnpm's own registry command).
 - AC8: Each provider sets its own terms for using a subscription outside its apps; the README asks the principal to check them before connecting.
 
+### R-28 Setup guide
+When something the daemon needs from `.env` is missing, it says what instead of failing silently.
+- AC1: `/start` replies S-69 when setup is complete, or the guide otherwise. It is handled by code (R-17 AC8) and is never a recent turn.
+- AC2: Setup is incomplete when `ANOMANDER_MODEL` or `ANOMANDER_VISION_MODEL` is unset (S-71), names a model pi-ai does not know (S-72, once per variable), or a provider of those models has neither a login nor an API key (S-73, once per provider, named by its `/login` button label, or by its pi-ai provider ID when it has none).
+- AC3: The guide is S-70 followed by one line per gap, in the order of AC2. While setup is incomplete, the daemon sends it once when it starts and replies it to every text, receipt and button press except the routes of R-17 AC7. The same gaps are logged in English at start.
+- AC4: The connection gaps are checked on every message, so a login (R-27) completes setup without a restart. A model gap needs a change to `.env` and a restart; until then no processor call, store access or scheduled job runs.
+- AC5: Without `TELEGRAM_BOT_TOKEN` or `ANOMANDER_PRINCIPAL_CHAT_ID` the bot cannot write, so the daemon exits and its log names each missing variable with where to get it (@BotFather, @userinfobot).
+
 ## 12. User-facing strings (verbatim, `es-ES`)
 
 S-1, S-2, S-16, S-21, S-36, S-39, S-40 and S-41 are the reference and the fallback for the phrased replies of R-21; every other string is sent exactly as written.
@@ -492,8 +501,13 @@ Amounts are formatted with `Intl.NumberFormat('es-ES', { style: 'currency', curr
 | S-66 | `¿Qué cuenta desconecto?` |
 | S-67 | `Hecho, he desconectado tu cuenta de {cuenta}.` |
 | S-68 | `No hay ninguna cuenta conectada.` |
+| S-69 | `¡Hola!` |
+| S-70 | `¡Hola! Me falta:` followed by one line per gap (S-71 to S-73) |
+| S-71 | `- El modelo y el modelo de visión (ANOMANDER_MODEL y ANOMANDER_VISION_MODEL en el .env).` |
+| S-72 | `- Un modelo que exista en {variable}: {modelo} no lo encuentro.` |
+| S-73 | `- Conectar tu cuenta de {proveedor} (/login o su API key en el .env).` |
 
-When there is no category, `{categoria}` is `sin clasificar`. In S-9, each category name in `{desglose}` starts with a capital letter (R-10 AC4), for example `Supermercado 45,20 € · Restaurantes 23,00 € · Sin clasificar 0,00 €`. Telegram commands are always in English (`/login`, `/logout`); what the principal reads stays in Spanish. Button labels: `Apuntar`, `Corregir`, `Descartar`, and for S-11, S-12, S-13, S-15, S-29 and S-46 `Sí` and `No`; S-60 and S-66 have one button per account (`Claude`, `ChatGPT`, `GitHub Copilot`), and S-61 to S-63 an `Abrir` button with the link. In S-50, `{texto}` lists the texts joined with `, ` and ` y ` before the last one.
+When there is no category, `{categoria}` is `sin clasificar`. In S-9, each category name in `{desglose}` starts with a capital letter (R-10 AC4), for example `Supermercado 45,20 € · Restaurantes 23,00 € · Sin clasificar 0,00 €`. Telegram commands are always in English (`/start`, `/login`, `/logout`); what the principal reads stays in Spanish. Button labels: `Apuntar`, `Corregir`, `Descartar`, and for S-11, S-12, S-13, S-15, S-29 and S-46 `Sí` and `No`; S-60 and S-66 have one button per account (`Claude`, `ChatGPT`, `GitHub Copilot`), and S-61 to S-63 an `Abrir` button with the link. In S-50, `{texto}` lists the texts joined with `, ` and ` y ` before the last one.
 
 ## 13. Data model
 
@@ -825,8 +839,8 @@ One Node process (the daemon) and one SQLite file. The Telegram front door runs 
 | `TELEGRAM_BOT_TOKEN` | Bot token from @BotFather | required |
 | `ANOMANDER_PRINCIPAL_CHAT_ID` | The only chat the bot serves | required |
 | `ANOMANDER_DB_PATH` | SQLite file | `./data/anomander.db` |
-| `ANOMANDER_MODEL` | Model for interpretation and writing | required |
-| `ANOMANDER_VISION_MODEL` | Model for reading receipts | required |
+| `ANOMANDER_MODEL` | Model for interpretation and writing | required (R-28 guides when unset) |
+| `ANOMANDER_VISION_MODEL` | Model for reading receipts | required (R-28 guides when unset) |
 | `ANOMANDER_DAILY_AI_CALL_LIMIT` | Daily processor call cap | `200` |
 | `ANOMANDER_PROCESSOR_TIMEOUT_SECONDS` | Timeout of each processor call (R-22 AC2) | `60` |
 | `ANOMANDER_WEEKLY_SUMMARY_CRON` | Weekly summary schedule | `0 20 * * 0` |
@@ -879,6 +893,7 @@ Checks every feature document should run:
 | M4 Summary, policies, categories and dashboard view | Weekly summary, policies and patterns, category creation, supermarket view | R-10, R-11, R-13, R-18 |
 | M5 Capability layer and reminders | A generic capability layer for the text interpreter; reminders and tasks as its first capability | R-24, R-25 |
 | M5d Model login | Connecting the model with a subscription login, from Telegram or a terminal | R-15 AC3, R-27 |
+| M5e Setup guide | `/start` and a guide to what `.env` still needs | R-17 AC8, R-28 |
 | M5b Ledger read access | Read access to the ledger from other applications or the AI assistant (API or MCP) | To be specified |
 | M6 Desktop | Tauri 2 app with Rust, talking to the same daemon | To be specified |
 

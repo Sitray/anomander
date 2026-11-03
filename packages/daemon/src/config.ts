@@ -24,8 +24,9 @@ export interface Config {
   telegramBotToken: string;
   principalChatId: number;
   dbPath: string;
-  model: ModelId;
-  visionModel: ModelId;
+  /** Unset until `.env` names it; the daemon then starts the setup guide instead (R-28). */
+  model: ModelId | undefined;
+  visionModel: ModelId | undefined;
   dailyAiCallLimit: number;
   /** `ANOMANDER_PROCESSOR_TIMEOUT_SECONDS`, in milliseconds (R-22 AC2). */
   processorTimeoutMs: number;
@@ -63,8 +64,8 @@ const envSchema = z.object({
     .transform(Number)
     .pipe(z.int()),
   ANOMANDER_DB_PATH: z.string().default('./data/anomander.db'),
-  ANOMANDER_MODEL: modelId,
-  ANOMANDER_VISION_MODEL: modelId,
+  ANOMANDER_MODEL: modelId.optional(),
+  ANOMANDER_VISION_MODEL: modelId.optional(),
   ANOMANDER_DAILY_AI_CALL_LIMIT: z
     .string()
     .regex(/^\d+$/, 'must be a non-negative integer')
@@ -83,6 +84,13 @@ const envSchema = z.object({
 });
 
 type EnvKey = keyof typeof envSchema.shape;
+
+/** Where to get each required variable, for the log of a daemon that cannot start (R-28 AC5). */
+const HINTS: Partial<Record<EnvKey, string>> = {
+  TELEGRAM_BOT_TOKEN: 'the token @BotFather gives when you create the bot',
+  ANOMANDER_PRINCIPAL_CHAT_ID: 'your Telegram user ID, which @userinfobot tells you',
+};
+const hinted = (key: EnvKey) => (HINTS[key] === undefined ? key : `${key} (${HINTS[key]})`);
 
 /**
  * `ANOMANDER_AUTH_PATH` alone, for `pnpm run login` and `pnpm run logout`, which need no bot or
@@ -106,7 +114,7 @@ export const loadConfig = (env: Record<string, string | undefined>): Config => {
       .filter((issue) => !missing.includes(issue.path[0] as EnvKey))
       .map((issue) => `${String(issue.path[0])} ${issue.message}`);
     const problems = [
-      ...(missing.length > 0 ? [`missing configuration: ${missing.join(', ')}`] : []),
+      ...(missing.length > 0 ? [`missing configuration: ${missing.map(hinted).join(', ')}`] : []),
       ...(invalid.length > 0 ? [`invalid configuration: ${invalid.join('; ')}`] : []),
     ];
     throw new Error(problems.join('. '));

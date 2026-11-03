@@ -13,9 +13,16 @@ describe('parseModelId', () => {
 
 describe('loadConfig', () => {
   it('names every missing required variable and applies the §14.4 defaults', () => {
+    // R-28 AC5: the models are not required to start; the bot and chat say where to get them.
     expect(() => loadConfig({})).toThrow(
-      'missing configuration: TELEGRAM_BOT_TOKEN, ANOMANDER_PRINCIPAL_CHAT_ID, ANOMANDER_MODEL, ANOMANDER_VISION_MODEL',
+      'missing configuration: TELEGRAM_BOT_TOKEN (the token @BotFather gives when you create the bot), ANOMANDER_PRINCIPAL_CHAT_ID (your Telegram user ID, which @userinfobot tells you)',
     );
+    expect(
+      loadConfig({ TELEGRAM_BOT_TOKEN: '123:abc', ANOMANDER_PRINCIPAL_CHAT_ID: '4242' }),
+    ).toMatchObject({
+      model: undefined,
+      visionModel: undefined,
+    });
 
     expect(
       loadConfig({
