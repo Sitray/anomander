@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { PrincipalReceipt, Reply } from '@anomander/protocol';
@@ -13,7 +13,11 @@ import { createRetention } from '../../src/retention/retention-job.ts';
 import { applyMigrations, openDatabase } from '../../src/store/database.ts';
 import { awaitText } from '../../src/store/decisions.ts';
 import { insertAssertion, insertProposal } from '../../src/store/expenses.ts';
-import { createReceiptDocument, openPendingDecision } from '../../src/store/receipts.ts';
+import {
+  createReceiptDocument,
+  finishReading,
+  openPendingDecision,
+} from '../../src/store/receipts.ts';
 
 // R-8 AC3 to AC5 and R-19: an unread receipt is kept only as long as allowed, the principal is
 // asked before and told after, and the retention job expires what is old, idempotently.
@@ -22,6 +26,7 @@ const RECEIVED_AT = '2026-10-30T10:00:00.000Z';
 const S13 =
   'Todavía no he podido leer el ticket que me enviaste el 30 de octubre. ¿Lo guardo hasta poder leerlo? Si no, lo borro en una hora.';
 const S14 = 'He borrado sin leer el ticket que me enviaste el 30 de octubre.';
+const S5 = 'No he podido leer el ticket. ¿Me escribes el total y el comercio?';
 // The wording of the answers to S-13 is not in §12 yet; the handler takes it from its caller.
 
 let scratch: string;
@@ -302,11 +307,17 @@ describe('R-19 retention job', () => {
       mimeTypes: ['image/jpeg'],
       now: ago(days),
     });
-    const oldDocument = createReceiptDocument(db, receivedAt(8));
+    // Both receipts were read: a pending expense and a decision rest on them.
+    const readDocument = (days: number) => {
+      const id = createReceiptDocument(db, receivedAt(days));
+      finishReading(db, id, 'read', ago(days));
+      return id;
+    };
+    const oldDocument = readDocument(8);
     const pendingExpense = expense('pending', oldDocument);
     const onPending = inference('expense', pendingExpense, ago(31));
     const weekOld = decision(oldDocument, ago(8));
-    const recentDecision = decision(createReceiptDocument(db, receivedAt(6)), ago(6));
+    const recentDecision = decision(readDocument(6), ago(6));
 
     const job = retention();
     const first = await job.retain();
@@ -327,12 +338,62 @@ describe('R-19 retention job', () => {
     // R-19 AC2: no expense is created; the provisional row is refuted.
     expect(status(after.expenses, pendingExpense)).toBe('refuted');
     expect(status(after.expenses, registered)).toBe('current');
-    expect(first).toEqual({ inferencesExpired: 2, decisionsExpired: 1, receiptsDiscarded: 0 });
+    expect(first).toEqual({
+      inferencesExpired: 2,
+      decisionsExpired: 1,
+      receiptsDiscarded: 0,
+      receiptsAbandoned: 0,
+    });
 
     const second = await job.retain();
-    expect(second).toEqual({ inferencesExpired: 0, decisionsExpired: 0, receiptsDiscarded: 0 });
+    expect(second).toEqual({
+      inferencesExpired: 0,
+      decisionsExpired: 0,
+      receiptsDiscarded: 0,
+      receiptsAbandoned: 0,
+    });
     expect(snapshot()).toEqual(after);
     expect(sent).toEqual([]);
+  });
+
+  it('AC5: a receipt an earlier run left half-read is deleted, unreadable and told with S-5, once', async () => {
+    const halfRead = createReceiptDocument(db, {
+      source: 'telegram:7',
+      receivedAt: RECEIVED_AT,
+      mimeTypes: ['image/jpeg'],
+      now: RECEIVED_AT,
+    });
+    const folder = join(inbox, String(halfRead));
+    mkdirSync(folder, { recursive: true });
+    writeFileSync(join(folder, '1.jpg'), new Uint8Array([1]));
+
+    // The daemon restarts. A receipt this run received may be being read: it is never touched,
+    // even one the principal sent while the daemon was down.
+    clock = new Date('2026-10-30T10:05:00.000Z');
+    const job = retention();
+    const reading = createReceiptDocument(db, {
+      source: 'telegram:8',
+      receivedAt: RECEIVED_AT,
+      mimeTypes: ['image/jpeg'],
+      now: clock.toISOString(),
+    });
+    const first = await job.retain();
+    const second = await job.retain();
+
+    expect(sent.map((reply) => reply.text)).toEqual([S5]);
+    expect(existsSync(folder)).toBe(false);
+    expect(document(halfRead)).toEqual({
+      status: 'unreadable',
+      keep_until: null,
+      image_deleted_at: '2026-10-30T10:05:00.000Z',
+    });
+    expect(document(reading)).toEqual({
+      status: 'queued',
+      keep_until: null,
+      image_deleted_at: null,
+    });
+    expect(first.receiptsAbandoned).toBe(1);
+    expect(second.receiptsAbandoned).toBe(0);
   });
 
   it('AC2: a week-old decision left awaiting the correction text expires too', async () => {

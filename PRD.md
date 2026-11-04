@@ -351,6 +351,7 @@ A deterministic job, the internal **retain** operation, runs at `ANOMANDER_RETEN
 - AC2: Pending decisions still `open` 7 days after `created_at` become `expired`, their proposal becomes `rejected`, and their pending expense becomes `refuted`, so no current expense remains.
 - AC3: Queued receipts past `keep_until` are handled as in R-8 AC5.
 - AC4: Running the job twice in a row changes nothing the second time.
+- AC5: A receipt that an earlier run of the daemon left `'queued'` without `keep_until` (it stopped while reading it) is abandoned: the principal receives S-5, then its images are deleted and `documents.status` becomes `'unreadable'` with `image_deleted_at` set. A receipt received by the running daemon is never abandoned, since it may still be being read.
 
 ### R-20 Supported inputs
 | Input | Behaviour |

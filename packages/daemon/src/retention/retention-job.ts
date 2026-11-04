@@ -5,18 +5,19 @@ import { buttons, decisionButtons, type Notify, strings } from '@anomander/proto
 import type Database from 'better-sqlite3';
 import type { Logger } from '../processor/text-interpreter.ts';
 import { reopenStaleAwaiting } from '../store/decisions.ts';
-import { recordDecisionMessage } from '../store/receipts.ts';
+import { finishReading, recordDecisionMessage } from '../store/receipts.ts';
 import {
   discardReceipt,
   expireLooseInferences,
   expireOpenDecisions,
+  listAbandonedReceipts,
   listExpiredReceipts,
   listReceiptsToAsk,
   openKeepReceiptDecision,
 } from './queued-receipts.ts';
 
 // R-19, the internal "retain" operation: a deterministic job that only changes `status` columns,
-// deletes temporary images and sends S-13 and S-14 (R-8 AC3, AC5).
+// deletes temporary images and sends S-5, S-13 and S-14 (R-8 AC3, AC5, R-19 AC5).
 
 const DAY = 24 * 60 * 60 * 1000;
 
@@ -27,7 +28,7 @@ export interface RetentionDeps {
   /** `TZ`: the dates in S-13 and S-14. */
   timeZone: string;
   now: () => Date;
-  /** Sends S-13 and S-14 to the principal. */
+  /** Sends S-5, S-13 and S-14 to the principal. */
   notify: Notify;
   logger: Logger;
 }
@@ -36,10 +37,12 @@ export interface RetentionResult {
   inferencesExpired: number;
   decisionsExpired: number;
   receiptsDiscarded: number;
+  /** R-19 AC5: receipts an earlier run left half-read. */
+  receiptsAbandoned: number;
 }
 
 export interface Retention {
-  /** R-19 AC1 to AC3. Running it twice in a row changes nothing the second time (AC4). */
+  /** R-19 AC1 to AC3 and AC5. Running it twice in a row changes nothing the second time (AC4). */
   retain(): Promise<RetentionResult>;
   /** R-8 AC3 and AC5 alone, often enough to keep S-13's "lo borro en una hora". */
   watchQueuedReceipts(): Promise<void>;
@@ -53,6 +56,9 @@ export const createRetention = ({
   notify,
   logger,
 }: RetentionDeps): Retention => {
+  // R-19 AC5: a document received before this instant belongs to an earlier run of the daemon.
+  const startedAt = now().toISOString();
+
   /** `{fecha}` of S-13 and S-14: the day the principal sent it, in `TZ`. */
   const sentOn = (receivedAt: string) => todayIn(timeZone, new Date(receivedAt));
 
@@ -72,6 +78,28 @@ export const createRetention = ({
       }
     }
     return discarded;
+  };
+
+  /**
+   * R-19 AC5: a receipt an earlier run stopped reading gets S-5, like any receipt that could not
+   * be read (R-3 AC3), and is then deleted and `unreadable` (R-8 AC1). Told first, as in R-8 AC5.
+   */
+  const abandonHalfRead = async (): Promise<number> => {
+    let abandoned = 0;
+    for (const receipt of listAbandonedReceipts(db, startedAt)) {
+      try {
+        await notify({ text: strings.unreadableReceipt() });
+        await rm(join(inboxDir, String(receipt.id)), { recursive: true, force: true });
+        finishReading(db, receipt.id, 'unreadable', now().toISOString());
+        abandoned += 1;
+      } catch (error) {
+        logger.error('could not abandon a half-read receipt; it stays queued', {
+          documentId: receipt.id,
+          error,
+        });
+      }
+    }
+    return abandoned;
   };
 
   /** R-8 AC3: S-13 with "Sí" and "No", once, 1 hour before `keep_until`. */
@@ -112,7 +140,8 @@ export const createRetention = ({
       const decisionsExpired = expireOpenDecisions(db, new Date(at - 7 * DAY).toISOString());
       const inferencesExpired = expireLooseInferences(db, new Date(at - 30 * DAY).toISOString());
       const receiptsDiscarded = await discardExpired();
-      return { inferencesExpired, decisionsExpired, receiptsDiscarded };
+      const receiptsAbandoned = await abandonHalfRead();
+      return { inferencesExpired, decisionsExpired, receiptsDiscarded, receiptsAbandoned };
     },
     watchQueuedReceipts: async () => {
       await discardExpired();

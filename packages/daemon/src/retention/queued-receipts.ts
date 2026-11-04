@@ -135,6 +135,26 @@ export const listExpiredReceipts = (db: Database.Database, now: string): UnreadR
     )
     .all(now);
 
+/**
+ * R-19 AC5: receipts an earlier run of the daemon left half-read. The receipt cycle keeps a
+ * document `queued` without `keep_until` only while it reads it (R-8 AC1), so one whose images
+ * were received before this run started was abandoned when the daemon stopped. A receipt this
+ * run received is never listed: it may be being read now. `received_at` cannot tell them apart,
+ * since a photo sent while the daemon was down arrives after the restart.
+ */
+export const listAbandonedReceipts = (db: Database.Database, startedAt: string): UnreadReceipt[] =>
+  db
+    .prepare<[string], UnreadReceipt>(
+      `SELECT d.id, d.received_at FROM documents d
+       WHERE d.status = 'queued' AND d.keep_until IS NULL
+         AND EXISTS (
+           SELECT 1 FROM assertions a
+           WHERE a.subject_type = 'document' AND a.subject_id = d.id
+             AND a.predicate = 'images_received' AND a.created_at < ?)
+       ORDER BY d.received_at, d.id`,
+    )
+    .all(startedAt);
+
 export interface KeepReceiptQuestion {
   documentId: number;
   receivedAt: string;

@@ -160,7 +160,13 @@ becomes `discarded` with `image_deleted_at`.
 **Retention job (R-19).** `createRetention().retain` expires `current` inferences older than 30
 days that no current expense or its purchase lines rest on (AC1), and `open` decisions older than
 7 days, rejecting their proposal and refuting a provisional `pending` expense (AC2). It also
-handles expired queued receipts (AC3). It only changes `status` columns and deletes temporary
+handles expired queued receipts (AC3). A receipt stays `queued` without `keep_until` only while
+it is being read, so one left that way by an earlier run (the daemon stopped mid-read) is
+abandoned: S-5, then its images are deleted and it becomes `unreadable` with `image_deleted_at`
+(AC5). "Earlier run" means its `images_received` observation was created before
+`createRetention` was called; `received_at` cannot tell, because a photo sent while the daemon
+was down arrives after the restart, possibly while the startup run is going. The startup run
+finds them; later runs find none. It only changes `status` columns and deletes temporary
 images; a second run changes nothing (AC4).
 
 **Weekly summary (R-10).** `createWeeklySummary().send` (`src/summary/weekly-summary.ts`) covers

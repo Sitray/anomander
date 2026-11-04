@@ -270,7 +270,7 @@ Schema decisions:
 - **Money is stored in cents** (`INTEGER`), never as decimals, so that sums add up exactly.
 - **Nothing is deleted or overwritten in `assertions`.** A correction of mine creates a new assertion that points to the earlier one (`supersedes_id`) and marks it as refuted. Two triggers enforce it: only `status` may change, and no row may be deleted.
 - **A confirmation points at what it confirms** (`confirms_id`). Its actor is `principal` when I confirm, or `code` when a deterministic check corroborates the assertion.
-- **Receipt images are temporary.** `documents.status` and `keep_until` track the queue used when the daily AI budget runs out (PRD R-8, R-12).
+- **Receipt images are temporary.** `documents.status` and `keep_until` track the queue used when the daily AI budget runs out (PRD R-8, R-12). A `queued` document without `keep_until` is being read; one left that way by an earlier run is abandoned at startup (PRD R-19 AC5).
 - **Reminders keep their time in UTC and their repetition in local time.** `due_at` is the next instant to send, so the every-minute send reads one indexed column; `recurrence_json.time` stays local in `TZ`, so a daily 9:00 is still 9:00 after a daylight-saving change (PRD R-25).
 - **The daily AI budget is counted in the database** (`ai_usage`, one row per day in `TZ`), so a restart does not reset it, and `limit_notified` makes the limit notice go out once a day (PRD R-12).
 - **At most one pending decision waits for my text** (`awaiting_text`), enforced by a partial unique index (PRD R-17).
