@@ -82,10 +82,21 @@ export interface DigestQuestion {
 
 /**
  * R-26 AC1, AC3: a `grant_morning_digest` proposal, `asked`, naming the time, and its pending
- * decision. The digest belongs to no matter. Nothing is granted until "Sí". Returns the decision.
+ * decision. The digest belongs to no matter. Nothing is granted until "Sí". An earlier S-53 still
+ * unanswered is closed first: its proposal `rejected`, its decision `expired`, so only the latest
+ * time can be granted. Returns the decision.
  */
 export const openDigestDecision = (db: Database.Database, ask: DigestQuestion): number =>
   db.transaction(() => {
+    const unanswered = `SELECT d.proposal_id FROM pending_decisions d
+       JOIN proposals p ON p.id = d.proposal_id
+       WHERE p.operation = 'grant_morning_digest' AND d.status IN ('open', 'awaiting_text')`;
+    db.prepare(`UPDATE proposals SET status = 'rejected' WHERE id IN (${unanswered})`).run();
+    db.prepare(
+      `UPDATE pending_decisions SET status = 'expired', awaiting_since = NULL
+       WHERE status IN ('open', 'awaiting_text') AND proposal_id IN
+         (SELECT id FROM proposals WHERE operation = 'grant_morning_digest')`,
+    ).run();
     const proposal = db
       .prepare(
         `INSERT INTO proposals (matter_id, operation, payload_json, basis_json, status, created_at)

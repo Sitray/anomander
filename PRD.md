@@ -419,7 +419,7 @@ The principal asks ANOMANDER to remember things for them: at a time, on a schedu
 A short message each morning with what the principal has today. It is off by default and exists only when the principal asks for it; ANOMANDER never offers it.
 - AC1: A message such as "mándame un resumen cada mañana a las 7:30" asks S-53 with `Sí` and `No`; without a time it asks for 8:00. The processor only returns the time; code asks. It is the second capability (R-24).
 - AC2: `Sí` grants a permission with operation `send_morning_digest` and `conditions_json` `{"time": "HH:mm"}`, revoking any earlier one, and replies S-54; `No` grants nothing and replies S-55. ANOMANDER never grants this permission itself (§8.1).
-- AC3: Asking for another time ("pásame el resumen a las 9") asks S-53 again with the new time, because it changes what was authorized. Asking for the time already active replies S-59 and asks nothing.
+- AC3: Asking for another time ("pásame el resumen a las 9") asks S-53 again with the new time, because it changes what was authorized. Asking for the time already active replies S-59 and asks nothing. A new S-53 closes any earlier one still unanswered, so only the latest time can be granted.
 - AC4: A message such as "deja de mandarme el resumen" revokes the permission at once, without buttons, and replies S-56, or S-58 when none is active.
 - AC5: While the permission is active, code sends S-57 at its time in `TZ`, once a day, unasked (R-16 AC3), built by code with no processor call and no AI budget: the pending reminders due today from now on, soonest first; every pending task, oldest first; and the number of expenses whose status is `pending`. A part with nothing is left out, and on a day when every part is empty nothing is sent.
 - AC6: If the daemon was down at the digest's time, it is sent at startup when that is still before 12:00 in `TZ`; later than that, the day is skipped (assumption). A digest is never sent twice on the same day.
@@ -525,7 +525,7 @@ Amounts are formatted with `Intl.NumberFormat('es-ES', { style: 'currency', curr
 | S-72 | `- Un modelo que exista en {variable}: {modelo} no lo encuentro.` |
 | S-73 | `- Conectar tu cuenta de {proveedor} (/login o su API key en el .env).` |
 
-When there is no category, `{categoria}` is `sin clasificar`. In S-9, each category name in `{desglose}` starts with a capital letter (R-10 AC4), for example `Supermercado 45,20 € · Restaurantes 23,00 € · Sin clasificar 0,00 €`. Telegram commands are always in English (`/start`, `/login`, `/logout`); what the principal reads stays in Spanish. Button labels: `Apuntar`, `Corregir`, `Descartar`, and for S-11, S-12, S-13, S-15, S-29, S-46 and S-53 `Sí` and `No`; S-60 and S-66 have one button per account (`ChatGPT`, `Kimi Code`), and S-62 and S-63 an `Abrir` button with the link. In S-53, S-54 and S-59, `{hora}` is written `7:30` or `8:00`; at 1:00 the sentence reads `a la 1:00`. In S-50, `{texto}` lists the texts joined with `, ` and ` y ` before the last one.
+When there is no category, `{categoria}` is `sin clasificar`. In S-9, each category name in `{desglose}` starts with a capital letter (R-10 AC4), for example `Supermercado 45,20 € · Restaurantes 23,00 € · Sin clasificar 0,00 €`. Telegram commands are always in English (`/start`, `/login`, `/logout`); what the principal reads stays in Spanish. Button labels: `Apuntar`, `Corregir`, `Descartar`, and for S-11, S-12, S-13, S-15, S-29, S-46 and S-53 `Sí` and `No`; S-60 and S-66 have one button per account (`ChatGPT`, `Kimi Code`), and S-62 and S-63 an `Abrir` button with the link. In S-53, S-54, S-57 and S-59, `{hora}` is written `7:30` or `8:00`; at 1:00 the sentence reads `a la 1:00`. In S-50, `{texto}` lists the texts joined with `, ` and ` y ` before the last one.
 
 ## 13. Data model
 
@@ -772,7 +772,7 @@ In `recurrence_json`, `freq` is `daily`, `weekly` with `days` (1 Monday to 7 Sun
 The morning digest (R-26) needs no table for its permission, which lives in `permissions`; the days it was sent are added by a later migration:
 
 ```sql
--- Morning digest (R-26 AC6): one row per day it was sent, so it is never sent twice
+-- Morning digest (R-26 AC6): one row per day it was handled (sent, or had nothing to send), so it is never sent twice
 CREATE TABLE digest_sends (
   day TEXT PRIMARY KEY,             -- 'YYYY-MM-DD' in TZ
   sent_at TEXT NOT NULL

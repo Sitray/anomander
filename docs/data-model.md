@@ -268,7 +268,7 @@ In `recurrence_json`, `freq` is `daily`, `weekly` with `days` (1 Monday to 7 Sun
 The morning digest (PRD R-26) needs no table for its permission: the principal's "Sí" to S-53 inserts a row in `permissions` with operation `send_morning_digest` and `conditions_json` `{"time": "HH:mm"}` (local time in `TZ`), revoking the earlier one, and turning it off sets `revoked_at`. The days it was sent are added by the migration `0006_digest_sends.sql`:
 
 ```sql
--- Morning digest (R-26 AC6): one row per day it was sent, so it is never sent twice
+-- Morning digest (R-26 AC6): one row per day it was handled (sent, or had nothing to send), so it is never sent twice
 CREATE TABLE digest_sends (
   day TEXT PRIMARY KEY,             -- 'YYYY-MM-DD' in TZ
   sent_at TEXT NOT NULL

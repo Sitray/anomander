@@ -155,6 +155,24 @@ describe('turning the morning digest on and off over Telegram (R-26)', () => {
     expect(permissions()).toEqual([]);
   });
 
+  it('AC3: a new S-53 closes the earlier unanswered one, whose "Sí" then changes nothing (S-19)', async () => {
+    await say('mándame un resumen cada mañana a las 7:30', enable('07:30'));
+    const first = api.sent.at(-1);
+    await say('mejor a las 9', enable('09:00'));
+
+    expect(query('SELECT status FROM pending_decisions ORDER BY id')).toEqual([
+      { status: 'expired' },
+      { status: 'open' },
+    ]);
+    const [stale] = query<{ id: number }>('SELECT id FROM pending_decisions ORDER BY id');
+    const before = api.sent.length;
+    api.push(updates.callbackQuery(principal, `decision:${stale?.id}:0`, first?.messageId ?? 0));
+    expect((await api.waitForSent(before + 1)).at(-1)?.text).toBe(
+      'Esa pregunta ya no está abierta.',
+    );
+    expect(permissions()).toEqual([]);
+  });
+
   it('AC3: another time asks S-53 again and replaces the earlier permission; the same time replies S-59', async () => {
     await say('mándame un resumen cada mañana a las 7:30', enable('07:30'));
     await press(0);
