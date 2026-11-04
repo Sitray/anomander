@@ -2,7 +2,9 @@
 
 A personal assistant that understands your world, knows what is true, knows what it may do, and carries a matter to a verifiable result.
 
-> Status: in development. Milestones M0 to M3b of the [PRD](PRD.md) roadmap (§17) are built: text and receipt expenses over Telegram, decisions, corrections and conversation memory; M4 (weekly summary, policies, categories) is next. The design is in [`docs/`](docs).
+> Status: in development. Milestones M0 to M5, M5d and M5e of the [PRD](PRD.md) roadmap (§17) are built: text and receipt expenses over Telegram, decisions, corrections, conversation memory, the weekly summary, policies, categories, reminders and tasks, model login and the setup guide. M5c (the morning digest) is next. The design is in [`docs/`](docs).
+
+To run your own, see [Getting started](#getting-started).
 
 ## Vision
 
@@ -89,6 +91,41 @@ ANOMANDER is an open-source project in a public repository, released under the [
 2. **Nothing personal in the repository.** Expenses, categories, policies and permissions live in the local database; tokens and keys live in a `.env` file that is never committed.
 3. **Providers are chosen at install time.** Whoever runs it picks their model (API, subscription or local) and their front door; the core assumes none.
 4. **The ontology is public.** These documents are the specification: every contribution must respect it, and any app can be built on top of it.
+
+## Getting started
+
+You need Docker, a Telegram account and a model: an API key, or a ChatGPT or Kimi Code subscription.
+
+1. **Create the bot.** In Telegram, send `/newbot` to [@BotFather](https://t.me/BotFather) and pick a name. It answers with a token such as `123456:ABC…`.
+2. **Find your user ID.** Send any message to [@userinfobot](https://t.me/userinfobot). It answers with your `Id`, a number. The bot will serve only that ID.
+3. **Fill in `.env`.**
+   ```bash
+   cp .env.example .env
+   ```
+   Then set these lines. This example uses Gemini; any provider-qualified model works (see [Connecting a model](#connecting-a-model)):
+   ```env
+   TELEGRAM_BOT_TOKEN=<token from @BotFather>
+   ANOMANDER_PRINCIPAL_CHAT_ID=<your Id>
+   ANOMANDER_MODEL=google/gemini-2.5-flash
+   ANOMANDER_VISION_MODEL=google/gemini-2.5-flash
+   GEMINI_API_KEY=<your key>
+   ```
+   With a subscription instead of a key, leave the key out and connect it in step 5. The other variables have working defaults.
+4. **Start it.**
+   ```bash
+   docker compose up -d --build
+   docker compose logs -f daemon
+   ```
+   The log should end with `anomander is listening on Telegram`. If the token or your ID is missing, the log says where to get it.
+5. **Say hello.** Send `/start` to your bot. It answers `¡Hola!` when everything is set, or lists what is still missing. Send `/login` to connect a subscription.
+
+Good to know:
+
+| Situation | What to do |
+| --- | --- |
+| You changed `.env` | `docker compose up -d --force-recreate`; a plain `restart` does not reread it. |
+| Something does not answer | `docker compose logs --tail 30 daemon`. Logs never contain your messages, tokens or keys. |
+| You want to look at your data | The database lives in the Docker volume `anomander-data`. Copy it into the git-ignored `data/` folder with `docker compose cp daemon:/app/data/anomander.db ./data/anomander-copy.db`, so the copy can never be committed. |
 
 ## Connecting a model
 
