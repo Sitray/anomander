@@ -24,6 +24,7 @@ import { createCreateCategoryAnswerHandler } from './decisions/create-category-d
 import { createCreatePolicyAnswerHandler } from './decisions/create-policy-decision.ts';
 import { createForgetMemoryAnswerHandler } from './decisions/forget-memory-decision.ts';
 import { createGrantDigestAnswerHandler } from './decisions/grant-digest-decision.ts';
+import { createGrantWeeklySummaryAnswerHandler } from './decisions/grant-weekly-summary-decision.ts';
 import { createTextRouter } from './decisions/router.ts';
 import { createMorningDigest } from './digest/send-digest.ts';
 import { createReceiptExpenseCycle } from './expenses/receipt-expense.ts';
@@ -254,6 +255,8 @@ export const startAnomander = <M>(config: Config, deps: AnomanderDeps<M>): Anoma
       cancel_reminder: createCancelReminderAnswerHandler(),
       // R-26 AC2: "Sí" to S-53 grants the morning digest's permission.
       grant_morning_digest: createGrantDigestAnswerHandler(),
+      // R-10 AC6: "Sí" to S-74 grants the weekly summary's permission.
+      grant_weekly_summary: createGrantWeeklySummaryAnswerHandler(),
     },
     now,
     logger,

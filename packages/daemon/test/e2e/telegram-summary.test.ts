@@ -6,6 +6,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { type Anomander, startAnomander } from '../../src/app.ts';
 import { loadConfig } from '../../src/config.ts';
 import { applyMigrations, openDatabase } from '../../src/store/database.ts';
+import { grantPermission } from '../../src/store/permissions.ts';
+import { WEEKLY_SUMMARY_OPERATION } from '../../src/summary/weekly-summary.ts';
 
 // End to end (PRD §15): the weekly summary reaches the principal over the fake Telegram API from
 // the composition root, verbatim and without the processor (R-10 AC2).
@@ -37,6 +39,8 @@ describe('the weekly summary over Telegram', () => {
        VALUES ('2026-10-31', 2300, (SELECT id FROM categories WHERE name = 'restaurantes'),
                'declared', 'current', ?)`,
     ).run(NOW.toISOString());
+    // R-10 AC5: the principal turned the summary on.
+    grantPermission(db, WEEKLY_SUMMARY_OPERATION, {}, NOW.toISOString());
     db.close();
     const complete = vi.fn(async () => {
       throw new Error('the processor must not be called');

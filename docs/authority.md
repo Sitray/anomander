@@ -9,7 +9,7 @@ Four levels. I set the level of each operation; the model can neither raise nor 
 | Level | What it allows | Who decides each case | Examples in the workflow |
 | --- | --- | --- | --- |
 | Free | Read, observe, infer, propose | Nobody: nothing outside ANOMANDER changes | Read the receipt; propose a category |
-| With permission | Actions covered by an active permission, within its limits | The code checks the permission | Register an expense if the lines add up to the total; send me the Sunday summary |
+| With permission | Actions covered by an active permission, within its limits | The code checks the permission | Register an expense if the lines add up to the total; send me the weekly summary I turned on |
 | With confirmation | Change or delete something of mine, contact third parties, any action no permission covers | Me, case by case | Register a receipt that does not add up; correct or delete an expense |
 | Forbidden | Move money, grant permissions, act on my behalf towards others | Nobody: the operation does not exist | Pay, transfer, file a complaint with a merchant |
 

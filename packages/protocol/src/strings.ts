@@ -266,10 +266,20 @@ export const strings = {
   /** S-73. `provider` is the login button label, such as `ChatGPT`, or the pi-ai provider ID. */
   setupProviderUnconnected: (provider: string) =>
     `- Conectar tu cuenta de ${provider} (/login o su API key en el .env).`,
+  /** S-74 (R-10 AC6); "No" replies S-55. */
+  confirmWeeklySummary: () => '¿Te mando cada semana un resumen de tus gastos?',
+  /** S-75: the reply to "Sí" to S-74 (R-10 AC6). */
+  weeklySummaryOn: () => 'Hecho: te mando el resumen de tus gastos cada semana.',
+  /** S-76: the summary is already on (R-10 AC6). */
+  weeklySummaryAlreadyOn: () => 'Ya te mando el resumen de tus gastos cada semana.',
+  /** S-77 (R-10 AC7). */
+  weeklySummaryOff: () => 'Hecho, ya no te mando el resumen semanal.',
+  /** S-78. */
+  weeklySummaryWasOff: () => 'No tenía activado el resumen semanal.',
 } as const;
 
 /**
- * PRD §12 button labels (R-6 AC3; S-11, S-12, S-13, S-15, S-29, S-46 and S-53 use `Sí` and `No`; S-60
+ * PRD §12 button labels (R-6 AC3; S-11, S-12, S-13, S-15, S-29, S-46, S-53 and S-74 use `Sí` and `No`; S-60
  * and S-66 one account each, and S-66 also the accounts no longer offered for login; S-62 and S-63 `Abrir`, a link).
  */
 export const buttons = {

@@ -1,11 +1,16 @@
 import { todayIn } from '@anomander/core';
 import { type Notify, strings } from '@anomander/protocol';
 import type Database from 'better-sqlite3';
+import { activePermissions } from '../store/permissions.ts';
 
 // R-10: the weekly summary. Every figure comes from the `expenses` rows, computed here, and S-9
 // is sent exactly as written: no processor call, so it does not count against the AI budget.
+// It is off by default: S-9 goes out only while the principal's permission is in force (AC5).
 
 const DAY = 24 * 60 * 60 * 1000;
+
+/** The operation the summary's permission covers (R-10 AC5, AC6). */
+export const WEEKLY_SUMMARY_OPERATION = 'send_weekly_summary';
 
 export interface WeeklySummaryDeps {
   db: Database.Database;
@@ -50,7 +55,9 @@ export const createWeeklySummary = ({
 
   return {
     send: async () => {
-      const end = todayIn(timeZone, now());
+      const at = now();
+      if (activePermissions(db, WEEKLY_SUMMARY_OPERATION, at).length === 0) return;
+      const end = todayIn(timeZone, at);
       const start = daysBefore(end, 6);
       const categories = perCategory
         .all(start, end)
