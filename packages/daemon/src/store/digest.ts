@@ -1,0 +1,130 @@
+import type Database from 'better-sqlite3';
+import { z } from 'zod';
+import { openPendingDecision } from './receipts.ts';
+
+// R-26: the morning digest. Its permission lives in `permissions` (§13), granted only by the
+// principal's "Sí" to S-53 (§8.1): code opens the question and stores what was answered, never
+// a permission of its own. The days it was sent are in `digest_sends` (AC6).
+
+/** The operation the permission covers (R-26 AC2). */
+export const DIGEST_OPERATION = 'send_morning_digest';
+
+/** §13 `conditions_json` of the digest's permission: the local time in `TZ`. */
+const conditionsSchema = z.object({ time: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/) });
+
+/** The time in `conditions_json`; conditions code cannot read cover nothing. */
+const timeOf = (json: string): string | null => {
+  try {
+    const conditions = conditionsSchema.safeParse(JSON.parse(json));
+    return conditions.success ? conditions.data.time : null;
+  } catch {
+    return null;
+  }
+};
+
+export interface DigestPermission {
+  id: number;
+  /** Local `HH:mm` in `TZ`. */
+  time: string;
+  granted_at: string;
+}
+
+/**
+ * §8.1: the digest's permission in force at `now`, neither revoked nor expired, or `null` (off
+ * by default, AC1). There is at most one, since granting one revokes the others; the latest is
+ * taken all the same.
+ */
+export const activeDigestPermission = (
+  db: Database.Database,
+  now: Date,
+): DigestPermission | null => {
+  const rows = db
+    .prepare<[string, string], { id: number; conditions_json: string; granted_at: string }>(
+      `SELECT id, conditions_json, granted_at FROM permissions
+       WHERE operation = ? AND revoked_at IS NULL AND (expires_at IS NULL OR expires_at > ?)
+       ORDER BY id DESC`,
+    )
+    .all(DIGEST_OPERATION, now.toISOString());
+  for (const { conditions_json, ...row } of rows) {
+    const time = timeOf(conditions_json);
+    if (time !== null) return { ...row, time };
+  }
+  return null;
+};
+
+/** R-26 AC2, AC4: revokes every digest permission in force. Returns how many were revoked. */
+export const revokeDigestPermissions = (db: Database.Database, now: string): number =>
+  db
+    .prepare('UPDATE permissions SET revoked_at = ? WHERE operation = ? AND revoked_at IS NULL')
+    .run(now, DIGEST_OPERATION).changes;
+
+/**
+ * R-26 AC2: the principal's "Sí" grants the digest at `time`, revoking any earlier one. Call it
+ * inside the transaction that answers the decision. Returns the permission's id.
+ */
+export const grantDigestPermission = (db: Database.Database, time: string, now: string): number => {
+  revokeDigestPermissions(db, now);
+  return Number(
+    db
+      .prepare('INSERT INTO permissions (operation, conditions_json, granted_at) VALUES (?, ?, ?)')
+      .run(DIGEST_OPERATION, JSON.stringify({ time }), now).lastInsertRowid,
+  );
+};
+
+export interface DigestQuestion {
+  /** Local `HH:mm` in `TZ`. */
+  time: string;
+  /** S-53. */
+  question: string;
+  options: readonly string[];
+  now: string;
+}
+
+/**
+ * R-26 AC1, AC3: a `grant_morning_digest` proposal, `asked`, naming the time, and its pending
+ * decision. The digest belongs to no matter. Nothing is granted until "Sí". An earlier S-53 still
+ * unanswered is closed first: its proposal `rejected`, its decision `expired`, so only the latest
+ * time can be granted. Returns the decision.
+ */
+export const openDigestDecision = (db: Database.Database, ask: DigestQuestion): number =>
+  db.transaction(() => {
+    const unanswered = `SELECT d.proposal_id FROM pending_decisions d
+       JOIN proposals p ON p.id = d.proposal_id
+       WHERE p.operation = 'grant_morning_digest' AND d.status IN ('open', 'awaiting_text')`;
+    db.prepare(`UPDATE proposals SET status = 'rejected' WHERE id IN (${unanswered})`).run();
+    db.prepare(
+      `UPDATE pending_decisions SET status = 'expired', awaiting_since = NULL
+       WHERE status IN ('open', 'awaiting_text') AND proposal_id IN
+         (SELECT id FROM proposals WHERE operation = 'grant_morning_digest')`,
+    ).run();
+    const proposal = db
+      .prepare(
+        `INSERT INTO proposals (matter_id, operation, payload_json, basis_json, status, created_at)
+         VALUES (NULL, 'grant_morning_digest', ?, ?, 'asked', ?)`,
+      )
+      .run(JSON.stringify({ time: ask.time }), JSON.stringify({ rule: 'R-26 AC2' }), ask.now);
+    return openPendingDecision(db, {
+      proposalId: Number(proposal.lastInsertRowid),
+      question: ask.question,
+      options: ask.options,
+      now: ask.now,
+    });
+  })();
+
+/** R-26 AC6: whether the day (`YYYY-MM-DD` in `TZ`) already had its digest. */
+export const digestHandled = (db: Database.Database, day: string): boolean =>
+  db.prepare<[string], { day: string }>('SELECT day FROM digest_sends WHERE day = ?').get(day) !==
+  undefined;
+
+/** R-26 AC6: the day had its digest; a second call for the same day changes nothing. */
+export const recordDigestSent = (db: Database.Database, day: string, sentAt: string): void => {
+  db.prepare('INSERT OR IGNORE INTO digest_sends (day, sent_at) VALUES (?, ?)').run(day, sentAt);
+};
+
+/** R-26 AC5: the number of expenses whose status is `pending`. */
+export const countPendingExpenses = (db: Database.Database): number =>
+  (
+    db
+      .prepare<[], { n: number }>("SELECT count(*) AS n FROM expenses WHERE status = 'pending'")
+      .get() as { n: number }
+  ).n;

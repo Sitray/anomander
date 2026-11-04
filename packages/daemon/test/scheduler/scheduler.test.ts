@@ -4,7 +4,8 @@ import { startScheduler } from '../../src/scheduler/scheduler.ts';
 // R-19: the retention job runs once at startup and then at ANOMANDER_RETENTION_CRON in TZ; the
 // queue (R-12 AC3) and the unread receipts (R-8 AC3, AC5) are checked at startup and every minute.
 // R-10 AC1: the weekly summary goes out only at ANOMANDER_WEEKLY_SUMMARY_CRON in TZ. R-25 AC7: due
-// reminders are sent at startup and every minute.
+// reminders are sent at startup and every minute. R-26 AC5, AC6: the morning digest is checked
+// at startup and every minute, just before due reminders.
 const logger = () => ({ info: vi.fn(), warn: vi.fn(), error: vi.fn() });
 const noJob = async () => {};
 const crons = { retentionCron: '0 3 * * *', weeklySummaryCron: '0 20 * * 0' };
@@ -14,13 +15,14 @@ afterEach(() => {
 });
 
 describe('startScheduler', () => {
-  it('runs retention, due reminders, the queue and the receipt watch once at startup, in that order', async () => {
+  it('runs retention, the morning digest, due reminders, the queue and the receipt watch once at startup, in that order', async () => {
     const order: string[] = [];
     const scheduler = startScheduler({
       ...crons,
       timeZone: 'Europe/Madrid',
       jobs: {
         retain: async () => void order.push('retain'),
+        sendMorningDigest: async () => void order.push('sendMorningDigest'),
         sendDueReminders: async () => void order.push('sendDueReminders'),
         drainQueue: async () => void order.push('drainQueue'),
         watchReceipts: async () => void order.push('watchReceipts'),
@@ -32,7 +34,13 @@ describe('startScheduler', () => {
     await scheduler.started;
     await scheduler.stop();
 
-    expect(order).toEqual(['retain', 'sendDueReminders', 'drainQueue', 'watchReceipts']);
+    expect(order).toEqual([
+      'retain',
+      'sendMorningDigest',
+      'sendDueReminders',
+      'drainQueue',
+      'watchReceipts',
+    ]);
   });
 
   it('logs a failing job and still runs the next one', async () => {
@@ -45,6 +53,7 @@ describe('startScheduler', () => {
         retain: async () => {
           throw new Error('disk full');
         },
+        sendMorningDigest: noJob,
         sendDueReminders: noJob,
         drainQueue: async () => {},
         watchReceipts: watched,
@@ -71,6 +80,7 @@ describe('startScheduler', () => {
         timeZone: 'Europe/Madrid',
         jobs: {
           retain: noJob,
+          sendMorningDigest: noJob,
           sendDueReminders: noJob,
           drainQueue: noJob,
           watchReceipts: noJob,
@@ -90,6 +100,7 @@ describe('startScheduler', () => {
       timeZone: 'Europe/Madrid',
       jobs: {
         retain: noJob,
+        sendMorningDigest: noJob,
         sendDueReminders: noJob,
         drainQueue: noJob,
         watchReceipts: noJob,
@@ -110,7 +121,7 @@ describe('startScheduler', () => {
     await scheduler.stop();
   });
 
-  it('sends due reminders, reads the queue and watches receipts every minute, not retention', async () => {
+  it('checks the morning digest, sends due reminders, reads the queue and watches receipts every minute, not retention', async () => {
     vi.useFakeTimers({ now: new Date('2026-10-30T10:00:30.000Z') });
     const order: string[] = [];
     const scheduler = startScheduler({
@@ -118,6 +129,7 @@ describe('startScheduler', () => {
       timeZone: 'Europe/Madrid',
       jobs: {
         retain: async () => void order.push('retain'),
+        sendMorningDigest: async () => void order.push('sendMorningDigest'),
         sendDueReminders: async () => void order.push('sendDueReminders'),
         drainQueue: async () => void order.push('drainQueue'),
         watchReceipts: async () => void order.push('watchReceipts'),
@@ -129,7 +141,7 @@ describe('startScheduler', () => {
     order.length = 0;
 
     await vi.advanceTimersByTimeAsync(60_000);
-    expect(order).toEqual(['sendDueReminders', 'drainQueue', 'watchReceipts']);
+    expect(order).toEqual(['sendMorningDigest', 'sendDueReminders', 'drainQueue', 'watchReceipts']);
 
     await scheduler.stop();
   });

@@ -90,8 +90,8 @@ Every incoming message has exactly one destination, decided by code (R-17):
    (AC1). Otherwise the answer goes to the handler of the proposal's `operation`, from the
    dispatch table (`createDecisionAnswers`, a plain record; add another operation by spreading
    it: `{ ...createDecisionAnswers(deps), keep_receipt: ... }`). `app.ts` adds `keep_receipt`
-   (R-8), `forget_memory` (R-23 AC6), `create_category` (R-18), `create_policy` (R-13) and
-   `cancel_reminder` (R-25 AC9).
+   (R-8), `forget_memory` (R-23 AC6), `create_category` (R-18), `create_policy` (R-13),
+   `cancel_reminder` (R-25 AC9) and `grant_morning_digest` (R-26 AC2).
 2. **A text** goes through `createTextRouter` (`src/decisions/router.ts`), in this order:
    - a Telegram reply to the message of an `open` or `awaiting_text` decision corrects that
      decision (AC2);
@@ -382,6 +382,27 @@ proposal (`openCancelReminderDecision`, only the S-46 header stored as the quest
 `Sí` and `No`. Its answer (`src/decisions/cancel-reminder-decision.ts`) on `Sí` runs
 `cancelReminders` in the answering transaction: each item still pending becomes `cancelled` and its
 `reminder` assertion `expired`, then S-47; `No` changes nothing, S-48.
+
+## The morning digest (R-26)
+
+The second capability (`src/digest/capability.ts`) is off by default and has no `context`.
+`digest_enable` carries only the time (`HH:mm`, or null for 8:00): code replies S-59 when it is
+the time already in force, otherwise opens a `grant_morning_digest` proposal
+(`openDigestDecision`, `src/store/digest.ts`) asked with S-53, `Sí` and `No`. Its answer
+(`src/decisions/grant-digest-decision.ts`) on `Sí` runs `grantDigestPermission` in the answering
+transaction, which revokes any earlier `send_morning_digest` permission and inserts the new one,
+then S-54; `No` grants nothing, S-55. ANOMANDER never grants it on its own (§8.1).
+`digest_disable` revokes at once, without buttons: S-56, or S-58 when none was in force.
+
+Sending is a scheduler job, `src/digest/send-digest.ts`, run at startup and every minute just
+before due reminders. While the permission is in force, once its time has come in `TZ`, it sends
+S-57 through `notify` (a recent turn, R-16 AC3), built from the store with no processor call:
+today's pending reminders still ahead, every pending task and the count of `pending` expenses.
+Empty parts are left out; when all are empty nothing is sent and the day is marked all the same.
+A digest more than 10 minutes late (the daemon was down) still goes out before 12:00 in `TZ`, not
+after (AC6); one granted after its time today first goes out tomorrow. `digest_sends` holds the
+days handled, written only after the send succeeded, so a day never gets two. Logs carry the day
+and the reason, never the digest's text (AC7).
 
 ## The processor ports
 
