@@ -53,7 +53,7 @@ export const createExpenseCorrection = ({
     text: string,
     expenseId: number,
     channelRef: string,
-  ): Promise<ExpenseCorrection | 'failed' | 'budget_exhausted'> => {
+  ): Promise<ExpenseCorrection | 'failed' | 'budget_exhausted' | 'invalid'> => {
     const categories = listCategories(db);
     const stored = readExpense(db, expenseId);
     const today = todayIn(timeZone, now());
@@ -71,7 +71,10 @@ export const createExpenseCorrection = ({
     if (interpretation.kind === 'failed' || interpretation.kind === 'budget_exhausted') {
       return interpretation.kind;
     }
-    if (interpretation.kind === 'invalid') return {};
+    if (interpretation.kind === 'invalid') {
+      logger.warn('correction not interpreted', { channelRef, reason: interpretation.reason });
+      return 'invalid';
+    }
     const inferenceFor = (predicate: string) =>
       interpretation.inferences.find((inference) => inference.predicate === predicate);
     const value = (predicate: string) => inferenceFor(predicate)?.value_json ?? null;
@@ -95,10 +98,7 @@ export const createExpenseCorrection = ({
     } else if (category !== null) {
       // R-18 AC3 covers an expense registered at once (a text): a correction answers a pending
       // decision, so a category that does not exist is ignored and S-15 is not asked.
-      logger.info('corrected category not written or not existing; ignored', {
-        channelRef,
-        category,
-      });
+      logger.info('corrected category not written or not existing; ignored', { channelRef });
     }
     // A date is resolved by the processor ("el 28"), so the words it rests on must be written,
     // and it may not be after today (R-2 AC7).
@@ -117,7 +117,6 @@ export const createExpenseCorrection = ({
     } else if (date !== null) {
       logger.info('corrected date not written, not a date or after today; ignored', {
         channelRef,
-        occurred_on: date,
       });
     }
     return correction;
@@ -139,11 +138,14 @@ export const createExpenseCorrection = ({
       keepWaiting();
       return { text: strings.textLimitReached() };
     }
-    if (correction === 'failed') {
-      // R-22 AC1: nothing was stored; the decision is left as it was, for the text to come again.
-      logger.error('correction not handled: the processor failed', {
-        channelRef: message.channelRef,
-      });
+    if (correction === 'failed' || correction === 'invalid') {
+      // R-22 AC1: nothing was stored, whether the processor failed or gave an answer code cannot
+      // use; the decision is left as it was, for the text to come again.
+      if (correction === 'failed') {
+        logger.error('correction not handled: the processor failed', {
+          channelRef: message.channelRef,
+        });
+      }
       keepWaiting();
       return { text: strings.processingFailed() };
     }

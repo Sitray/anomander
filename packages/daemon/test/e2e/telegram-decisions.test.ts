@@ -347,6 +347,19 @@ describe('answering a pending receipt decision', () => {
     expect(query('SELECT occurred_on FROM expenses')).toEqual([{ occurred_on: '2026-10-29' }]);
   });
 
+  it('a correction answer code cannot use gets S-22 and keeps waiting (R-22 AC1)', async () => {
+    const { decisionId, question } = await askS3();
+    await press(question, decisionId, CORREGIR);
+    correctionFixture = 'not-json';
+    const before = ledger();
+
+    expect((await say('total 28,40'))?.text).toBe(
+      'Algo ha fallado y no he podido procesar tu mensaje. ¿Me lo vuelves a enviar en un rato?',
+    );
+    expect(ledger()).toEqual(before);
+    expect(query('SELECT status FROM pending_decisions')).toEqual([{ status: 'awaiting_text' }]);
+  });
+
   it('with the daily AI budget spent, a correction gets S-26 and keeps waiting (R-12 AC4)', async () => {
     const { decisionId, question } = await askS3();
     await press(question, decisionId, CORREGIR);

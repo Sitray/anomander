@@ -387,6 +387,23 @@ describe('text expense handler', () => {
     expect(onlyExpense().occurred_on).toBe(stored);
   });
 
+  it('logs an ignored category or date without their text (R-14 AC2)', async () => {
+    const { handle, logger } = handlerFor(
+      expense(
+        inferred('total', 1200),
+        inferred('declared_category', 'regalo de cumpleaños'),
+        inferred('occurred_on', 'el cumple de Ana'),
+      ),
+    );
+
+    await send(handle, '12 ayer');
+
+    const logged = JSON.stringify([...logger.info.mock.calls, ...logger.warn.mock.calls]);
+    expect(logged).toContain('declared category not written in the message; ignored');
+    expect(logged).not.toContain('cumpleaños');
+    expect(logged).not.toContain('Ana');
+  });
+
   it('rejects a date later than today with S-21 and stores nothing (R-2 AC7)', async () => {
     const before = rowCounts();
     const { handle } = handlerFor(

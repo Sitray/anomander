@@ -275,7 +275,6 @@ export const createTextExpenseHandler = (deps: TextExpenseDeps): TextHandler => 
       } else {
         logger.warn('processor date is not a calendar date; using today', {
           channelRef: message.channelRef,
-          occurred_on: inferredDate,
         });
       }
     }
@@ -294,7 +293,6 @@ export const createTextExpenseHandler = (deps: TextExpenseDeps): TextHandler => 
     if (statedCategory !== null && declaredCategory === null) {
       logger.info('declared category not written in the message; ignored', {
         channelRef: message.channelRef,
-        declared_category: statedCategory,
       });
     }
 
