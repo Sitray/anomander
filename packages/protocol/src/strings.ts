@@ -279,7 +279,7 @@ export const strings = {
 } as const;
 
 /**
- * PRD §12 button labels (R-6 AC3; S-11, S-12, S-13, S-15, S-29, S-46 and S-53 use `Sí` and `No`; S-60
+ * PRD §12 button labels (R-6 AC3; S-11, S-12, S-13, S-15, S-29, S-46, S-53 and S-74 use `Sí` and `No`; S-60
  * and S-66 one account each, and S-66 also the accounts no longer offered for login; S-62 and S-63 `Abrir`, a link).
  */
 export const buttons = {

@@ -24,7 +24,7 @@ You never turn it on: the assistant asks the user first.
 If the user asks you to stop sending the weekly summary ("deja de mandarme el resumen semanal"), reply:
 {"kind":"weekly_summary_disable"}
 
-Use these two only when the user says the summary is weekly or of the week; a summary with no such word is the morning summary. Never offer the weekly summary yourself.`;
+Use these two only when the user says the summary is weekly, of the week or of Sunday ("semanal", "de la semana", "del domingo"); a summary with no such word is the morning summary. Never offer the weekly summary yourself.`;
 
 /** AC6: asks S-74, or replies S-76 when the summary is already on. S-74 carries no private data. */
 const askToEnable = (env: CapabilityEnv): Reply => {

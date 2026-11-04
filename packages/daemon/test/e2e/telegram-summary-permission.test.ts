@@ -176,15 +176,23 @@ describe('turning the weekly summary on and off over Telegram (R-10)', () => {
     expect(query('SELECT id FROM pending_decisions')).toHaveLength(decisions);
   });
 
-  it('AC6: a new S-74 closes the earlier unanswered one', async () => {
+  it('AC6: a new S-74 closes the earlier unanswered one, whose "Sí" then grants nothing (S-19)', async () => {
     await start();
     await say('mándame el resumen semanal', ENABLE);
+    const first = api.sent.at(-1);
     await say('mándame el resumen de gastos de la semana', ENABLE);
 
     expect(query('SELECT status FROM pending_decisions ORDER BY id')).toEqual([
       { status: 'expired' },
       { status: 'open' },
     ]);
+    const [stale] = query<{ id: number }>('SELECT id FROM pending_decisions ORDER BY id');
+    const before = api.sent.length;
+    api.push(updates.callbackQuery(principal, `decision:${stale?.id}:0`, first?.messageId ?? 0));
+    expect((await api.waitForSent(before + 1)).at(-1)?.text).toBe(
+      'Esa pregunta ya no está abierta.',
+    );
+    expect(permissions()).toEqual([]);
   });
 
   it('AC7: turning it off revokes the permission at once, S-77, or replies S-78 when it is off', async () => {

@@ -302,7 +302,7 @@ Code checks every proposed receipt expense.
 - AC5: The summary is off by default and exists only when the principal asks for it; ANOMANDER never offers it. At the time of AC1, S-9 is sent only while a permission with operation `send_weekly_summary` is in force; otherwise nothing is sent.
 - AC6: A message such as "mándame el resumen semanal" asks S-74 with `Sí` and `No`. `Sí` grants the `send_weekly_summary` permission with `conditions_json` `{}` and replies S-75; `No` grants nothing and replies S-55. ANOMANDER never grants this permission itself (§8.1). When it is already in force, S-76 is replied and nothing is asked. A new S-74 closes any earlier one still unanswered. It is the third capability (R-24).
 - AC7: A message such as "deja de mandarme el resumen semanal" revokes the permission at once, without buttons, and replies S-77, or S-78 when none is in force.
-- AC8: A summary the principal does not call weekly ("de la semana", "semanal") is the morning digest (R-26) (assumption), so "deja de mandarme el resumen" keeps meaning the morning one.
+- AC8: A summary the principal does not call weekly ("semanal", "de la semana", "del domingo") is the morning digest (R-26) (assumption), so "deja de mandarme el resumen" keeps meaning the morning one.
 
 ### R-11 Supermarket view
 - AC1: The view `supermarket_purchases` returns exactly the columns `producto`, `cantidad`, `precio_cents`, `comercio`, `fecha` and `modo`, for current expenses in the category `supermercado`.
@@ -534,7 +534,7 @@ Amounts are formatted with `Intl.NumberFormat('es-ES', { style: 'currency', curr
 | S-77 | `Hecho, ya no te mando el resumen semanal.` |
 | S-78 | `No tenía activado el resumen semanal.` |
 
-When there is no category, `{categoria}` is `sin clasificar`. In S-9, each category name in `{desglose}` starts with a capital letter (R-10 AC4), for example `Supermercado 45,20 € · Restaurantes 23,00 € · Sin clasificar 0,00 €`. Telegram commands are always in English (`/start`, `/login`, `/logout`); what the principal reads stays in Spanish. Button labels: `Apuntar`, `Corregir`, `Descartar`, and for S-11, S-12, S-13, S-15, S-29, S-46 and S-53 `Sí` and `No`; S-60 and S-66 have one button per account (`ChatGPT`, `Kimi Code`), and S-62 and S-63 an `Abrir` button with the link. In S-53, S-54, S-57 and S-59, `{hora}` is written `7:30` or `8:00`; at 1:00 the sentence reads `a la 1:00`. In S-50, `{texto}` lists the texts joined with `, ` and ` y ` before the last one.
+When there is no category, `{categoria}` is `sin clasificar`. In S-9, each category name in `{desglose}` starts with a capital letter (R-10 AC4), for example `Supermercado 45,20 € · Restaurantes 23,00 € · Sin clasificar 0,00 €`. Telegram commands are always in English (`/start`, `/login`, `/logout`); what the principal reads stays in Spanish. Button labels: `Apuntar`, `Corregir`, `Descartar`, and for S-11, S-12, S-13, S-15, S-29, S-46, S-53 and S-74 `Sí` and `No`; S-60 and S-66 have one button per account (`ChatGPT`, `Kimi Code`), and S-62 and S-63 an `Abrir` button with the link. In S-53, S-54, S-57 and S-59, `{hora}` is written `7:30` or `8:00`; at 1:00 the sentence reads `a la 1:00`. In S-50, `{texto}` lists the texts joined with `, ` and ` y ` before the last one.
 
 ## 13. Data model
 
