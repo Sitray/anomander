@@ -553,6 +553,11 @@ expected kind and fields for the cases in `evals/text/cases.json`, also out of g
 - The processor never writes. It returns inferences; only this package persists rows
   (R-14 AC1).
 - Receipt images live on disk only until they are read (R-8 AC1), under generated names.
+- What the daemon creates on disk is its owner's alone (PRD §16): `openDatabase` creates a
+  missing data folder with mode 700 and a missing database file with mode 600 before SQLite
+  opens it, and SQLite gives `-wal` and `-shm` the database file's mode; receipt folders are 700
+  and images 600. Existing folders and files keep their mode, so a database created before this
+  rule (or a folder made by the Dockerfile) needs a manual `chmod`.
 - Every assertion goes through `assertionDraftSchema` before it is inserted (§7.2), and the
   ledger is append-only except `status` (R-7 AC3, enforced by triggers).
 - The reply is built from the stored row, never from the proposal (R-9 AC1).

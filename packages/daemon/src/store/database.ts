@@ -1,4 +1,12 @@
-import { mkdirSync, readdirSync, readFileSync } from 'node:fs';
+import {
+  closeSync,
+  existsSync,
+  fchmodSync,
+  mkdirSync,
+  openSync,
+  readdirSync,
+  readFileSync,
+} from 'node:fs';
 import { basename, dirname, resolve } from 'node:path';
 import Database from 'better-sqlite3';
 
@@ -8,8 +16,22 @@ export const MIGRATIONS_DIR = resolve(import.meta.dirname, '../../migrations');
 
 const NOW_UTC = "strftime('%Y-%m-%dT%H:%M:%fZ', 'now')";
 
+/**
+ * §16: the database is the principal's alone. A missing data folder is created with mode 700 and
+ * a missing database file with mode 600 before SQLite opens it; SQLite gives its `-wal` and
+ * `-shm` files the database file's mode. An existing folder or file keeps the mode it has.
+ */
 export const openDatabase = (path: string): Database.Database => {
-  mkdirSync(dirname(path), { recursive: true });
+  mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
+  if (path !== ':memory:' && !existsSync(path)) {
+    const file = openSync(path, 'a', 0o600);
+    try {
+      // The umask can only remove bits; this makes 600 explicit whatever it is.
+      fchmodSync(file, 0o600);
+    } finally {
+      closeSync(file);
+    }
+  }
   const db = new Database(path);
   db.pragma('journal_mode = WAL');
   db.pragma('foreign_keys = ON');

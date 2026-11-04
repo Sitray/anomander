@@ -880,6 +880,7 @@ Checks every feature document should run:
 - Nothing personal in the repository: expenses, categories, policies and permissions live in the local database; tokens and keys live in `.env`.
 - Providers are chosen at install time; the core assumes none.
 - Receipt images leave the server only while being read by the configured vision model, and are deleted afterwards (R-8).
+- The data folder, the database and the receipt images are readable by their owner only: the daemon creates folders with mode `700` and files with mode `600`. A folder or database that already exists keeps its mode.
 - The ontology in `docs/` is the public specification: contributions must respect it, and any app can be built on it.
 - `SECURITY.md` explains how to report vulnerabilities. `CONTRIBUTING.md` points to the ODD workflow.
 
