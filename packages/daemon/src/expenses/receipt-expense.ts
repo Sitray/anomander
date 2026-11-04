@@ -150,10 +150,13 @@ export const createReceiptExpenseCycle = (deps: ReceiptExpenseDeps): ReceiptExpe
       now: now().toISOString(),
     });
     const folder = folderOf(documentId);
-    await mkdir(folder, { recursive: true });
+    // §16: the images are the principal's alone, as is the inbox created with them.
+    await mkdir(folder, { recursive: true, mode: 0o700 });
     await Promise.all(
       images.map((image, index) =>
-        writeFile(join(folder, `${index + 1}.${extensionOf(image.mimeType)}`), image.data),
+        writeFile(join(folder, `${index + 1}.${extensionOf(image.mimeType)}`), image.data, {
+          mode: 0o600,
+        }),
       ),
     );
     return documentId;

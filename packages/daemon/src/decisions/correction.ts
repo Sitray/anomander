@@ -127,23 +127,29 @@ export const createExpenseCorrection = ({
     const expenseId = pendingExpenseOf(db, decision);
     const correction = await acceptedCorrection(message.text, expenseId, message.channelRef);
     const at = now().toISOString();
+    // Only "Corregir" makes a decision wait for text (R-7 AC1). A decision already waiting keeps
+    // waiting (R-17 AC3); one answered by a Telegram reply stays `open` (AC2), so the principal's
+    // next unrelated text is not taken as a correction.
+    const keepWaiting = () => {
+      if (decision.status === 'awaiting_text') awaitText(db, decision.id, at);
+    };
 
     if (correction === 'budget_exhausted') {
-      // R-12 AC4: nothing was stored; the decision keeps waiting for the text.
-      awaitText(db, decision.id, at);
+      // R-12 AC4: nothing was stored; the decision is left as it was.
+      keepWaiting();
       return { text: strings.textLimitReached() };
     }
     if (correction === 'failed') {
-      // R-22 AC1: nothing was stored; the decision keeps waiting for the text to be sent again.
+      // R-22 AC1: nothing was stored; the decision is left as it was, for the text to come again.
       logger.error('correction not handled: the processor failed', {
         channelRef: message.channelRef,
       });
-      awaitText(db, decision.id, at);
+      keepWaiting();
       return { text: strings.processingFailed() };
     }
     if (Object.keys(correction).length === 0) {
-      // Nothing usable: S-7 again, and the decision keeps waiting for the text (R-7 AC1).
-      awaitText(db, decision.id, at);
+      // Nothing usable: S-7 again, and the decision is left as it was.
+      keepWaiting();
       return { text: strings.askCorrection() };
     }
 

@@ -344,24 +344,28 @@ describe('text expense handler', () => {
       text: 'cena en Casa Paco',
       interpretation: expense(inferred('merchant', 'Casa Paco')),
     },
-    {
-      name: 'an unusable processor response',
-      text: '23 cena',
-      interpretation: { kind: 'invalid', reason: 'not JSON' } as const,
-    },
-  ])(
-    'replies S-16 and stores nothing for $name (R-2 AC6, A3)',
-    async ({ text, interpretation }) => {
-      const before = rowCounts();
-      const { handle } = handlerFor(interpretation);
+  ])('replies S-16 and stores nothing for $name (R-2 AC6)', async ({ text, interpretation }) => {
+    const before = rowCounts();
+    const { handle } = handlerFor(interpretation);
 
-      const reply = await send(handle, text);
+    const reply = await send(handle, text);
 
-      expect(reply.text).toBe('No tengo claro el importe. ¿Me lo escribes? Por ejemplo: 23,40');
-      expect(reply.onDelivered).toBeUndefined();
-      expect(rowCounts()).toEqual(before);
-    },
-  );
+    expect(reply.text).toBe('No tengo claro el importe. ¿Me lo escribes? Por ejemplo: 23,40');
+    expect(reply.onDelivered).toBeUndefined();
+    expect(rowCounts()).toEqual(before);
+  });
+
+  it('replies S-22 verbatim and stores nothing for an unusable processor response (R-22 AC1)', async () => {
+    const before = rowCounts();
+    const { handle } = handlerFor({ kind: 'invalid', reason: 'not JSON' });
+
+    const reply = await send(handle, '23 cena');
+
+    expect(reply.text).toBe(
+      'Algo ha fallado y no he podido procesar tu mensaje. ¿Me lo vuelves a enviar en un rato?',
+    );
+    expect(rowCounts()).toEqual(before);
+  });
 
   it.each([
     {

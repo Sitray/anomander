@@ -27,7 +27,11 @@ export const withRetry =
         return response;
       }
       const delayMs = BASE_DELAY_MS * 2 ** (attempt - 1);
-      logger.warn('The processor had a transient error; retrying', { attempt, delayMs });
+      logger.warn('The processor had a transient error; retrying', {
+        attempt,
+        delayMs,
+        reason: response.errorMessage,
+      });
       await sleep(delayMs);
     }
   };

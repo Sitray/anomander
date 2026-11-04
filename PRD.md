@@ -316,7 +316,7 @@ Code checks every proposed receipt expense.
 
 ### R-14 Processor isolation
 - AC1: The processor never writes to the database. It returns inferences and proposals; only deterministic code persists rows: `packages/core` decides, and the daemon stores what it decided.
-- AC2: Any processor output claiming mode `observed`, `declared` or `confirmed` is rejected and logged.
+- AC2: Any processor output claiming mode `observed`, `declared` or `confirmed` is rejected and logged. The log names only the reason and the predicate, never the item: it can quote the message, the receipt or the correction.
 - AC3: The processor is called through `@earendil-works/pi-ai` (`complete()` with text and image content) and is given no tools: no shell, no file system, no payments, transfers, permissions or deleting data. A test asserts that no processor call passes tools.
 
 ### R-15 Replaceable providers
@@ -332,7 +332,7 @@ Code checks every proposed receipt expense.
 ### R-17 Message routing
 Every incoming message has exactly one destination, decided by code in this order.
 - AC1: A button press carries its pending decision ID in the callback data and goes to that decision. If the decision is not `open` or `awaiting_text`, the reply is S-19 and nothing changes.
-- AC2: A text sent as a Telegram reply to a decision's message is a correction for that decision (R-7).
+- AC2: A text sent as a Telegram reply to a decision's message is a correction for that decision (R-7). A reply that corrects nothing gets S-7 and the decision stays as it was: only "Corregir" makes it `awaiting_text` (R-7 AC1), so an `open` decision stays `open` and the next text is routed as usual.
 - AC3: Otherwise, if a decision is `awaiting_text`, the text is a correction for it. At most one decision is `awaiting_text` at a time: pressing "Corregir" on another decision moves it back to `open`.
 - AC4: Photos and image files always start a new receipt (R-3) and never answer a decision, even while one is `awaiting_text`.
 - AC5: Any other text goes to the processor, which classifies it as an expense (R-2), a policy (R-13), a new category (R-18), a capability call (R-24) or conversation (R-16).
@@ -351,6 +351,7 @@ A deterministic job, the internal **retain** operation, runs at `ANOMANDER_RETEN
 - AC2: Pending decisions still `open` 7 days after `created_at` become `expired`, their proposal becomes `rejected`, and their pending expense becomes `refuted`, so no current expense remains.
 - AC3: Queued receipts past `keep_until` are handled as in R-8 AC5.
 - AC4: Running the job twice in a row changes nothing the second time.
+- AC5: A receipt that an earlier run of the daemon left `'queued'` without `keep_until` (it stopped while reading it) is abandoned: the principal receives S-5, then its images are deleted and `documents.status` becomes `'unreadable'` with `image_deleted_at` set. A receipt received by the running daemon is never abandoned, since it may still be being read.
 
 ### R-20 Supported inputs
 | Input | Behaviour |
@@ -376,7 +377,7 @@ The assistant may word its confirmations in its own voice; the facts in them alw
 
 ### R-22 Failure reply
 The principal always gets an answer.
-- AC1: If handling a principal message fails before anything is stored (the processor errors or does not answer within its timeout, or an internal error), the reply is S-22, verbatim, and the error is logged.
+- AC1: If handling a principal message fails before anything is stored (the processor errors or does not answer within its timeout, or an internal error), the reply is S-22, verbatim, and the error is logged. A processor answer code cannot use (not the expected JSON, or a category or policy naming words the principal did not write, R-5 AC3) is handled the same way; S-16 is only for an amount that is not written (R-2 AC6).
 - AC2: Every processor call has a timeout, so a model that does not answer never blocks later messages.
 - AC3: A processor call that fails with a transient provider error (overloaded or rate limited, as pi-ai classifies it) is retried twice, after 1 and then 2 seconds, before it counts as failed. Each retry is one more call against the daily AI budget (R-12), and none is made once the budget is spent.
 
@@ -879,6 +880,7 @@ Checks every feature document should run:
 - Nothing personal in the repository: expenses, categories, policies and permissions live in the local database; tokens and keys live in `.env`.
 - Providers are chosen at install time; the core assumes none.
 - Receipt images leave the server only while being read by the configured vision model, and are deleted afterwards (R-8).
+- The data folder, the database and the receipt images are readable by their owner only: the daemon creates folders with mode `700` and files with mode `600`. A folder or database that already exists keeps its mode.
 - The ontology in `docs/` is the public specification: contributions must respect it, and any app can be built on it.
 - `SECURITY.md` explains how to report vulnerabilities. `CONTRIBUTING.md` points to the ODD workflow.
 

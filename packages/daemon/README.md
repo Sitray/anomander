@@ -14,7 +14,8 @@ principal sent, such as `23 € cena`. Each step enforces a PRD rule:
    request or a policy (R-17 AC5, see "Categories" and "Policies and patterns" below) and returns
    inferences only.
 2. **Conversation.** It gets the processor's reply and nothing is stored (R-16).
-3. **Unusable response.** It is logged and answered with S-16; nothing is stored (A3).
+3. **Unusable response.** It is logged and answered with S-22, verbatim; nothing is stored
+   (R-22 AC1).
 4. **Amount.** The inferred `total` is accepted only if the principal wrote it literally, in one
    of the forms `23`, `23,40`, `23.40`, `23€`, `23 €`, `€23` (`isLiteralAmount`, R-2 AC5 and
    AC6). Otherwise the reply is S-16 and nothing is stored.
@@ -130,8 +131,10 @@ accepted value is a `declared` assertion by the principal whose `supersedes_id` 
 assertion it corrects, which becomes `refuted`; the expense takes the new value (a corrected category gets `category_basis
 'declared'`). The corrected expense is then registered as on "Apuntar", with the first
 declaration as `answer_assertion_id`, and the reply is S-8, verbatim, from the row read back
-(R-21 AC3). If nothing usable was written, the reply is S-7 again and the decision keeps
-waiting.
+(R-21 AC3). If nothing usable was written, the reply is S-7 again (S-22 if the processor
+failed, S-26 past the budget) and the decision is left as it was: one `awaiting_text` keeps
+waiting, and one answered by a Telegram reply (such as `vale`) stays `open`, so the next
+unrelated text is not taken as its correction. Only "Corregir" makes a decision wait (R-17 AC2).
 
 ## The daily AI budget, the queue and retention
 
@@ -160,7 +163,13 @@ becomes `discarded` with `image_deleted_at`.
 **Retention job (R-19).** `createRetention().retain` expires `current` inferences older than 30
 days that no current expense or its purchase lines rest on (AC1), and `open` decisions older than
 7 days, rejecting their proposal and refuting a provisional `pending` expense (AC2). It also
-handles expired queued receipts (AC3). It only changes `status` columns and deletes temporary
+handles expired queued receipts (AC3). A receipt stays `queued` without `keep_until` only while
+it is being read, so one left that way by an earlier run (the daemon stopped mid-read) is
+abandoned: S-5, then its images are deleted and it becomes `unreadable` with `image_deleted_at`
+(AC5). "Earlier run" means its `images_received` observation was created before
+`createRetention` was called; `received_at` cannot tell, because a photo sent while the daemon
+was down arrives after the restart, possibly while the startup run is going. The startup run
+finds them; later runs find none. It only changes `status` columns and deletes temporary
 images; a second run changes nothing (AC4).
 
 **Weekly summary (R-10).** `createWeeklySummary().send` (`src/summary/weekly-summary.ts`) covers
@@ -189,7 +198,8 @@ each retry consumes one more call of the daily budget, and none is made past it 
 `app.ts` the timeout wraps the raw call first, so each attempt has its own, then the retry,
 then the budget. An interpreter that gets a
 thrown or failed call returns `failed` (not `invalid`), and the handler replies S-22 verbatim
-without storing anything; a failed correction keeps the decision waiting for the text (AC1).
+without storing anything; a failed correction leaves the decision as it was, so one waiting
+for the text keeps waiting (AC1).
 The front door replies S-22 too when a handler throws. A receipt is stored before it is read,
 so a failed reading is S-5, as before.
 
@@ -274,7 +284,7 @@ one (R-5 AC3).
 `{"kind":"category","name":"gasolina","reply":"..."}`: the name as the principal wrote it, and S-36
 worded in the same call. The text handler accepts the name only if the principal wrote it
 (`writtenIn`); otherwise it is logged without the message and answered like any unusable response
-(S-16). The name is lowercased (AC2). If the category already exists, it is not proposed again:
+(S-22). The name is lowercased (AC2). If the category already exists, it is not proposed again:
 the reply is the interpreter's wording of S-36, checked with `checkedPhrasing` (the R-21 AC2 checks
 of `src/processor/reply-phraser.ts`, with the name as the fact), or S-36 verbatim. Otherwise
 `openCreateCategoryDecision` stores a `create_category` proposal (`asked`, in the "Keep my
@@ -308,7 +318,7 @@ processor and code may only propose one, and it is stored only after `Sí`.
 **Stating a rule (AC1).** For `Mercadona es supermercado`, the interpreter answers
 `{"kind":"policy","merchant":"Mercadona","category":"supermercado","reply":"..."}`. The text
 handler accepts it only if the principal wrote both names (`writtenIn`); otherwise it is logged
-without the message and answered with S-16, like any unusable response. A category that does not
+without the message and answered with S-22, like any unusable response. A category that does not
 exist is asked with S-15 first (R-18; the rule itself is not proposed, so the principal states it
 again once the category exists). A rule already active is not asked again: the reply is the
 interpreter's wording of S-39, checked with `checkedPhrasing` (merchant and category as the facts),
@@ -396,7 +406,9 @@ goes through `validateProcessorOutput`, and each predicate's value through Zod: 
 `occurred_on` (a calendar date), `total` (positive cents), `line` (`{ name, quantity,
 amount_cents }`), and optionally `category`, `declared_category` and `declared_merchant` (from
 the caption). Any rejected item, a repeated predicate, or a missing merchant, date, total or
-line makes the receipt unreadable (R-3 AC2, R-14 AC2).
+line makes the receipt unreadable (R-3 AC2, R-14 AC2). In every interpreter a rejected item is
+logged with only its reason and predicate, never the item itself, which can quote the message,
+the receipt or the correction (R-14 AC2).
 
 Contract tests run on recorded responses in `test/fixtures/text-interpreter/` and
 `test/fixtures/receipt-reader/`, one pi-ai
@@ -541,9 +553,16 @@ expected kind and fields for the cases in `evals/text/cases.json`, also out of g
 - The processor never writes. It returns inferences; only this package persists rows
   (R-14 AC1).
 - Receipt images live on disk only until they are read (R-8 AC1), under generated names.
+- What the daemon creates on disk is its owner's alone (PRD §16): `openDatabase` creates a
+  missing data folder with mode 700 and a missing database file with mode 600 before SQLite
+  opens it, and SQLite gives `-wal` and `-shm` the database file's mode; receipt folders are 700
+  and images 600. Existing folders and files keep their mode, so a database created before this
+  rule (or a folder made by the Dockerfile) needs a manual `chmod`.
 - Every assertion goes through `assertionDraftSchema` before it is inserted (§7.2), and the
   ledger is append-only except `status` (R-7 AC3, enforced by triggers).
 - The reply is built from the stored row, never from the proposal (R-9 AC1).
+- Message, receipt, correction, memory and reminder text is never logged; a rejected processor
+  item is logged by its reason and predicate only (R-14 AC2).
 - Tokens and what the principal pastes during a login are never logged, stored outside
   `ANOMANDER_AUTH_PATH` or sent to the chat (R-27 AC3, AC5).
 - Bot text comes from `strings` in `@anomander/protocol`, except the processor's

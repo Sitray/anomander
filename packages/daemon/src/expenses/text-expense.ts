@@ -78,7 +78,10 @@ export const createTextExpenseHandler = (deps: TextExpenseDeps): TextHandler => 
   return async (message) => {
     const phrase = (reference: string, facts: string[]) =>
       phraser({ reference, facts, message: message.text });
+    // R-2 AC6: S-16 is only for an amount the principal did not write clearly.
     const unclearAmount = async () => ({ text: await phrase(strings.unclearAmount(), []) });
+    // R-22 AC1, R-24 AC2: a processor answer code cannot use is a failure: S-22, verbatim.
+    const unusable = () => ({ text: strings.processingFailed() });
     /** S-15 as a pending decision (R-18 AC1, AC3); its message is recorded once delivered. */
     const askToCreate = (name: string, expenseId: number | null) => {
       const options = [buttons.yes, buttons.no];
@@ -178,7 +181,7 @@ export const createTextExpenseHandler = (deps: TextExpenseDeps): TextHandler => 
         logger.warn('category name not written in the message; not proposed', {
           channelRef: message.channelRef,
         });
-        return unclearAmount();
+        return unusable();
       }
       const name = interpretation.name.toLowerCase();
       if (categories.includes(name)) {
@@ -200,7 +203,7 @@ export const createTextExpenseHandler = (deps: TextExpenseDeps): TextHandler => 
         logger.warn('policy merchant or category not written in the message; not proposed', {
           channelRef: message.channelRef,
         });
-        return unclearAmount();
+        return unusable();
       }
       const category = interpretation.category.toLowerCase();
       if (!categories.includes(category)) {
@@ -247,7 +250,7 @@ export const createTextExpenseHandler = (deps: TextExpenseDeps): TextHandler => 
         channelRef: message.channelRef,
         reason: interpretation.reason,
       });
-      return unclearAmount();
+      return unusable();
     }
 
     remember(interpretation.memories);

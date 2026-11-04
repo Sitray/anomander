@@ -125,8 +125,14 @@ const unreadable = (reason: string): ReceiptReading => ({ kind: 'unreadable', re
 const toReading = (items: readonly unknown[], logger: Logger): ReceiptReading => {
   const { accepted, rejected } = validateProcessorOutput(items);
   // R-14 AC2: rejected and logged; a receipt with an invalid item is not trusted at all.
-  for (const { item, reason } of rejected)
-    logger.warn('processor output rejected', { reason, item });
+  // §16: a rejected item quotes the receipt, so only its reason and predicate are logged.
+  for (const { item, reason } of rejected) {
+    const predicate = (item as { predicate?: unknown } | null)?.predicate;
+    logger.warn('processor output rejected', {
+      reason,
+      predicate: typeof predicate === 'string' ? predicate : null,
+    });
+  }
   if (rejected.length > 0) return unreadable('processor output rejected');
 
   const found = new Map<Predicate, Inferred<unknown>[]>();
@@ -137,7 +143,10 @@ const toReading = (items: readonly unknown[], logger: Logger): ReceiptReading =>
     }
     const value = valueSchemas[inference.predicate].safeParse(inference.value_json);
     if (!value.success) {
-      logger.warn('processor output rejected', { reason: 'invalid_value', item: inference });
+      logger.warn('processor output rejected', {
+        reason: 'invalid_value',
+        predicate: inference.predicate,
+      });
       return unreadable(`invalid ${inference.predicate}`);
     }
     found.set(inference.predicate, [

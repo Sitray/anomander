@@ -42,7 +42,11 @@ const configWith = (env: Record<string, string>) =>
 const MODELS = { ANOMANDER_MODEL: 'openai/gpt-5.5', ANOMANDER_VISION_MODEL: 'openai/gpt-5.5' };
 
 /** The full daemon, whose connection gaps come from the providers in `connected`. */
-const startConnected = async (connected: Set<string>) => {
+const startConnected = (connected: Set<string>) =>
+  startChecking(async (providerId) => (connected.has(providerId) ? { type: 'oauth' } : undefined));
+
+/** The full daemon, checking the `openai` connection with `checkAuth`. */
+const startChecking = async (checkAuth: (providerId: string) => Promise<unknown>) => {
   const config = configWith(MODELS);
   anomander = startAnomander(config, {
     complete,
@@ -50,7 +54,7 @@ const startConnected = async (connected: Set<string>) => {
     visionModel: 'openai/gpt-5.5',
     setupGaps: createConnectionGaps({
       providerIds: ['openai'],
-      checkAuth: async (providerId) => (connected.has(providerId) ? { type: 'oauth' } : undefined),
+      checkAuth,
       logger,
     }),
     telegramApiRoot: api.apiRoot,
@@ -126,10 +130,13 @@ describe('/start and the setup guide (R-28)', () => {
     const connected = new Set<string>();
     await startConnected(connected);
 
-    expect((await api.waitForSent(1))[0]?.text).toBe(UNCONNECTED_GUIDE);
+    const [guide] = await api.waitForSent(1);
+    expect(guide?.text).toBe(UNCONNECTED_GUIDE);
     expect(warned()).toEqual([
       'setup incomplete: provider openai has no login and no API key: use /login or set its key',
     ]);
+    const pressed = updates.callbackQuery(principal, 'decision:1:0', guide?.messageId ?? 0);
+    expect((await next(pressed)).text).toBe(UNCONNECTED_GUIDE);
     expect((await next(updates.text(principal, '/start'))).text).toBe(UNCONNECTED_GUIDE);
     expect((await next(updates.text(principal, 'hola, ¿qué tal?'))).text).toBe(UNCONNECTED_GUIDE);
     expect((await next(updates.photo(principal))).text).toBe(UNCONNECTED_GUIDE);
@@ -137,6 +144,16 @@ describe('/start and the setup guide (R-28)', () => {
 
     connected.add('openai');
     expect((await next(updates.text(principal, '/start'))).text).toBe('¡Hola!');
+  });
+
+  it('AC2: a provider whose check fails is not a gap: the processor call reports the failure', async () => {
+    await startChecking(async () => {
+      throw new Error('the credential file is unreadable');
+    });
+
+    expect((await next(updates.text(principal, '/start'))).text).toBe('¡Hola!');
+    // Checked at start and for /start; the startup check may finish after the reply.
+    expect(new Set(warned())).toEqual(new Set(['Could not check a provider connection']));
   });
 
   it('AC2, AC3: with no model set, the setup guide answers everything but /login and runs no processor', async () => {
