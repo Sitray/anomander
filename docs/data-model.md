@@ -265,6 +265,18 @@ CREATE INDEX reminders_due ON reminders (due_at) WHERE status = 'pending' AND du
 
 In `recurrence_json`, `freq` is `daily`, `weekly` with `days` (1 Monday to 7 Sunday) or `monthly` with `day` (1 to 31); `time` is local `HH:mm` in `TZ`. A repeating reminder's `due_at` is always its next occurrence.
 
+The morning digest (PRD R-26) needs no table for its permission: the principal's "Sí" to S-53 inserts a row in `permissions` with operation `send_morning_digest` and `conditions_json` `{"time": "HH:mm"}` (local time in `TZ`), revoking the earlier one, and turning it off sets `revoked_at`. The days it was sent are added by the migration `0006_digest_sends.sql`:
+
+```sql
+-- Morning digest (R-26 AC6): one row per day it was sent, so it is never sent twice
+CREATE TABLE digest_sends (
+  day TEXT PRIMARY KEY,             -- 'YYYY-MM-DD' in TZ
+  sent_at TEXT NOT NULL
+);
+```
+
+A row is written only after the digest's send succeeded, so a failed one is tried again on the next minute. A day when every part of the digest is empty sends nothing but gets its row all the same: its digest was the empty one, so something added later that morning does not bring a late "Buenos días". The table holds no digest text.
+
 Schema decisions:
 
 - **Money is stored in cents** (`INTEGER`), never as decimals, so that sums add up exactly.
@@ -272,6 +284,7 @@ Schema decisions:
 - **A confirmation points at what it confirms** (`confirms_id`). Its actor is `principal` when I confirm, or `code` when a deterministic check corroborates the assertion.
 - **Receipt images are temporary.** `documents.status` and `keep_until` track the queue used when the daily AI budget runs out (PRD R-8, R-12). A `queued` document without `keep_until` is being read; one left that way by an earlier run is abandoned at startup (PRD R-19 AC5).
 - **Reminders keep their time in UTC and their repetition in local time.** `due_at` is the next instant to send, so the every-minute send reads one indexed column; `recurrence_json.time` stays local in `TZ`, so a daily 9:00 is still 9:00 after a daylight-saving change (PRD R-25).
+- **Permissions say what the principal authorized, not what code may decide.** The morning digest's time is a condition of its permission, so a new time is a new permission the principal grants with "Sí", never an edit of the old row (PRD R-26 AC3, §8.1).
 - **The daily AI budget is counted in the database** (`ai_usage`, one row per day in `TZ`), so a restart does not reset it, and `limit_notified` makes the limit notice go out once a day (PRD R-12).
 - **At most one pending decision waits for my text** (`awaiting_text`), enforced by a partial unique index (PRD R-17).
 - **The database does not stop the processor from writing "confirmed"; the code does.** The processor never writes directly: it returns inferences and proposals, and only the code that checks authority turns them into rows.
