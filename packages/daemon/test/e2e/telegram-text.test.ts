@@ -35,11 +35,22 @@ let interpreted: { recent: unknown; memories: unknown; message: string }[];
 let interpretations: Map<string, AssistantMessage>;
 /** How many reply-phraser calls were made. */
 let phrasings: number;
+/** How many text interpreter calls fail first with a transient 503. */
+let unavailable: number;
 
 const complete = async (_model: string, context: Context) => {
   if (!processorAnswers) return new Promise<never>(() => {});
   const phrasing = context.systemPrompt === REPLY_PHRASER_PROMPT;
   if (phrasing) phrasings += 1;
+  if (!phrasing && unavailable > 0) {
+    unavailable -= 1;
+    return {
+      ...recorded('conversation'),
+      content: [],
+      stopReason: 'error' as const,
+      errorMessage: '503 Service Unavailable: the model is experiencing high demand',
+    };
+  }
   const [turn] = context.messages;
   let reply = recorded('expense-23-space-euro');
   if (!phrasing && turn?.role === 'user' && typeof turn.content === 'string') {
@@ -100,6 +111,7 @@ beforeEach(async () => {
   interpreted = [];
   interpretations = new Map();
   phrasings = 0;
+  unavailable = 0;
   await start();
 });
 
@@ -119,6 +131,28 @@ const query = <T>(sql: string): T[] => {
 };
 
 describe('a text expense over Telegram', () => {
+  it('R-28 AC1: /start replies S-69 and is not a recent turn of the next message', async () => {
+    api.push(updates.text({ chatId: PRINCIPAL }, '/start'));
+    expect((await api.waitForSent(1))[0]?.text).toBe('¡Hola!');
+
+    api.push(updates.text({ chatId: PRINCIPAL }, '23 € cena'));
+    await api.waitForSent(2);
+    expect(interpreted.map(({ message, recent }) => ({ message, recent }))).toEqual([
+      { message: '23 € cena', recent: [] },
+    ]);
+  });
+
+  it('R-22 AC3: retries a transient 503 and counts the retry against the daily AI budget', async () => {
+    unavailable = 1;
+    api.push(updates.text({ chatId: PRINCIPAL }, '23 € cena'));
+
+    const [reply] = await api.waitForSent(1, 5000);
+    expect(reply?.text).toBe(PHRASED);
+    expect(interpreted).toHaveLength(1);
+    // The failed interpretation, its retry and the phrasing: three calls (R-12).
+    expect(query<{ calls: number }>('SELECT calls FROM ai_usage')).toEqual([{ calls: 3 }]);
+  });
+
   it('registers "23 € cena", replies in the assistant voice and records the delivery', async () => {
     api.push(updates.text({ chatId: PRINCIPAL }, '23 € cena'));
 

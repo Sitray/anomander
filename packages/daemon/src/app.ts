@@ -342,7 +342,10 @@ export const startAnomander = <M>(config: Config, deps: AnomanderDeps<M>): Anoma
 
   const started = polling(bot);
   started.then(
-    async () => announceGaps(await setupGaps(), send, logger),
+    () =>
+      setupGaps()
+        .then((gaps) => announceGaps(gaps, send, logger))
+        .catch((error: unknown) => logger.error('Could not check the setup', { error })),
     () => {},
   );
 

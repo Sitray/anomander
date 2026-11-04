@@ -251,6 +251,15 @@ describe('model login from Telegram (R-27)', () => {
     expect(interpreted.map(({ message }) => message)).toEqual(['hola']);
   });
 
+  it('AC1: a button of an account no longer offered starts no login and replies S-19', async () => {
+    const choose = await next(updates.text(principal, '/login'));
+
+    expect((await next(press('login:anthropic', choose))).text).toBe(
+      'Esa pregunta ya no está abierta.',
+    );
+    expect(interactions).toEqual([]);
+  });
+
   it('AC4: /login during a login abandons the running one first', async () => {
     const choose = await next(updates.text(principal, '/login'));
     await next(press('login:openai', choose));
