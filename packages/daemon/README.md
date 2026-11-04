@@ -396,7 +396,9 @@ goes through `validateProcessorOutput`, and each predicate's value through Zod: 
 `occurred_on` (a calendar date), `total` (positive cents), `line` (`{ name, quantity,
 amount_cents }`), and optionally `category`, `declared_category` and `declared_merchant` (from
 the caption). Any rejected item, a repeated predicate, or a missing merchant, date, total or
-line makes the receipt unreadable (R-3 AC2, R-14 AC2).
+line makes the receipt unreadable (R-3 AC2, R-14 AC2). In every interpreter a rejected item is
+logged with only its reason and predicate, never the item itself, which can quote the message,
+the receipt or the correction (R-14 AC2).
 
 Contract tests run on recorded responses in `test/fixtures/text-interpreter/` and
 `test/fixtures/receipt-reader/`, one pi-ai
@@ -544,6 +546,8 @@ expected kind and fields for the cases in `evals/text/cases.json`, also out of g
 - Every assertion goes through `assertionDraftSchema` before it is inserted (§7.2), and the
   ledger is append-only except `status` (R-7 AC3, enforced by triggers).
 - The reply is built from the stored row, never from the proposal (R-9 AC1).
+- Message, receipt, correction, memory and reminder text is never logged; a rejected processor
+  item is logged by its reason and predicate only (R-14 AC2).
 - Tokens and what the principal pastes during a login are never logged, stored outside
   `ANOMANDER_AUTH_PATH` or sent to the chat (R-27 AC3, AC5).
 - Bot text comes from `strings` in `@anomander/protocol`, except the processor's

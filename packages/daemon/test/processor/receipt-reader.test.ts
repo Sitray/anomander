@@ -68,4 +68,48 @@ describe('pi-ai receipt reader', () => {
       basis_json: expect.anything(),
     });
   });
+
+  // R-14 AC2 and §16: a rejected item quotes the receipt, so only its reason and predicate are
+  // logged, as the text interpreter does (R-23 AC8).
+  it.each([
+    ['claims to be a declaration', { mode: 'declared', value_json: 'Casa Secreta' }],
+    ['has an invalid value', { mode: 'inferred', value_json: '' }],
+  ])('logs a rejected item that %s without its text (R-14 AC2)', async (_, item) => {
+    const answer: AssistantMessage = {
+      ...recorded('adds-up'),
+      content: [
+        {
+          type: 'text',
+          text: JSON.stringify({
+            kind: 'receipt',
+            inferences: [
+              {
+                subject_type: 'expense',
+                subject_id: null,
+                predicate: 'merchant',
+                basis_json: { quote: 'CASA SECRETA' },
+                confidence: 0.9,
+                ...item,
+              },
+            ],
+          }),
+        },
+      ],
+    };
+    const logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn() };
+    const read = createPiAiReceiptReader({
+      complete: async () => answer,
+      model: VISION_MODEL,
+      logger,
+    });
+
+    const reading = await read({ images: [], caption: null, today: '2026-10-30', categories: [] });
+
+    expect(reading.kind).toBe('unreadable');
+    expect(logger.warn).toHaveBeenCalledWith(
+      'processor output rejected',
+      expect.objectContaining({ predicate: 'merchant' }),
+    );
+    expect(JSON.stringify(logger.warn.mock.calls)).not.toMatch(/secreta|"item"/i);
+  });
 });

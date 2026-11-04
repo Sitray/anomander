@@ -126,8 +126,13 @@ export const createPiAiCorrectionInterpreter =
       if (!known) rejected.push({ item: inference, reason: 'unknown_subject_or_predicate' });
       return known;
     });
+    // §16: a rejected item quotes the correction, so only its reason and predicate are logged.
     for (const { item, reason } of rejected) {
-      logger.warn('processor output rejected', { reason, item });
+      const predicate = (item as { predicate?: unknown } | null)?.predicate;
+      logger.warn('processor output rejected', {
+        reason,
+        predicate: typeof predicate === 'string' ? predicate : null,
+      });
     }
     return { kind: 'correction', inferences };
   };

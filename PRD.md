@@ -316,7 +316,7 @@ Code checks every proposed receipt expense.
 
 ### R-14 Processor isolation
 - AC1: The processor never writes to the database. It returns inferences and proposals; only deterministic code persists rows: `packages/core` decides, and the daemon stores what it decided.
-- AC2: Any processor output claiming mode `observed`, `declared` or `confirmed` is rejected and logged.
+- AC2: Any processor output claiming mode `observed`, `declared` or `confirmed` is rejected and logged. The log names only the reason and the predicate, never the item: it can quote the message, the receipt or the correction.
 - AC3: The processor is called through `@earendil-works/pi-ai` (`complete()` with text and image content) and is given no tools: no shell, no file system, no payments, transfers, permissions or deleting data. A test asserts that no processor call passes tools.
 
 ### R-15 Replaceable providers
