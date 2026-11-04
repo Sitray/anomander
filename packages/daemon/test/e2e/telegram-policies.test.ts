@@ -326,7 +326,9 @@ describe('policies over Telegram (R-13 AC1)', () => {
 
     const [reply] = await say('el súper de siempre es supermercado');
 
-    expect(reply?.text).toBe('No tengo claro el importe. ¿Me lo escribes? Por ejemplo: 23,40');
+    expect(reply?.text).toBe(
+      'Algo ha fallado y no he podido procesar tu mensaje. ¿Me lo vuelves a enviar en un rato?',
+    );
     expect(reply?.payload.reply_markup).toBeUndefined();
     expect(query('SELECT id FROM proposals')).toEqual([]);
   });

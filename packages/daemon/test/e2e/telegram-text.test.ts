@@ -505,7 +505,9 @@ describe('categories over Telegram (R-18)', () => {
 
     const reply = await say('crea una categoría para el coche');
 
-    expect(reply?.text).toBe('No tengo claro el importe. ¿Me lo escribes? Por ejemplo: 23,40');
+    expect(reply?.text).toBe(
+      'Algo ha fallado y no he podido procesar tu mensaje. ¿Me lo vuelves a enviar en un rato?',
+    );
     expect(reply?.payload.reply_markup).toBeUndefined();
     expect(query('SELECT id FROM proposals')).toEqual([]);
     expect(categories()).toEqual([{ name: 'restaurantes' }, { name: 'supermercado' }]);

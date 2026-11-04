@@ -377,7 +377,7 @@ The assistant may word its confirmations in its own voice; the facts in them alw
 
 ### R-22 Failure reply
 The principal always gets an answer.
-- AC1: If handling a principal message fails before anything is stored (the processor errors or does not answer within its timeout, or an internal error), the reply is S-22, verbatim, and the error is logged.
+- AC1: If handling a principal message fails before anything is stored (the processor errors or does not answer within its timeout, or an internal error), the reply is S-22, verbatim, and the error is logged. A processor answer code cannot use (not the expected JSON, or a category or policy naming words the principal did not write, R-5 AC3) is handled the same way; S-16 is only for an amount that is not written (R-2 AC6).
 - AC2: Every processor call has a timeout, so a model that does not answer never blocks later messages.
 - AC3: A processor call that fails with a transient provider error (overloaded or rate limited, as pi-ai classifies it) is retried twice, after 1 and then 2 seconds, before it counts as failed. Each retry is one more call against the daily AI budget (R-12), and none is made once the budget is spent.
 

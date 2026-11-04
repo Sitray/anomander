@@ -14,7 +14,8 @@ principal sent, such as `23 € cena`. Each step enforces a PRD rule:
    request or a policy (R-17 AC5, see "Categories" and "Policies and patterns" below) and returns
    inferences only.
 2. **Conversation.** It gets the processor's reply and nothing is stored (R-16).
-3. **Unusable response.** It is logged and answered with S-16; nothing is stored (A3).
+3. **Unusable response.** It is logged and answered with S-22, verbatim; nothing is stored
+   (R-22 AC1).
 4. **Amount.** The inferred `total` is accepted only if the principal wrote it literally, in one
    of the forms `23`, `23,40`, `23.40`, `23€`, `23 €`, `€23` (`isLiteralAmount`, R-2 AC5 and
    AC6). Otherwise the reply is S-16 and nothing is stored.
@@ -280,7 +281,7 @@ one (R-5 AC3).
 `{"kind":"category","name":"gasolina","reply":"..."}`: the name as the principal wrote it, and S-36
 worded in the same call. The text handler accepts the name only if the principal wrote it
 (`writtenIn`); otherwise it is logged without the message and answered like any unusable response
-(S-16). The name is lowercased (AC2). If the category already exists, it is not proposed again:
+(S-22). The name is lowercased (AC2). If the category already exists, it is not proposed again:
 the reply is the interpreter's wording of S-36, checked with `checkedPhrasing` (the R-21 AC2 checks
 of `src/processor/reply-phraser.ts`, with the name as the fact), or S-36 verbatim. Otherwise
 `openCreateCategoryDecision` stores a `create_category` proposal (`asked`, in the "Keep my
@@ -314,7 +315,7 @@ processor and code may only propose one, and it is stored only after `Sí`.
 **Stating a rule (AC1).** For `Mercadona es supermercado`, the interpreter answers
 `{"kind":"policy","merchant":"Mercadona","category":"supermercado","reply":"..."}`. The text
 handler accepts it only if the principal wrote both names (`writtenIn`); otherwise it is logged
-without the message and answered with S-16, like any unusable response. A category that does not
+without the message and answered with S-22, like any unusable response. A category that does not
 exist is asked with S-15 first (R-18; the rule itself is not proposed, so the principal states it
 again once the category exists). A rule already active is not asked again: the reply is the
 interpreter's wording of S-39, checked with `checkedPhrasing` (merchant and category as the facts),
