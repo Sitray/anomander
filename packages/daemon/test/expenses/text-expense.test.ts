@@ -400,6 +400,7 @@ describe('text expense handler', () => {
 
     const logged = JSON.stringify([...logger.info.mock.calls, ...logger.warn.mock.calls]);
     expect(logged).toContain('declared category not written in the message; ignored');
+    expect(logged).toContain('processor date is not a calendar date; using today');
     expect(logged).not.toContain('cumpleaños');
     expect(logged).not.toContain('Ana');
   });
