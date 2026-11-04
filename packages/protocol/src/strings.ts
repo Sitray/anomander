@@ -21,6 +21,12 @@ const atTime = (time: string): string => {
   return `${hour === 1 ? 'a la' : 'a las'} ${hour}:${minutes}`;
 };
 
+/** R-26 AC5: S-57's `{hora}`, `07:30 → 7:30`. `time` is `HH:mm`. */
+const clock = (time: string): string => {
+  const [hours = '0', minutes = '00'] = time.split(':');
+  return `${Number(hours)}:${minutes}`;
+};
+
 /** `['a', 'b', 'c']` → `a, b y c`. */
 const joined = (items: readonly string[]): string =>
   items.length <= 1 ? (items[0] ?? '') : `${items.slice(0, -1).join(', ')} y ${items.at(-1)}`;
@@ -77,6 +83,16 @@ const lines = (header: string, items: readonly string[]): string => [header, ...
 export interface PendingItem {
   text: string;
   when: string | null;
+}
+
+/** What the morning digest holds (R-26 AC5). */
+export interface MorningDigest {
+  /** Today's pending reminders from now on, soonest first; `time` is local `HH:mm`. */
+  today: readonly { time: string; text: string }[];
+  /** Every pending task, oldest first. */
+  tasks: readonly string[];
+  /** The number of expenses whose status is `pending`. */
+  pendingExpenses: number;
 }
 
 /** S-44 and S-46: `· {texto} ({cuando})` for a reminder, `· {texto}` for a task. */
@@ -193,6 +209,32 @@ export const strings = {
   nothingPendingMatches: () => 'No encuentro nada así en tus pendientes.',
   /** S-50: the texts joined with `, ` and ` y ` before the last one. */
   markedDone: (texts: readonly string[]) => `Hecho: ${joined(texts)}.`,
+  /** S-53, with `time` as `HH:mm` (R-26 AC1, AC3). */
+  confirmDigest: (time: string) =>
+    `¿Te mando cada mañana ${atTime(time)} un resumen con tus recordatorios del día, tus pendientes y los gastos por confirmar?`,
+  /** S-54: the reply to "Sí" to S-53 (R-26 AC2). */
+  digestOn: (time: string) => `Hecho: te lo mando cada mañana ${atTime(time)}.`,
+  /** S-55. */
+  digestNotOn: () => 'Vale, no te lo mando.',
+  /** S-56 (R-26 AC4). */
+  digestOff: () => 'Hecho, ya no te mando el resumen de la mañana.',
+  /**
+   * S-57: `Buenos días.`, then only the parts that have something (R-26 AC5). The caller sends
+   * nothing when every part is empty.
+   */
+  morningDigest: ({ today, tasks, pendingExpenses }: MorningDigest) =>
+    [
+      'Buenos días.',
+      ...(today.length === 0
+        ? []
+        : ['Hoy:', ...today.map(({ time, text }) => `· ${clock(time)} ${text}`)]),
+      ...(tasks.length === 0 ? [] : ['Pendientes:', ...tasks.map((text) => `· ${text}`)]),
+      ...(pendingExpenses === 0 ? [] : [`Gastos por confirmar: ${pendingExpenses}`]),
+    ].join('\n'),
+  /** S-58. */
+  digestWasOff: () => 'No tenía activado el resumen de la mañana.',
+  /** S-59: the time asked for is the one already active (R-26 AC3). */
+  digestAlreadyOn: (time: string) => `Ya te lo mando cada mañana ${atTime(time)}.`,
   /** S-60: the `/login` reply, with one button per account (R-27 AC1). */
   chooseLoginAccount: () => '¿Con qué cuenta me conecto?',
   /** S-62: ChatGPT's login, whose redirect fails on a phone (R-27 AC2). */
@@ -227,7 +269,7 @@ export const strings = {
 } as const;
 
 /**
- * PRD §12 button labels (R-6 AC3; S-11, S-12, S-13, S-15, S-29 and S-46 use `Sí` and `No`; S-60
+ * PRD §12 button labels (R-6 AC3; S-11, S-12, S-13, S-15, S-29, S-46 and S-53 use `Sí` and `No`; S-60
  * and S-66 one account each, and S-66 also the accounts no longer offered for login; S-62 and S-63 `Abrir`, a link).
  */
 export const buttons = {

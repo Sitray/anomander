@@ -259,3 +259,14 @@ describe('0005_reminders.sql', () => {
     expect(readFileSync(resolve(MIGRATIONS_DIR, '0005_reminders.sql'), 'utf8')).toBe(block);
   });
 });
+
+// PRD §13: the morning digest's sends (R-26 AC6) are the fifth SQL block of the data model.
+describe('0006_digest_sends.sql', () => {
+  it('equals the fifth SQL block of PRD §13', () => {
+    const prd = readFileSync(resolve(import.meta.dirname, '../../../../PRD.md'), 'utf8');
+    const section = prd.split('## 13. Data model')[1]?.split('\n## ')[0] ?? '';
+    const block = section.split('```sql\n')[5]?.split('```')[0] ?? '';
+    expect(block).toContain('CREATE TABLE digest_sends');
+    expect(readFileSync(resolve(MIGRATIONS_DIR, '0006_digest_sends.sql'), 'utf8')).toBe(block);
+  });
+});

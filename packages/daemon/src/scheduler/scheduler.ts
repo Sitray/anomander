@@ -5,13 +5,16 @@ import type { Logger } from '../processor/text-interpreter.ts';
 // `ANOMANDER_RETENTION_CRON` in `TZ`. Every minute, the budget queue is read once the day has
 // changed (R-12 AC3) and unread receipts get S-13 or are discarded on time (R-8 AC3, AC5).
 // R-25 AC7: due reminders are sent at startup and every minute, first, so a slow queue does not
-// delay them.
+// delay them. R-26 AC5, AC6: just before them, the morning digest is checked, so "Buenos días"
+// comes before a reminder due at the same minute.
 // R-10 AC1: the weekly summary goes out at `ANOMANDER_WEEKLY_SUMMARY_CRON` in `TZ`, never at startup.
 // Jobs never overlap: they share one queue, so two of them never touch the same receipt.
 
 export interface SchedulerJobs {
   /** R-19 AC1 to AC3. */
   retain(): Promise<unknown>;
+  /** R-26 AC5, AC6: S-57 once a day at its time, while its permission is in force. */
+  sendMorningDigest(): Promise<unknown>;
   /** R-25 AC7: S-42 or S-43 for each pending reminder whose time has come. */
   sendDueReminders(): Promise<unknown>;
   /** R-12 AC3: reads the queued receipts while the budget allows. */
@@ -79,13 +82,21 @@ export const startScheduler = ({
       // A slow minute does not pile up ticks behind it.
       if (tickPending) return;
       tickPending = true;
-      void enqueue('sendDueReminders', 'drainQueue', 'watchReceipts').finally(() => {
-        tickPending = false;
-      });
+      void enqueue('sendMorningDigest', 'sendDueReminders', 'drainQueue', 'watchReceipts').finally(
+        () => {
+          tickPending = false;
+        },
+      );
     }),
   ];
 
-  const started = enqueue('retain', 'sendDueReminders', 'drainQueue', 'watchReceipts');
+  const started = enqueue(
+    'retain',
+    'sendMorningDigest',
+    'sendDueReminders',
+    'drainQueue',
+    'watchReceipts',
+  );
   for (const cron of crons) cron.resume();
 
   return {

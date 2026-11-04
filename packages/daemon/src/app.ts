@@ -23,7 +23,9 @@ import { createExpenseCorrection } from './decisions/correction.ts';
 import { createCreateCategoryAnswerHandler } from './decisions/create-category-decision.ts';
 import { createCreatePolicyAnswerHandler } from './decisions/create-policy-decision.ts';
 import { createForgetMemoryAnswerHandler } from './decisions/forget-memory-decision.ts';
+import { createGrantDigestAnswerHandler } from './decisions/grant-digest-decision.ts';
 import { createTextRouter } from './decisions/router.ts';
+import { createMorningDigest } from './digest/send-digest.ts';
 import { createReceiptExpenseCycle } from './expenses/receipt-expense.ts';
 import { createTextExpenseHandler } from './expenses/text-expense.ts';
 import { createPatternOffers } from './patterns/pattern-offers.ts';
@@ -250,6 +252,8 @@ export const startAnomander = <M>(config: Config, deps: AnomanderDeps<M>): Anoma
       create_policy: createCreatePolicyAnswerHandler(),
       // R-25 AC9: "Sí" to S-46 cancels the reminders and tasks it named.
       cancel_reminder: createCancelReminderAnswerHandler(),
+      // R-26 AC2: "Sí" to S-53 grants the morning digest's permission.
+      grant_morning_digest: createGrantDigestAnswerHandler(),
     },
     now,
     logger,
@@ -311,7 +315,8 @@ export const startAnomander = <M>(config: Config, deps: AnomanderDeps<M>): Anoma
     ...(deps.telegramApiRoot === undefined ? {} : { apiRoot: deps.telegramApiRoot }),
   });
 
-  // R-8, R-10, R-12 AC3, R-13 AC2, R-19 and R-25 AC7 send messages the principal did not ask for.
+  // R-8, R-10, R-12 AC3, R-13 AC2, R-19, R-25 AC7 and R-26 AC5 send messages the principal did
+  // not ask for.
   notify = recordingNotices(turns, createTelegramNotify(bot, config.principalChatId));
   send = createTelegramNotify(bot, config.principalChatId);
   deleteMessage = createTelegramDelete(bot, config.principalChatId);
@@ -326,12 +331,14 @@ export const startAnomander = <M>(config: Config, deps: AnomanderDeps<M>): Anoma
   const summary = createWeeklySummary({ db, timeZone: config.timeZone, now, notify });
   const queue = createReceiptQueue({ db, readQueued: receipts.readQueued, notify, now, logger });
   const dueReminders = createDueReminders({ db, timeZone: config.timeZone, now, notify, logger });
+  const digest = createMorningDigest({ db, timeZone: config.timeZone, now, notify, logger });
   const scheduler = startScheduler({
     retentionCron: config.retentionCron,
     weeklySummaryCron: config.weeklySummaryCron,
     timeZone: config.timeZone,
     jobs: {
       retain: retention.retain,
+      sendMorningDigest: digest.send,
       sendDueReminders: dueReminders.send,
       drainQueue: queue.drain,
       watchReceipts: retention.watchQueuedReceipts,
