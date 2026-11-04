@@ -55,6 +55,8 @@ let clock: Date;
 /** `true` refuses processor calls as `budgeted` does once the daily cap is reached (R-12). */
 let budgetSpent: boolean;
 let correctionFixture: string;
+/** The recorded answer of the text interpreter for a text that is not a correction. */
+let textFixture: string;
 /** What the correction interpreter received (R-7 AC2). */
 let correctionTurns: unknown[];
 
@@ -63,6 +65,7 @@ beforeEach(async () => {
   clock = NOW;
   budgetSpent = false;
   correctionFixture = 'total-28-40';
+  textFixture = 'conversation';
   correctionTurns = [];
   const now = () => clock;
   const logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn() };
@@ -79,7 +82,7 @@ beforeEach(async () => {
       if (typeof turn?.content === 'string') correctionTurns.push(JSON.parse(turn.content));
       return recorded(`correction-interpreter/${correctionFixture}`);
     }
-    return recorded('text-interpreter/conversation');
+    return recorded(`text-interpreter/${textFixture}`);
   };
   const model = 'openai/gpt-4o-mini';
   const onReceipt = createReceiptExpenseHandler({
@@ -366,6 +369,24 @@ describe('answering a pending receipt decision', () => {
     expect(reply?.text).toBe('Corregido: 28,40 € en Mercadona (supermercado).');
     expect(query('SELECT total_cents, status FROM expenses')).toEqual([
       { total_cents: 2840, status: 'current' },
+    ]);
+  });
+
+  it('a Telegram reply that corrects nothing gets S-7 and does not wait for text (R-17 AC2)', async () => {
+    const { question } = await askS3();
+    correctionFixture = 'nothing';
+
+    expect((await say('vale', question.messageId))?.text).toBe(S7);
+    expect(query('SELECT status, awaiting_since FROM pending_decisions')).toEqual([
+      { status: 'open', awaiting_since: null },
+    ]);
+
+    // Only "Corregir" makes the decision wait (R-7 AC1): the next text is a new expense.
+    textFixture = 'expense-23-space-euro';
+    await say('23 € cena');
+    expect(query('SELECT total_cents, status, document_id FROM expenses ORDER BY id')).toEqual([
+      { total_cents: 2340, status: 'pending', document_id: 1 },
+      { total_cents: 2300, status: 'current', document_id: null },
     ]);
   });
 

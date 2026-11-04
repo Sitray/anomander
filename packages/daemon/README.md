@@ -131,8 +131,10 @@ accepted value is a `declared` assertion by the principal whose `supersedes_id` 
 assertion it corrects, which becomes `refuted`; the expense takes the new value (a corrected category gets `category_basis
 'declared'`). The corrected expense is then registered as on "Apuntar", with the first
 declaration as `answer_assertion_id`, and the reply is S-8, verbatim, from the row read back
-(R-21 AC3). If nothing usable was written, the reply is S-7 again and the decision keeps
-waiting.
+(R-21 AC3). If nothing usable was written, the reply is S-7 again (S-22 if the processor
+failed, S-26 past the budget) and the decision is left as it was: one `awaiting_text` keeps
+waiting, and one answered by a Telegram reply (such as `vale`) stays `open`, so the next
+unrelated text is not taken as its correction. Only "Corregir" makes a decision wait (R-17 AC2).
 
 ## The daily AI budget, the queue and retention
 
@@ -196,7 +198,8 @@ each retry consumes one more call of the daily budget, and none is made past it 
 `app.ts` the timeout wraps the raw call first, so each attempt has its own, then the retry,
 then the budget. An interpreter that gets a
 thrown or failed call returns `failed` (not `invalid`), and the handler replies S-22 verbatim
-without storing anything; a failed correction keeps the decision waiting for the text (AC1).
+without storing anything; a failed correction leaves the decision as it was, so one waiting
+for the text keeps waiting (AC1).
 The front door replies S-22 too when a handler throws. A receipt is stored before it is read,
 so a failed reading is S-5, as before.
 

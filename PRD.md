@@ -332,7 +332,7 @@ Code checks every proposed receipt expense.
 ### R-17 Message routing
 Every incoming message has exactly one destination, decided by code in this order.
 - AC1: A button press carries its pending decision ID in the callback data and goes to that decision. If the decision is not `open` or `awaiting_text`, the reply is S-19 and nothing changes.
-- AC2: A text sent as a Telegram reply to a decision's message is a correction for that decision (R-7).
+- AC2: A text sent as a Telegram reply to a decision's message is a correction for that decision (R-7). A reply that corrects nothing gets S-7 and the decision stays as it was: only "Corregir" makes it `awaiting_text` (R-7 AC1), so an `open` decision stays `open` and the next text is routed as usual.
 - AC3: Otherwise, if a decision is `awaiting_text`, the text is a correction for it. At most one decision is `awaiting_text` at a time: pressing "Corregir" on another decision moves it back to `open`.
 - AC4: Photos and image files always start a new receipt (R-3) and never answer a decision, even while one is `awaiting_text`.
 - AC5: Any other text goes to the processor, which classifies it as an expense (R-2), a policy (R-13), a new category (R-18), a capability call (R-24) or conversation (R-16).
