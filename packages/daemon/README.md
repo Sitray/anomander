@@ -178,7 +178,9 @@ Sunday cron, Monday to Sunday). It sums, in SQL, the `current` expenses whose `o
 those days, per category and without one, and counts every `pending` expense whatever its week
 (AC2). `strings.weeklySummary` writes S-9 with every existing category, highest amount first and
 ties by name, `0,00 €` when a category had nothing, and `Sin clasificar` always last (AC4). The text
-goes out with `notify` exactly as written: no processor call, so it costs no AI budget.
+goes out with `notify` exactly as written: no processor call, so it costs no AI budget. It is off
+by default: `send` sends nothing unless a `send_weekly_summary` permission is in force (AC5),
+which only the principal grants (see the weekly summary capability below).
 
 **Scheduler.** `startScheduler` (`src/scheduler/scheduler.ts`, croner) runs retention, the queue
 and the receipt watch once at startup. After that, it runs retention at `ANOMANDER_RETENTION_CRON`
@@ -403,6 +405,22 @@ A digest more than 10 minutes late (the daemon was down) still goes out before 1
 after (AC6); one granted after its time today first goes out tomorrow. `digest_sends` holds the
 days handled, written only after the send succeeded, so a day never gets two. Logs carry the day
 and the reason, never the digest's text (AC7).
+
+## The weekly summary capability (R-10 AC5-AC8)
+
+The third capability (`src/summary/capability.ts`) turns the weekly summary on and off; it has no
+`context` and its calls carry nothing. `weekly_summary_enable` replies S-76 when the permission is
+already in force, otherwise opens a `grant_weekly_summary` proposal (`openGrantDecision`,
+`src/store/permissions.ts`) asked with S-74, `Sí` and `No`; a new S-74 closes an earlier one still
+unanswered. Its answer (`src/decisions/grant-weekly-summary-decision.ts`) on `Sí` grants
+`send_weekly_summary` with `conditions_json` `{}`, S-75; `No` grants nothing, S-55.
+`weekly_summary_disable` revokes at once: S-77, or S-78 when none was in force. The schedule stays
+`ANOMANDER_WEEKLY_SUMMARY_CRON`. Its prompt tells the processor that a summary not called weekly
+is the morning digest (AC8).
+
+The permission code both capabilities use lives in `src/store/permissions.ts`:
+`activePermissions`, `grantPermission` (revokes the earlier ones first), `revokePermissions` and
+`openGrantDecision`. A new permission granted by the principal reuses them.
 
 ## The processor ports
 

@@ -265,6 +265,8 @@ CREATE INDEX reminders_due ON reminders (due_at) WHERE status = 'pending' AND du
 
 In `recurrence_json`, `freq` is `daily`, `weekly` with `days` (1 Monday to 7 Sunday) or `monthly` with `day` (1 to 31); `time` is local `HH:mm` in `TZ`. A repeating reminder's `due_at` is always its next occurrence.
 
+The weekly summary (PRD R-10 AC5-AC6) works the same way with no table of its own: the principal's "Sí" to S-74 inserts a `permissions` row with operation `send_weekly_summary` and `conditions_json` `{}`, and S-9 is sent only while one is in force.
+
 The morning digest (PRD R-26) needs no table for its permission: the principal's "Sí" to S-53 inserts a row in `permissions` with operation `send_morning_digest` and `conditions_json` `{"time": "HH:mm"}` (local time in `TZ`), revoking the earlier one, and turning it off sets `revoked_at`. The days it was sent are added by the migration `0006_digest_sends.sql`:
 
 ```sql

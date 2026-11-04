@@ -2,7 +2,7 @@
 
 A personal assistant that understands your world, knows what is true, knows what it may do, and carries a matter to a verifiable result.
 
-> Status: in development. Milestones M0 to M5, M5d and M5e of the [PRD](PRD.md) roadmap (§17) are built: text and receipt expenses over Telegram, decisions, corrections, conversation memory, the weekly summary, policies, categories, reminders and tasks, model login and the setup guide. M5c (the morning digest) is next. The design is in [`docs/`](docs).
+> Status: in development. Milestones M0 to M5 and M5c to M5f of the [PRD](PRD.md) roadmap (§17) are built: text and receipt expenses over Telegram, decisions, corrections, conversation memory, the weekly summary and the morning digest (both off until you ask for them), policies, categories, reminders and tasks, model login and the setup guide. The design is in [`docs/`](docs).
 
 To run your own, see [Getting started](#getting-started).
 

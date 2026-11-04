@@ -166,7 +166,7 @@ A corroboration is therefore a confirmation by code. The word "corroborated" exi
 | Level | Allows | Who decides each case | Examples |
 | --- | --- | --- | --- |
 | Free | Read, observe, infer, propose | Nobody: nothing outside ANOMANDER changes | Read the receipt; propose a category |
-| With permission | Actions covered by an active permission, within its limits | Code checks the permission | Register an expense whose lines sum to its total; send the Sunday summary |
+| With permission | Actions covered by an active permission, within its limits | Code checks the permission | Register an expense whose lines sum to its total; send the weekly summary the principal turned on |
 | With confirmation | Change or delete something of mine, contact third parties, any action no permission covers | The principal, case by case | Register a receipt that does not add up; correct or delete an expense |
 | Forbidden | Move money, grant permissions, act on my behalf towards others | Nobody: the operation does not exist | Pay, transfer, complain to a merchant |
 
@@ -299,6 +299,10 @@ Code checks every proposed receipt expense.
 - AC2: Totals per category and the number of expenses pending confirmation are computed in code, and S-9 is sent verbatim (R-21 AC3). `{pendientes}` counts the expenses whose status is `pending` when the summary is sent, whatever their week.
 - AC3: The message follows S-9; every figure in it equals the sum of the corresponding rows.
 - AC4: `{desglose}` lists every existing category as `{Categoria} {importe}`, joined by ` · `, sorted by amount from highest to lowest, with `Sin clasificar {importe}` always last. Categories with no expenses that week show `0,00 €`.
+- AC5: The summary is off by default and exists only when the principal asks for it; ANOMANDER never offers it. At the time of AC1, S-9 is sent only while a permission with operation `send_weekly_summary` is in force; otherwise nothing is sent.
+- AC6: A message such as "mándame el resumen semanal" asks S-74 with `Sí` and `No`. `Sí` grants the `send_weekly_summary` permission with `conditions_json` `{}` and replies S-75; `No` grants nothing and replies S-55. ANOMANDER never grants this permission itself (§8.1). When it is already in force, S-76 is replied and nothing is asked. A new S-74 closes any earlier one still unanswered. It is the third capability (R-24).
+- AC7: A message such as "deja de mandarme el resumen semanal" revokes the permission at once, without buttons, and replies S-77, or S-78 when none is in force.
+- AC8: A summary the principal does not call weekly ("de la semana", "semanal") is the morning digest (R-26) (assumption), so "deja de mandarme el resumen" keeps meaning the morning one.
 
 ### R-11 Supermarket view
 - AC1: The view `supermarket_purchases` returns exactly the columns `producto`, `cantidad`, `precio_cents`, `comercio`, `fecha` and `modo`, for current expenses in the category `supermercado`.
@@ -505,7 +509,7 @@ Amounts are formatted with `Intl.NumberFormat('es-ES', { style: 'currency', curr
 | S-52 | `Esa hora ya pasó. ¿Para cuándo lo quieres?` |
 | S-53 | `¿Te mando cada mañana a las {hora} un resumen con tus recordatorios del día, tus pendientes y los gastos por confirmar?` |
 | S-54 | `Hecho: te lo mando cada mañana a las {hora}.` |
-| S-55 | `Vale, no te lo mando.` |
+| S-55 | `Vale, no te lo mando.` (also the "No" to S-74) |
 | S-56 | `Hecho, ya no te mando el resumen de la mañana.` |
 | S-57 | `Buenos días.` followed by the parts that have something: `Hoy:` with one line per reminder, `· {hora} {texto}`; `Pendientes:` with one line per task, `· {texto}`; and `Gastos por confirmar: {n}` |
 | S-58 | `No tenía activado el resumen de la mañana.` |
@@ -524,6 +528,11 @@ Amounts are formatted with `Intl.NumberFormat('es-ES', { style: 'currency', curr
 | S-71 | `- El modelo y el modelo de visión (ANOMANDER_MODEL y ANOMANDER_VISION_MODEL en el .env).` |
 | S-72 | `- Un modelo que exista en {variable}: {modelo} no lo encuentro.` |
 | S-73 | `- Conectar tu cuenta de {proveedor} (/login o su API key en el .env).` |
+| S-74 | `¿Te mando cada semana un resumen de tus gastos?` |
+| S-75 | `Hecho: te mando el resumen de tus gastos cada semana.` |
+| S-76 | `Ya te mando el resumen de tus gastos cada semana.` |
+| S-77 | `Hecho, ya no te mando el resumen semanal.` |
+| S-78 | `No tenía activado el resumen semanal.` |
 
 When there is no category, `{categoria}` is `sin clasificar`. In S-9, each category name in `{desglose}` starts with a capital letter (R-10 AC4), for example `Supermercado 45,20 € · Restaurantes 23,00 € · Sin clasificar 0,00 €`. Telegram commands are always in English (`/start`, `/login`, `/logout`); what the principal reads stays in Spanish. Button labels: `Apuntar`, `Corregir`, `Descartar`, and for S-11, S-12, S-13, S-15, S-29, S-46 and S-53 `Sí` and `No`; S-60 and S-66 have one button per account (`ChatGPT`, `Kimi Code`), and S-62 and S-63 an `Abrir` button with the link. In S-53, S-54, S-57 and S-59, `{hora}` is written `7:30` or `8:00`; at 1:00 the sentence reads `a la 1:00`. In S-50, `{texto}` lists the texts joined with `, ` and ` y ` before the last one.
 
@@ -924,6 +933,7 @@ Checks every feature document should run:
 | M5c Morning digest | An opt-in morning digest, the second capability | R-26 |
 | M5d Model login | Connecting the model with a subscription login, from Telegram or a terminal | R-15 AC3, R-27 |
 | M5e Setup guide | `/start` and a guide to what `.env` still needs | R-17 AC8, R-28 |
+| M5f Opt-in weekly summary | The weekly summary sent only after the principal asks for it, the third capability | R-10 AC5-AC8 |
 | M5b Ledger read access | Read access to the ledger from other applications or the AI assistant (API or MCP) | To be specified |
 | M6 Desktop | Tauri 2 app with Rust, talking to the same daemon | To be specified |
 

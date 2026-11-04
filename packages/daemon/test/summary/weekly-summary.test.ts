@@ -5,7 +5,8 @@ import type { Reply } from '@anomander/protocol';
 import type Database from 'better-sqlite3';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { applyMigrations, openDatabase } from '../../src/store/database.ts';
-import { createWeeklySummary } from '../../src/summary/weekly-summary.ts';
+import { grantPermission, revokePermissions } from '../../src/store/permissions.ts';
+import { createWeeklySummary, WEEKLY_SUMMARY_OPERATION } from '../../src/summary/weekly-summary.ts';
 
 // R-10: the weekly summary covers the 7 days that end on the day it is sent, in TZ, and S-9 goes
 // out verbatim with figures computed in code from the expenses table.
@@ -22,6 +23,8 @@ beforeEach(() => {
   db = openDatabase(join(scratch, 'anomander.db'));
   applyMigrations(db);
   sent = [];
+  // AC5: the principal turned the summary on.
+  grantPermission(db, WEEKLY_SUMMARY_OPERATION, {}, SENT_AT.toISOString());
 });
 
 afterEach(() => {
@@ -47,8 +50,8 @@ const addExpense = (
     )
     .run(occurredOn, cents, category, status, SENT_AT.toISOString());
 
-const sendSummary = async () => {
-  await createWeeklySummary({
+const send = () =>
+  createWeeklySummary({
     db,
     timeZone: TZ,
     now: () => SENT_AT,
@@ -56,11 +59,23 @@ const sendSummary = async () => {
       sent.push(reply);
     },
   }).send();
+
+const sendSummary = async () => {
+  await send();
   expect(sent).toHaveLength(1);
   return sent[0];
 };
 
 describe('R-10 weekly summary', () => {
+  it('AC5: without the send_weekly_summary permission nothing is sent', async () => {
+    addExpense('2026-10-31', 2300, null);
+    revokePermissions(db, WEEKLY_SUMMARY_OPERATION, SENT_AT.toISOString());
+
+    await send();
+
+    expect(sent).toEqual([]);
+  });
+
   it('AC3, AC4: S-9 lists every category high to low, at 0,00 € when empty, Sin clasificar last', async () => {
     addCategory('gasolina');
     addCategory('ocio');

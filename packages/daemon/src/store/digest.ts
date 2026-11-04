@@ -1,6 +1,11 @@
 import type Database from 'better-sqlite3';
 import { z } from 'zod';
-import { openPendingDecision } from './receipts.ts';
+import {
+  activePermissions,
+  grantPermission,
+  openGrantDecision,
+  revokePermissions,
+} from './permissions.ts';
 
 // R-26: the morning digest. Its permission lives in `permissions` (§13), granted only by the
 // principal's "Sí" to S-53 (§8.1): code opens the question and stores what was answered, never
@@ -38,14 +43,7 @@ export const activeDigestPermission = (
   db: Database.Database,
   now: Date,
 ): DigestPermission | null => {
-  const rows = db
-    .prepare<[string, string], { id: number; conditions_json: string; granted_at: string }>(
-      `SELECT id, conditions_json, granted_at FROM permissions
-       WHERE operation = ? AND revoked_at IS NULL AND (expires_at IS NULL OR expires_at > ?)
-       ORDER BY id DESC`,
-    )
-    .all(DIGEST_OPERATION, now.toISOString());
-  for (const { conditions_json, ...row } of rows) {
+  for (const { conditions_json, ...row } of activePermissions(db, DIGEST_OPERATION, now)) {
     const time = timeOf(conditions_json);
     if (time !== null) return { ...row, time };
   }
@@ -54,22 +52,14 @@ export const activeDigestPermission = (
 
 /** R-26 AC2, AC4: revokes every digest permission in force. Returns how many were revoked. */
 export const revokeDigestPermissions = (db: Database.Database, now: string): number =>
-  db
-    .prepare('UPDATE permissions SET revoked_at = ? WHERE operation = ? AND revoked_at IS NULL')
-    .run(now, DIGEST_OPERATION).changes;
+  revokePermissions(db, DIGEST_OPERATION, now);
 
 /**
  * R-26 AC2: the principal's "Sí" grants the digest at `time`, revoking any earlier one. Call it
  * inside the transaction that answers the decision. Returns the permission's id.
  */
-export const grantDigestPermission = (db: Database.Database, time: string, now: string): number => {
-  revokeDigestPermissions(db, now);
-  return Number(
-    db
-      .prepare('INSERT INTO permissions (operation, conditions_json, granted_at) VALUES (?, ?, ?)')
-      .run(DIGEST_OPERATION, JSON.stringify({ time }), now).lastInsertRowid,
-  );
-};
+export const grantDigestPermission = (db: Database.Database, time: string, now: string): number =>
+  grantPermission(db, DIGEST_OPERATION, { time }, now);
 
 export interface DigestQuestion {
   /** Local `HH:mm` in `TZ`. */
@@ -82,34 +72,18 @@ export interface DigestQuestion {
 
 /**
  * R-26 AC1, AC3: a `grant_morning_digest` proposal, `asked`, naming the time, and its pending
- * decision. The digest belongs to no matter. Nothing is granted until "Sí". An earlier S-53 still
- * unanswered is closed first: its proposal `rejected`, its decision `expired`, so only the latest
- * time can be granted. Returns the decision.
+ * decision. Nothing is granted until "Sí", and an earlier S-53 still unanswered is closed, so
+ * only the latest time can be granted. Returns the decision.
  */
 export const openDigestDecision = (db: Database.Database, ask: DigestQuestion): number =>
-  db.transaction(() => {
-    const unanswered = `SELECT d.proposal_id FROM pending_decisions d
-       JOIN proposals p ON p.id = d.proposal_id
-       WHERE p.operation = 'grant_morning_digest' AND d.status IN ('open', 'awaiting_text')`;
-    db.prepare(`UPDATE proposals SET status = 'rejected' WHERE id IN (${unanswered})`).run();
-    db.prepare(
-      `UPDATE pending_decisions SET status = 'expired', awaiting_since = NULL
-       WHERE status IN ('open', 'awaiting_text') AND proposal_id IN
-         (SELECT id FROM proposals WHERE operation = 'grant_morning_digest')`,
-    ).run();
-    const proposal = db
-      .prepare(
-        `INSERT INTO proposals (matter_id, operation, payload_json, basis_json, status, created_at)
-         VALUES (NULL, 'grant_morning_digest', ?, ?, 'asked', ?)`,
-      )
-      .run(JSON.stringify({ time: ask.time }), JSON.stringify({ rule: 'R-26 AC2' }), ask.now);
-    return openPendingDecision(db, {
-      proposalId: Number(proposal.lastInsertRowid),
-      question: ask.question,
-      options: ask.options,
-      now: ask.now,
-    });
-  })();
+  openGrantDecision(db, {
+    operation: 'grant_morning_digest',
+    payload: { time: ask.time },
+    rule: 'R-26 AC2',
+    question: ask.question,
+    options: ask.options,
+    now: ask.now,
+  });
 
 /** R-26 AC6: whether the day (`YYYY-MM-DD` in `TZ`) already had its digest. */
 export const digestHandled = (db: Database.Database, day: string): boolean =>

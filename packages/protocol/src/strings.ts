@@ -266,6 +266,16 @@ export const strings = {
   /** S-73. `provider` is the login button label, such as `ChatGPT`, or the pi-ai provider ID. */
   setupProviderUnconnected: (provider: string) =>
     `- Conectar tu cuenta de ${provider} (/login o su API key en el .env).`,
+  /** S-74 (R-10 AC6); "No" replies S-55. */
+  confirmWeeklySummary: () => '¿Te mando cada semana un resumen de tus gastos?',
+  /** S-75: the reply to "Sí" to S-74 (R-10 AC6). */
+  weeklySummaryOn: () => 'Hecho: te mando el resumen de tus gastos cada semana.',
+  /** S-76: the summary is already on (R-10 AC6). */
+  weeklySummaryAlreadyOn: () => 'Ya te mando el resumen de tus gastos cada semana.',
+  /** S-77 (R-10 AC7). */
+  weeklySummaryOff: () => 'Hecho, ya no te mando el resumen semanal.',
+  /** S-78. */
+  weeklySummaryWasOff: () => 'No tenía activado el resumen semanal.',
 } as const;
 
 /**
