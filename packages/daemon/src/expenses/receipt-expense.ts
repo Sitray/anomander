@@ -245,7 +245,6 @@ export const createReceiptExpenseCycle = (deps: ReceiptExpenseDeps): ReceiptExpe
       // only proposed and asked with its own decision first, so S-15 is not asked here.
       logger.info('declared category does not exist; proposed without a category', {
         channelRef: receipt.channelRef,
-        category: categorization.missingDeclaredCategory,
       });
     }
 

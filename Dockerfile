@@ -14,8 +14,9 @@ RUN pnpm install --frozen-lockfile --prod
 COPY packages ./packages
 COPY apps ./apps
 
-# The SQLite file and the receipt inbox live in a volume (compose.yaml).
-RUN mkdir -p /app/data && chown node:node /app/data
+# The SQLite file and the receipt inbox live in a volume (compose.yaml), readable by its owner only
+# (PRD §16). A new volume takes this mode; an existing one keeps its own.
+RUN mkdir -p /app/data && chown node:node /app/data && chmod 700 /app/data
 USER node
 
 # Node 24 runs TypeScript directly by stripping types; there is no build step.

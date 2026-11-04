@@ -53,11 +53,13 @@ export const createMorningDigest = ({
     const at = now();
     const permission = activeDigestPermission(db, at);
     if (permission === null) return;
-    const { date: today, time: localNow } = localParts(at, timeZone);
+    const { date: today } = localParts(at, timeZone);
     if (digestHandled(db, today)) return;
     const dueAt = utcOf(today, permission.time, timeZone);
     if (at < dueAt || dueAt.toISOString() < permission.granted_at) return;
-    if (at.getTime() - dueAt.getTime() > ON_TIME_MS && localNow >= MISSED_UNTIL) return;
+    // Compared as instants: today's 12:00 in `TZ`, not the text of the local time.
+    const late = at.getTime() - dueAt.getTime() > ON_TIME_MS;
+    if (late && at >= utcOf(today, MISSED_UNTIL, timeZone)) return;
 
     // Today's pending reminders from now on, soonest first, then every task, oldest first, as
     // `listPending` orders them. One due by now goes out as S-42 instead.

@@ -132,7 +132,7 @@ assertion it corrects, which becomes `refuted`; the expense takes the new value 
 'declared'`). The corrected expense is then registered as on "Apuntar", with the first
 declaration as `answer_assertion_id`, and the reply is S-8, verbatim, from the row read back
 (R-21 AC3). If nothing usable was written, the reply is S-7 again (S-22 if the processor
-failed, S-26 past the budget) and the decision is left as it was: one `awaiting_text` keeps
+failed or gave an answer code cannot use, S-26 past the budget) and the decision is left as it was: one `awaiting_text` keeps
 waiting, and one answered by a Telegram reply (such as `vale`) stays `open`, so the next
 unrelated text is not taken as its correction. Only "Corregir" makes a decision wait (R-17 AC2).
 
@@ -595,8 +595,9 @@ expected kind and fields for the cases in `evals/text/cases.json`, also out of g
 - What the daemon creates on disk is its owner's alone (PRD §16): `openDatabase` creates a
   missing data folder with mode 700 and a missing database file with mode 600 before SQLite
   opens it, and SQLite gives `-wal` and `-shm` the database file's mode; receipt folders are 700
-  and images 600. Existing folders and files keep their mode, so a database created before this
-  rule (or a folder made by the Dockerfile) needs a manual `chmod`.
+  and images 600; the Dockerfile creates `/app/data` with mode 700. Existing folders and files
+  keep their mode, so a database or a Docker volume created before this rule needs a manual
+  `chmod`.
 - Every assertion goes through `assertionDraftSchema` before it is inserted (§7.2), and the
   ledger is append-only except `status` (R-7 AC3, enforced by triggers).
 - The reply is built from the stored row, never from the proposal (R-9 AC1).
