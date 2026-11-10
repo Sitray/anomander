@@ -514,3 +514,238 @@ describe('the screen', () => {
     );
   });
 });
+
+describe('a task on the computer (DK-10)', () => {
+  const jpeg = () => new TextEncoder().encode('bytes').buffer as ArrayBuffer;
+  const CLICK = { kind: 'click', x: 512, y: 80, double: false, target: 'Enviar' } as const;
+  const PROPOSAL = 'Quiero hacer clic en «Enviar».';
+  const task = 'Envía el correo que tengo abierto';
+
+  const openWithComputer = (
+    perform: (action: unknown) => Promise<ArrayBuffer> = async () => jpeg(),
+    capture: () => Promise<ArrayBuffer> = async () => jpeg(),
+  ) => {
+    const onCaptureScreen = vi.fn(capture);
+    const onPerformAction = vi.fn(perform);
+    render(
+      <ChatScreen
+        daemon={RUNNING}
+        channel={CHANNEL}
+        onCaptureScreen={onCaptureScreen}
+        onPerformAction={onPerformAction}
+      />,
+    );
+    act(() => FakeWebSocket.last.open());
+    return { socket: FakeWebSocket.last, onCaptureScreen, onPerformAction };
+  };
+  const mode = () => screen.getByRole('button', { name: strings.chat.computer });
+  const allow = () =>
+    screen.getByRole<HTMLButtonElement>('button', { name: strings.chat.computerAllow });
+  const refuse = () =>
+    screen.getByRole<HTMLButtonElement>('button', { name: strings.chat.computerRefuse });
+  /** Asks for the task and has the daemon propose `computer` for it. */
+  const proposed = async (socket: FakeWebSocket, computer: unknown = CLICK, text = PROPOSAL) => {
+    fireEvent.click(mode());
+    say(task);
+    const request = await sentRequest(socket);
+    act(() => socket.receive(replyTo(request.id, { text, computer } as never)));
+    return request;
+  };
+
+  it('offers no control of the computer where the window cannot perform an action', () => {
+    openChat();
+
+    expect(screen.queryByRole('button', { name: strings.chat.computer })).toBeNull();
+  });
+
+  it('says what the mode means before anything is asked, and can be left', () => {
+    openWithComputer();
+    fireEvent.click(mode());
+
+    expect(mode().getAttribute('aria-pressed')).toBe('true');
+    expect(screen.getByText(strings.chat.computerMode)).toBeTruthy();
+
+    fireEvent.click(mode());
+    expect(screen.queryByText(strings.chat.computerMode)).toBeNull();
+  });
+
+  it('sends the task with the screen as it is, and performs nothing', async () => {
+    const { socket, onCaptureScreen, onPerformAction } = openWithComputer();
+    fireEvent.click(mode());
+    say(task);
+
+    expect(await sentRequest(socket)).toEqual({
+      id: expect.any(String),
+      type: 'computer',
+      task,
+      image: { mimeType: 'image/jpeg', data: BYTES },
+      done: [],
+    });
+    expect(onCaptureScreen).toHaveBeenCalledTimes(1);
+    expect(onPerformAction).not.toHaveBeenCalled();
+    // One task at a time: the next message is a plain one again.
+    expect(mode().getAttribute('aria-pressed')).toBe('false');
+  });
+
+  it('AC1: shows the proposed action and waits; allowing it performs exactly that action and asks for the next step', async () => {
+    const { socket, onPerformAction } = openWithComputer();
+    await proposed(socket);
+
+    expect(screen.getByText(PROPOSAL)).toBeTruthy();
+    expect(screen.getByRole('img', { name: strings.chat.computerPreview })).toBeTruthy();
+    expect(onPerformAction).not.toHaveBeenCalled();
+    expect(socket.requests).toHaveLength(1);
+
+    fireEvent.click(allow());
+
+    expect(await sentRequest(socket, 2)).toMatchObject({
+      type: 'computer',
+      task,
+      image: { mimeType: 'image/jpeg', data: BYTES },
+      done: [PROPOSAL],
+    });
+    expect(onPerformAction).toHaveBeenCalledTimes(1);
+    expect(onPerformAction).toHaveBeenCalledWith(CLICK);
+    expect(allow().disabled).toBe(true);
+    expect(refuse().disabled).toBe(true);
+  });
+
+  it('carries every step done so far to the next one', async () => {
+    const { socket } = openWithComputer();
+    await proposed(socket);
+    fireEvent.click(allow());
+    const second = await sentRequest(socket, 2);
+    const typing = { kind: 'type', text: 'Hola' };
+    act(() =>
+      socket.receive(
+        replyTo(second.id, { text: 'Quiero escribir: «Hola»', computer: typing } as never),
+      ),
+    );
+
+    fireEvent.click(
+      screen
+        .getAllByRole<HTMLButtonElement>('button', { name: strings.chat.computerAllow })
+        .filter((button) => !button.disabled)[0] as HTMLButtonElement,
+    );
+
+    expect(await sentRequest(socket, 3)).toMatchObject({
+      done: [PROPOSAL, 'Quiero escribir: «Hola»'],
+    });
+  });
+
+  it('stopping performs nothing and asks for nothing more', async () => {
+    const { socket, onPerformAction } = openWithComputer();
+    await proposed(socket);
+
+    fireEvent.click(refuse());
+
+    expect(screen.getByText(strings.chat.computerRefused)).toBeTruthy();
+    expect(allow().disabled).toBe(true);
+    await act(async () => {});
+    expect(onPerformAction).not.toHaveBeenCalled();
+    expect(socket.requests).toHaveLength(1);
+  });
+
+  it('performs an allowed action once, however many times it is pressed', async () => {
+    const { socket, onPerformAction } = openWithComputer();
+    await proposed(socket);
+
+    fireEvent.click(allow());
+    fireEvent.click(allow());
+    await sentRequest(socket, 2);
+
+    expect(onPerformAction).toHaveBeenCalledTimes(1);
+  });
+
+  it('shows no buttons when the daemon ends the task in words', async () => {
+    const { socket } = openWithComputer();
+    fireEvent.click(mode());
+    say(task);
+    const request = await sentRequest(socket);
+    act(() => socket.receive(replyTo(request.id, { text: 'Correo enviado.' })));
+
+    expect(screen.getByText('Correo enviado.')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: strings.chat.computerAllow })).toBeNull();
+  });
+
+  it('never offers an action the principal did not ask a task for', async () => {
+    const { socket, onPerformAction } = openWithComputer();
+    say('23 € cena');
+    const request = await sentRequest(socket);
+    act(() => socket.receive(replyTo(request.id, { text: PROPOSAL, computer: CLICK } as never)));
+
+    expect(screen.getByText(PROPOSAL)).toBeTruthy();
+    expect(screen.queryByRole('button', { name: strings.chat.computerAllow })).toBeNull();
+    expect(onPerformAction).not.toHaveBeenCalled();
+  });
+
+  it('says how to allow it when macOS does not let the app use the computer, and nothing was done', async () => {
+    const { socket } = openWithComputer(async () => {
+      throw 'computer_permission';
+    });
+    await proposed(socket);
+
+    fireEvent.click(allow());
+
+    await waitFor(() =>
+      expect(screen.getByRole('status').textContent).toBe(strings.chat.computerPermission),
+    );
+    // Nothing was done, so it can be allowed again once macOS lets it.
+    expect(allow().disabled).toBe(false);
+    expect(socket.requests).toHaveLength(1);
+  });
+
+  it('does not offer the action again when it may have been done', async () => {
+    const { socket } = openWithComputer(async () => {
+      throw 'the capture failed: exit status: 1';
+    });
+    await proposed(socket);
+
+    fireEvent.click(allow());
+
+    await waitFor(() => expect(screen.getByText(strings.chat.computerUnknown)).toBeTruthy());
+    expect(allow().disabled).toBe(true);
+    expect(socket.requests).toHaveLength(1);
+  });
+
+  it('does not offer the action again when the connection was lost after doing it', async () => {
+    const { socket } = openWithComputer();
+    await proposed(socket);
+    fireEvent.click(allow());
+    await sentRequest(socket, 2);
+
+    act(() => socket.drop());
+
+    expect(screen.getByText(strings.chat.computerUnknown)).toBeTruthy();
+    expect(allow().disabled).toBe(true);
+  });
+
+  it('a task that could not capture the screen was not sent', async () => {
+    const { socket } = openWithComputer(
+      async () => jpeg(),
+      async () => {
+        throw 'screen_permission';
+      },
+    );
+    fireEvent.click(mode());
+    say(task);
+
+    await waitFor(() =>
+      expect(screen.getByRole('status').textContent).toBe(strings.chat.screenPermission),
+    );
+    expect(screen.getByText(strings.chat.notSent)).toBeTruthy();
+    expect(socket.requests).toEqual([]);
+  });
+
+  it('a task goes without files', async () => {
+    const { socket } = openWithComputer();
+    fireEvent.paste(composer(), { clipboardData: { files: [image('ticket.png')] } });
+    fireEvent.click(mode());
+    say(task);
+
+    await waitFor(() =>
+      expect(screen.getByRole('status').textContent).toBe(strings.chat.computerAlone),
+    );
+    expect(socket.requests).toEqual([]);
+  });
+});

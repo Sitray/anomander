@@ -59,6 +59,12 @@ export const AlertIcon = () => (
   </Icon>
 );
 
+export const PointerIcon = () => (
+  <Icon>
+    <path d="M3.5 2.75l3.6 10 1.5-4.15 4.15-1.5z" />
+  </Icon>
+);
+
 export const ScreenIcon = () => (
   <Icon>
     <rect x="2" y="3" width="12" height="8" rx="1.25" />

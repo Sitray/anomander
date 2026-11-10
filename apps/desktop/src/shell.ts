@@ -1,6 +1,7 @@
 // The seam between the window (TypeScript) and the shell (Rust, `src-tauri`): every Tauri command
 // and event the two exchange. The Rust side mirrors these names and shapes with serde
 // (`rename_all = "camelCase"`); change both together.
+import type { ComputerAction } from '@anomander/protocol';
 import { invoke } from '@tauri-apps/api/core';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 
@@ -83,6 +84,13 @@ export const shell = {
    * `screen_permission` when macOS does not let the app record the screen.
    */
   captureScreen: (): Promise<ArrayBuffer> => invoke('capture_screen'),
+  /**
+   * DK-10: performs the one action the principal just allowed, with the app out of the way, and
+   * answers with a JPEG of the screen as it left it. Rejects with `computer_permission` or
+   * `screen_permission` when macOS does not allow it; then nothing was done.
+   */
+  performAction: (action: ComputerAction): Promise<ArrayBuffer> =>
+    invoke('perform_action', { action }),
   /** An answer arrived: the shell notifies it unless the window is in front. */
   notifyReply: (text: string): Promise<void> => invoke('notify_reply', { text }),
   onSnapshot: (handler: (snapshot: Snapshot) => void): Promise<UnlistenFn> =>

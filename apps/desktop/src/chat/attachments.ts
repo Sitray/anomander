@@ -59,6 +59,12 @@ const toBase64 = (file: File): Promise<string> =>
     reader.readAsDataURL(file);
   });
 
+/** A capture the shell took, as a request carries it. */
+export const encodeJpeg = async (jpeg: ArrayBuffer): Promise<ChatImage> => ({
+  mimeType: 'image/jpeg',
+  data: await toBase64(new File([jpeg], 'screen.jpg', { type: 'image/jpeg' })),
+});
+
 /** The files as a `receipt` request carries them. */
 export const encodeAttachments = (attachments: readonly Attachment[]): Promise<ChatImage[]> =>
   Promise.all(

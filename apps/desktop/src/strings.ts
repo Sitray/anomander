@@ -83,6 +83,23 @@ export const strings = {
       'macOS no me deja ver la pantalla. Actívame en Ajustes del Sistema › Privacidad y seguridad › Grabación de pantalla y audio, y vuelve a abrir ANOMANDER.',
     screenFailed: 'No he podido capturar la pantalla. Prueba otra vez.',
 
+    /** DK-10: a task on the computer, one allowed step at a time. */
+    computer: 'Hacer algo en mi ordenador',
+    computerMode:
+      'Voy a usar tu ordenador. Antes de cada paso te enseño qué quiero hacer y espero tu permiso.',
+    computerPlaceholder: '¿Qué hago en tu ordenador?',
+    computerAlone: 'Una tarea en el ordenador va sin archivos. Quítalos o envíalos antes.',
+    computerAllow: 'Permitir',
+    computerRefuse: 'Detener',
+    /** The capture around the point an action would touch. */
+    computerPreview: 'Dónde lo haría',
+    computerRefused: 'Detenido. No he hecho nada más.',
+    /** The step may have been performed: it is never offered again. */
+    computerUnknown:
+      'No sé si este paso llegó a hacerse. Mira tu pantalla antes de pedírmelo otra vez.',
+    computerPermission:
+      'macOS no me deja usar el ordenador. Actívame en Ajustes del Sistema › Privacidad y seguridad › Accesibilidad y vuelve a abrir ANOMANDER.',
+
     thinking: 'ANOMANDER está pensando…',
 
     /** `rejected`, or never left: nothing was done, so sending again is safe. */

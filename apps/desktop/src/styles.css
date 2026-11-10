@@ -1252,3 +1252,39 @@ button {
     transform: none;
   }
 }
+
+/* DK-10: the capture around the point an action would touch, three times its size. */
+.target-preview {
+  position: relative;
+  width: 100%;
+  max-width: 320px;
+  aspect-ratio: 16 / 9;
+  margin-top: 8px;
+  border: 1px solid var(--line, rgba(128, 128, 128, 0.35));
+  border-radius: 8px;
+  background-repeat: no-repeat;
+  background-size: 300%;
+  overflow: hidden;
+}
+
+.target-mark {
+  position: absolute;
+  width: 22px;
+  height: 22px;
+  margin: -11px 0 0 -11px;
+  border: 2px solid #e5484d;
+  border-radius: 50%;
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.85);
+  pointer-events: none;
+}
+
+.composer-mode {
+  margin: 0 0 6px;
+  font-size: 12px;
+  line-height: 1.35;
+  opacity: 0.8;
+}
+
+.icon-button[aria-pressed="true"] {
+  color: #e5484d;
+}

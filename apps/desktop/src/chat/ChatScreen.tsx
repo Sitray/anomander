@@ -1,6 +1,7 @@
 // DK-4: the chat. The container: it owns the connection and the draft, and hands both to the
 // presentational list and composer.
-import { type DragEvent, useEffect, useRef, useState } from 'react';
+import type { ComputerAction } from '@anomander/protocol';
+import { type DragEvent, useEffect, useMemo, useRef, useState } from 'react';
 import type { DaemonStatus, LocalChannel } from '../shell.ts';
 import { strings } from '../strings.ts';
 import { Composer } from './Composer.tsx';
@@ -19,6 +20,11 @@ export interface ChatScreenProps {
   onReply?: (text: string) => void;
   /** Takes a JPEG of the screen; rejects with `screen_permission` when macOS does not allow it. */
   onCaptureScreen?: () => Promise<ArrayBuffer>;
+  /**
+   * DK-10: performs one action on the computer and answers with a JPEG of the screen after it.
+   * Rejects with `computer_permission` or `screen_permission` when macOS does not allow it.
+   */
+  onPerformAction?: (action: ComputerAction) => Promise<ArrayBuffer>;
 }
 
 /** Why there is no channel, in the principal's words. */
@@ -33,9 +39,22 @@ const withoutChannel = ({ state, reason }: DaemonStatus): string => {
 const carriesFiles = (event: DragEvent): boolean => event.dataTransfer.types.includes('Files');
 
 export function ChatScreen(props: ChatScreenProps) {
-  const { daemon, channel, onThinking, onReply, onCaptureScreen } = props;
-  const chat = useChat(channel, onReply);
+  const { daemon, channel, onThinking, onReply, onCaptureScreen, onPerformAction } = props;
   const draft = useDraft();
+  const computer = useMemo(
+    () =>
+      onCaptureScreen === undefined || onPerformAction === undefined
+        ? undefined
+        : { capture: onCaptureScreen, perform: onPerformAction },
+    [onCaptureScreen, onPerformAction],
+  );
+  const chat = useChat(channel, {
+    ...(onReply === undefined ? {} : { onReply }),
+    ...(computer === undefined ? {} : { computer }),
+    onProblem: draft.warn,
+  });
+  /** The next message is a task on the computer. */
+  const [control, setControl] = useState(false);
   const [dropping, setDropping] = useState(false);
   /** `dragenter` minus `dragleave`: both also fire for every child the pointer crosses. */
   const dragDepth = useRef(0);
@@ -55,6 +74,17 @@ export function ChatScreen(props: ChatScreenProps) {
   const submit = () => {
     const typed = draft.text.trim();
     if (blocked !== null || (typed === '' && draft.attachments.length === 0)) return;
+    if (control) {
+      if (draft.attachments.length > 0) {
+        draft.warn(strings.chat.computerAlone);
+        return;
+      }
+      chat.task(typed);
+      draft.clear();
+      // One task at a time: the next message is a plain one again.
+      setControl(false);
+      return;
+    }
     // A capture always goes with a question: without words, the obvious one.
     const capture = draft.attachments.some((attachment) => attachment.screen);
     chat.say(capture && typed === '' ? strings.chat.screenQuestion : typed, draft.attachments);
@@ -112,6 +142,8 @@ export function ChatScreen(props: ChatScreenProps) {
         waiting={waiting}
         onRetry={chat.retry}
         onPress={chat.press}
+        onAllow={chat.allow}
+        onRefuse={chat.refuse}
       />
       <Composer
         text={draft.text}
@@ -122,6 +154,9 @@ export function ChatScreen(props: ChatScreenProps) {
         onText={draft.setText}
         onFiles={draft.addFiles}
         {...(look === undefined ? {} : { onScreen: look })}
+        {...(computer === undefined
+          ? {}
+          : { control: { on: control, onToggle: () => setControl((on) => !on) } })}
         onRemove={draft.remove}
         onSubmit={submit}
       />

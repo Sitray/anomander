@@ -26,6 +26,8 @@ export interface Shell {
   notifyReply(text: string): void;
   /** `shell.captureScreen`, as it is: the chat says why a capture failed. */
   captureScreen(): Promise<ArrayBuffer>;
+  /** `shell.performAction`, as it is. */
+  performAction: typeof shell.performAction;
 }
 
 export const useShell = (): Shell => {
@@ -116,5 +118,6 @@ export const useShell = (): Shell => {
     setThinking,
     notifyReply,
     captureScreen: shell.captureScreen,
+    performAction: shell.performAction,
   };
 };

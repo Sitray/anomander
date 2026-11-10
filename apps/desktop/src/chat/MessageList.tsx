@@ -11,6 +11,9 @@ export interface MessageListProps {
   waiting: boolean;
   onRetry: (message: OwnMessage) => void;
   onPress: (message: BotMessage, data: string) => void;
+  /** DK-10 AC1: the principal allows the action a message proposes, or stops there. */
+  onAllow: (message: BotMessage) => void;
+  onRefuse: (message: BotMessage) => void;
 }
 
 /** How far from the end still counts as reading the latest message. */
@@ -71,14 +74,83 @@ const Own = ({
   </li>
 );
 
+/**
+ * DK-10 AC1, AC3: an action waiting for the principal. For a click or a scroll, the capture
+ * itself around the point, with a mark on it: what is really there, whatever the text claims.
+ * Once answered, in either way, it is never offered again.
+ */
+const ProposalCard = ({
+  message,
+  proposal,
+  onAllow,
+  onRefuse,
+}: {
+  message: BotMessage;
+  proposal: NonNullable<BotMessage['proposal']>;
+  onAllow: MessageListProps['onAllow'];
+  onRefuse: MessageListProps['onRefuse'];
+}) => {
+  const { press } = message;
+  const { action } = proposal;
+  const point =
+    action.kind === 'click' || action.kind === 'scroll'
+      ? { left: `${action.x / 10}%`, top: `${action.y / 10}%` }
+      : null;
+  return (
+    <>
+      {point !== null && (
+        <div
+          className="target-preview"
+          role="img"
+          aria-label={strings.chat.computerPreview}
+          style={{
+            backgroundImage: `url("${proposal.captureUrl}")`,
+            backgroundPosition: `${point.left} ${point.top}`,
+          }}
+        >
+          <span className="target-mark" style={point} />
+        </div>
+      )}
+      <div className="choices">
+        <button
+          type="button"
+          className="button choice"
+          data-chosen={press?.data === 'allow' ? press.delivery : undefined}
+          disabled={press !== null}
+          onClick={() => onAllow(message)}
+        >
+          {strings.chat.computerAllow}
+        </button>
+        <button
+          type="button"
+          className="button choice"
+          data-chosen={press?.data === 'refuse' ? press.delivery : undefined}
+          disabled={press !== null}
+          onClick={() => onRefuse(message)}
+        >
+          {strings.chat.computerRefuse}
+        </button>
+      </div>
+      {press?.data === 'refuse' && <p className="message-note">{strings.chat.computerRefused}</p>}
+      {press?.data === 'allow' && press.delivery === 'unknown' && (
+        <Problem>{strings.chat.computerUnknown}</Problem>
+      )}
+    </>
+  );
+};
+
 const Bot = ({
   message,
   onPress,
+  onAllow,
+  onRefuse,
 }: {
   message: BotMessage;
   onPress: MessageListProps['onPress'];
+  onAllow: MessageListProps['onAllow'];
+  onRefuse: MessageListProps['onRefuse'];
 }) => {
-  const { press } = message;
+  const { press, proposal } = message;
   const choices = message.buttons.filter((button) => 'data' in button);
   // DK-4 AC7: this WebView cannot open a link, so a link button is named, never offered.
   const links = message.buttons.filter((button) => 'url' in button);
@@ -103,8 +175,15 @@ const Bot = ({
           ))}
         </div>
       )}
-      {press?.delivery === 'not_sent' && <Problem>{strings.chat.pressNotSent}</Problem>}
-      {press?.delivery === 'unknown' && <Problem>{strings.chat.pressUnknown}</Problem>}
+      {proposal !== null && (
+        <ProposalCard message={message} proposal={proposal} onAllow={onAllow} onRefuse={onRefuse} />
+      )}
+      {proposal === null && press?.delivery === 'not_sent' && (
+        <Problem>{strings.chat.pressNotSent}</Problem>
+      )}
+      {proposal === null && press?.delivery === 'unknown' && (
+        <Problem>{strings.chat.pressUnknown}</Problem>
+      )}
       {links.map((button) => (
         <p key={button.label} className="message-note">
           {strings.chat.linkOnlyInTelegram(button.label)}
@@ -114,7 +193,8 @@ const Bot = ({
   );
 };
 
-export function MessageList({ messages, waiting, onRetry, onPress }: MessageListProps) {
+export function MessageList(props: MessageListProps) {
+  const { messages, waiting, onRetry, onPress, onAllow, onRefuse } = props;
   const scroller = useRef<HTMLDivElement>(null);
   /** Whether the principal is reading the end; scrolling up to reread must not be undone. */
   const atEnd = useRef(true);
@@ -150,7 +230,13 @@ export function MessageList({ messages, waiting, onRetry, onPress }: MessageList
           message.kind === 'own' ? (
             <Own key={message.id} message={message} onRetry={onRetry} />
           ) : (
-            <Bot key={message.id} message={message} onPress={onPress} />
+            <Bot
+              key={message.id}
+              message={message}
+              onPress={onPress}
+              onAllow={onAllow}
+              onRefuse={onRefuse}
+            />
           ),
         )}
       </ol>

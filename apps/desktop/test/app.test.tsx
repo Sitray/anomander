@@ -25,6 +25,7 @@ vi.mock('../src/shell.ts', () => ({
     setThinking: vi.fn(),
     notifyReply: vi.fn(),
     captureScreen: vi.fn(),
+    performAction: vi.fn(),
   },
 }));
 

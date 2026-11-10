@@ -96,6 +96,15 @@ is framework-free, so it is tested against a fake `WebSocket` (`test/fake-web-so
   `screen` request with a question (without words: "¿Qué ves en mi pantalla?"), and is never
   mixed with receipts. The shell keeps its file only while reading it. It needs macOS's Screen
   Recording permission, which belongs to the signed app.
+- **A task on the computer** (DK-10) starts from the composer's pointer button. Each step is a
+  `computer` request with a fresh capture; the daemon answers one proposed action, which the
+  chat shows with "Permitir" and "Detener" and, for a click or a scroll, the capture around the
+  point with a mark. Only "Permitir" calls `perform_action`, once: the proposal is taken out
+  before the call, an action that may have been performed is never offered again, and an action
+  in the reply to anything but a step the principal asked for is ignored. The shell validates the
+  action again (`src-tauri/src/computer.rs`), hides the app so the input goes to the app the
+  principal was using, and answers with the next capture. It needs macOS's Accessibility
+  permission besides Screen Recording.
 - **Link buttons** (`{label, url}`) are named, not offered: this WebView cannot open links, and
   `/login` stays in Telegram (DK-4 AC7).
 - **Secrets** typed in the setup screen stay in uncontrolled fields and a ref, never in React

@@ -3,6 +3,7 @@
 // each request. The token lives only in this closure: never in a URL, a log or storage (DK-3 AC3).
 import {
   type ChatButtonPress,
+  type ChatComputer,
   type ChatEvent,
   type ChatReceipt,
   type ChatReply,
@@ -33,7 +34,8 @@ export type NewRequest =
   | Omit<ChatText, 'id'>
   | Omit<ChatReceipt, 'id'>
   | Omit<ChatButtonPress, 'id'>
-  | Omit<ChatScreen, 'id'>;
+  | Omit<ChatScreen, 'id'>
+  | Omit<ChatComputer, 'id'>;
 
 /** The part of `WebSocket` the client uses, so a test can hand it a fake. */
 export type ChatSocket = Pick<

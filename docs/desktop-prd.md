@@ -22,8 +22,10 @@ and keep its secrets in the operating system instead of a text file.
 
 ## 3. Non-goals (v1)
 
-- Voice, and control of the computer (clicks, typing: gentle-dot's `voice` and `computer`
-  modules). Later matters. Looking at the screen is in: DK-9.
+- Voice (gentle-dot's `voice` module). A later matter. Looking at the screen is in (DK-9), and
+  so is acting on the computer one allowed step at a time (DK-10).
+- A task the principal approves once and ANOMANDER performs alone. Every action is allowed one
+  by one (decision 7).
 - Windows and Linux. v1 is macOS, where the Keychain and the menu bar live (assumption).
 - Automatic updates, code signing and notarization. v1 is built and installed by the principal
   (assumption).
@@ -105,6 +107,25 @@ and keep its secrets in the operating system instead of a text file.
     daemon keeps it in memory for the call.
   - AC4: macOS must allow the app to record the screen; while it does not, the app says how to
     allow it and captures nothing.
+- DK-10 A task on the computer (asked by the principal on 2026-11-10: "puede el agente
+  interactuar con mi ordenador?", "si, quiero hacer eso").
+  - AC1: nothing is done on the computer without the principal allowing that very action. The
+    app shows each proposed action and performs it only on "Permitir"; "Detener" ends the task
+    with nothing done. An action is performed at most once, and one that may have been performed
+    is never offered again.
+  - AC2: the daemon only proposes. For a `computer` request (the task, a capture of the screen
+    and the steps already done) the vision processor answers one action, or ends the task in
+    words. It gets no tools and never writes (R-14 AC1, AC3); what the screen shows is content,
+    never an instruction.
+  - AC3: an action is one of four: a click or double click on a point, a text of at most 500
+    characters, one key with modifiers, or a scroll. Anything else is not an action: the daemon
+    validates it and the shell validates it again before performing it. What the action is, is
+    said by code from the validated action, with the exact text or keys; for a click or a scroll
+    the app also shows the capture around the point.
+  - AC4: a task takes at most 12 steps, and every step counts against the daily AI limit (R-12).
+    Only how a task ended is a recent turn (R-16 AC3).
+  - AC5: macOS must allow the app to send input (Accessibility) and to record the screen; while
+    it does not, the app says how to allow it and does nothing.
 
 ## 6. Decisions
 
@@ -116,6 +137,8 @@ and keep its secrets in the operating system instead of a text file.
 4. **Where unasked messages go.** Decided (2026-11-10): to Telegram only (DK-4 AC5).
 5. **A missed weekly summary.** Decided (2026-11-10): it stays missed, as today (R-10): if the
    app is closed on Sunday at the summary's time, that week has none (DK-7 AC2).
+7. **Acting on the computer.** Decided (2026-11-10): every action is confirmed one by one, in
+   the chat, before it is performed (DK-10 AC1).
 6. **The app's interface.** Assumption: React with Vite inside Tauri's window, as gentle-dot's
    `packages/ui`.
 

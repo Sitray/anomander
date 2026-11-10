@@ -8,7 +8,14 @@ import {
   useRef,
 } from 'react';
 import { strings } from '../strings.ts';
-import { ArrowUpIcon, CloseIcon, FileIcon, PaperclipIcon, ScreenIcon } from '../ui/icons.tsx';
+import {
+  ArrowUpIcon,
+  CloseIcon,
+  FileIcon,
+  PaperclipIcon,
+  PointerIcon,
+  ScreenIcon,
+} from '../ui/icons.tsx';
 import type { Attachment } from './attachments.ts';
 
 /** The longest `text` the daemon accepts. */
@@ -27,6 +34,8 @@ export interface ComposerProps {
   onFiles: (files: File[]) => void;
   /** Asks for a capture of the screen; absent where the window cannot take one. */
   onScreen?: () => void;
+  /** DK-10: whether the next message is a task on the computer; absent where it cannot be. */
+  control?: { on: boolean; onToggle: () => void };
   onRemove: (id: string) => void;
   onSubmit: () => void;
 }
@@ -34,7 +43,7 @@ export interface ComposerProps {
 export function Composer(props: ComposerProps) {
   const { text, attachments, notice, disabled, blocked, onText, onFiles, onRemove, onSubmit } =
     props;
-  const { onScreen } = props;
+  const { onScreen, control } = props;
   const reasonId = useId();
   const textarea = useRef<HTMLTextAreaElement>(null);
   const picker = useRef<HTMLInputElement>(null);
@@ -81,6 +90,7 @@ export function Composer(props: ComposerProps) {
           {notice}
         </p>
       )}
+      {control?.on === true && <p className="composer-mode">{strings.chat.computerMode}</p>}
       <div className="composer-box" data-disabled={disabled || undefined}>
         {attachments.length > 0 && (
           <ul className="tray" aria-label={strings.chat.attachments}>
@@ -142,13 +152,32 @@ export function Composer(props: ComposerProps) {
               <ScreenIcon />
             </button>
           )}
+          {control !== undefined && (
+            <button
+              type="button"
+              className="icon-button"
+              aria-label={strings.chat.computer}
+              aria-pressed={control.on}
+              title={strings.chat.computer}
+              disabled={disabled}
+              onClick={control.onToggle}
+            >
+              <PointerIcon />
+            </button>
+          )}
           <textarea
             ref={textarea}
             className="composer-input"
             rows={1}
             value={text}
             maxLength={MAX_TEXT_LENGTH}
-            placeholder={disabled ? '' : strings.chat.placeholder}
+            placeholder={
+              disabled
+                ? ''
+                : control?.on === true
+                  ? strings.chat.computerPlaceholder
+                  : strings.chat.placeholder
+            }
             aria-label={strings.chat.message}
             aria-describedby={blocked === null ? undefined : reasonId}
             disabled={disabled}

@@ -463,6 +463,7 @@ Each message is one JSON text frame, typed in `packages/protocol/src/local-chann
 | `receipt`: one or several images in base64 | `reply`; a PDF, another file type or an image over 20 MB gets R-20's reply, as in Telegram |
 | `button`: the `data` of a reply's button | `reply`; S-19 when the decision is no longer open, whichever door closed it (DK-4 AC3) |
 | `screen`: a question and one capture of the screen in base64 (DK-9) | `reply` with what the vision processor sees (`src/processor/screen-reader.ts`): no tools, nothing stored, one call against the daily AI limit; an image over 20 MB gets R-20's reply |
+| `computer`: a task, one capture and the steps already done (DK-10) | `reply` whose `computer` is the one action the vision processor proposes (`src/processor/computer-planner.ts`), described by code; or a `reply` in words that ends the task. The daemon never performs anything. At most 12 steps, each one call against the daily AI limit |
 | A frame that is none of these | `rejected`, and nothing is done with it |
 
 A `reply` carries its own `channelRef`, `desktop:<uuid>`, which is recorded as the delivery
