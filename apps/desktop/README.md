@@ -19,6 +19,20 @@ exchange, mirrored by the Rust side. Change both together.
 
 The dev server is always on port 1420 (`strictPort`): Tauri loads exactly that URL.
 
+### Signing the build
+
+macOS ties each Keychain entry to the signature of the app that stored it. An unsigned build has
+a new ad-hoc signature every time, so after each rebuild macOS asks for the login keychain
+password before the app can read its own secrets. Sign the build with a fixed identity (list them
+with `security find-identity -v -p codesigning`) and it asks no more:
+
+```sh
+APPLE_SIGNING_IDENTITY="<identity name or hash>" pnpm --dir apps/desktop tauri build --debug
+```
+
+Entries stored by an unsigned build still ask once. To skip that, delete them
+(`security delete-generic-password -s ANOMANDER`, once per entry) and enter the setup again.
+
 ### The preview
 
 `test/preview/` runs the window without the shell or a daemon: Tauri's IPC is mocked and the
