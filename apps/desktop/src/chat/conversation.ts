@@ -33,6 +33,8 @@ export interface Proposal {
   action: ComputerAction;
   /** The capture the action was planned on, as an object URL, to show where it would land. */
   captureUrl: string;
+  /** Whether the principal must allow it; `false` for a routine step, performed without asking. */
+  confirm: boolean;
 }
 
 /** The last press on one of a reply's buttons (DK-4 AC3). */
@@ -192,7 +194,16 @@ export const reduceConversation = (
         delivery: action.requestId === null ? 'unknown' : 'pending',
       });
     case 'not_performed':
-      return answered(action.id, null);
+      // Nothing was done: it can be allowed again, and from now on it is asked for.
+      return mapped((message) =>
+        message.kind === 'bot' && message.id === action.id
+          ? {
+              ...message,
+              press: null,
+              proposal: message.proposal === null ? null : { ...message.proposal, confirm: true },
+            }
+          : message,
+      );
     case 'refused':
       return answered(action.id, { data: 'refuse', delivery: 'delivered', requestId: null });
   }

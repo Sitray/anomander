@@ -162,8 +162,8 @@ fn notify_reply(app: AppHandle, text: String) -> Result<(), String> {
         .map_err(|error| error.to_string())
 }
 
-/// How long the window takes to leave the screen once hidden, before the capture is taken.
-const WINDOW_LEAVES: Duration = Duration::from_millis(350);
+/// How long the app the principal was using takes to come back to the front once ours hides.
+const APP_LEAVES: Duration = Duration::from_millis(450);
 
 /// A JPEG of the screen for a question the principal is asking in the chat, taken with the chat
 /// window out of the way. It runs only on their click, and nothing is kept on disk.
@@ -172,21 +172,22 @@ async fn capture_screen(app: AppHandle) -> Result<tauri::ipc::Response, String> 
     if !screen::allowed() {
         return Err(screen::NO_PERMISSION.into());
     }
-    if let Some(window) = app.get_webview_window(MAIN_WINDOW) {
-        window.hide().map_err(|error| error.to_string())?;
-    }
+    // The whole app steps aside, as for an action (DK-10): the capture shows the screen the
+    // principal was looking at, with that app in front, which is the screen a step acts on.
+    app.hide().map_err(|error| error.to_string())?;
     let captured = blocking(app.clone(), |shell| {
-        std::thread::sleep(WINDOW_LEAVES);
+        std::thread::sleep(APP_LEAVES);
         screen::capture(shell.core.data_root())
     })
     .await;
     // Whatever happened, the chat comes back.
+    if let Err(error) = app.show() {
+        eprintln!("could not show the app again: {error}");
+    }
     show_chat(&app);
     captured.map(tauri::ipc::Response::new)
 }
 
-/// How long the app the principal was using takes to come back to the front once ours hides.
-const APP_LEAVES: Duration = Duration::from_millis(450);
 /// How long the screen takes to show what an action did, before it is captured again.
 const SCREEN_SETTLES: Duration = Duration::from_millis(900);
 

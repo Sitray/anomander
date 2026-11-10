@@ -433,7 +433,7 @@ export const startAnomander = <M>(config: Config, deps: AnomanderDeps<M>): Anoma
     const plan = await computerPlanner(request);
     switch (plan.kind) {
       case 'action':
-        return { text: plan.text, computer: plan.action };
+        return { text: plan.text, computer: plan.action, confirm: plan.confirm };
       case 'end':
         // R-16 AC3: how the task ended is a recent turn; its steps are not.
         turns.add(computerTurn(request.task), plan.text);

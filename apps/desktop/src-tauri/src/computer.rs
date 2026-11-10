@@ -134,6 +134,22 @@ fn key_code(key: &str) -> Option<u16> {
     }
 }
 
+/// The characters that write nothing and change how the rest reads: zero-width and direction
+/// marks, as the daemon's planner refuses them.
+fn is_format(character: char) -> bool {
+    matches!(
+        character,
+        '\u{00AD}'
+            | '\u{061C}'
+            | '\u{180E}'
+            | '\u{200B}'..='\u{200F}'
+            | '\u{202A}'..='\u{202E}'
+            | '\u{2060}'..='\u{206F}'
+            | '\u{FEFF}'
+            | '\u{FFF9}'..='\u{FFFB}'
+    )
+}
+
 /// Where input goes: the system, or a test's record of it. Points are in screen points.
 pub trait Input {
     fn click(&mut self, x: f64, y: f64, double: bool);
@@ -167,9 +183,14 @@ pub fn perform(action: &Action, size: (f64, f64), input: &mut dyn Input) -> Resu
             if length == 0 || length > MAX_TEXT_CHARS {
                 return Err("the text to type is empty or too long".into());
             }
-            // A control character is a key press, not text: nothing hides in what is shown.
-            if text.chars().any(|c| c.is_control() && c != '\n') {
-                return Err("the text to type has control characters".into());
+            // What is typed is exactly what was shown: a control character is a key press (a
+            // line break would be an Enter nobody read), and a format character reorders or
+            // hides what is written.
+            if text.chars().any(|c| c.is_control() || is_format(c)) {
+                return Err("the text to type has control or format characters".into());
+            }
+            if text.trim().is_empty() {
+                return Err("the text to type is blank".into());
             }
             input.text(text);
         }
@@ -225,7 +246,6 @@ mod system {
     const HID_EVENT_TAP: u32 = 0;
     const CLICK_STATE_FIELD: u32 = 1;
     const SCROLL_UNIT_LINE: u32 = 1;
-    const RETURN_KEY: u16 = 36;
     /// The most UTF-16 units one keyboard event carries.
     const UNITS_PER_EVENT: usize = 20;
     /// Between two events, so the app under the pointer keeps up.
@@ -372,26 +392,21 @@ mod system {
         }
 
         fn text(&mut self, text: &str) {
-            for (index, line) in text.split('\n').enumerate() {
-                if index > 0 {
-                    self.key(RETURN_KEY, 0);
-                }
-                let mut units: Vec<u16> = Vec::with_capacity(UNITS_PER_EVENT);
-                for character in line.chars() {
-                    let mut buffer = [0u16; 2];
-                    let encoded = character.encode_utf16(&mut buffer);
-                    // A character is never split between two events.
-                    if units.len() + encoded.len() > UNITS_PER_EVENT {
-                        keyboard(0, true, 0, &units);
-                        keyboard(0, false, 0, &units);
-                        units.clear();
-                    }
-                    units.extend_from_slice(encoded);
-                }
-                if !units.is_empty() {
+            let mut units: Vec<u16> = Vec::with_capacity(UNITS_PER_EVENT);
+            for character in text.chars() {
+                let mut buffer = [0u16; 2];
+                let encoded = character.encode_utf16(&mut buffer);
+                // A character is never split between two events.
+                if units.len() + encoded.len() > UNITS_PER_EVENT {
                     keyboard(0, true, 0, &units);
                     keyboard(0, false, 0, &units);
+                    units.clear();
                 }
+                units.extend_from_slice(encoded);
+            }
+            if !units.is_empty() {
+                keyboard(0, true, 0, &units);
+                keyboard(0, false, 0, &units);
             }
         }
 
@@ -474,9 +489,14 @@ mod tests {
     #[test]
     fn text_is_typed_exactly_and_within_its_limit() {
         assert_eq!(
-            done(r#"{"kind":"type","text":"Hola, Marta:\nñ €"}"#).unwrap(),
-            ["text Hola, Marta:\nñ €"]
+            done(r#"{"kind":"type","text":"Hola, Marta: ñ €"}"#).unwrap(),
+            ["text Hola, Marta: ñ €"]
         );
+        // A line break would be an Enter that the text shown does not say.
+        assert!(done(r#"{"kind":"type","text":"rm -rf ~/Documents\n"}"#).is_err());
+        // A direction character would show the text in another order than it is typed.
+        assert!(done(r#"{"kind":"type","text":"abc\u202edef"}"#).is_err());
+        assert!(done(r#"{"kind":"type","text":"a\u200bb"}"#).is_err());
         assert!(done(r#"{"kind":"type","text":""}"#).is_err());
         let long = format!(r#"{{"kind":"type","text":"{}"}}"#, "ñ".repeat(501));
         assert!(done(&long).is_err());

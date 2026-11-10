@@ -145,6 +145,14 @@ export function ChatScreen(props: ChatScreenProps) {
         onAllow={chat.allow}
         onRefuse={chat.refuse}
       />
+      {chat.running && (
+        <div className="task-bar">
+          <span>{strings.chat.computerRunning}</span>
+          <button type="button" className="button small" onClick={chat.stop}>
+            {strings.chat.computerStop}
+          </button>
+        </div>
+      )}
       <Composer
         text={draft.text}
         attachments={draft.attachments}

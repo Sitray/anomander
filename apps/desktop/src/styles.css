@@ -1288,3 +1288,13 @@ button {
 .icon-button[aria-pressed="true"] {
   color: #e5484d;
 }
+
+.task-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 16px;
+  font-size: 12px;
+  border-top: 1px solid var(--line);
+}

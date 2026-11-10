@@ -73,7 +73,7 @@ export type ComputerModifier = (typeof COMPUTER_MODIFIERS)[number];
 
 /**
  * One thing ANOMANDER proposes to do on the principal's computer (DK-10). The daemon only
- * proposes it: the app performs it, and only after the principal allowed that very action.
+ * proposes it: the app performs it, after the principal allowed it when it is a step of care.
  * `x` and `y` are a point of the capture, from 0 to 1000 across its width and its height.
  */
 export type ComputerAction =
@@ -113,6 +113,11 @@ export interface ChatReply {
   sentAt: string;
   /** The action `text` proposes, in answer to a `computer` request; absent when it proposes none. */
   computer?: ComputerAction;
+  /**
+   * With `computer`: `false` when the action is routine and may be performed without asking;
+   * anything else means the principal must allow it first (DK-10 AC1).
+   */
+  confirm?: boolean;
 }
 
 /** The request `inReplyTo` was handled and has no reply. */

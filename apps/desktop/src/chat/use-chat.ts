@@ -2,7 +2,7 @@
 // screen and turns what the client reports into the conversation.
 
 import type { ComputerAction } from '@anomander/protocol';
-import { useCallback, useEffect, useReducer, useRef } from 'react';
+import { useCallback, useEffect, useReducer, useRef, useState } from 'react';
 import type { LocalChannel } from '../shell.ts';
 import { strings } from '../strings.ts';
 import { type Attachment, encodeAttachments, encodeJpeg } from './attachments.ts';
@@ -29,6 +29,10 @@ export interface Chat {
   allow(message: BotMessage): void;
   /** Stops the task at the action `message` proposes; nothing is performed. */
   refuse(message: BotMessage): void;
+  /** A task is going on by itself: a step is being planned or performed. */
+  running: boolean;
+  /** Stops the task that is running: nothing more is performed for it. */
+  stop(): void;
 }
 
 /** The shell's side of a task on the computer; both reject with the shell's own error. */
@@ -83,6 +87,11 @@ export const useChat = (channel: LocalChannel | null, options: ChatOptions = {})
   const asked = useRef(new Map<string, Step>());
   /** The proposals the principal has not answered, by the reply that carries them. */
   const proposed = useRef(new Map<string, Step & { action: ComputerAction; text: string }>());
+  const [running, setRunning] = useState(false);
+  /** The principal stopped the task: a step already on its way is not performed. */
+  const stopped = useRef(false);
+  /** `perform`, which is defined below the client that calls it. */
+  const performing = useRef<(id: string) => void>(() => {});
 
   useEffect(() => {
     const created = createChatClient({
@@ -94,11 +103,22 @@ export const useChat = (channel: LocalChannel | null, options: ChatOptions = {})
         const action = outcome.type === 'reply' ? outcome.reply.computer : undefined;
         if (step !== undefined && outcome.type === 'reply' && action !== undefined) {
           const { channelRef, text } = outcome.reply;
-          proposed.current.set(channelRef, { ...step, action, text });
-          const proposal = { action, captureUrl: step.captureUrl };
+          // DK-10 AC1: only a step the daemon calls routine goes without asking.
+          const routine = outcome.reply.confirm === false && !stopped.current;
+          const proposal = { action, captureUrl: step.captureUrl, confirm: !routine };
           dispatch({ type: 'outcome', requestId, outcome, proposal });
+          if (stopped.current) {
+            dispatch({ type: 'refused', id: channelRef });
+          } else {
+            proposed.current.set(channelRef, { ...step, action, text });
+            if (routine) performing.current(channelRef);
+            else setRunning(false);
+          }
         } else {
-          if (step !== undefined) URL.revokeObjectURL(step.captureUrl);
+          if (step !== undefined) {
+            URL.revokeObjectURL(step.captureUrl);
+            setRunning(false);
+          }
           dispatch({ type: 'outcome', requestId, outcome });
         }
         if (outcome.type === 'reply') latest.current.onReply?.(outcome.reply.text);
@@ -158,11 +178,13 @@ export const useChat = (channel: LocalChannel | null, options: ChatOptions = {})
     async (id: string, text: string) => {
       const { computer, onProblem } = latest.current;
       let requestId: string | null = null;
+      stopped.current = false;
       try {
         if (computer !== undefined) requestId = await step(text, [], await computer.capture());
       } catch (error) {
         onProblem?.(NOTHING_DONE[String(error)] ?? strings.chat.screenFailed);
       }
+      setRunning(requestId !== null);
       dispatch({ type: 'left', id, requestId });
     },
     [step],
@@ -177,26 +199,30 @@ export const useChat = (channel: LocalChannel | null, options: ChatOptions = {})
     [begin],
   );
 
-  const allow = useCallback(
-    async (message: BotMessage) => {
+  /** Performs the proposal of the reply `id`, once, then asks for the next step. */
+  const perform = useCallback(
+    async (id: string) => {
       const { computer, onProblem } = latest.current;
-      const proposal = proposed.current.get(message.id);
+      const proposal = proposed.current.get(id);
       if (computer === undefined || proposal === undefined) return;
       // Taken out first: a second press finds nothing to perform.
-      proposed.current.delete(message.id);
-      dispatch({ type: 'allowed', id: message.id });
+      proposed.current.delete(id);
+      stopped.current = false;
+      setRunning(true);
+      dispatch({ type: 'allowed', id });
       let jpeg: ArrayBuffer;
       try {
         jpeg = await computer.perform(proposal.action);
       } catch (error) {
+        setRunning(false);
         const nothingDone = NOTHING_DONE[String(error)];
         if (nothingDone === undefined) {
           // It may have been performed: it is never offered again.
-          dispatch({ type: 'performed', id: message.id, requestId: null });
+          dispatch({ type: 'performed', id, requestId: null });
           return;
         }
-        proposed.current.set(message.id, proposal);
-        dispatch({ type: 'not_performed', id: message.id });
+        proposed.current.set(id, proposal);
+        dispatch({ type: 'not_performed', id });
         onProblem?.(nothingDone);
         return;
       }
@@ -206,14 +232,23 @@ export const useChat = (channel: LocalChannel | null, options: ChatOptions = {})
       } catch {
         // The action was performed and the next step could not leave.
       }
-      dispatch({ type: 'performed', id: message.id, requestId });
+      setRunning(requestId !== null);
+      dispatch({ type: 'performed', id, requestId });
     },
     [step],
   );
+  performing.current = (id) => void perform(id);
+
+  const allow = useCallback((message: BotMessage) => void perform(message.id), [perform]);
 
   const refuse = useCallback((message: BotMessage) => {
     if (!proposed.current.delete(message.id)) return;
     dispatch({ type: 'refused', id: message.id });
+  }, []);
+
+  const stop = useCallback(() => {
+    stopped.current = true;
+    setRunning(false);
   }, []);
 
   const retry = useCallback(
@@ -226,5 +261,5 @@ export const useChat = (channel: LocalChannel | null, options: ChatOptions = {})
     [deliver, begin],
   );
 
-  return { conversation, say, retry, press, task, allow, refuse };
+  return { conversation, say, retry, press, task, allow, refuse, running, stop };
 };

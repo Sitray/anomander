@@ -748,4 +748,132 @@ describe('a task on the computer (DK-10)', () => {
     );
     expect(socket.requests).toEqual([]);
   });
+
+  describe('a routine step', () => {
+    const stop = () => screen.queryByRole('button', { name: strings.chat.computerStop });
+    /** Asks for the task; the daemon answers `computer` as a routine step. */
+    const routine = async (socket: FakeWebSocket) => {
+      fireEvent.click(mode());
+      say(task);
+      const request = await sentRequest(socket);
+      act(() =>
+        socket.receive(
+          replyTo(request.id, { text: PROPOSAL, computer: CLICK, confirm: false } as never),
+        ),
+      );
+    };
+
+    it('is performed without asking, shown as it is, and the task goes on', async () => {
+      const { socket, onPerformAction } = openWithComputer();
+      await routine(socket);
+
+      expect(await sentRequest(socket, 2)).toMatchObject({ type: 'computer', done: [PROPOSAL] });
+      expect(onPerformAction).toHaveBeenCalledTimes(1);
+      expect(onPerformAction).toHaveBeenCalledWith(CLICK);
+      expect(screen.getByText(PROPOSAL)).toBeTruthy();
+      expect(screen.getByText(strings.chat.computerAuto)).toBeTruthy();
+      expect(screen.queryByRole('button', { name: strings.chat.computerAllow })).toBeNull();
+    });
+
+    it('is asked for all the same unless the daemon says it is routine', async () => {
+      const { socket, onPerformAction } = openWithComputer();
+      fireEvent.click(mode());
+      say(task);
+      const request = await sentRequest(socket);
+      act(() =>
+        socket.receive(
+          replyTo(request.id, { text: PROPOSAL, computer: CLICK, confirm: true } as never),
+        ),
+      );
+      await act(async () => {});
+
+      expect(onPerformAction).not.toHaveBeenCalled();
+      expect(allow().disabled).toBe(false);
+    });
+
+    it('offers to stop the task while it runs, and not once it waits or ends', async () => {
+      const { socket } = openWithComputer();
+      expect(stop()).toBeNull();
+      await routine(socket);
+      const second = await sentRequest(socket, 2);
+      expect(stop()).not.toBeNull();
+
+      // A step of care: the task waits for the principal, with its own way to stop.
+      act(() =>
+        socket.receive(
+          replyTo(second.id, {
+            text: 'Quiero pulsar Intro.',
+            computer: { kind: 'key', key: 'enter', modifiers: [] },
+          } as never),
+        ),
+      );
+      expect(stop()).toBeNull();
+
+      fireEvent.click(allow());
+      const third = await sentRequest(socket, 3);
+      expect(stop()).not.toBeNull();
+      act(() => socket.receive(replyTo(third.id, { text: 'Hecho.' })));
+      expect(stop()).toBeNull();
+    });
+
+    it('stopping the task performs nothing more, even a routine step already on its way', async () => {
+      const { socket, onPerformAction } = openWithComputer();
+      fireEvent.click(mode());
+      say(task);
+      const request = await sentRequest(socket);
+
+      fireEvent.click(stop() as HTMLElement);
+      act(() =>
+        socket.receive(
+          replyTo(request.id, { text: PROPOSAL, computer: CLICK, confirm: false } as never),
+        ),
+      );
+      await act(async () => {});
+
+      expect(onPerformAction).not.toHaveBeenCalled();
+      expect(screen.getByText(strings.chat.computerRefused)).toBeTruthy();
+      expect(socket.requests).toHaveLength(1);
+      expect(stop()).toBeNull();
+    });
+
+    it('a new task runs again after one was stopped', async () => {
+      const { socket, onPerformAction } = openWithComputer();
+      fireEvent.click(mode());
+      say(task);
+      await sentRequest(socket);
+      fireEvent.click(stop() as HTMLElement);
+
+      fireEvent.click(mode());
+      say('Abre Chrome');
+      const again = await sentRequest(socket, 2);
+      act(() =>
+        socket.receive(
+          replyTo(again.id, { text: PROPOSAL, computer: CLICK, confirm: false } as never),
+        ),
+      );
+
+      await sentRequest(socket, 3);
+      expect(onPerformAction).toHaveBeenCalledTimes(1);
+    });
+
+    it('asks for permission after all when macOS did not let it be performed', async () => {
+      let allowedByMac = false;
+      const { socket, onPerformAction } = openWithComputer(async () => {
+        if (!allowedByMac) throw 'computer_permission';
+        return jpeg();
+      });
+      await routine(socket);
+
+      await waitFor(() =>
+        expect(screen.getByRole('status').textContent).toBe(strings.chat.computerPermission),
+      );
+      expect(socket.requests).toHaveLength(1);
+      expect(stop()).toBeNull();
+
+      allowedByMac = true;
+      fireEvent.click(allow());
+      await sentRequest(socket, 2);
+      expect(onPerformAction).toHaveBeenCalledTimes(2);
+    });
+  });
 });

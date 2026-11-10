@@ -242,7 +242,10 @@ export const startLocalChannel = (deps: LocalChannelDeps): LocalChannel => {
       text: reply.text,
       buttons: [...(reply.buttons ?? [])],
       sentAt,
-      ...(reply.computer === undefined ? {} : { computer: reply.computer }),
+      // DK-10 AC1: an action always says whether it must be allowed; asking is the default.
+      ...(reply.computer === undefined
+        ? {}
+        : { computer: reply.computer, confirm: reply.confirm !== false }),
     });
     // R-9 AC2: only a reply that left through the socket was delivered.
     reply.onDelivered?.({ channelRef, deliveredAt: sentAt });

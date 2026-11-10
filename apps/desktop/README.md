@@ -97,9 +97,11 @@ is framework-free, so it is tested against a fake `WebSocket` (`test/fake-web-so
   mixed with receipts. The shell keeps its file only while reading it. It needs macOS's Screen
   Recording permission, which belongs to the signed app.
 - **A task on the computer** (DK-10) starts from the composer's pointer button. Each step is a
-  `computer` request with a fresh capture; the daemon answers one proposed action, which the
-  chat shows with "Permitir" and "Detener" and, for a click or a scroll, the capture around the
-  point with a mark. Only "Permitir" calls `perform_action`, once: the proposal is taken out
+  `computer` request with a fresh capture; the daemon answers one proposed action and whether
+  it is routine (`confirm: false`). A routine step is performed at once and shown as done, with
+  "Detener tarea" on screen while the task runs; anything else, a missing `confirm` included, is
+  shown with "Permitir" and "Detener" and, for a click or a scroll, the capture around the point
+  with a mark. `perform_action` is called once per action: the proposal is taken out
   before the call, an action that may have been performed is never offered again, and an action
   in the reply to anything but a step the principal asked for is ignored. The shell validates the
   action again (`src-tauri/src/computer.rs`), hides the app so the input goes to the app the

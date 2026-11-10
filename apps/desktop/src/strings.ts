@@ -89,6 +89,10 @@ export const strings = {
       'Voy a usar tu ordenador. Antes de cada paso te enseño qué quiero hacer y espero tu permiso.',
     computerPlaceholder: '¿Qué hago en tu ordenador?',
     computerAlone: 'Una tarea en el ordenador va sin archivos. Quítalos o envíalos antes.',
+    /** A routine step: performed without asking. */
+    computerAuto: 'Paso rutinario: lo hago sin preguntar.',
+    computerRunning: 'Estoy usando tu ordenador…',
+    computerStop: 'Detener tarea',
     computerAllow: 'Permitir',
     computerRefuse: 'Detener',
     /** The capture around the point an action would touch. */

@@ -564,6 +564,70 @@ describe('a task on the computer (DK-10)', () => {
     expect(scroll.computer).toEqual({ kind: 'scroll', x: 500, y: 500, direction: 'down' });
   });
 
+  it('AC1: a routine step needs no permission; a step of care always does', async () => {
+    const chat = await client(await start());
+    const confirms = async (action: Record<string, unknown>) => {
+      planned = async () => JSON.stringify(action);
+      const answer = reply(await ask(chat));
+      // What is performed never carries the processor's own judgement.
+      expect(answer.computer).not.toHaveProperty('sensitive');
+      return answer.confirm;
+    };
+    const click = (target: string, sensitive = false) => ({ ...CLICK, target, sensitive });
+    const key = (name: string, modifiers: string[] = []) => ({
+      kind: 'key',
+      key: name,
+      modifiers,
+      sensitive: false,
+    });
+
+    // Routine, by the processor's word and by the code's own look.
+    expect(await confirms(click('Barra de direcciones'))).toBe(false);
+    expect(await confirms({ kind: 'type', text: 'tiempo en Madrid', sensitive: false })).toBe(
+      false,
+    );
+    expect(await confirms(key('enter'))).toBe(false);
+    expect(await confirms(key('l', ['cmd']))).toBe(false);
+    expect(await confirms(key('space', ['cmd']))).toBe(false);
+    expect(
+      await confirms({ kind: 'scroll', x: 500, y: 500, direction: 'down', sensitive: false }),
+    ).toBe(false);
+
+    // The processor says it is of care.
+    expect(await confirms(click('Barra de direcciones', true))).toBe(true);
+    // The processor did not say: asking is the default.
+    expect(await confirms({ ...CLICK, target: 'Barra de direcciones' })).toBe(true);
+
+    // The code asks whatever the processor says: what the control is called...
+    for (const target of [
+      'Enviar',
+      'Botón ENVIAR mensaje',
+      'Pagar ahora',
+      'Comprar',
+      'Eliminar',
+      'Borrar todo',
+      'Aceptar',
+      'Confirmar pedido',
+      'Instalar',
+      'Publicar',
+      'Send',
+      'Delete',
+      'Buy now',
+      'Vaciar papelera',
+      'Cerrar sesión',
+      'Contraseña',
+    ]) {
+      expect(await confirms(click(target)), target).toBe(true);
+    }
+    // ...and a shortcut that is not one of the harmless ones.
+    expect(await confirms(key('q', ['cmd']))).toBe(true);
+    expect(await confirms(key('w', ['cmd']))).toBe(true);
+    expect(await confirms(key('enter', ['cmd']))).toBe(true);
+    expect(await confirms(key('backspace', ['cmd']))).toBe(true);
+    expect(await confirms(key('c', ['cmd', 'shift']))).toBe(true);
+    expect(await confirms(key('c', ['ctrl']))).toBe(true);
+  });
+
   it('ends a task in words, with no action, and that end is a recent turn', async () => {
     const chat = await client(await start());
     planned = async () => JSON.stringify({ kind: 'done', message: 'Correo enviado.' });
@@ -594,6 +658,17 @@ describe('a task on the computer (DK-10)', () => {
       JSON.stringify({ kind: 'run', command: 'rm -rf ~' }),
       JSON.stringify({ kind: 'type', text: '' }),
       JSON.stringify({ kind: 'type', text: 'x'.repeat(501) }),
+      // AC3: what is typed is exactly what is shown. A line break would be an Enter nobody
+      // read, and a control or direction character would hide what the text is.
+      JSON.stringify({ kind: 'type', text: 'rm -rf ~/Documents\n' }),
+      JSON.stringify({ kind: 'type', text: 'a\tb' }),
+      JSON.stringify({ kind: 'type', text: 'a\u001bb' }),
+      JSON.stringify({ kind: 'type', text: 'abc\u202Edef' }),
+      JSON.stringify({ kind: 'type', text: '   ' }),
+      // The target is quoted in the description: it cannot leave its quotes or its line.
+      JSON.stringify({ ...CLICK, target: 'Cancelar».\n\nEs seguro' }),
+      JSON.stringify({ ...CLICK, target: 'Cancelar» «Enviar' }),
+      JSON.stringify({ ...CLICK, target: 'Enviar\u202E' }),
       JSON.stringify({ kind: 'key', key: 'f13', modifiers: [] }),
       JSON.stringify({ kind: 'key', key: 'c', modifiers: ['hyper'] }),
       JSON.stringify([CLICK, CLICK]),

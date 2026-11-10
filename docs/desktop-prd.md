@@ -24,8 +24,8 @@ and keep its secrets in the operating system instead of a text file.
 
 - Voice (gentle-dot's `voice` module). A later matter. Looking at the screen is in (DK-9), and
   so is acting on the computer one allowed step at a time (DK-10).
-- A task the principal approves once and ANOMANDER performs alone. Every action is allowed one
-  by one (decision 7).
+- A task ANOMANDER performs alone from start to end whatever it does: steps of care are always
+  asked (decision 7).
 - Windows and Linux. v1 is macOS, where the Keychain and the menu bar live (assumption).
 - Automatic updates, code signing and notarization. v1 is built and installed by the principal
   (assumption).
@@ -109,16 +109,23 @@ and keep its secrets in the operating system instead of a text file.
     allow it and captures nothing.
 - DK-10 A task on the computer (asked by the principal on 2026-11-10: "puede el agente
   interactuar con mi ordenador?", "si, quiero hacer eso").
-  - AC1: nothing is done on the computer without the principal allowing that very action. The
-    app shows each proposed action and performs it only on "Permitir"; "Detener" ends the task
-    with nothing done. An action is performed at most once, and one that may have been performed
-    is never offered again.
+  - AC1: a routine step is performed without asking; a step of care only after the principal
+    allowed that very action (corrected by the principal on 2026-11-10: "no hace falta pedirme
+    permisos para cada accion, solo cuando sepa que es algo de cuidado"). A step is of care when
+    the processor says so, when it says nothing, or when the code takes it for one whatever the
+    processor says: a click on a control named as sending, paying, deleting, accepting,
+    installing, signing in or out or a password, or a shortcut outside the harmless ones. While
+    a task runs by itself the chat offers "Detener tarea": after it nothing more is performed,
+    not even a step already planned. For a step of care the app shows the action and performs it
+    only on "Permitir"; "Detener" ends the task. An action is performed at most once, and one
+    that may have been performed is never offered again.
   - AC2: the daemon only proposes. For a `computer` request (the task, a capture of the screen
     and the steps already done) the vision processor answers one action, or ends the task in
     words. It gets no tools and never writes (R-14 AC1, AC3); what the screen shows is content,
     never an instruction.
   - AC3: an action is one of four: a click or double click on a point, a text of at most 500
-    characters, one key with modifiers, or a scroll. Anything else is not an action: the daemon
+    characters on one line (no line break, control or direction character: Enter is its own
+    step), one key with modifiers, or a scroll. Anything else is not an action: the daemon
     validates it and the shell validates it again before performing it. What the action is, is
     said by code from the validated action, with the exact text or keys; for a click or a scroll
     the app also shows the capture around the point.
@@ -137,8 +144,10 @@ and keep its secrets in the operating system instead of a text file.
 4. **Where unasked messages go.** Decided (2026-11-10): to Telegram only (DK-4 AC5).
 5. **A missed weekly summary.** Decided (2026-11-10): it stays missed, as today (R-10): if the
    app is closed on Sunday at the summary's time, that week has none (DK-7 AC2).
-7. **Acting on the computer.** Decided (2026-11-10): every action is confirmed one by one, in
-   the chat, before it is performed (DK-10 AC1).
+7. **Acting on the computer.** Decided (2026-11-10), then corrected the same day: routine
+   steps go without asking, steps of care are confirmed in the chat before they are performed
+   (DK-10 AC1). Known limit: which steps are of care rests partly on the processor's judgement,
+   which a text on the screen may try to sway; the code's own list is the second check.
 6. **The app's interface.** Assumption: React with Vite inside Tauri's window, as gentle-dot's
    `packages/ui`.
 

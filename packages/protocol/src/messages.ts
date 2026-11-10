@@ -52,6 +52,8 @@ export interface Reply {
   buttons?: ReplyButton[];
   /** DK-10: the action `text` proposes on the principal's computer. Only the app can show it. */
   computer?: ComputerAction;
+  /** With `computer`: whether the principal must allow it first (DK-10 AC1). */
+  confirm?: boolean;
   /** Called once the front door has sent `text`, to record the delivery. */
   onDelivered?: (delivery: Delivery) => void;
 }

@@ -111,26 +111,29 @@ const ProposalCard = ({
           <span className="target-mark" style={point} />
         </div>
       )}
-      <div className="choices">
-        <button
-          type="button"
-          className="button choice"
-          data-chosen={press?.data === 'allow' ? press.delivery : undefined}
-          disabled={press !== null}
-          onClick={() => onAllow(message)}
-        >
-          {strings.chat.computerAllow}
-        </button>
-        <button
-          type="button"
-          className="button choice"
-          data-chosen={press?.data === 'refuse' ? press.delivery : undefined}
-          disabled={press !== null}
-          onClick={() => onRefuse(message)}
-        >
-          {strings.chat.computerRefuse}
-        </button>
-      </div>
+      {!proposal.confirm && <p className="message-note">{strings.chat.computerAuto}</p>}
+      {proposal.confirm && (
+        <div className="choices">
+          <button
+            type="button"
+            className="button choice"
+            data-chosen={press?.data === 'allow' ? press.delivery : undefined}
+            disabled={press !== null}
+            onClick={() => onAllow(message)}
+          >
+            {strings.chat.computerAllow}
+          </button>
+          <button
+            type="button"
+            className="button choice"
+            data-chosen={press?.data === 'refuse' ? press.delivery : undefined}
+            disabled={press !== null}
+            onClick={() => onRefuse(message)}
+          >
+            {strings.chat.computerRefuse}
+          </button>
+        </div>
+      )}
       {press?.data === 'refuse' && <p className="message-note">{strings.chat.computerRefused}</p>}
       {press?.data === 'allow' && press.delivery === 'unknown' && (
         <Problem>{strings.chat.computerUnknown}</Problem>
