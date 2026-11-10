@@ -1,12 +1,12 @@
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
 import { loadConnectionsConfig, parseConnectionsConfig } from '../../src/connections/config.ts';
-import { connectTo, createConnections } from '../../src/connections/mcp-client.ts';
+import { connectTo, createConnections, transportFor } from '../../src/connections/mcp-client.ts';
 
 // DK-11: the MCP side. A real client against a real server of the SDK, joined in memory: no
 // process is started and nothing leaves this one.
@@ -65,6 +65,31 @@ describe('DK-11: a connected MCP server', () => {
     });
     expect(await connection.call('broken', {})).toMatchObject({ isError: true });
     await close();
+  });
+});
+
+describe('DK-11: a server started as a process', () => {
+  afterEach(() => vi.unstubAllEnvs());
+
+  it('gets the variables of its configuration and none of the daemon own', async () => {
+    vi.stubEnv('TELEGRAM_BOT_TOKEN', 'bot:secret');
+    vi.stubEnv('GEMINI_API_KEY', 'key-secret');
+    vi.stubEnv('ANOMANDER_LOCAL_TOKEN', 'local-secret');
+    const transport = transportFor({
+      kind: 'process',
+      command: process.execPath,
+      args: [resolve(import.meta.dirname, '../fixtures/mcp-env-server.mjs')],
+      env: { NOTES_TOKEN: 'abc' },
+      readOnly: [],
+    });
+
+    const { connection, close } = await connectTo('env', [], transport);
+    const names = (await connection.call('names', {})).text.split(',');
+    await close();
+
+    expect(names).toContain('NOTES_TOKEN');
+    expect(names).toContain('PATH');
+    expect(names.filter((name) => /TOKEN|KEY|ANOMANDER/.test(name))).toEqual(['NOTES_TOKEN']);
   });
 });
 

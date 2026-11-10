@@ -24,6 +24,8 @@ pub struct DaemonPaths {
     pub db: PathBuf,
     pub inbox: PathBuf,
     pub auth: PathBuf,
+    /// The servers the principal connected (DK-11): `mcp.json`, which they write themselves.
+    pub connections: PathBuf,
 }
 
 /// What one start of the daemon needs. Holds secrets: no `Debug`.
@@ -66,6 +68,11 @@ pub fn child_env(
     set("ANOMANDER_DB_PATH", &inputs.paths.db.to_string_lossy());
     set("ANOMANDER_INBOX_DIR", &inputs.paths.inbox.to_string_lossy());
     set("ANOMANDER_AUTH_PATH", &inputs.paths.auth.to_string_lossy());
+    // The daemon reads it only if it exists: without the file there are no connections.
+    set(
+        "ANOMANDER_MCP_CONFIG",
+        &inputs.paths.connections.to_string_lossy(),
+    );
     set("ANOMANDER_LOCAL_TOKEN", inputs.local_token);
     set("ANOMANDER_LOCAL_PORT", &inputs.local_port.to_string());
     // DK-1 AC1: the daemon stops when its stdin closes, so a crashed app leaves no daemon.
@@ -141,6 +148,7 @@ mod tests {
             db: "/data/anomander.db".into(),
             inbox: "/data/inbox".into(),
             auth: "/data/auth.json".into(),
+            connections: "/data/mcp.json".into(),
         }
     }
 
@@ -184,6 +192,7 @@ mod tests {
             ("ANOMANDER_DB_PATH", "/data/anomander.db"),
             ("ANOMANDER_INBOX_DIR", "/data/inbox"),
             ("ANOMANDER_AUTH_PATH", "/data/auth.json"),
+            ("ANOMANDER_MCP_CONFIG", "/data/mcp.json"),
             ("ANOMANDER_LOCAL_TOKEN", &"t".repeat(64)),
             ("ANOMANDER_LOCAL_PORT", "50123"),
             ("ANOMANDER_STOP_WITH_PARENT", "1"),

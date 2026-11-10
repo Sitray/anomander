@@ -23,6 +23,8 @@ export interface Chat {
   retry(message: OwnMessage): void;
   /** Presses a button of `message` (DK-4 AC3). */
   press(message: BotMessage, data: string): void;
+  /** Starts a task with the servers the principal connected (DK-11). */
+  connect(text: string): void;
   /** Starts a task on the computer (DK-10): sends it with the screen as it is now. */
   task(text: string): void;
   /** Performs the action `message` proposes, then asks for the next step (DK-10 AC1). */
@@ -186,6 +188,21 @@ export const useChat = (channel: LocalChannel | null, options: ChatOptions = {})
       void deliver(id, text, attachments);
     },
     [deliver],
+  );
+
+  /** Sends `text` as a task with connections: the daemon runs it and asks through buttons. */
+  const ask = useCallback((id: string, text: string) => {
+    const requestId = client.current?.send({ type: 'connect', task: text }) ?? null;
+    dispatch({ type: 'left', id, requestId });
+  }, []);
+
+  const connect = useCallback(
+    (text: string) => {
+      const id = crypto.randomUUID();
+      dispatch({ type: 'said', id, text, attachments: [], connect: true });
+      ask(id, text);
+    },
+    [ask],
   );
 
   const press = useCallback((message: BotMessage, data: string) => {
@@ -354,9 +371,10 @@ export const useChat = (channel: LocalChannel | null, options: ChatOptions = {})
       dispatch({ type: 'retried', id: message.id });
       // A task goes again with the screen as it is now, never as a plain text.
       if (message.task) void begin(message.id, message.text);
+      else if (message.connect) ask(message.id, message.text);
       else void deliver(message.id, message.text, message.attachments);
     },
-    [deliver, begin],
+    [deliver, begin, ask],
   );
 
   return {
@@ -364,6 +382,7 @@ export const useChat = (channel: LocalChannel | null, options: ChatOptions = {})
     say,
     retry,
     press,
+    connect,
     task,
     allow,
     refuse,

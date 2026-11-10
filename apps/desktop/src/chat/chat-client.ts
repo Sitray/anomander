@@ -4,6 +4,7 @@
 import {
   type ChatButtonPress,
   type ChatComputer,
+  type ChatConnect,
   type ChatEvent,
   type ChatReceipt,
   type ChatReply,
@@ -35,7 +36,8 @@ export type NewRequest =
   | Omit<ChatReceipt, 'id'>
   | Omit<ChatButtonPress, 'id'>
   | Omit<ChatScreen, 'id'>
-  | Omit<ChatComputer, 'id'>;
+  | Omit<ChatComputer, 'id'>
+  | Omit<ChatConnect, 'id'>;
 
 /** The part of `WebSocket` the client uses, so a test can hand it a fake. */
 export type ChatSocket = Pick<

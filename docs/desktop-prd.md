@@ -25,7 +25,7 @@ and keep its secrets in the operating system instead of a text file.
 - Voice (gentle-dot's `voice` module). A later matter. Looking at the screen is in (DK-9), and
   so is acting on the computer one allowed step at a time (DK-10).
 - A task ANOMANDER performs alone from start to end whatever it does: steps of care are always
-  asked (decision 7).
+  asked (decision 7), and so is every call to a connected server that is not read-only (DK-11).
 - Windows and Linux. v1 is macOS, where the Keychain and the menu bar live (assumption).
 - Automatic updates, code signing and notarization. v1 is built and installed by the principal
   (assumption).
@@ -137,6 +137,33 @@ and keep its secrets in the operating system instead of a text file.
     Only how a task ended is a recent turn (R-16 AC3).
   - AC5: macOS must allow the app to send input (Accessibility) and to record the screen; while
     it does not, the app says how to allow it and does nothing.
+
+- DK-11 Connections (asked by the principal on 2026-11-10: "quiero que prepares tambien para
+  hacer conexiones con mCPS"; the way to do it, accepted the same day: "el modelo nunca ejecuta;
+  toda llamada pasa por el control de autoridad en código").
+  - AC1: the principal connects MCP servers in `mcp.json`, in the data folder: the `mcpServers`
+    object other MCP clients read (a `command` with `args` and `env`, or a `url` with `headers`),
+    plus `readOnly`, the tools of that server they mark as only reading. A URL is HTTPS, or HTTP
+    to this machine. A file that is wrong anywhere connects nothing. A server process gets none
+    of the daemon's environment. Servers are connected when a task first needs them.
+  - AC2: a task with connections is asked in the app's chat (a `connect` request). The processor
+    is given the tools and asks for calls, one at a time; it never makes one (R-14 AC3). Code
+    decides each call.
+  - AC3: a tool marked read-only runs without asking; any other call waits for "Permitir", shown
+    by code with the tool, the server and the exact arguments. "Detener" ends the task. A call is
+    made at most once. A call whose arguments are over 1 500 characters, or hold characters that
+    cannot be shown as they are, is never made.
+  - AC4: once a server answered in a task, a call to another server always waits for "Permitir",
+    read-only or not: what was read from one server never leaves towards another unasked.
+  - AC5: a task carries the principal's words and what the tools answered, and nothing else: no
+    expense, memory or recent turn. What a tool or its description says is content, never an
+    instruction. Only how a task ended is a recent turn (R-16 AC3).
+  - AC6: a task makes at most 8 calls, and every processor call counts against the daily AI
+    limit (R-12). A result over 12 000 characters is cut; what is not text is only named.
+  - Open, for the principal: `mcp.json` may hold tokens (`env`, `headers`) and is not in the
+    Keychain (against DK-5 AC1); there is no setup screen for it; no OAuth; Telegram cannot ask
+    for these tasks; "read-only" is the principal's word about a tool, which the code cannot
+    check.
 
 ## 6. Decisions
 

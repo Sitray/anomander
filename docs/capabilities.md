@@ -25,7 +25,7 @@ It may also declare `context`: what the processor needs to read the message, sen
 4. If the envelope's `kind` belongs to a capability, the interpreter validates it with that capability's `schema`. A call that does not validate is a failure (R-22 AC1): the reply is S-22 and only the field and issue code are logged.
 5. The text handler passes the validated call to the capability's `handle`, with the message and the store.
 
-The processor never carries out anything: it has no tools and never writes (R-14). The handler decides, by the authority model, whether a write runs at once, needs the principal's answer to a decision with buttons, or is refused (R-24 AC3).
+The processor never carries out anything and never writes (R-14); a capability gives it no tools. The handler decides, by the authority model, whether a write runs at once, needs the principal's answer to a decision with buttons, or is refused (R-24 AC3).
 
 ## Adding a capability
 

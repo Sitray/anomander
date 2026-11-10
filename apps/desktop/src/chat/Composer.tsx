@@ -13,6 +13,7 @@ import {
   CloseIcon,
   FileIcon,
   PaperclipIcon,
+  PlugIcon,
   PointerIcon,
   ScreenIcon,
 } from '../ui/icons.tsx';
@@ -36,6 +37,8 @@ export interface ComposerProps {
   onScreen?: () => void;
   /** DK-10: whether the next message is a task on the computer; absent where it cannot be. */
   control?: { on: boolean; onToggle: () => void };
+  /** DK-11: whether the next message is a task with connections. */
+  connect?: { on: boolean; onToggle: () => void };
   onRemove: (id: string) => void;
   onSubmit: () => void;
 }
@@ -43,7 +46,7 @@ export interface ComposerProps {
 export function Composer(props: ComposerProps) {
   const { text, attachments, notice, disabled, blocked, onText, onFiles, onRemove, onSubmit } =
     props;
-  const { onScreen, control } = props;
+  const { onScreen, control, connect } = props;
   const reasonId = useId();
   const textarea = useRef<HTMLTextAreaElement>(null);
   const picker = useRef<HTMLInputElement>(null);
@@ -91,6 +94,7 @@ export function Composer(props: ComposerProps) {
         </p>
       )}
       {control?.on === true && <p className="composer-mode">{strings.chat.computerMode}</p>}
+      {connect?.on === true && <p className="composer-mode">{strings.chat.connectMode}</p>}
       <div className="composer-box" data-disabled={disabled || undefined}>
         {attachments.length > 0 && (
           <ul className="tray" aria-label={strings.chat.attachments}>
@@ -165,6 +169,19 @@ export function Composer(props: ComposerProps) {
               <PointerIcon />
             </button>
           )}
+          {connect !== undefined && (
+            <button
+              type="button"
+              className="icon-button"
+              aria-label={strings.chat.connect}
+              aria-pressed={connect.on}
+              title={strings.chat.connect}
+              disabled={disabled}
+              onClick={connect.onToggle}
+            >
+              <PlugIcon />
+            </button>
+          )}
           <textarea
             ref={textarea}
             className="composer-input"
@@ -176,7 +193,9 @@ export function Composer(props: ComposerProps) {
                 ? ''
                 : control?.on === true
                   ? strings.chat.computerPlaceholder
-                  : strings.chat.placeholder
+                  : connect?.on === true
+                    ? strings.chat.connectPlaceholder
+                    : strings.chat.placeholder
             }
             aria-label={strings.chat.message}
             aria-describedby={blocked === null ? undefined : reasonId}

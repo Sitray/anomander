@@ -83,6 +83,13 @@ export const strings = {
       'macOS no me deja ver la pantalla. Actívame en Ajustes del Sistema › Privacidad y seguridad › Grabación de pantalla y audio, y vuelve a abrir ANOMANDER.',
     screenFailed: 'No he podido capturar la pantalla. Prueba otra vez.',
 
+    /** DK-11: a task with the servers the principal connected. */
+    connect: 'Usar mis conexiones',
+    connectMode:
+      'Voy a usar tus conexiones. Lo que solo lee lo hago sin preguntar; antes de cualquier otra cosa te enseño qué quiero hacer y espero tu permiso.',
+    connectPlaceholder: '¿Qué hago con tus conexiones?',
+    connectAlone: 'Una tarea con conexiones va sin archivos. Quítalos o envíalos antes.',
+
     /** DK-10: a task on the computer, one allowed step at a time. */
     computer: 'Hacer algo en mi ordenador',
     computerMode:
