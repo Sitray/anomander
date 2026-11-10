@@ -407,3 +407,110 @@ describe('without a channel', () => {
     expect(FakeWebSocket.last.url).toBe('ws://127.0.0.1:5999');
   });
 });
+
+describe('the screen', () => {
+  const capture = () => new TextEncoder().encode('bytes').buffer as ArrayBuffer;
+  const look = () => screen.getByRole('button', { name: strings.chat.screen });
+  const openWithScreen = (onCaptureScreen: () => Promise<ArrayBuffer>): FakeWebSocket => {
+    render(<ChatScreen daemon={RUNNING} channel={CHANNEL} onCaptureScreen={onCaptureScreen} />);
+    act(() => FakeWebSocket.last.open());
+    return FakeWebSocket.last;
+  };
+  const captured = () =>
+    waitFor(() =>
+      expect(screen.getByRole('img', { name: strings.chat.screenCapture })).toBeTruthy(),
+    );
+
+  it('offers no look at the screen where the window cannot capture it', () => {
+    openChat();
+
+    expect(screen.queryByRole('button', { name: strings.chat.screen })).toBeNull();
+  });
+
+  it('shows the capture before anything is sent, and sends it with the question', async () => {
+    const socket = openWithScreen(async () => capture());
+    fireEvent.click(look());
+    await captured();
+    expect(socket.sent).toEqual([]);
+
+    say('¿De quién es este correo?');
+
+    expect(await sentRequest(socket)).toMatchObject({
+      type: 'screen',
+      text: '¿De quién es este correo?',
+      image: { mimeType: 'image/jpeg', data: BYTES },
+    });
+    expect(screen.queryByRole('list', { name: strings.chat.attachments })).toBeNull();
+  });
+
+  it('asks what is on the screen when nothing was typed', async () => {
+    const socket = openWithScreen(async () => capture());
+    fireEvent.click(look());
+    await captured();
+    fireEvent.click(screen.getByRole('button', { name: strings.chat.send }));
+
+    expect(await sentRequest(socket)).toMatchObject({
+      type: 'screen',
+      text: strings.chat.screenQuestion,
+    });
+    expect(within(screen.getByRole('log')).getByText(strings.chat.screenQuestion)).toBeTruthy();
+  });
+
+  it('can be taken back before sending', async () => {
+    const socket = openWithScreen(async () => capture());
+    fireEvent.click(look());
+    await captured();
+    fireEvent.click(
+      screen.getByRole('button', {
+        name: strings.chat.removeAttachment(strings.chat.screenCapture),
+      }),
+    );
+
+    say('23 € cena');
+
+    expect(await sentRequest(socket)).toMatchObject({ type: 'text', text: '23 € cena' });
+  });
+
+  it('keeps a single capture: a new look replaces the last one', async () => {
+    openWithScreen(async () => capture());
+    fireEvent.click(look());
+    await captured();
+    fireEvent.click(look());
+
+    await waitFor(() => expect(URL.revokeObjectURL).toHaveBeenCalledTimes(1));
+    expect(screen.getAllByRole('img', { name: strings.chat.screenCapture })).toHaveLength(1);
+  });
+
+  it('does not mix a capture with receipts', async () => {
+    openWithScreen(async () => capture());
+    fireEvent.paste(composer(), { clipboardData: { files: [image('ticket.png')] } });
+    fireEvent.click(look());
+
+    await waitFor(() =>
+      expect(screen.getByRole('status').textContent).toBe(strings.chat.screenAlone),
+    );
+    expect(screen.queryByRole('img', { name: strings.chat.screenCapture })).toBeNull();
+  });
+
+  it('says how to allow it when macOS does not let the app see the screen', async () => {
+    openWithScreen(async () => {
+      throw 'screen_permission';
+    });
+    fireEvent.click(look());
+
+    await waitFor(() =>
+      expect(screen.getByRole('status').textContent).toBe(strings.chat.screenPermission),
+    );
+  });
+
+  it('says when the capture failed for another reason', async () => {
+    openWithScreen(async () => {
+      throw 'screencapture exited with 1';
+    });
+    fireEvent.click(look());
+
+    await waitFor(() =>
+      expect(screen.getByRole('status').textContent).toBe(strings.chat.screenFailed),
+    );
+  });
+});

@@ -91,6 +91,11 @@ is framework-free, so it is tested against a fake `WebSocket` (`test/fake-web-so
 - **Files** dropped, pasted or picked wait in the composer and go as one `receipt`, at most 10
   and at most 45 MB together (the daemon closes a connection whose frame is over 64 MB). A file
   that is not an image is sent as it is, so the daemon answers as it would in Telegram (DK-4 AC6).
+- **The screen** (DK-9) is captured only on a press of the composer's screen button, with the
+  window hidden for that moment. The capture is shown before it is sent, travels alone as a
+  `screen` request with a question (without words: "¿Qué ves en mi pantalla?"), and is never
+  mixed with receipts. The shell keeps its file only while reading it. It needs macOS's Screen
+  Recording permission, which belongs to the signed app.
 - **Link buttons** (`{label, url}`) are named, not offered: this WebView cannot open links, and
   `/login` stays in Telegram (DK-4 AC7).
 - **Secrets** typed in the setup screen stay in uncontrolled fields and a ref, never in React

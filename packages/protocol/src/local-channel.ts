@@ -41,7 +41,19 @@ export interface ChatButtonPress {
   channelRef: string;
 }
 
-export type ChatRequest = ChatText | ChatReceipt | ChatButtonPress;
+/**
+ * A question about what is on the principal's screen, with the capture the app took when they
+ * asked. Only the app can send it: the capture is taken on their machine, at their request.
+ */
+export interface ChatScreen {
+  type: 'screen';
+  id: string;
+  /** What the principal asks about the screen. */
+  text: string;
+  image: ChatImage;
+}
+
+export type ChatRequest = ChatText | ChatReceipt | ChatButtonPress | ChatScreen;
 
 /** A button under a reply: it comes back as a `ChatButtonPress`, or opens `url`. */
 export type ChatButton = { label: string; data: string } | { label: string; url: string };

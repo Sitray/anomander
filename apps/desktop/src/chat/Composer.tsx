@@ -8,7 +8,7 @@ import {
   useRef,
 } from 'react';
 import { strings } from '../strings.ts';
-import { ArrowUpIcon, CloseIcon, FileIcon, PaperclipIcon } from '../ui/icons.tsx';
+import { ArrowUpIcon, CloseIcon, FileIcon, PaperclipIcon, ScreenIcon } from '../ui/icons.tsx';
 import type { Attachment } from './attachments.ts';
 
 /** The longest `text` the daemon accepts. */
@@ -25,6 +25,8 @@ export interface ComposerProps {
   blocked: string | null;
   onText: (text: string) => void;
   onFiles: (files: File[]) => void;
+  /** Asks for a capture of the screen; absent where the window cannot take one. */
+  onScreen?: () => void;
   onRemove: (id: string) => void;
   onSubmit: () => void;
 }
@@ -32,6 +34,7 @@ export interface ComposerProps {
 export function Composer(props: ComposerProps) {
   const { text, attachments, notice, disabled, blocked, onText, onFiles, onRemove, onSubmit } =
     props;
+  const { onScreen } = props;
   const reasonId = useId();
   const textarea = useRef<HTMLTextAreaElement>(null);
   const picker = useRef<HTMLInputElement>(null);
@@ -127,6 +130,18 @@ export function Composer(props: ComposerProps) {
           >
             <PaperclipIcon />
           </button>
+          {onScreen !== undefined && (
+            <button
+              type="button"
+              className="icon-button"
+              aria-label={strings.chat.screen}
+              title={strings.chat.screen}
+              disabled={disabled}
+              onClick={onScreen}
+            >
+              <ScreenIcon />
+            </button>
+          )}
           <textarea
             ref={textarea}
             className="composer-input"

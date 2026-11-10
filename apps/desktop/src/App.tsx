@@ -81,6 +81,7 @@ export function App() {
                 channel={snapshot.channel}
                 onThinking={shell.setThinking}
                 onReply={shell.notifyReply}
+                onCaptureScreen={shell.captureScreen}
               />
             </div>
             {setupOpen && (

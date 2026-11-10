@@ -24,6 +24,8 @@ export interface Shell {
   setThinking(thinking: boolean): void;
   /** Hands an answer to the shell to notify it; a failure only loses the notification. */
   notifyReply(text: string): void;
+  /** `shell.captureScreen`, as it is: the chat says why a capture failed. */
+  captureScreen(): Promise<ArrayBuffer>;
 }
 
 export const useShell = (): Shell => {
@@ -113,5 +115,6 @@ export const useShell = (): Shell => {
     saveSetup,
     setThinking,
     notifyReply,
+    captureScreen: shell.captureScreen,
   };
 };

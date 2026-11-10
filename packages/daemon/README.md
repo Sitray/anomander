@@ -462,6 +462,7 @@ Each message is one JSON text frame, typed in `packages/protocol/src/local-chann
 | `text` | `reply` with the same string Telegram would get (DK-4 AC1) |
 | `receipt`: one or several images in base64 | `reply`; a PDF, another file type or an image over 20 MB gets R-20's reply, as in Telegram |
 | `button`: the `data` of a reply's button | `reply`; S-19 when the decision is no longer open, whichever door closed it (DK-4 AC3) |
+| `screen`: a question and one capture of the screen in base64 (DK-9) | `reply` with what the vision processor sees (`src/processor/screen-reader.ts`): no tools, nothing stored, one call against the daily AI limit; an image over 20 MB gets R-20's reply |
 | A frame that is none of these | `rejected`, and nothing is done with it |
 
 A `reply` carries its own `channelRef`, `desktop:<uuid>`, which is recorded as the delivery

@@ -12,6 +12,14 @@ export interface PrincipalText {
   replyTo?: string;
 }
 
+/** A question about the principal's screen, with the capture taken when they asked. */
+export interface ScreenQuestion {
+  text: string;
+  image: { mimeType: string; data: Uint8Array };
+  channelRef: string;
+  receivedAt: string;
+}
+
 /** Proof that a reply reached the principal (R-9 AC2). */
 export interface Delivery {
   /** The sent message: `telegram:<message_id>`. */

@@ -63,6 +63,11 @@ impl Core {
         }
     }
 
+    /// The data folder (DK-8), where a capture of the screen lives while it is read.
+    pub fn data_root(&self) -> &std::path::Path {
+        self.data.root()
+    }
+
     pub fn setup_state(&self) -> SetupState {
         let setup = lock(&self.setup);
         setup_state(&setup.settings, setup.has_telegram_bot_token)

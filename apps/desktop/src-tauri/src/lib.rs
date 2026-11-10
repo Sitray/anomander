@@ -5,6 +5,7 @@
 pub mod daemon;
 pub mod data_dir;
 pub mod notification;
+pub mod screen;
 pub mod secure_store;
 pub mod setup;
 pub mod shell;
@@ -12,6 +13,7 @@ pub mod snapshot;
 pub mod tray;
 
 use std::sync::{Arc, Mutex, PoisonError};
+use std::time::Duration;
 
 use tauri::{AppHandle, Emitter, Manager, RunEvent, WindowEvent};
 use tauri_plugin_notification::NotificationExt;
@@ -159,6 +161,29 @@ fn notify_reply(app: AppHandle, text: String) -> Result<(), String> {
         .map_err(|error| error.to_string())
 }
 
+/// How long the window takes to leave the screen once hidden, before the capture is taken.
+const WINDOW_LEAVES: Duration = Duration::from_millis(350);
+
+/// A JPEG of the screen for a question the principal is asking in the chat, taken with the chat
+/// window out of the way. It runs only on their click, and nothing is kept on disk.
+#[tauri::command]
+async fn capture_screen(app: AppHandle) -> Result<tauri::ipc::Response, String> {
+    if !screen::allowed() {
+        return Err(screen::NO_PERMISSION.into());
+    }
+    if let Some(window) = app.get_webview_window(MAIN_WINDOW) {
+        window.hide().map_err(|error| error.to_string())?;
+    }
+    let captured = blocking(app.clone(), |shell| {
+        std::thread::sleep(WINDOW_LEAVES);
+        screen::capture(shell.core.data_root())
+    })
+    .await;
+    // Whatever happened, the chat comes back.
+    show_chat(&app);
+    captured.map(tauri::ipc::Response::new)
+}
+
 fn on_menu(app: &AppHandle, id: &str) {
     match id {
         tray::OPEN_CHAT => show_chat(app),
@@ -250,7 +275,8 @@ pub fn run() {
             start_daemon,
             stop_daemon,
             set_thinking,
-            notify_reply
+            notify_reply,
+            capture_screen
         ])
         .setup(set_up)
         .on_window_event(|window, event| {

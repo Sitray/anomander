@@ -22,14 +22,16 @@ export interface Chat {
   press(message: BotMessage, data: string): void;
 }
 
-const requestFor = async (text: string, attachments: Attachment[]): Promise<NewRequest> =>
-  attachments.length === 0
-    ? { type: 'text', text }
-    : {
-        type: 'receipt',
-        images: await encodeAttachments(attachments),
-        caption: text === '' ? null : text,
-      };
+const requestFor = async (text: string, attachments: Attachment[]): Promise<NewRequest> => {
+  if (attachments.length === 0) return { type: 'text', text };
+  const images = await encodeAttachments(attachments);
+  const [capture] = images;
+  // A capture travels alone, as a question about the screen.
+  if (attachments.some((attachment) => attachment.screen) && capture !== undefined) {
+    return { type: 'screen', text, image: capture };
+  }
+  return { type: 'receipt', images, caption: text === '' ? null : text };
+};
 
 export const useChat = (
   channel: LocalChannel | null,

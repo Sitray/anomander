@@ -67,6 +67,9 @@ export const recordingNotices =
     turns.add(null, message.text);
   };
 
+/** How a question about the screen appears in the recent turns: no image, only the question. */
+export const screenTurn = (question: string): string => `[captura de pantalla] ${question}`;
+
 /** How a receipt appears in the recent turns: no image, only its caption. */
 export const receiptTurn = (caption: string | null): string =>
   caption === null ? '[foto de ticket]' : `[foto de ticket] ${caption}`;

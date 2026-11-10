@@ -8,6 +8,7 @@ import {
   LOCAL_CHANNEL_PROTOCOL,
   type PrincipalText,
   type ReceiptHandler,
+  type ScreenQuestion,
   strings,
 } from '@anomander/protocol';
 import type { TelegramReply } from '@anomander/telegram';
@@ -26,6 +27,8 @@ export interface ChatHandlers {
   onText: (message: PrincipalText) => Promise<TelegramReply | null>;
   onReceipt: ReceiptHandler;
   onButton: (press: ButtonPress) => Promise<TelegramReply | null>;
+  /** Only the app asks about the screen: Telegram has no capture to send. */
+  onScreen: (question: ScreenQuestion) => Promise<TelegramReply | null>;
 }
 
 export interface LocalChannelDeps {
@@ -82,6 +85,12 @@ const requestSchema = z.discriminatedUnion('type', [
     id,
     data: z.string().min(1),
     channelRef: z.string().min(1),
+  }),
+  z.strictObject({
+    type: z.literal('screen'),
+    id,
+    text: z.string().trim().min(1).max(4096),
+    image: z.strictObject({ mimeType: z.string().startsWith('image/'), data: z.base64().min(1) }),
   }),
 ]);
 
@@ -144,6 +153,19 @@ export const startLocalChannel = (deps: LocalChannelDeps): LocalChannel => {
           data: request.data,
           channelRef: request.channelRef,
           pressedAt: at,
+        });
+      case 'screen':
+        if (decodedBytes(request.image.data) > MAX_FILE_BYTES) {
+          return Promise.resolve({ text: strings.imageTooLarge() });
+        }
+        return handlers.onScreen({
+          text: request.text,
+          image: {
+            mimeType: request.image.mimeType,
+            data: new Uint8Array(Buffer.from(request.image.data, 'base64')),
+          },
+          channelRef,
+          receivedAt: at,
         });
       case 'receipt': {
         const refusal = unsupported(request);

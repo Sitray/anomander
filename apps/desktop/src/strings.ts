@@ -73,6 +73,16 @@ export const strings = {
     tooMany: `Caben ${MAX_ATTACHMENTS} archivos por mensaje. Me quedo con los ${MAX_ATTACHMENTS} primeros.`,
     tooHeavy: 'Pesan demasiado para ir juntos. Envíalos en varios mensajes.',
 
+    /** A look at the screen: the capture waits in the composer, in sight, until it is sent. */
+    screen: 'Preguntar por mi pantalla',
+    screenCapture: 'Captura de pantalla',
+    /** What is asked when a capture is sent with no words. */
+    screenQuestion: '¿Qué ves en mi pantalla?',
+    screenAlone: 'La captura va sola: envía los tickets en otro mensaje.',
+    screenPermission:
+      'macOS no me deja ver la pantalla. Actívame en Ajustes del Sistema › Privacidad y seguridad › Grabación de pantalla y audio, y vuelve a abrir ANOMANDER.',
+    screenFailed: 'No he podido capturar la pantalla. Prueba otra vez.',
+
     thinking: 'ANOMANDER está pensando…',
 
     /** `rejected`, or never left: nothing was done, so sending again is safe. */

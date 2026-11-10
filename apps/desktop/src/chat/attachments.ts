@@ -10,6 +10,8 @@ export interface Attachment {
   mimeType: string;
   /** An object URL for the thumbnail, in memory only; `null` for a file that is not an image. */
   previewUrl: string | null;
+  /** A capture of the screen, sent as a question about it and never as a receipt. */
+  screen: boolean;
 }
 
 /**
@@ -26,8 +28,16 @@ export const toAttachment = (file: File): Attachment => {
     name: file.name,
     mimeType,
     previewUrl: mimeType.startsWith('image/') ? URL.createObjectURL(file) : null,
+    screen: false,
   };
 };
+
+/** The capture the shell took, as the JPEG it is; `name` is what the principal reads. */
+export const toScreenAttachment = (jpeg: ArrayBuffer, name: string): Attachment => ({
+  ...toAttachment(new File([jpeg], 'screen.jpg', { type: 'image/jpeg' })),
+  name,
+  screen: true,
+});
 
 /** Frees the thumbnail of an attachment that was removed before it was sent. */
 export const releaseAttachment = (attachment: Attachment): void => {

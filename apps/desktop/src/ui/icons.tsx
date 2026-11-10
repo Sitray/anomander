@@ -59,6 +59,13 @@ export const AlertIcon = () => (
   </Icon>
 );
 
+export const ScreenIcon = () => (
+  <Icon>
+    <rect x="2" y="3" width="12" height="8" rx="1.25" />
+    <path d="M6 13.75h4M8 11v2.75" />
+  </Icon>
+);
+
 export const FileIcon = () => (
   <Icon>
     <path d="M9 2.25H5A1.25 1.25 0 0 0 3.75 3.5v9A1.25 1.25 0 0 0 5 13.75h6a1.25 1.25 0 0 0 1.25-1.25v-7zM9 2.25V5.5h3.25" />

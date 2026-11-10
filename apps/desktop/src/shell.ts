@@ -78,6 +78,11 @@ export const shell = {
   stopDaemon: (): Promise<void> => invoke('stop_daemon'),
   /** Whether the chat waits for an answer, which the menu bar shows (DK-6). */
   setThinking: (thinking: boolean): Promise<void> => invoke('set_thinking', { thinking }),
+  /**
+   * A JPEG of the screen, taken now with the window out of the way. Rejects with
+   * `screen_permission` when macOS does not let the app record the screen.
+   */
+  captureScreen: (): Promise<ArrayBuffer> => invoke('capture_screen'),
   /** An answer arrived: the shell notifies it unless the window is in front. */
   notifyReply: (text: string): Promise<void> => invoke('notify_reply', { text }),
   onSnapshot: (handler: (snapshot: Snapshot) => void): Promise<UnlistenFn> =>

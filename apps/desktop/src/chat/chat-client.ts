@@ -6,6 +6,7 @@ import {
   type ChatEvent,
   type ChatReceipt,
   type ChatReply,
+  type ChatScreen,
   type ChatText,
   LOCAL_CHANNEL_PROTOCOL,
 } from '@anomander/protocol';
@@ -31,7 +32,8 @@ export type Outcome =
 export type NewRequest =
   | Omit<ChatText, 'id'>
   | Omit<ChatReceipt, 'id'>
-  | Omit<ChatButtonPress, 'id'>;
+  | Omit<ChatButtonPress, 'id'>
+  | Omit<ChatScreen, 'id'>;
 
 /** The part of `WebSocket` the client uses, so a test can hand it a fake. */
 export type ChatSocket = Pick<

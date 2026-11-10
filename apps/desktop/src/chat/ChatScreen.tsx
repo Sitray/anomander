@@ -17,6 +17,8 @@ export interface ChatScreenProps {
   onThinking?: (thinking: boolean) => void;
   /** Called with the text of every answer. */
   onReply?: (text: string) => void;
+  /** Takes a JPEG of the screen; rejects with `screen_permission` when macOS does not allow it. */
+  onCaptureScreen?: () => Promise<ArrayBuffer>;
 }
 
 /** Why there is no channel, in the principal's words. */
@@ -30,7 +32,8 @@ const withoutChannel = ({ state, reason }: DaemonStatus): string => {
 
 const carriesFiles = (event: DragEvent): boolean => event.dataTransfer.types.includes('Files');
 
-export function ChatScreen({ daemon, channel, onThinking, onReply }: ChatScreenProps) {
+export function ChatScreen(props: ChatScreenProps) {
+  const { daemon, channel, onThinking, onReply, onCaptureScreen } = props;
   const chat = useChat(channel, onReply);
   const draft = useDraft();
   const [dropping, setDropping] = useState(false);
@@ -50,11 +53,27 @@ export function ChatScreen({ daemon, channel, onThinking, onReply }: ChatScreenP
       : null;
 
   const submit = () => {
-    const text = draft.text.trim();
-    if (blocked !== null || (text === '' && draft.attachments.length === 0)) return;
-    chat.say(text, draft.attachments);
+    const typed = draft.text.trim();
+    if (blocked !== null || (typed === '' && draft.attachments.length === 0)) return;
+    // A capture always goes with a question: without words, the obvious one.
+    const capture = draft.attachments.some((attachment) => attachment.screen);
+    chat.say(capture && typed === '' ? strings.chat.screenQuestion : typed, draft.attachments);
     draft.clear();
   };
+
+  const look =
+    onCaptureScreen === undefined
+      ? undefined
+      : () => {
+          if (!draft.takesScreen()) return;
+          onCaptureScreen().then(draft.addScreen, (error: unknown) =>
+            draft.warn(
+              error === 'screen_permission'
+                ? strings.chat.screenPermission
+                : strings.chat.screenFailed,
+            ),
+          );
+        };
 
   const endDrag = () => {
     dragDepth.current = 0;
@@ -102,6 +121,7 @@ export function ChatScreen({ daemon, channel, onThinking, onReply }: ChatScreenP
         blocked={blocked}
         onText={draft.setText}
         onFiles={draft.addFiles}
+        {...(look === undefined ? {} : { onScreen: look })}
         onRemove={draft.remove}
         onSubmit={submit}
       />

@@ -159,6 +159,7 @@ export const strings = {
   receiptKept: (lastDay: string) =>
     `Vale, lo guardo hasta poder leerlo, como mucho hasta el ${formatDate(lastDay)}.`,
   receiptNotKept: () => 'Vale, si no consigo leerlo antes, lo borro en una hora.',
+  screenNotSeen: () => 'No he podido ver tu pantalla. ¿Me lo vuelves a pedir en un rato?',
   textLimitReached: () =>
     'He llegado al límite diario de IA y hoy no puedo procesar más mensajes. ¿Me lo vuelves a enviar mañana?',
   /** S-27: the header, then one line per memory with how it was learnt. */

@@ -22,7 +22,8 @@ and keep its secrets in the operating system instead of a text file.
 
 ## 3. Non-goals (v1)
 
-- Voice and computer control (gentle-dot's `voice` and `computer` modules). Later matters.
+- Voice, and control of the computer (clicks, typing: gentle-dot's `voice` and `computer`
+  modules). Later matters. Looking at the screen is in: DK-9.
 - Windows and Linux. v1 is macOS, where the Keychain and the menu bar live (assumption).
 - Automatic updates, code signing and notarization. v1 is built and installed by the principal
   (assumption).
@@ -92,6 +93,18 @@ and keep its secrets in the operating system instead of a text file.
 - DK-8 Data.
   - AC1: the database and the images live in the app's data folder
     (`~/Library/Application Support/ANOMANDER`), folder `700`, files `600`, as in §16.
+- DK-9 A look at the screen (asked by the principal on 2026-11-10: "la APP también debería poder
+  leer la pantalla").
+  - AC1: the app captures the screen only when the principal presses the chat's screen button.
+    The capture waits in the composer, in sight, and can be removed before it is sent.
+  - AC2: it is sent with a question as a `screen` request of the local channel; the vision
+    processor answers in words. It gets no tools and never writes (R-14 AC1, AC3): what the
+    screen shows is content to describe, never an instruction.
+  - AC3: the look counts against the daily AI limit (R-12) and is a recent turn, as its question
+    only (R-16 AC3). The capture is not stored: the shell removes its file once read, and the
+    daemon keeps it in memory for the call.
+  - AC4: macOS must allow the app to record the screen; while it does not, the app says how to
+    allow it and captures nothing.
 
 ## 6. Decisions
 

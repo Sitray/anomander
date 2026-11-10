@@ -21,6 +21,7 @@ import { type Anomander, startAnomander, startSetupGuide } from '../../src/app.t
 import { loadConfig } from '../../src/config.ts';
 import { RECEIPT_READER_PROMPT } from '../../src/processor/receipt-reader.ts';
 import { REPLY_PHRASER_PROMPT } from '../../src/processor/reply-phraser.ts';
+import { SCREEN_READER_PROMPT } from '../../src/processor/screen-reader.ts';
 
 // DK-3 and DK-4 (docs/desktop-prd.md): a real WebSocket client, as the desktop app's window is,
 // against the local channel of a started daemon, with the fake Telegram API, a SQLite file and
@@ -32,6 +33,8 @@ const recorded = (path: string): AssistantMessage =>
   JSON.parse(readFileSync(resolve(FIXTURES, `${path}.json`), 'utf8'));
 const PHRASED = '¡Hecho! He apuntado 23,00 € de la cena en restaurantes.';
 const S19 = 'Esa pregunta ya no está abierta.';
+const SEEN = 'Tienes abierto un correo de Marta sobre la cena del viernes.';
+const NOT_SEEN = 'No he podido ver tu pantalla. ¿Me lo vuelves a pedir en un rato?';
 
 let scratch: string;
 let api: FakeTelegramApi;
@@ -39,6 +42,10 @@ let anomander: Anomander | undefined;
 let sockets: WebSocket[];
 /** The user turns the text interpreter received, parsed. */
 let interpreted: { recent: unknown; message: string }[];
+/** The contexts the screen reader received. */
+let screens: Context[];
+/** What the screen reader answers; a test replaces it to make the call fail. */
+let seen: () => Promise<string>;
 type Log = (message: string, fields?: Record<string, unknown>) => void;
 let logger: { info: Mock<Log>; warn: Mock<Log>; error: Mock<Log> };
 
@@ -47,6 +54,10 @@ const complete = async (_model: string, context: Context): Promise<AssistantMess
     return recorded('receipt-reader/lines-mismatch');
   }
   const reply = recorded('text-interpreter/expense-23-space-euro');
+  if (context.systemPrompt === SCREEN_READER_PROMPT) {
+    screens.push(context);
+    return { ...reply, content: [{ type: 'text', text: await seen() }] };
+  }
   if (context.systemPrompt === REPLY_PHRASER_PROMPT) {
     return { ...reply, content: [{ type: 'text', text: PHRASED }] };
   }
@@ -179,6 +190,8 @@ beforeEach(async () => {
   api = await startFakeTelegramApi();
   sockets = [];
   interpreted = [];
+  screens = [];
+  seen = async () => SEEN;
   logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn() };
 });
 
@@ -396,5 +409,95 @@ describe('the chat over the local channel', () => {
 
     const sent = await api.waitForSent(1);
     expect(reply(await chat.ask({ type: 'text', text: 'hola' })).text).toBe(sent[0]?.text);
+  });
+});
+
+describe('a question about the screen', () => {
+  const question = '¿De quién es este correo?';
+
+  it('answers what the vision model sees in the capture, without tools and without storing anything', async () => {
+    const chat = await client(await start());
+    const image = png();
+
+    const answer = reply(await chat.ask({ type: 'screen', text: question, image }));
+
+    expect(answer.text).toBe(SEEN);
+    expect(answer.buttons).toEqual([]);
+    expect(screens).toHaveLength(1);
+    const [context] = screens;
+    expect(context).not.toHaveProperty('tools');
+    expect(context?.messages).toHaveLength(1);
+    expect(context?.messages[0]?.content).toEqual([
+      { type: 'text', text: question },
+      { type: 'image', mimeType: 'image/png', data: image.data },
+    ]);
+    // Looking is not recording: no expense, and the capture is not kept.
+    expect(query('SELECT id FROM expenses')).toEqual([]);
+    expect(api.sent).toEqual([]);
+  });
+
+  it('is a recent turn, so the next message can refer to it (R-16 AC3)', async () => {
+    const chat = await client(await start());
+    await chat.ask({ type: 'screen', text: question, image: png() });
+
+    await chat.ask({ type: 'text', text: '23 € cena' });
+
+    expect(interpreted.at(-1)?.recent).toEqual([
+      { principal: `[captura de pantalla] ${question}`, reply: SEEN },
+    ]);
+  });
+
+  it('says it could not look when the vision model fails or answers nothing', async () => {
+    const chat = await client(await start());
+
+    seen = async () => {
+      throw new Error('the provider is down');
+    };
+    expect(reply(await chat.ask({ type: 'screen', text: question, image: png() })).text).toBe(
+      NOT_SEEN,
+    );
+
+    seen = async () => '  ';
+    expect(reply(await chat.ask({ type: 'screen', text: question, image: png() })).text).toBe(
+      NOT_SEEN,
+    );
+  });
+
+  it('counts against the daily AI limit (R-12)', async () => {
+    const chat = await client(
+      await start({ ANOMANDER_LOCAL_TOKEN: TOKEN, ANOMANDER_DAILY_AI_CALL_LIMIT: '1' }),
+    );
+
+    expect(reply(await chat.ask({ type: 'screen', text: question, image: png() })).text).toBe(SEEN);
+    expect(reply(await chat.ask({ type: 'screen', text: question, image: png() })).text).toBe(
+      'He llegado al límite diario de IA y hoy no puedo procesar más mensajes. ¿Me lo vuelves a enviar mañana?',
+    );
+    expect(screens).toHaveLength(1);
+  });
+
+  it('rejects a capture that is not an image, or a question without words', async () => {
+    const chat = await client(await start());
+
+    const notImage = { mimeType: 'application/pdf', data: png().data };
+    expect((await chat.ask({ type: 'screen', text: question, image: notImage })).type).toBe(
+      'rejected',
+    );
+    expect((await chat.ask({ type: 'screen', text: '', image: png() })).type).toBe('rejected');
+    expect(screens).toEqual([]);
+  });
+
+  it('answers with the setup guide while no model is usable (R-28)', async () => {
+    const guide = startSetupGuide(
+      { ...config({ ANOMANDER_LOCAL_TOKEN: TOKEN }), localPort: 0 },
+      { gaps: [{ kind: 'model_unset' }], telegramApiRoot: api.apiRoot, logger },
+    );
+    anomander = guide;
+    await guide.started;
+    const chat = await client(guide);
+
+    const sent = await api.waitForSent(1);
+    expect(reply(await chat.ask({ type: 'screen', text: question, image: png() })).text).toBe(
+      sent[0]?.text,
+    );
   });
 });

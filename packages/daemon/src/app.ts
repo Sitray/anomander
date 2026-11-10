@@ -1,4 +1,4 @@
-import { type Notify, strings } from '@anomander/protocol';
+import { type Notify, type ScreenQuestion, strings } from '@anomander/protocol';
 import {
   createTelegramBot,
   createTelegramDelete,
@@ -16,6 +16,7 @@ import {
   receiptTurn,
   recordingNotices,
   recordingTurns,
+  screenTurn,
 } from './conversation/recent-turns.ts';
 import { createButtonHandler, createDecisionAnswers, pressedOption } from './decisions/answer.ts';
 import { createCancelReminderAnswerHandler } from './decisions/cancel-reminder-decision.ts';
@@ -40,6 +41,7 @@ import { createPiAiCorrectionInterpreter } from './processor/correction-interpre
 import { createPiAiReceiptReader } from './processor/receipt-reader.ts';
 import { createPiAiReplyPhraser } from './processor/reply-phraser.ts';
 import { withRetry } from './processor/retry.ts';
+import { createPiAiScreenReader } from './processor/screen-reader.ts';
 import { type Complete, createPiAiTextInterpreter } from './processor/text-interpreter.ts';
 import { withTimeout } from './processor/timeout.ts';
 import { type ReadApiAddress, startReadApi } from './read-api/server.ts';
@@ -222,7 +224,12 @@ export const startSetupGuide = (config: Config, deps: SetupGuideDeps): Anomander
   deleteMessage = createTelegramDelete(bot, config.principalChatId);
   const localChannel = startChannel(
     config,
-    { onText: async () => guide, onReceipt: async () => guide, onButton: async () => guide },
+    {
+      onText: async () => guide,
+      onReceipt: async () => guide,
+      onButton: async () => guide,
+      onScreen: async () => guide,
+    },
     logger,
   );
 
@@ -382,6 +389,27 @@ export const startAnomander = <M>(config: Config, deps: AnomanderDeps<M>): Anoma
     receipts.onReceipt,
   );
 
+  // A look at the screen: the budgeted call, so it counts against the daily cap (R-12).
+  const screenReader = createPiAiScreenReader({
+    complete: ai,
+    model: deps.visionModel ?? model,
+    logger,
+  });
+  const recordedScreen = recordingTurns(
+    turns,
+    (question: ScreenQuestion) => screenTurn(question.text),
+    async (question: ScreenQuestion) => {
+      const reading = await screenReader({ question: question.text, image: question.image });
+      if (reading.kind === 'answer') return { text: reading.text };
+      return {
+        text:
+          reading.kind === 'budget_exhausted'
+            ? strings.textLimitReached()
+            : strings.screenNotSeen(),
+      };
+    },
+  );
+
   // What every front door calls (DK-4 AC1). R-28: `/start`, and the guide while a provider is
   // not connected.
   const inTurn = oneTurnAtATime();
@@ -398,6 +426,10 @@ export const startAnomander = <M>(config: Config, deps: AnomanderDeps<M>): Anoma
     onButton: inTurn(async (press) => {
       const gaps = await setupGaps();
       return gaps.length > 0 ? { text: setupGuide(gaps) } : recordedButton(press);
+    }),
+    onScreen: inTurn(async (question) => {
+      const gaps = await setupGaps();
+      return gaps.length > 0 ? { text: setupGuide(gaps) } : recordedScreen(question);
     }),
   };
 
