@@ -171,6 +171,21 @@ export const strings = {
   computerTooManySteps: (steps: number) =>
     `He llegado al máximo de ${steps} pasos seguidos y paro aquí. Si quieres que siga, pídemelo otra vez.`,
   computerFailed: () => 'No he sabido qué hacer en tu ordenador. ¿Me lo pides de otra forma?',
+  /**
+   * DK-11: the call a task with connections wants to make, said by code. `args` is the exact
+   * JSON of its arguments.
+   */
+  connectionCall: (tool: string, server: string, args: string) =>
+    `Quiero usar «${tool}» de «${server}» con:\n${args}`,
+  connectionAllow: () => 'Permitir',
+  connectionRefuse: () => 'Detener',
+  connectionStopped: () => 'Detenido. No he hecho nada más.',
+  connectionGone: () => 'Esa petición ya no está pendiente.',
+  connectionNone: () =>
+    'No tengo ninguna conexión disponible. Añádelas en mcp.json, en la carpeta de datos de ANOMANDER, y reinicia.',
+  connectionTooManyCalls: (calls: number) =>
+    `He llegado al máximo de ${calls} llamadas seguidas y paro aquí. Si quieres que siga, pídemelo otra vez.`,
+  connectionFailed: () => 'No he podido hacerlo con tus conexiones. ¿Me lo pides de otra forma?',
   /** The AI provider answered 429: its own quota or rate limit, not ANOMANDER's daily cap. */
   providerLimitReached: () =>
     'Tu proveedor de IA no acepta más peticiones por ahora: has agotado su cuota. Prueba más tarde o revisa tu plan.',
