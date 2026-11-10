@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "The chat window: core defaults and listening to the shell's events, nothing else.",
+  "windows": ["main"],
+  "permissions": ["core:default", "core:event:allow-listen", "core:event:allow-unlisten"]
+}

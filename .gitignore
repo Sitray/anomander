@@ -9,3 +9,4 @@ evals/text/cases.json
 .env.*
 !.env.example
 .atl/
+apps/desktop/dist/
