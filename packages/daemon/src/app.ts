@@ -42,6 +42,7 @@ import { createKeepReceiptAnswerHandler } from './retention/keep-receipt-decisio
 import { createRetention } from './retention/retention-job.ts';
 import { startScheduler } from './scheduler/scheduler.ts';
 import { describeGap, type SetupGap, setupGuide } from './setup/setup-guide.ts';
+import { acquireDaemonLock } from './store/daemon-lock.ts';
 import { applyMigrations, openDatabase } from './store/database.ts';
 import { createWeeklySummary } from './summary/weekly-summary.ts';
 
@@ -81,6 +82,12 @@ export interface Anomander {
   /** Resolves when the store is ready and the bot polls for messages. */
   started: Promise<void>;
   /**
+   * Settles when polling ends: resolves after `stop`, rejects when Telegram ends it, for example
+   * with the 409 of another process reading the same bot (DK-2 AC2). The daemon is deaf from then
+   * on, so the caller should stop it.
+   */
+  polling: Promise<void>;
+  /**
    * Resolves with the read API's address once it listens (RA-2); `undefined` while
    * `ANOMANDER_API_TOKEN` is unset, when no port is opened at all (AC1).
    */
@@ -104,11 +111,22 @@ const announceGaps = async (
   });
 };
 
-/** Resolves when the bot polls for messages; `bot.start()` resolves only when polling stops. */
-const polling = (bot: ReturnType<typeof createTelegramBot>) =>
-  new Promise<void>((resolve, reject) => {
-    bot.start({ onStart: () => resolve() }).catch(reject);
-  });
+/**
+ * `started` resolves when the bot polls for messages; `ended` settles when polling stops, since
+ * `bot.start()` resolves only then. An `ended` nobody watches must not be an unhandled rejection.
+ */
+const polling = (bot: ReturnType<typeof createTelegramBot>) => {
+  let started = (): void => {};
+  const ended = bot.start({ onStart: () => started() });
+  ended.catch(() => {});
+  return {
+    started: new Promise<void>((resolve, reject) => {
+      started = resolve;
+      ended.catch(reject);
+    }),
+    ended,
+  };
+};
 
 export interface SetupGuideDeps {
   /** The model gaps `resolveModels` found: never empty. */
@@ -125,6 +143,8 @@ export interface SetupGuideDeps {
  */
 export const startSetupGuide = (config: Config, deps: SetupGuideDeps): Anomander => {
   const { gaps, logger = console } = deps;
+  // DK-2 AC1: no store runs here, but the daemon is still the only one of its data folder.
+  const lock = acquireDaemonLock(config.dbPath);
   const guide = { text: setupGuide(gaps) };
   let send = async (_: TelegramReply): Promise<void> => {
     throw new Error('send used before the bot was created');
@@ -159,7 +179,7 @@ export const startSetupGuide = (config: Config, deps: SetupGuideDeps): Anomander
   send = createTelegramNotify(bot, config.principalChatId);
   deleteMessage = createTelegramDelete(bot, config.principalChatId);
 
-  const started = polling(bot);
+  const { started, ended } = polling(bot);
   // A failed start is the caller's to report, through `started`.
   started.then(
     () => announceGaps(gaps, send, logger),
@@ -167,10 +187,12 @@ export const startSetupGuide = (config: Config, deps: SetupGuideDeps): Anomander
   );
   return {
     started,
+    polling: ended,
     readApi: undefined,
     stop: async () => {
       login?.stop();
       await bot.stop();
+      lock.release();
     },
   };
 };
@@ -183,7 +205,16 @@ export const startAnomander = <M>(config: Config, deps: AnomanderDeps<M>): Anoma
     throw new Error('both models must be set; without them, start the setup guide (R-28)');
   }
   const setupGaps = deps.setupGaps ?? (async () => []);
-  const db = openDatabase(config.dbPath);
+  // DK-2 AC1: before the store is opened, so a second daemon leaves the ledger unchanged.
+  const lock = acquireDaemonLock(config.dbPath);
+  const db = (() => {
+    try {
+      return openDatabase(config.dbPath);
+    } catch (error) {
+      lock.release();
+      throw error;
+    }
+  })();
   const applied = applyMigrations(db);
   logger.info(`anomander store ready at ${config.dbPath} (${applied} migrations applied)`);
 
@@ -371,7 +402,7 @@ export const startAnomander = <M>(config: Config, deps: AnomanderDeps<M>): Anoma
           logger,
         });
 
-  const started = polling(bot);
+  const { started, ended } = polling(bot);
   started.then(
     () =>
       setupGaps()
@@ -382,6 +413,7 @@ export const startAnomander = <M>(config: Config, deps: AnomanderDeps<M>): Anoma
 
   return {
     started,
+    polling: ended,
     readApi: readApi?.listening,
     stop: async () => {
       login?.stop();
@@ -389,6 +421,7 @@ export const startAnomander = <M>(config: Config, deps: AnomanderDeps<M>): Anoma
       await bot.stop();
       await scheduler.stop();
       db.close();
+      lock.release();
     },
   };
 };
