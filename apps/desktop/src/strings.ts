@@ -1,107 +1,150 @@
-// Every string the principal reads in the window (es-ES), in one place so it can be reviewed
-// at once, as `packages/protocol/src/strings.ts` does for the bot. What ANOMANDER answers in the
-// chat is not here: it comes from the daemon, verbatim.
+// Every string the principal reads in the window (`es-ES`), in one place so they can be reviewed
+// together. Nothing else in `src/` may build text for the principal. The daemon's own answers
+// are not here: the chat shows them exactly as received (DK-4 AC1).
+//
+// Two voices: the status and the setup describe ANOMANDER from outside, plainly; the chat's own
+// lines speak as the bot does in `packages/protocol/src/strings.ts`: first person, warm, short.
 
-export const MAX_TEXT_LENGTH = 4096;
-export const MAX_IMAGES = 10;
+/** DK-4: how many files one message carries, as the daemon accepts. */
+export const MAX_ATTACHMENTS = 10;
 
 export const strings = {
-  appName: 'ANOMANDER',
-  loading: 'Abriendo…',
-  shellUnavailable:
-    'No encuentro la parte de la app que arranca a ANOMANDER. Cierra la app y vuelve a abrirla.',
-
-  // Status (DK-6 AC1, DK-1 AC2, DK-2).
-  state: {
-    running: 'En marcha',
+  status: {
+    loading: 'Abriendo…',
     starting: 'Arrancando…',
+    running: 'En marcha',
     stopped: 'Parado',
-    failing: 'Con problemas',
-  },
-  reason: {
-    not_configured: 'Antes de empezar necesito el token del bot de Telegram y tu chat ID.',
-    already_running:
-      'Ya hay otro ANOMANDER en marcha con estos mismos datos, así que no arranco otro.',
-    bot_in_use:
-      'Otro ANOMANDER está usando el bot de Telegram, quizá el de Docker. Páralo y vuelve a arrancarme.',
-    gave_up: 'Me he parado tras fallar 3 veces en 5 minutos. Este es el último error:',
-    stopped_by_principal: 'Me has parado tú. Arráncame cuando quieras.',
-  },
-  stoppedNoReason: 'Estoy parado.',
-  failingNoReason: 'Algo falla y lo estoy reintentando.',
-  start: 'Arrancar',
-  stop: 'Parar',
-  configure: 'Configurar',
-  settings: 'Ajustes',
-  startFailed: 'No he podido arrancar. Inténtalo otra vez.',
-  stopFailed: 'No he podido pararme. Inténtalo otra vez.',
+    failing: 'Se ha cerrado',
+    notConfigured: 'Falta configurarlo',
 
-  // Chat (DK-4).
-  conversation: 'Conversación',
-  emptyTitle: 'Aquí hablamos tú y yo',
-  emptyHint:
-    'Escríbeme un gasto, como «23 € cena», o arrastra aquí la foto de un ticket. Lo que hablemos aquí también lo sé en Telegram.',
-  you: 'Tú',
-  composerLabel: 'Mensaje para ANOMANDER',
-  composerPlaceholder: 'Escribe un gasto o una pregunta…',
-  composerHint: 'Intro para enviar, Mayúsculas+Intro para una línea nueva',
-  send: 'Enviar',
-  attach: 'Añadir fotos de tickets',
-  removeAttachment: (name: string) => `Quitar ${name}`,
-  dropHere: 'Suelta aquí el ticket',
-  tooManyImages: `Solo puedo recibir ${MAX_IMAGES} imágenes a la vez; he añadido las primeras.`,
-  tooLong: (length: number) => `${length} de ${MAX_TEXT_LENGTH} caracteres: es demasiado largo.`,
-  tooHeavy: 'Estas imágenes pesan demasiado para enviarlas juntas. Prueba con menos.',
-  unreadableFile: 'No he podido abrir ese archivo.',
-  sending: 'Enviando…',
-  notSent: 'No se ha enviado.',
-  retry: 'Reintentar',
-  pressNotSent: 'No he recibido tu respuesta. Vuelve a pulsar.',
-  chosen: 'Elegido',
-  newReply: (text: string) => `ANOMANDER: ${text}`,
-  receiptImage: (index: number) => `Imagen ${index} del ticket`,
-  noChannel: {
-    connecting: 'Conectando con ANOMANDER…',
-    stopped: 'ANOMANDER está parado: arráncalo para hablar con él.',
-    starting: 'ANOMANDER está arrancando…',
+    /** DK-1 AC2: the shell is already starting it again. */
+    failingDetail: 'ANOMANDER se ha cerrado solo. Arrancando otra vez…',
+    reasons: {
+      not_configured: 'Para arrancar hacen falta el token de tu bot de Telegram y tu ID de chat.',
+      already_running:
+        'Ya hay otro ANOMANDER abierto con estos mismos datos. Cierra el otro y arranca este.',
+      bot_in_use:
+        'Otro ANOMANDER está usando tu bot de Telegram, por ejemplo el de Docker. Detén el otro y arranca este.',
+      gave_up:
+        'Ha fallado 3 veces en 5 minutos y ya no se reintenta solo. Mira el error y arráncalo cuando quieras.',
+      stopped_by_principal: 'Lo has parado tú.',
+    },
+    /** Stopped before it ever ran, with no reason from the shell: only the error says why. */
+    failedToStart: 'No ha podido arrancar.',
+
+    start: 'Arrancar',
+    stop: 'Parar',
+    configure: 'Configurar',
+    startBusy: 'Arrancando…',
+    stopBusy: 'Parando…',
+    openSetup: 'Configuración',
+    closeSetup: 'Volver al chat',
+
+    lastError: 'Último error',
+    errorDetail: 'Detalle del error',
+    showAll: 'Ver todo',
+    showLess: 'Ver menos',
+    startFailed: 'No se ha podido arrancar.',
+    stopFailed: 'No se ha podido parar.',
+    dismiss: 'Cerrar aviso',
+
+    /** The window cannot reach its own shell. */
+    shellUnreachable: 'La ventana no consigue hablar con la aplicación.',
+    retry: 'Reintentar',
   },
 
-  // Setup (DK-5 AC1).
-  setupTitle: 'Configuración',
-  setupIntro:
-    'Lo que escribas aquí se guarda en el llavero de macOS. Ni yo ni la app lo volvemos a mostrar.',
-  back: 'Volver',
-  telegramGroup: 'Telegram',
-  modelsGroup: 'Modelos',
-  botTokenLabel: 'Token del bot de Telegram',
-  botTokenHint: 'Te lo da @BotFather al crear el bot.',
-  botTokenStored: 'Guardado. Déjalo en blanco para no cambiarlo.',
-  chatIdLabel: 'Tu chat ID de Telegram',
-  chatIdHint: 'Solo números. Te lo dice @userinfobot.',
-  chatIdInvalid: 'El chat ID son solo números.',
-  modelLabel: 'Modelo',
-  visionModelLabel: 'Modelo de visión',
-  modelHint: 'Proveedor y modelo, por ejemplo openai/gpt-4o-mini.',
-  visionModelHint: 'El que lee las fotos de los tickets. Por ejemplo openai/gpt-4o-mini.',
-  modelInvalid: 'Escríbelo como proveedor/modelo, por ejemplo openai/gpt-4o-mini.',
-  botTokenRequired: 'Necesito el token del bot para arrancar.',
-  keysTitle: 'Claves de los proveedores',
-  keysEmpty: 'Todavía no hay ninguna clave guardada.',
-  keyStored: 'Guardada',
-  keyNew: 'Nueva, se guarda al pulsar Guardar',
-  keyRemoved: 'Se quitará al pulsar Guardar',
-  remove: 'Quitar',
-  undo: 'No quitar',
-  removeKey: (name: string) => `Quitar ${name}`,
-  undoRemoveKey: (name: string) => `No quitar ${name}`,
-  keyVariableLabel: 'Variable',
-  keyVariableOther: 'Otra…',
-  keyVariableCustomLabel: 'Nombre de la variable',
-  keyVariableInvalid: 'Tiene que acabar en _API_KEY, en mayúsculas, como MISTRAL_API_KEY.',
-  keyValueLabel: 'Clave',
-  keyValueRequired: 'Escribe la clave antes de añadirla.',
-  addKey: 'Añadir clave',
-  save: 'Guardar',
-  saving: 'Guardando…',
-  saveFailed: 'No he podido guardar la configuración. Inténtalo otra vez.',
+  chat: {
+    conversation: 'Conversación',
+    you: 'Tú',
+    bot: 'ANOMANDER',
+
+    emptyTitle: 'Cuéntame un gasto',
+    emptyBody:
+      'Escríbelo como te salga, por ejemplo «23\u00a0€\u00a0cena», o suelta aquí la foto de un ticket.',
+
+    placeholder: 'Escribe un gasto…',
+    message: 'Mensaje',
+    send: 'Enviar',
+    attach: 'Adjuntar fotos',
+    attachments: 'Archivos por enviar',
+    removeAttachment: (name: string) => `Quitar ${name}`,
+    file: 'Archivo',
+    dropHere: 'Suelta aquí el ticket',
+    tooMany: `Caben ${MAX_ATTACHMENTS} archivos por mensaje. Me quedo con los ${MAX_ATTACHMENTS} primeros.`,
+    tooHeavy: 'Pesan demasiado para ir juntos. Envíalos en varios mensajes.',
+
+    thinking: 'ANOMANDER está pensando…',
+
+    /** `rejected`, or never left: nothing was done, so sending again is safe. */
+    notSent: 'No se ha enviado.',
+    sendAgain: 'Enviar otra vez',
+    /** The connection was lost in flight: the daemon may have handled it. No resend is offered. */
+    unknown:
+      'Se cortó la conexión y no sé si me llegó. Puede que ya esté apuntado: compruébalo antes de enviarlo otra vez.',
+    pressNotSent: 'Tu respuesta no se ha enviado. Pulsa otra vez.',
+    pressUnknown:
+      'Se cortó la conexión y no sé si me llegó tu respuesta. Pulsa otra vez: si ya estaba contestada, te lo diré.',
+    /** A `{label, url}` button: this window cannot open links. */
+    linkOnlyInTelegram: (label: string) => `«${label}» solo se puede abrir desde Telegram.`,
+
+    /** Why the composer is disabled. */
+    disabled: {
+      stopped: 'ANOMANDER está parado. Arráncalo para escribirle.',
+      notConfigured: 'Termina la configuración para empezar a escribirle.',
+      starting: 'Arrancando… En un momento puedes escribir.',
+      failing: 'ANOMANDER se está reiniciando. Espera un momento.',
+      connecting: 'Conectando…',
+    },
+  },
+
+  setup: {
+    title: 'Configuración',
+    close: 'Volver al chat',
+    sectionTelegram: 'Telegram',
+    sectionModels: 'Modelos',
+    intro: 'Las claves se guardan en el llavero de macOS, nunca en un archivo.',
+
+    botToken: 'Token del bot de Telegram',
+    botTokenHelp: 'Te lo da @BotFather en Telegram cuando creas el bot.',
+    botTokenStored: 'Guardado. Déjalo en blanco para mantenerlo.',
+
+    chatId: 'Tu ID de chat',
+    chatIdHelp: 'Escribe a @userinfobot en Telegram y te lo dice.',
+    chatIdInvalid: 'Tiene que ser un número, como 4242.',
+
+    model: 'Modelo',
+    modelHelp: 'Entiende lo que escribes. Va con su proveedor delante.',
+    modelExample: 'openai/gpt-4o-mini',
+    visionModel: 'Modelo para fotos',
+    visionModelHelp: 'Lee las fotos de los tickets. Mismo formato que el anterior.',
+    modelInvalid: 'Escríbelo con el proveedor delante, como openai/gpt-4o-mini.',
+
+    keys: 'Claves de proveedores',
+    keysHelp: 'La clave de API del proveedor de cada modelo. Está en su panel de desarrollador.',
+    keysNone: 'Todavía no hay ninguna.',
+    keyStored: 'Guardada',
+    keyNew: 'Nueva, sin guardar',
+    keyReplaced: 'Se cambiará al guardar',
+    keyRemoved: 'Se quitará al guardar',
+    removeKey: (name: string) => `Quitar ${name}`,
+    undoKey: (name: string) => `No quitar ${name}`,
+    undoKeyChange: (name: string) => `No cambiar ${name}`,
+    remove: 'Quitar',
+    undo: 'Deshacer',
+    provider: 'Proveedor',
+    otherProvider: 'Otra…',
+    keyName: 'Nombre de la variable',
+    keyNameInvalid: 'Tiene que ser como OPENAI_API_KEY: en mayúsculas y acabado en _API_KEY.',
+    keyValue: 'Clave',
+    keyValueMissing: 'Falta la clave.',
+    addKey: 'Añadir',
+
+    save: 'Guardar y arrancar',
+    saving: 'Guardando…',
+    cancel: 'Cancelar',
+    fixFields: 'Revisa los campos marcados.',
+    /** The shell refused the setup; its own message follows, verbatim. */
+    rejected: 'No se ha guardado. Esto dice la aplicación:',
+    savedIncomplete: 'Guardado. Para arrancar aún faltan el token del bot y tu ID de chat.',
+  },
 } as const;

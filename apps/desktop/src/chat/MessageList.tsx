@@ -1,209 +1,169 @@
-import type { ChatButton } from '@anomander/protocol';
-import { useEffect, useRef } from 'react';
+// DK-4: the conversation. Presentational: messages in, a retry or a press out.
+import { useLayoutEffect, useRef } from 'react';
 import { strings } from '../strings.ts';
-import { CheckIcon, ExternalIcon, RetryIcon } from '../ui/icons.tsx';
-import { isImage, previewUrl } from './attachments.ts';
-import type { AnomanderMessage, ChatMessage, PrincipalMessage } from './chat-state.ts';
+import { AlertIcon, FileIcon, Mark } from '../ui/icons.tsx';
+import type { Attachment } from './attachments.ts';
+import type { BotMessage, Message, OwnMessage } from './conversation.ts';
 
 export interface MessageListProps {
-  messages: ChatMessage[];
-  /** Whether a request can leave now; retries and presses wait for it. */
-  canSend: boolean;
-  onPress: (reply: AnomanderMessage, index: number) => void;
-  onRetry: (message: PrincipalMessage) => void;
-  onOpenUrl: (url: string) => void;
+  messages: Message[];
+  /** The daemon owes an answer. */
+  waiting: boolean;
+  onRetry: (message: OwnMessage) => void;
+  onPress: (message: BotMessage, data: string) => void;
 }
 
-/** DK-4 AC3: a URL button opens only an `https:` address. */
-export const isOpenableUrl = (url: string): boolean => {
-  try {
-    return new URL(url).protocol === 'https:';
-  } catch {
-    return false;
-  }
-};
+/** How far from the end still counts as reading the latest message. */
+const NEAR_END_PX = 80;
 
-const Principal = ({
+const Thumbnail = ({ attachment }: { attachment: Attachment }) =>
+  attachment.previewUrl === null ? (
+    <li className="file-chip">
+      <FileIcon />
+      <span className="file-name">{attachment.name}</span>
+    </li>
+  ) : (
+    <li className="thumbnail">
+      <img src={attachment.previewUrl} alt={attachment.name} />
+    </li>
+  );
+
+const Problem = ({ children }: { children: string }) => (
+  <p className="message-problem">
+    <AlertIcon />
+    <span>{children}</span>
+  </p>
+);
+
+const Own = ({
   message,
-  canSend,
   onRetry,
 }: {
-  message: PrincipalMessage;
-  canSend: boolean;
+  message: OwnMessage;
   onRetry: MessageListProps['onRetry'];
 }) => (
-  <li className="message message--principal" data-status={message.status}>
-    <span className="visually-hidden">{strings.you}: </span>
+  <li className="message own" data-delivery={message.delivery}>
+    <span className="sr-only">{strings.chat.you}</span>
     <div className="bubble">
       {message.attachments.length > 0 && (
-        <div className="bubble-files" data-count={Math.min(message.attachments.length, 3)}>
-          {message.attachments.map((attachment, index) =>
-            isImage(attachment) ? (
-              <img
-                // Attachments never change once sent: their position is their identity.
-                // biome-ignore lint/suspicious/noArrayIndexKey: see above
-                key={index}
-                src={previewUrl(attachment)}
-                alt={strings.receiptImage(index + 1)}
-              />
-            ) : (
-              // biome-ignore lint/suspicious/noArrayIndexKey: see above
-              <span key={index} className="file-chip">
-                {attachment.name}
-              </span>
-            ),
-          )}
-        </div>
+        <ul className="thumbnails" data-count={message.attachments.length}>
+          {message.attachments.map((attachment) => (
+            <Thumbnail key={attachment.id} attachment={attachment} />
+          ))}
+        </ul>
       )}
-      {message.text !== null && <p className="bubble-text">{message.text}</p>}
+      {message.text !== '' && <p className="message-text">{message.text}</p>}
     </div>
-    {message.status === 'sending' && <p className="message-meta">{strings.sending}</p>}
-    {message.status === 'failed' && (
-      <p className="message-meta message-meta--error">
-        {strings.notSent}
-        <button
-          type="button"
-          className="link-button"
-          disabled={!canSend}
-          onClick={() => onRetry(message)}
-        >
-          <RetryIcon />
-          {strings.retry}
+    {message.delivery === 'not_sent' && (
+      <div className="message-status">
+        <Problem>{strings.chat.notSent}</Problem>
+        <button type="button" className="button small" onClick={() => onRetry(message)}>
+          {strings.chat.sendAgain}
         </button>
-      </p>
+      </div>
+    )}
+    {/* DK-4, delivery honesty: the daemon may have registered it, so no one-click resend here. */}
+    {message.delivery === 'unknown' && (
+      <div className="message-status">
+        <Problem>{strings.chat.unknown}</Problem>
+      </div>
     )}
   </li>
 );
 
-const ReplyButton = ({
-  button,
-  chosen,
-  disabled,
-  onPress,
-  onOpenUrl,
-}: {
-  button: ChatButton;
-  chosen: boolean;
-  disabled: boolean;
-  onPress: () => void;
-  onOpenUrl: MessageListProps['onOpenUrl'];
-}) => {
-  if ('url' in button) {
-    const openable = isOpenableUrl(button.url);
-    return (
-      <button
-        type="button"
-        className="reply-button"
-        disabled={!openable}
-        title={openable ? button.url : undefined}
-        onClick={() => {
-          if (openable) onOpenUrl(button.url);
-        }}
-      >
-        {button.label}
-        <ExternalIcon />
-      </button>
-    );
-  }
-  return (
-    <button
-      type="button"
-      className="reply-button"
-      data-chosen={chosen || undefined}
-      disabled={disabled}
-      onClick={onPress}
-    >
-      {chosen && <CheckIcon />}
-      {button.label}
-      {chosen && <span className="visually-hidden"> {strings.chosen}</span>}
-    </button>
-  );
-};
-
-const Anomander = ({
+const Bot = ({
   message,
-  canSend,
   onPress,
-  onOpenUrl,
 }: {
-  message: AnomanderMessage;
-  canSend: boolean;
+  message: BotMessage;
   onPress: MessageListProps['onPress'];
-  onOpenUrl: MessageListProps['onOpenUrl'];
 }) => {
   const { press } = message;
-  const settled = press.state === 'waiting' || press.state === 'answered';
+  const choices = message.buttons.filter((button) => 'data' in button);
+  // DK-4 AC7: this WebView cannot open a link, so a link button is named, never offered.
+  const links = message.buttons.filter((button) => 'url' in button);
   return (
-    <li className="message message--anomander">
-      <span className="visually-hidden">{strings.appName}: </span>
-      <div className="bubble">
-        {/* The daemon's text, verbatim: React renders it as text, never as markup. */}
-        <p className="bubble-text">{message.text}</p>
-      </div>
-      {message.buttons.length > 0 && (
-        <div className="reply-buttons" aria-busy={press.state === 'waiting'}>
-          {message.buttons.map((button, index) => (
-            <ReplyButton
-              // A reply's buttons never change: their position is their identity.
-              // biome-ignore lint/suspicious/noArrayIndexKey: see above
-              key={index}
-              button={button}
-              chosen={settled && press.index === index}
-              disabled={settled || !canSend}
-              onPress={() => onPress(message, index)}
-              onOpenUrl={onOpenUrl}
-            />
+    <li className="message bot">
+      <span className="sr-only">{strings.chat.bot}</span>
+      {/* DK-4 AC1: exactly as received. A text node: never HTML, never Markdown. */}
+      <p className="message-text">{message.text}</p>
+      {choices.length > 0 && (
+        <div className="choices">
+          {choices.map((button) => (
+            <button
+              key={button.data}
+              type="button"
+              className="button choice"
+              data-chosen={press?.data === button.data ? press.delivery : undefined}
+              disabled={press?.delivery === 'pending'}
+              onClick={() => onPress(message, button.data)}
+            >
+              {button.label}
+            </button>
           ))}
         </div>
       )}
-      {press.state === 'waiting' && <p className="message-meta">{strings.sending}</p>}
-      {press.state === 'failed' && (
-        <p className="message-meta message-meta--error">{strings.pressNotSent}</p>
-      )}
+      {press?.delivery === 'not_sent' && <Problem>{strings.chat.pressNotSent}</Problem>}
+      {press?.delivery === 'unknown' && <Problem>{strings.chat.pressUnknown}</Problem>}
+      {links.map((button) => (
+        <p key={button.label} className="message-note">
+          {strings.chat.linkOnlyInTelegram(button.label)}
+        </p>
+      ))}
     </li>
   );
 };
 
-export const MessageList = ({
-  messages,
-  canSend,
-  onPress,
-  onRetry,
-  onOpenUrl,
-}: MessageListProps) => {
+export function MessageList({ messages, waiting, onRetry, onPress }: MessageListProps) {
   const scroller = useRef<HTMLDivElement>(null);
-  const count = messages.length;
+  /** Whether the principal is reading the end; scrolling up to reread must not be undone. */
+  const atEnd = useRef(true);
+  const last = messages.at(-1);
 
-  // Follow the conversation: each new message scrolls into view.
-  useEffect(() => {
+  // Follows the conversation: always after the principal's own message, otherwise only when
+  // they were already at the end.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: runs when the conversation grows.
+  useLayoutEffect(() => {
     const element = scroller.current;
-    if (element !== null && count > 0) element.scrollTop = element.scrollHeight;
-  }, [count]);
+    if (element === null) return;
+    if (atEnd.current || last?.kind === 'own') element.scrollTop = element.scrollHeight;
+  }, [messages.length, waiting, last?.kind]);
 
   return (
-    <div className="log" ref={scroller}>
-      {count === 0 && (
+    <div
+      className="conversation"
+      ref={scroller}
+      onScroll={(event) => {
+        const { scrollHeight, scrollTop, clientHeight } = event.currentTarget;
+        atEnd.current = scrollHeight - scrollTop - clientHeight < NEAR_END_PX;
+      }}
+    >
+      {messages.length === 0 && (
         <div className="empty">
-          <h2 className="empty-title">{strings.emptyTitle}</h2>
-          <p className="empty-hint">{strings.emptyHint}</p>
+          <Mark size={40} />
+          <h2 className="empty-title">{strings.chat.emptyTitle}</h2>
+          <p className="empty-body">{strings.chat.emptyBody}</p>
         </div>
       )}
-      {/* biome-ignore lint/a11y/noRedundantRoles: WebKit drops list semantics without it */}
-      <ol className="messages" role="list" aria-label={strings.conversation}>
+      <ol className="messages" role="log" aria-live="polite" aria-label={strings.chat.conversation}>
         {messages.map((message) =>
-          message.kind === 'principal' ? (
-            <Principal key={message.key} message={message} canSend={canSend} onRetry={onRetry} />
+          message.kind === 'own' ? (
+            <Own key={message.id} message={message} onRetry={onRetry} />
           ) : (
-            <Anomander
-              key={message.key}
-              message={message}
-              canSend={canSend}
-              onPress={onPress}
-              onOpenUrl={onOpenUrl}
-            />
+            <Bot key={message.id} message={message} onPress={onPress} />
           ),
         )}
       </ol>
+      {waiting && (
+        <div className="thinking">
+          <span className="sr-only">{strings.chat.thinking}</span>
+          <span className="thinking-dots" aria-hidden="true">
+            <i />
+            <i />
+            <i />
+          </span>
+        </div>
+      )}
     </div>
   );
-};
+}

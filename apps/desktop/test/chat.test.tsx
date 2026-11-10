@@ -1,288 +1,409 @@
 // @vitest-environment jsdom
-import type { ChatReply } from '@anomander/protocol';
-import { act, fireEvent, screen, waitFor, within } from '@testing-library/react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { ChatScreen } from '../src/chat/ChatScreen.tsx';
+import type { DaemonStatus, LocalChannel } from '../src/shell.ts';
 import { strings } from '../src/strings.ts';
 import { FakeWebSocket } from './fake-web-socket.ts';
-import { composer, emitSnapshot, renderApp, renderConnected } from './harness.tsx';
-import { CHANNEL, running, stopped, TOKEN } from './snapshots.ts';
+import { CHANNEL, RUNNING, replyTo, STARTING, stopped, TOKEN } from './fixtures.ts';
 
-vi.mock('../src/shell.ts', async () => ({ shell: (await import('./shell-mock.ts')).shellMock }));
-
-const S1 = '¡Hecho! He apuntado 23,00 € de la cena en restaurantes.';
+// DK-4: the chat, from the keyboard to the socket and back, against a WebSocket driven by hand.
 const S19 = 'Esa pregunta ya no está abierta.';
 
-const reply = (inReplyTo: string, overrides: Partial<ChatReply> = {}): ChatReply => ({
-  type: 'reply',
-  inReplyTo,
-  channelRef: `desktop:${inReplyTo}`,
-  text: S1,
-  buttons: [],
-  sentAt: '2026-11-10T20:00:00.000Z',
-  ...overrides,
+beforeEach(() => {
+  FakeWebSocket.reset();
+  vi.stubGlobal('WebSocket', FakeWebSocket);
+  // jsdom has no object URLs; the chat only needs something to put in an <img>.
+  let urls = 0;
+  URL.createObjectURL = vi.fn(() => `blob:preview-${++urls}`);
+  URL.revokeObjectURL = vi.fn();
 });
 
-const type = (text: string) => fireEvent.change(composer(), { target: { value: text } });
-const pressEnter = (shiftKey = false) => fireEvent.keyDown(composer(), { key: 'Enter', shiftKey });
+afterEach(() => {
+  cleanup();
+  vi.unstubAllGlobals();
+});
 
-/** Types a text, sends it with Enter and returns the id the request carried. */
-const sendText = (socket: FakeWebSocket, text: string): string => {
-  type(text);
-  pressEnter();
-  const request = socket.lastRequest();
-  if (request.type !== 'text') throw new Error('expected a text request');
-  return request.id;
+const renderChat = (daemon: DaemonStatus = RUNNING, channel: LocalChannel | null = CHANNEL) =>
+  render(<ChatScreen daemon={daemon} channel={channel} />);
+
+/** A chat whose connection to the daemon is open. */
+const openChat = (): FakeWebSocket => {
+  renderChat();
+  act(() => FakeWebSocket.last.open());
+  return FakeWebSocket.last;
 };
 
-const answer = (socket: FakeWebSocket, event: Parameters<FakeWebSocket['answer']>[0]) =>
-  act(() => socket.answer(event));
+const composer = (): HTMLTextAreaElement => screen.getByLabelText(strings.chat.message);
 
-beforeEach(() => {
-  vi.restoreAllMocks();
+const type = (text: string): void => {
+  fireEvent.change(composer(), { target: { value: text } });
+};
+
+const pressEnter = (init: KeyboardEventInit = {}): void => {
+  fireEvent.keyDown(composer(), { key: 'Enter', ...init });
+};
+
+const say = (text: string): void => {
+  type(text);
+  pressEnter();
+};
+
+const image = (name: string, type = 'image/png'): File => new File(['bytes'], name, { type });
+/** `bytes` in base64. */
+const BYTES = 'Ynl0ZXM=';
+
+const sentRequest = async (socket: FakeWebSocket, count = 1) => {
+  await waitFor(() => expect(socket.requests).toHaveLength(count));
+  return socket.lastRequest;
+};
+
+describe('an empty chat', () => {
+  it('says what can be done here', () => {
+    openChat();
+
+    expect(screen.getByText(strings.chat.emptyTitle)).toBeTruthy();
+    // As written: the example's non-breaking spaces must not be folded into plain ones.
+    expect(screen.getByText(strings.chat.emptyBody, { normalizer: (text) => text })).toBeTruthy();
+  });
 });
 
-describe('chat (DK-4)', () => {
-  it('connects with the token as a subprotocol and never shows it', async () => {
-    await renderApp(running());
+describe('typing', () => {
+  it('sends the text on Enter, shows it and clears the composer (DK-4 AC1)', async () => {
+    const socket = openChat();
+    say('23 € cena');
 
-    const socket = FakeWebSocket.latest();
-    expect(socket.url).toBe(CHANNEL.url);
-    expect(socket.protocols).toEqual(['anomander.v1', TOKEN]);
-    expect(document.documentElement.outerHTML).not.toContain(TOKEN);
-  });
-
-  it('sends a text on Enter and shows it pending until its reply', async () => {
-    const { socket } = await renderConnected(running());
-
-    const id = sendText(socket, '23 € cena');
-
-    expect(socket.lastRequest()).toEqual({ type: 'text', id, text: '23 € cena' });
-    expect(composer().value).toBe('');
+    expect(await sentRequest(socket)).toMatchObject({ type: 'text', text: '23 € cena' });
     expect(screen.getByText('23 € cena')).toBeTruthy();
-    expect(screen.getByText(strings.sending)).toBeTruthy();
-    answer(socket, reply(id));
-    expect(screen.getByText(S1)).toBeTruthy();
-    expect(screen.queryByText(strings.sending)).toBeNull();
+    expect(composer().value).toBe('');
+    expect(screen.queryByText(strings.chat.emptyTitle)).toBeNull();
   });
 
-  it('keeps Shift+Enter as a new line instead of sending', async () => {
-    const { socket } = await renderConnected(running());
+  it('keeps Shift+Enter for a new line', () => {
+    const socket = openChat();
+    type('23 € cena');
+    pressEnter({ shiftKey: true });
 
-    type('una línea');
-    pressEnter(true);
+    expect(socket.sent).toEqual([]);
+    expect(composer().value).toBe('23 € cena');
+  });
+
+  it('ignores Enter while an input method is composing', () => {
+    const socket = openChat();
+    type('にほん');
+    fireEvent.keyDown(composer(), { key: 'Enter', isComposing: true });
+    fireEvent.keyDown(composer(), { key: 'Enter', keyCode: 229 });
 
     expect(socket.sent).toEqual([]);
   });
 
-  it('does not send an empty text, nor one over 4096 characters', async () => {
-    const { socket } = await renderConnected(running());
-
-    type('   ');
-    pressEnter();
-    type('a'.repeat(4097));
-    pressEnter();
+  it('sends nothing for a blank message', () => {
+    const socket = openChat();
+    say('   \n ');
 
     expect(socket.sent).toEqual([]);
-    expect(screen.getByText(strings.tooLong(4097))).toBeTruthy();
   });
 
-  it("renders a reply's text as plain text, line breaks kept, never as HTML", async () => {
-    const { socket } = await renderConnected(running());
-    const id = sendText(socket, 'hola');
-    const text = '<b>Total</b>: 23,00 €\n<img src=x onerror=alert(1)>';
+  it('takes no more than the 4096 characters the daemon accepts', () => {
+    openChat();
 
-    answer(socket, reply(id, { text }));
+    expect(composer().maxLength).toBe(4096);
+  });
 
-    const bubble = screen.getByText((_, element) => element?.textContent === text, {
-      selector: 'p',
+  it('shows that the daemon is working until the answer arrives', async () => {
+    const socket = openChat();
+    say('23 € cena');
+    const request = await sentRequest(socket);
+
+    expect(screen.getByText(strings.chat.thinking)).toBeTruthy();
+    act(() => socket.receive(replyTo(request.id)));
+    expect(screen.queryByText(strings.chat.thinking)).toBeNull();
+  });
+
+  it('settles a request the daemon handled without a reply', async () => {
+    const socket = openChat();
+    say('hola');
+    const request = await sentRequest(socket);
+    act(() => socket.receive({ type: 'done', inReplyTo: request.id }));
+
+    expect(screen.queryByText(strings.chat.thinking)).toBeNull();
+    expect(screen.queryByText(strings.chat.notSent)).toBeNull();
+  });
+});
+
+describe('a reply', () => {
+  it('shows its text exactly as received: never as HTML or Markdown', async () => {
+    const socket = openChat();
+    say('hola');
+    const request = await sentRequest(socket);
+    const text = '<b>Hecho</b> <img src="x" onerror="alert(1)">\n**23,00 €** en [cenas](http://x)';
+    act(() => socket.receive(replyTo(request.id, { text })));
+
+    const log = screen.getByRole('log');
+    const shown = within(log).getByText((_, element) => element?.textContent === text);
+    expect(shown.textContent).toBe(text);
+    expect(log.querySelector('b, img, a, strong')).toBeNull();
+  });
+
+  it('is announced to assistive technology as it arrives', () => {
+    openChat();
+
+    expect(screen.getByRole('log').getAttribute('aria-live')).toBe('polite');
+  });
+});
+
+describe('a question with buttons (DK-4 AC3)', () => {
+  const ask = async (socket: FakeWebSocket) => {
+    say('mercadona 40');
+    const request = await sentRequest(socket);
+    const question = replyTo(request.id, {
+      text: '¿Mercadona siempre es supermercado?',
+      buttons: [
+        { label: 'Sí', data: 'policy:yes:7' },
+        { label: 'No', data: 'policy:no:7' },
+      ],
     });
-    expect(bubble.querySelector('b, img')).toBeNull();
-    expect(bubble.textContent).toBe(text);
-  });
+    act(() => socket.receive(question));
+    return question;
+  };
 
-  it('announces incoming replies through a live region', async () => {
-    const { socket } = await renderConnected(running());
-    const id = sendText(socket, 'hola');
+  it("sends a press with its reply's channelRef and disables the buttons while waiting", async () => {
+    const socket = openChat();
+    const question = await ask(socket);
+    const yes = screen.getByRole<HTMLButtonElement>('button', { name: 'Sí' });
+    const no = screen.getByRole<HTMLButtonElement>('button', { name: 'No' });
+    fireEvent.click(yes);
 
-    answer(socket, reply(id));
-
-    const live = document.querySelector('[aria-live="polite"]');
-    expect(live?.textContent).toBe(strings.newReply(S1));
-  });
-
-  it("sends a button press with the reply's channelRef and disables its buttons", async () => {
-    const { socket } = await renderConnected(running());
-    const id = sendText(socket, '23 € cena');
-    answer(
-      socket,
-      reply(id, {
-        text: '¿Lo apunto en restaurantes?',
-        buttons: [
-          { label: 'Sí', data: 'confirm:yes' },
-          { label: 'No', data: 'confirm:no' },
-        ],
-      }),
-    );
-
-    fireEvent.click(screen.getByRole('button', { name: 'Sí' }));
-
-    const press = socket.lastRequest();
-    expect(press).toMatchObject({
+    expect(socket.lastRequest).toMatchObject({
       type: 'button',
-      data: 'confirm:yes',
-      channelRef: `desktop:${id}`,
+      data: 'policy:yes:7',
+      channelRef: question.channelRef,
     });
-    expect(screen.getByRole('button', { name: /Sí/ }).hasAttribute('disabled')).toBe(true);
-    expect(screen.getByRole('button', { name: 'No' }).hasAttribute('disabled')).toBe(true);
-    answer(socket, reply(press.id, { text: S19 }));
-    expect(screen.getByText(S19)).toBeTruthy();
+    expect(yes.disabled).toBe(true);
+    expect(no.disabled).toBe(true);
+
+    fireEvent.click(no);
+    expect(socket.requests).toHaveLength(2);
   });
 
-  it('enables the buttons again when a press is not delivered', async () => {
-    const { socket } = await renderConnected(running());
-    const id = sendText(socket, '23 € cena');
-    answer(socket, reply(id, { buttons: [{ label: 'Sí', data: 'confirm:yes' }] }));
+  it('shows the answer as a new message, S-19 included', async () => {
+    const socket = openChat();
+    await ask(socket);
     fireEvent.click(screen.getByRole('button', { name: 'Sí' }));
+    act(() => socket.receive(replyTo(socket.lastRequest.id, { text: S19 })));
 
-    answer(socket, { type: 'rejected', inReplyTo: socket.lastRequest().id });
-
-    expect(screen.getByRole('button', { name: 'Sí' }).hasAttribute('disabled')).toBe(false);
-    expect(screen.getByText(strings.pressNotSent)).toBeTruthy();
+    expect(screen.getByText(S19)).toBeTruthy();
+    expect(screen.getByText('¿Mercadona siempre es supermercado?')).toBeTruthy();
+    expect(screen.getByRole<HTMLButtonElement>('button', { name: 'Sí' }).disabled).toBe(false);
   });
 
-  it('opens a URL button only when it is https', async () => {
-    const open = vi.spyOn(window, 'open').mockReturnValue(null);
-    const { socket } = await renderConnected(running());
-    const id = sendText(socket, 'conecta');
-    answer(
-      socket,
-      reply(id, {
-        buttons: [
-          { label: 'Abrir', url: 'https://example.com/login' },
-          { label: 'Inseguro', url: 'http://example.com' },
-          { label: 'Script', url: 'javascript:alert(1)' },
-        ],
-      }),
+  it('says when a press was not sent and lets it be pressed again', async () => {
+    const socket = openChat();
+    await ask(socket);
+    fireEvent.click(screen.getByRole('button', { name: 'Sí' }));
+    act(() => socket.receive({ type: 'rejected', inReplyTo: socket.lastRequest.id }));
+
+    expect(screen.getByText(strings.chat.pressNotSent)).toBeTruthy();
+    expect(screen.getByRole<HTMLButtonElement>('button', { name: 'Sí' }).disabled).toBe(false);
+  });
+
+  it('says when it is unknown whether a press arrived', async () => {
+    const socket = openChat();
+    await ask(socket);
+    fireEvent.click(screen.getByRole('button', { name: 'Sí' }));
+    act(() => socket.drop());
+
+    expect(screen.getByText(strings.chat.pressUnknown)).toBeTruthy();
+  });
+
+  it('does not offer a link button it cannot open as a working button', async () => {
+    const socket = openChat();
+    say('/login');
+    const request = await sentRequest(socket);
+    act(() =>
+      socket.receive(
+        replyTo(request.id, { buttons: [{ label: 'Abrir', url: 'https://example.com/login' }] }),
+      ),
     );
 
-    fireEvent.click(screen.getByRole('button', { name: 'Abrir' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Inseguro' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Script' }));
-
-    expect(open).toHaveBeenCalledTimes(1);
-    expect(open).toHaveBeenCalledWith('https://example.com/login', '_blank', 'noopener,noreferrer');
-    expect(socket.requests().filter((request) => request.type === 'button')).toEqual([]);
+    expect(screen.queryByRole('button', { name: 'Abrir' })).toBeNull();
+    expect(screen.queryByRole('link')).toBeNull();
+    expect(screen.getByText(strings.chat.linkOnlyInTelegram('Abrir'))).toBeTruthy();
   });
+});
 
-  it('marks a rejected message as not sent and retries it with a new id', async () => {
-    const { socket } = await renderConnected(running());
-    const id = sendText(socket, '23 € cena');
+describe('delivery honesty', () => {
+  it('says a rejected message was not sent and sends it again when asked', async () => {
+    const socket = openChat();
+    say('23 € cena');
+    const request = await sentRequest(socket);
+    act(() => socket.receive({ type: 'rejected', inReplyTo: request.id }));
 
-    answer(socket, { type: 'rejected', inReplyTo: id });
-    expect(screen.getByText(strings.notSent)).toBeTruthy();
-    fireEvent.click(screen.getByRole('button', { name: strings.retry }));
+    expect(screen.getByText(strings.chat.notSent)).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: strings.chat.sendAgain }));
 
-    const retried = socket.lastRequest();
-    expect(retried).toMatchObject({ type: 'text', text: '23 € cena' });
-    expect(retried.id).not.toBe(id);
-    expect(screen.queryByText(strings.notSent)).toBeNull();
+    const again = await sentRequest(socket, 2);
+    expect(again).toMatchObject({ type: 'text', text: '23 € cena' });
+    expect(again.id).not.toBe(request.id);
+    expect(screen.queryByText(strings.chat.notSent)).toBeNull();
     expect(screen.getAllByText('23 € cena')).toHaveLength(1);
   });
 
-  it('marks a message as not sent when the connection drops mid-request', async () => {
-    const { socket } = await renderConnected(running());
-    sendText(socket, '23 € cena');
-
+  it('says it is unknown whether a message arrived when the connection is lost, and offers no resend', async () => {
+    const socket = openChat();
+    say('23 € cena');
+    await sentRequest(socket);
     act(() => socket.drop());
 
-    expect(screen.getByText(strings.notSent)).toBeTruthy();
+    expect(screen.getByText(strings.chat.unknown)).toBeTruthy();
+    expect(screen.queryByText(strings.chat.notSent)).toBeNull();
+    expect(screen.queryByRole('button', { name: strings.chat.sendAgain })).toBeNull();
+    expect(screen.queryByText(strings.chat.thinking)).toBeNull();
   });
 
-  it('disables the composer, saying why, while there is no channel', async () => {
-    await renderApp(stopped({ reason: 'stopped_by_principal' }));
+  it('keeps the conversation in memory only', async () => {
+    const socket = openChat();
+    say('23 € cena');
+    const request = await sentRequest(socket);
+    act(() => socket.receive(replyTo(request.id)));
 
-    expect(composer().disabled).toBe(true);
-    expect(screen.getByText(strings.noChannel.stopped)).toBeTruthy();
-    expect(FakeWebSocket.instances).toEqual([]);
+    expect(localStorage.length).toBe(0);
+    expect(sessionStorage.length).toBe(0);
   });
 
-  it('reconnects when the channel changes and closes the old socket', async () => {
-    const { socket } = await renderConnected(running());
+  it('never puts the token in the page', () => {
+    openChat();
 
-    emitSnapshot(running({ channel: { url: 'ws://127.0.0.1:50000', token: TOKEN } }));
-
-    expect(socket.closedByClient).toBe(true);
-    expect(FakeWebSocket.latest().url).toBe('ws://127.0.0.1:50000');
-  });
-
-  it('keeps the conversation when the daemon restarts', async () => {
-    const { socket } = await renderConnected(running());
-    const id = sendText(socket, '23 € cena');
-    answer(socket, reply(id));
-
-    emitSnapshot(stopped({ reason: 'stopped_by_principal' }));
-    emitSnapshot(running({ channel: { url: 'ws://127.0.0.1:50000', token: TOKEN } }));
-
-    expect(screen.getByText(S1)).toBeTruthy();
+    expect(document.documentElement.outerHTML).not.toContain(TOKEN);
   });
 });
 
 describe('receipts (DK-4 AC2)', () => {
-  const png = (name: string) =>
-    new File([new Uint8Array([137, 80, 78, 71])], name, { type: 'image/png' });
+  const attachmentList = () => screen.getByRole('list', { name: strings.chat.attachments });
 
-  it('sends picked images as one receipt with the text as caption, thumbnails shown', async () => {
-    const { socket } = await renderConnected(running());
-
-    fireEvent.change(screen.getByLabelText(strings.attach), {
-      target: { files: [png('a.png'), png('b.png')] },
+  it('holds dropped images in the composer and sends them as one receipt with the text as caption', async () => {
+    const socket = openChat();
+    fireEvent.drop(screen.getByRole('log'), {
+      dataTransfer: { files: [image('uno.png'), image('dos.jpg', 'image/jpeg')], types: ['Files'] },
     });
-    await screen.findAllByRole('img');
-    type('cena del sábado');
-    pressEnter();
 
-    const request = socket.lastRequest();
-    expect(request).toMatchObject({
+    expect(within(attachmentList()).getAllByRole('listitem')).toHaveLength(2);
+    expect(socket.sent).toEqual([]);
+
+    say('la compra');
+    expect(await sentRequest(socket)).toMatchObject({
       type: 'receipt',
-      caption: 'cena del sábado',
       images: [
-        { mimeType: 'image/png', data: 'iVBORw==' },
-        { mimeType: 'image/png', data: 'iVBORw==' },
+        { mimeType: 'image/png', data: BYTES },
+        { mimeType: 'image/jpeg', data: BYTES },
       ],
+      caption: 'la compra',
     });
-    const log = screen.getByRole('list', { name: strings.conversation });
-    expect(within(log).getAllByRole('img')).toHaveLength(2);
+    expect(screen.queryByRole('list', { name: strings.chat.attachments })).toBeNull();
+    expect(composer().value).toBe('');
   });
 
-  it('sends a receipt with no text with a null caption', async () => {
-    const { socket } = await renderConnected(running());
+  it('sends a receipt with no caption when nothing was typed', async () => {
+    const socket = openChat();
+    fireEvent.paste(composer(), { clipboardData: { files: [image('pegada.png')] } });
+    fireEvent.click(screen.getByRole('button', { name: strings.chat.send }));
 
-    fireEvent.change(screen.getByLabelText(strings.attach), { target: { files: [png('a.png')] } });
-    await screen.findAllByRole('img');
-    fireEvent.click(screen.getByRole('button', { name: strings.send }));
-
-    expect(socket.lastRequest()).toMatchObject({ type: 'receipt', caption: null });
+    expect(await sentRequest(socket)).toMatchObject({ type: 'receipt', caption: null });
   });
 
-  it('takes images dropped on the window', async () => {
-    const { socket } = await renderConnected(running());
-
-    fireEvent.drop(screen.getByRole('main'), {
-      dataTransfer: { files: [png('a.png')], types: ['Files'] },
+  it("shows the thumbnails in the principal's message", async () => {
+    const socket = openChat();
+    fireEvent.change(screen.getByLabelText(strings.chat.attach, { selector: 'input' }), {
+      target: { files: [image('ticket.png')] },
     });
-    await screen.findAllByRole('img');
+    pressEnter();
+    await sentRequest(socket);
+
+    const thumbnail = within(screen.getByRole('log')).getByRole<HTMLImageElement>('img', {
+      name: 'ticket.png',
+    });
+    expect(thumbnail.src).toMatch(/^blob:/);
+  });
+
+  it('removes an attachment before sending', () => {
+    openChat();
+    fireEvent.paste(composer(), { clipboardData: { files: [image('uno.png'), image('dos.png')] } });
+    fireEvent.click(screen.getByRole('button', { name: strings.chat.removeAttachment('uno.png') }));
+
+    expect(within(attachmentList()).getAllByRole('listitem')).toHaveLength(1);
+  });
+
+  it('sends a file that is not an image as it is, for the daemon to answer (DK-4 AC6)', async () => {
+    const socket = openChat();
+    fireEvent.paste(composer(), {
+      clipboardData: { files: [new File(['bytes'], 'factura.pdf', { type: 'application/pdf' })] },
+    });
     pressEnter();
 
-    expect(socket.lastRequest()).toMatchObject({ type: 'receipt' });
+    expect(await sentRequest(socket)).toMatchObject({
+      type: 'receipt',
+      images: [{ mimeType: 'application/pdf', data: BYTES }],
+    });
   });
 
-  it('keeps at most 10 images in one receipt', async () => {
-    await renderConnected(running());
-    const files = Array.from({ length: 12 }, (_, index) => png(`${index}.png`));
+  it('keeps at most 10 files and says so', () => {
+    openChat();
+    const files = Array.from({ length: 12 }, (_, index) => image(`ticket-${index}.png`));
+    fireEvent.paste(composer(), { clipboardData: { files } });
 
-    fireEvent.change(screen.getByLabelText(strings.attach), { target: { files } });
+    expect(within(attachmentList()).getAllByRole('listitem')).toHaveLength(10);
+    expect(screen.getByText(strings.chat.tooMany)).toBeTruthy();
+  });
 
-    await waitFor(() => expect(screen.getAllByRole('img')).toHaveLength(10));
-    expect(screen.getByText(strings.tooManyImages)).toBeTruthy();
+  it('sends a rejected receipt again with its images', async () => {
+    const socket = openChat();
+    fireEvent.paste(composer(), { clipboardData: { files: [image('uno.png')] } });
+    pressEnter();
+    const request = await sentRequest(socket);
+    act(() => socket.receive({ type: 'rejected', inReplyTo: request.id }));
+    fireEvent.click(screen.getByRole('button', { name: strings.chat.sendAgain }));
+
+    expect(await sentRequest(socket, 2)).toMatchObject({
+      type: 'receipt',
+      images: [{ mimeType: 'image/png', data: BYTES }],
+    });
+  });
+});
+
+describe('without a channel', () => {
+  it.each([
+    [stopped('stopped_by_principal'), strings.chat.disabled.stopped],
+    [stopped('not_configured'), strings.chat.disabled.notConfigured],
+    [stopped(null, 'spawn node ENOENT'), strings.chat.disabled.stopped],
+    [STARTING, strings.chat.disabled.starting],
+    [{ state: 'failing', reason: null, lastError: 'boom' } as const, strings.chat.disabled.failing],
+  ])('disables the composer and says why: %j', (daemon, reason) => {
+    renderChat(daemon, null);
+
+    expect(composer().disabled).toBe(true);
+    expect(
+      screen.getByRole<HTMLButtonElement>('button', { name: strings.chat.send }).disabled,
+    ).toBe(true);
+    expect(screen.getByText(reason)).toBeTruthy();
+  });
+
+  it('holds what was typed, without sending, while the connection is not open yet', () => {
+    renderChat();
+    say('23 € cena');
+
+    expect(FakeWebSocket.last.sent).toEqual([]);
+    expect(composer().value).toBe('23 € cena');
+    expect(screen.getByText(strings.chat.disabled.connecting)).toBeTruthy();
+  });
+
+  it('connects again when a restarted daemon has a new port', () => {
+    const { rerender } = renderChat();
+    act(() => FakeWebSocket.last.open());
+    rerender(
+      <ChatScreen daemon={RUNNING} channel={{ url: 'ws://127.0.0.1:5999', token: TOKEN }} />,
+    );
+
+    expect(FakeWebSocket.instances).toHaveLength(2);
+    expect(FakeWebSocket.last.url).toBe('ws://127.0.0.1:5999');
   });
 });

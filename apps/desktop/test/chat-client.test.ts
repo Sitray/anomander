@@ -1,188 +1,243 @@
 import { type ChatReply, LOCAL_CHANNEL_PROTOCOL } from '@anomander/protocol';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { type ChatClientListener, createChatClient } from '../src/chat/chat-client.ts';
-import { createFakeSocket, FakeWebSocket } from './fake-web-socket.ts';
+import {
+  type ChatClient,
+  type ConnectionState,
+  createChatClient,
+  type Outcome,
+} from '../src/chat/chat-client.ts';
+import { FakeWebSocket } from './fake-web-socket.ts';
 
-const URL = 'ws://127.0.0.1:43210';
-const TOKEN = 'launch-token-0123456789abcdefghijklmnop';
-
-const listener = () => ({
-  onConnection: vi.fn<ChatClientListener['onConnection']>(),
-  onReply: vi.fn<ChatClientListener['onReply']>(),
-  onDone: vi.fn<ChatClientListener['onDone']>(),
-  onFailed: vi.fn<ChatClientListener['onFailed']>(),
-});
-
-let ids: number;
-const start = (events = listener()) => {
-  const client = createChatClient({
-    url: URL,
-    token: TOKEN,
-    listener: events,
-    createSocket: createFakeSocket,
-    newId: () => `req-${++ids}`,
-  });
-  return { client, events, socket: FakeWebSocket.latest() };
-};
+// DK-3 and DK-4: the window's side of the local channel, against a WebSocket driven by hand.
+const TOKEN = 'window-test-token-0123456789abcdefghij';
+const CHANNEL = { url: 'ws://127.0.0.1:4312', token: TOKEN };
 
 const reply = (inReplyTo: string, overrides: Partial<ChatReply> = {}): ChatReply => ({
   type: 'reply',
   inReplyTo,
-  channelRef: 'desktop:4b8f',
-  text: '¡Hecho! He apuntado 23,00 € de la cena en restaurantes.',
+  channelRef: 'desktop:reply-1',
+  text: 'Apuntado: 23,00 € en restaurantes.',
   buttons: [],
-  sentAt: '2026-11-10T20:00:00.000Z',
+  sentAt: '2026-11-10T10:00:00.000Z',
   ...overrides,
 });
 
+let connections: ConnectionState[];
+let outcomes: [string, Outcome][];
+let client: ChatClient;
+
 beforeEach(() => {
-  ids = 0;
+  vi.useFakeTimers();
   FakeWebSocket.reset();
+  connections = [];
+  outcomes = [];
+  client = createChatClient({
+    createSocket: (url, protocols) => new FakeWebSocket(url, protocols),
+    onConnection: (state) => connections.push(state),
+    onOutcome: (id, outcome) => outcomes.push([id, outcome]),
+  });
 });
 
 afterEach(() => {
+  client.dispose();
   vi.useRealTimers();
 });
 
-describe('chat client (DK-3, DK-4)', () => {
-  it('presents the token as the second subprotocol and never in the URL', () => {
-    const { socket } = start();
+const connected = (): FakeWebSocket => {
+  client.setChannel(CHANNEL);
+  FakeWebSocket.last.open();
+  return FakeWebSocket.last;
+};
 
-    expect(socket.url).toBe(URL);
-    expect(socket.url).not.toContain(TOKEN);
-    expect(socket.protocols).toEqual([LOCAL_CHANNEL_PROTOCOL, TOKEN]);
+const sent = (id: string | null): string => {
+  if (id === null) throw new Error('the request was not sent');
+  return id;
+};
+
+describe('connecting', () => {
+  it('presents the token as the second subprotocol and never in the URL (DK-3 AC3)', () => {
+    client.setChannel(CHANNEL);
+
+    expect(FakeWebSocket.last.protocols).toEqual([LOCAL_CHANNEL_PROTOCOL, TOKEN]);
+    expect(FakeWebSocket.last.url).toBe('ws://127.0.0.1:4312');
+    expect(FakeWebSocket.last.url).not.toContain(TOKEN);
   });
 
-  it('reports the connection as connecting, then open', () => {
-    const { events, socket } = start();
-    expect(events.onConnection).toHaveBeenLastCalledWith('connecting');
+  it('reports connecting, then open once the daemon accepts', () => {
+    connected();
 
-    socket.open();
-
-    expect(events.onConnection).toHaveBeenLastCalledWith('open');
+    expect(connections).toEqual(['connecting', 'open']);
   });
 
-  it('sends a text with a fresh id and hands back its reply', () => {
-    const { client, events, socket } = start();
-    socket.open();
+  it('does not connect again for the same channel in a new snapshot', () => {
+    connected();
+    client.setChannel({ ...CHANNEL });
 
-    const id = client.send({ type: 'text', text: '23 € cena' });
-
-    expect(id).toBe('req-1');
-    expect(socket.lastRequest()).toEqual({ type: 'text', id: 'req-1', text: '23 € cena' });
-    socket.answer(reply('req-1'));
-    expect(events.onReply).toHaveBeenCalledWith('req-1', reply('req-1'));
+    expect(FakeWebSocket.instances).toHaveLength(1);
   });
 
-  it('sends images as one receipt with their caption', () => {
-    const { client, socket } = start();
-    socket.open();
+  it('connects to the new channel when a restarted daemon has a new port', () => {
+    const first = connected();
+    client.setChannel({ url: 'ws://127.0.0.1:5999', token: TOKEN });
+
+    expect(first.readyState).toBe(FakeWebSocket.CLOSED);
+    expect(FakeWebSocket.instances).toHaveLength(2);
+    expect(FakeWebSocket.last.url).toBe('ws://127.0.0.1:5999');
+    expect(FakeWebSocket.last.protocols).toEqual([LOCAL_CHANNEL_PROTOCOL, TOKEN]);
+  });
+
+  it('goes offline and closes the socket when the channel is gone', () => {
+    const socket = connected();
+    client.setChannel(null);
+
+    expect(socket.readyState).toBe(FakeWebSocket.CLOSED);
+    expect(connections.at(-1)).toBe('offline');
+    vi.advanceTimersByTime(60_000);
+    expect(FakeWebSocket.instances).toHaveLength(1);
+  });
+
+  it('connects again after a lost connection, waiting longer each time', () => {
+    connected().drop();
+    expect(connections.at(-1)).toBe('connecting');
+    expect(FakeWebSocket.instances).toHaveLength(1);
+
+    vi.advanceTimersByTime(250);
+    expect(FakeWebSocket.instances).toHaveLength(2);
+
+    FakeWebSocket.last.drop();
+    vi.advanceTimersByTime(250);
+    expect(FakeWebSocket.instances).toHaveLength(2);
+    vi.advanceTimersByTime(250);
+    expect(FakeWebSocket.instances).toHaveLength(3);
+
+    FakeWebSocket.last.open();
+    expect(connections.at(-1)).toBe('open');
+  });
+
+  it('starts the wait over once a connection opened', () => {
+    connected().drop();
+    vi.advanceTimersByTime(250);
+    FakeWebSocket.last.drop();
+    vi.advanceTimersByTime(500);
+    FakeWebSocket.last.open();
+    FakeWebSocket.last.drop();
+
+    vi.advanceTimersByTime(250);
+    expect(FakeWebSocket.instances).toHaveLength(4);
+  });
+
+  it('stops connecting once disposed', () => {
+    connected().drop();
+    client.dispose();
+
+    vi.advanceTimersByTime(60_000);
+    expect(FakeWebSocket.instances).toHaveLength(1);
+  });
+});
+
+describe('requests', () => {
+  it('sends a text and reports its reply (DK-4 AC1)', () => {
+    const socket = connected();
+    const id = sent(client.send({ type: 'text', text: '23 € cena' }));
+
+    expect(socket.requests).toEqual([{ type: 'text', id, text: '23 € cena' }]);
+    expect(outcomes).toEqual([]);
+
+    const answer = reply(id);
+    socket.receive(answer);
+    expect(outcomes).toEqual([[id, { type: 'reply', reply: answer }]]);
+  });
+
+  it('sends several images as one receipt (DK-4 AC2)', () => {
+    const socket = connected();
     const images = [
-      { mimeType: 'image/jpeg', data: 'AAAA' },
-      { mimeType: 'image/png', data: 'BBBB' },
+      { mimeType: 'image/png', data: 'AAAA' },
+      { mimeType: 'image/jpeg', data: 'BBBB' },
     ];
+    const id = sent(client.send({ type: 'receipt', images, caption: null }));
 
-    client.send({ type: 'receipt', images, caption: null });
-
-    expect(socket.requests()).toEqual([{ type: 'receipt', id: 'req-1', images, caption: null }]);
+    expect(socket.requests).toEqual([{ type: 'receipt', id, images, caption: null }]);
   });
 
-  it("sends a button press with the reply's channelRef", () => {
-    const { client, socket } = start();
-    socket.open();
+  it("sends a button press with its reply's channelRef (DK-4 AC3)", () => {
+    const socket = connected();
+    const id = sent(client.send({ type: 'button', data: 'yes:7', channelRef: 'desktop:reply-1' }));
 
-    client.send({ type: 'button', data: 'confirm:yes', channelRef: 'desktop:4b8f' });
-
-    expect(socket.lastRequest()).toEqual({
-      type: 'button',
-      id: 'req-1',
-      data: 'confirm:yes',
-      channelRef: 'desktop:4b8f',
-    });
+    expect(socket.requests).toEqual([
+      { type: 'button', id, data: 'yes:7', channelRef: 'desktop:reply-1' },
+    ]);
   });
 
-  it('hands back a done for a request with no reply', () => {
-    const { client, events, socket } = start();
-    socket.open();
-    const id = client.send({ type: 'text', text: 'hola' });
-
-    socket.answer({ type: 'done', inReplyTo: id ?? '' });
-
-    expect(events.onDone).toHaveBeenCalledWith('req-1');
-    expect(events.onFailed).not.toHaveBeenCalled();
-  });
-
-  it('marks a rejected request as failed', () => {
-    const { client, events, socket } = start();
-    socket.open();
-    client.send({ type: 'text', text: 'hola' });
-
-    socket.answer({ type: 'rejected', inReplyTo: 'req-1' });
-
-    expect(events.onFailed).toHaveBeenCalledWith('req-1', 'rejected');
-  });
-
-  it('fails every pending request when the socket closes mid-request', () => {
-    const { client, events, socket } = start();
-    socket.open();
+  it('gives every request its own id, short enough for the daemon', () => {
+    const socket = connected();
     client.send({ type: 'text', text: 'uno' });
     client.send({ type: 'text', text: 'dos' });
-    socket.answer(reply('req-1'));
 
+    const [first, second] = socket.requests.map((request) => request.id);
+    expect(first).not.toBe(second);
+    expect(first?.length).toBeLessThanOrEqual(64);
+  });
+
+  it('reports a request handled without a reply as done', () => {
+    const socket = connected();
+    const id = sent(client.send({ type: 'text', text: 'hola' }));
+    socket.receive({ type: 'done', inReplyTo: id });
+
+    expect(outcomes).toEqual([[id, { type: 'done' }]]);
+  });
+
+  it('reports a rejected request: nothing was done with it', () => {
+    const socket = connected();
+    const id = sent(client.send({ type: 'text', text: 'hola' }));
+    socket.receive({ type: 'rejected', inReplyTo: id });
+
+    expect(outcomes).toEqual([[id, { type: 'rejected' }]]);
+  });
+
+  it('reports a request in flight when the connection is lost as unknown, not as unsent', () => {
+    const socket = connected();
+    const id = sent(client.send({ type: 'text', text: '23 € cena' }));
     socket.drop();
 
-    expect(events.onFailed).toHaveBeenCalledTimes(1);
-    expect(events.onFailed).toHaveBeenCalledWith('req-2', 'disconnected');
-    expect(events.onConnection).toHaveBeenLastCalledWith('connecting');
+    expect(outcomes).toEqual([[id, { type: 'unknown' }]]);
   });
 
-  it('ignores answers to unknown requests and frames that are not events', () => {
-    const { client, events, socket } = start();
-    socket.open();
-    client.send({ type: 'text', text: 'hola' });
+  it('reports a request in flight when the channel changes as unknown', () => {
+    connected();
+    const id = sent(client.send({ type: 'text', text: '23 € cena' }));
+    client.setChannel({ url: 'ws://127.0.0.1:5999', token: TOKEN });
 
-    socket.answer(reply('someone-else'));
-    socket.receive('not json');
-    socket.receive(JSON.stringify({ type: 'surprise' }));
-    socket.answer(reply('req-1'));
-    socket.answer(reply('req-1'));
-
-    expect(events.onReply).toHaveBeenCalledTimes(1);
+    expect(outcomes).toEqual([[id, { type: 'unknown' }]]);
   });
 
-  it('refuses to send while the socket is not open', () => {
-    const { client, socket } = start();
+  it('sends nothing, and says so, while the connection is not open', () => {
+    client.setChannel(CHANNEL);
 
     expect(client.send({ type: 'text', text: 'hola' })).toBeNull();
-    expect(socket.sent).toEqual([]);
+    expect(FakeWebSocket.last.sent).toEqual([]);
+    expect(outcomes).toEqual([]);
   });
 
-  it('reconnects to the same channel after the daemon drops it', () => {
-    vi.useFakeTimers();
-    const { socket } = start();
-    socket.open();
-
+  it('reports each request once: a late answer after a lost connection is ignored', () => {
+    const socket = connected();
+    const id = sent(client.send({ type: 'text', text: 'hola' }));
     socket.drop();
-    vi.advanceTimersByTime(1000);
+    socket.receive(reply(id));
 
-    expect(FakeWebSocket.instances).toHaveLength(2);
-    expect(FakeWebSocket.latest().protocols).toEqual([LOCAL_CHANNEL_PROTOCOL, TOKEN]);
+    expect(outcomes).toEqual([[id, { type: 'unknown' }]]);
   });
 
-  it('stops for good once closed, failing what was pending', () => {
-    vi.useFakeTimers();
-    const { client, events, socket } = start();
-    socket.open();
-    client.send({ type: 'text', text: 'hola' });
+  it('ignores frames that are not events, and answers to requests it did not send', () => {
+    const socket = connected();
+    const id = sent(client.send({ type: 'text', text: 'hola' }));
+    socket.receiveRaw('not json');
+    socket.receiveRaw(JSON.stringify({ type: 'surprise' }));
+    socket.receiveRaw(new ArrayBuffer(4));
+    socket.receive(reply('someone-else'));
+    socket.receive({ type: 'rejected', inReplyTo: null });
 
-    client.close();
-    socket.drop();
-    vi.advanceTimersByTime(60_000);
-
-    expect(socket.closedByClient).toBe(true);
-    expect(events.onFailed).toHaveBeenCalledWith('req-1', 'disconnected');
-    expect(events.onFailed).toHaveBeenCalledTimes(1);
-    expect(FakeWebSocket.instances).toHaveLength(1);
-    expect(events.onConnection).toHaveBeenLastCalledWith('closed');
+    expect(outcomes).toEqual([]);
+    socket.receive({ type: 'done', inReplyTo: id });
+    expect(outcomes).toEqual([[id, { type: 'done' }]]);
   });
 });

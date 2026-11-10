@@ -1,60 +1,107 @@
-import { type DragEvent, useState } from 'react';
+// DK-4: the chat. The container: it owns the connection and the draft, and hands both to the
+// presentational list and composer.
+import { type DragEvent, useRef, useState } from 'react';
+import type { DaemonStatus, LocalChannel } from '../shell.ts';
 import { strings } from '../strings.ts';
-import { Composer, type ComposerProps } from './Composer.tsx';
-import { MessageList, type MessageListProps } from './MessageList.tsx';
+import { Composer } from './Composer.tsx';
+import { isWaiting } from './conversation.ts';
+import { MessageList } from './MessageList.tsx';
+import { useChat } from './use-chat.ts';
+import { useDraft } from './use-draft.ts';
 
-export type ChatScreenProps = MessageListProps & ComposerProps;
+export interface ChatScreenProps {
+  daemon: DaemonStatus;
+  /** Where the daemon listens; `null` unless it is running. */
+  channel: LocalChannel | null;
+}
 
-const carriesFiles = (event: DragEvent): boolean =>
-  Array.from(event.dataTransfer?.types ?? []).includes('Files');
+/** Why there is no channel, in the principal's words. */
+const withoutChannel = ({ state, reason }: DaemonStatus): string => {
+  const { disabled } = strings.chat;
+  if (state === 'failing') return disabled.failing;
+  if (state === 'stopped')
+    return reason === 'not_configured' ? disabled.notConfigured : disabled.stopped;
+  return disabled.starting;
+};
 
-/** DK-4: the conversation and the composer; files dropped anywhere on it join the draft. */
-export const ChatScreen = (props: ChatScreenProps) => {
-  const [dragging, setDragging] = useState(false);
-  const accepting = props.disabledReason === null;
+const carriesFiles = (event: DragEvent): boolean => event.dataTransfer.types.includes('Files');
+
+export function ChatScreen({ daemon, channel }: ChatScreenProps) {
+  const chat = useChat(channel);
+  const draft = useDraft();
+  const [dropping, setDropping] = useState(false);
+  /** `dragenter` minus `dragleave`: both also fire for every child the pointer crosses. */
+  const dragDepth = useRef(0);
+
+  const disabled = channel === null;
+  const connecting = chat.conversation.connection !== 'open';
+  const blocked = disabled
+    ? withoutChannel(daemon)
+    : connecting
+      ? strings.chat.disabled.connecting
+      : null;
+
+  const submit = () => {
+    const text = draft.text.trim();
+    if (blocked !== null || (text === '' && draft.attachments.length === 0)) return;
+    chat.say(text, draft.attachments);
+    draft.clear();
+  };
+
+  const endDrag = () => {
+    dragDepth.current = 0;
+    setDropping(false);
+  };
 
   return (
-    <main
+    // biome-ignore lint/a11y/noStaticElementInteractions: a drop target; the keyboard's way to attach is the composer's button.
+    <section
       className="chat"
-      data-dragging={(dragging && accepting) || undefined}
-      onDragOver={(event) => {
-        if (!carriesFiles(event)) return;
-        event.preventDefault();
-        event.dataTransfer.dropEffect = accepting ? 'copy' : 'none';
-        setDragging(true);
+      data-offline={disabled || undefined}
+      data-dropping={dropping || undefined}
+      onDragEnter={(event) => {
+        if (disabled || !carriesFiles(event)) return;
+        dragDepth.current += 1;
+        setDropping(true);
       }}
       onDragLeave={(event) => {
-        const next = event.relatedTarget;
-        if (!(next instanceof Node) || !event.currentTarget.contains(next)) setDragging(false);
+        if (disabled || !carriesFiles(event)) return;
+        dragDepth.current -= 1;
+        if (dragDepth.current <= 0) endDrag();
+      }}
+      onDragOver={(event) => {
+        // Without this the WebView would open the dropped file in place of the window.
+        if (carriesFiles(event)) event.preventDefault();
       }}
       onDrop={(event) => {
+        if (!carriesFiles(event)) return;
         event.preventDefault();
-        setDragging(false);
-        if (accepting) props.onAddFiles(Array.from(event.dataTransfer.files));
+        endDrag();
+        if (!disabled) draft.addFiles(Array.from(event.dataTransfer.files));
       }}
     >
       <MessageList
-        messages={props.messages}
-        canSend={props.canSend}
-        onPress={props.onPress}
-        onRetry={props.onRetry}
-        onOpenUrl={props.onOpenUrl}
+        messages={chat.conversation.messages}
+        waiting={isWaiting(chat.conversation)}
+        onRetry={chat.retry}
+        onPress={chat.press}
       />
       <Composer
-        text={props.text}
-        attachments={props.attachments}
-        notice={props.notice}
-        tooLong={props.tooLong}
-        disabledReason={props.disabledReason}
-        waitingReason={props.waitingReason}
-        onTextChange={props.onTextChange}
-        onAddFiles={props.onAddFiles}
-        onRemoveAttachment={props.onRemoveAttachment}
-        onSubmit={props.onSubmit}
+        text={draft.text}
+        attachments={draft.attachments}
+        notice={draft.notice}
+        disabled={disabled}
+        blocked={blocked}
+        onText={draft.setText}
+        onFiles={draft.addFiles}
+        onRemove={draft.remove}
+        onSubmit={submit}
       />
-      <div className="drop-overlay" aria-hidden="true">
-        <p>{strings.dropHere}</p>
-      </div>
-    </main>
+      {dropping && (
+        <div className="drop-hint" aria-hidden="true">
+          <span>{strings.chat.dropHere}</span>
+        </div>
+      )}
+    </section>
   );
-};
+}

@@ -1,105 +1,91 @@
-// DK-4: owns the chat's socket for the current channel. A restarted daemon hands a new channel,
-// so the socket follows it; the conversation itself survives, in memory only.
-import { type RefObject, useCallback, useEffect, useReducer, useRef, useState } from 'react';
+// DK-4: binds the chat client to React. It owns the connection for as long as the chat is on
+// screen and turns what the client reports into the conversation.
+import { useCallback, useEffect, useReducer, useRef } from 'react';
 import type { LocalChannel } from '../shell.ts';
-import { type ChatClient, type ConnectionState, createChatClient } from './chat-client.ts';
+import { type Attachment, encodeAttachments } from './attachments.ts';
+import { type ChatClient, createChatClient, type NewRequest } from './chat-client.ts';
 import {
-  type AnomanderMessage,
-  type Attachment,
-  type ChatState,
-  chatReducer,
-  initialChatState,
-  type PrincipalMessage,
-} from './chat-state.ts';
+  type BotMessage,
+  type Conversation,
+  emptyConversation,
+  type OwnMessage,
+  reduceConversation,
+} from './conversation.ts';
 
-export interface Chat extends ChatState {
-  connection: ConnectionState;
-  sendText: (text: string) => void;
-  sendReceipt: (attachments: Attachment[], caption: string | null) => void;
-  press: (reply: AnomanderMessage, index: number) => void;
-  retry: (message: PrincipalMessage) => void;
+export interface Chat {
+  conversation: Conversation;
+  /** Sends a text, or the attachments as one receipt with the text as caption (DK-4 AC2). */
+  say(text: string, attachments: Attachment[]): void;
+  /** Sends again a message that was not sent. */
+  retry(message: OwnMessage): void;
+  /** Presses a button of `message` (DK-4 AC3). */
+  press(message: BotMessage, data: string): void;
 }
 
-const sendOn = (
-  client: RefObject<ChatClient | null>,
-  request: PrincipalMessage['request'],
-): string | null => client.current?.send(request) ?? null;
+const requestFor = async (text: string, attachments: Attachment[]): Promise<NewRequest> =>
+  attachments.length === 0
+    ? { type: 'text', text }
+    : {
+        type: 'receipt',
+        images: await encodeAttachments(attachments),
+        caption: text === '' ? null : text,
+      };
 
 export const useChat = (channel: LocalChannel | null): Chat => {
-  const [state, dispatch] = useReducer(chatReducer, initialChatState);
-  const [connection, setConnection] = useState<ConnectionState>('closed');
+  const [conversation, dispatch] = useReducer(reduceConversation, emptyConversation);
   const client = useRef<ChatClient | null>(null);
-  const keys = useRef(0);
 
-  const url = channel?.url;
-  const token = channel?.token;
   useEffect(() => {
-    if (url === undefined || token === undefined) {
-      setConnection('closed');
-      return;
-    }
-    const current = createChatClient({
-      url,
-      token,
-      listener: {
-        onConnection: setConnection,
-        onReply: (requestId, reply) => dispatch({ type: 'reply', requestId, reply }),
-        onDone: (requestId) => dispatch({ type: 'done', requestId }),
-        onFailed: (requestId) => dispatch({ type: 'failed', requestId }),
-      },
+    const created = createChatClient({
+      onConnection: (state) => dispatch({ type: 'connection', state }),
+      onOutcome: (requestId, outcome) => dispatch({ type: 'outcome', requestId, outcome }),
     });
-    client.current = current;
+    client.current = created;
     return () => {
+      created.dispose();
       client.current = null;
-      current.close();
     };
+  }, []);
+
+  // A new snapshot with the same channel must not reconnect: depend on its values, not the object.
+  const url = channel?.url ?? null;
+  const token = channel?.token ?? null;
+  useEffect(() => {
+    client.current?.setChannel(url === null || token === null ? null : { url, token });
   }, [url, token]);
 
-  const sendText = useCallback((text: string) => {
-    const request = { type: 'text', text } as const;
-    const key = `local:${++keys.current}`;
-    dispatch({
-      type: 'sent',
-      key,
-      request,
-      text,
-      attachments: [],
-      requestId: sendOn(client, request),
-    });
+  const deliver = useCallback(async (id: string, text: string, attachments: Attachment[]) => {
+    let requestId: string | null = null;
+    try {
+      requestId = client.current?.send(await requestFor(text, attachments)) ?? null;
+    } catch {
+      // A file that cannot be read never left: it is reported as not sent.
+    }
+    dispatch({ type: 'left', id, requestId });
   }, []);
 
-  const sendReceipt = useCallback((attachments: Attachment[], caption: string | null) => {
-    const request = {
-      type: 'receipt',
-      images: attachments.map(({ mimeType, data }) => ({ mimeType, data })),
-      caption,
-    } as const;
-    const key = `local:${++keys.current}`;
-    dispatch({
-      type: 'sent',
-      key,
-      request,
-      text: caption,
-      attachments,
-      requestId: sendOn(client, request),
-    });
+  const say = useCallback(
+    (text: string, attachments: Attachment[]) => {
+      const id = crypto.randomUUID();
+      dispatch({ type: 'said', id, text, attachments });
+      void deliver(id, text, attachments);
+    },
+    [deliver],
+  );
+
+  const retry = useCallback(
+    (message: OwnMessage) => {
+      dispatch({ type: 'retried', id: message.id });
+      void deliver(message.id, message.text, message.attachments);
+    },
+    [deliver],
+  );
+
+  const press = useCallback((message: BotMessage, data: string) => {
+    const requestId =
+      client.current?.send({ type: 'button', data, channelRef: message.channelRef }) ?? null;
+    dispatch({ type: 'pressed', id: message.id, data, requestId });
   }, []);
 
-  const press = useCallback((reply: AnomanderMessage, index: number) => {
-    const button = reply.buttons[index];
-    if (button === undefined || !('data' in button)) return;
-    const requestId = client.current?.send({
-      type: 'button',
-      data: button.data,
-      channelRef: reply.key,
-    });
-    dispatch({ type: 'pressed', key: reply.key, index, requestId: requestId ?? null });
-  }, []);
-
-  const retry = useCallback((message: PrincipalMessage) => {
-    if (message.status !== 'failed') return;
-    dispatch({ type: 'resent', key: message.key, requestId: sendOn(client, message.request) });
-  }, []);
-
-  return { ...state, connection, sendText, sendReceipt, press, retry };
+  return { conversation, say, retry, press };
 };

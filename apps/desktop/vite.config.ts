@@ -1,22 +1,22 @@
-// The window's build, with Tauri's conventions: a fixed dev port the shell's `devUrl` points
-// at, no screen clearing so Rust's output stays readable, and a build into `dist`.
 import react from '@vitejs/plugin-react';
 import { defineConfig } from 'vite';
 
+// The window of the desktop app. Tauri loads `http://localhost:1420` in development
+// (`src-tauri/tauri.conf.json`, `devUrl`) and `dist/` in a build (`frontendDist`).
 export default defineConfig({
   plugins: [react()],
+  // Keep the Rust compiler's output on screen under `tauri dev`.
   clearScreen: false,
   server: {
     port: 1420,
+    // Tauri expects exactly this port: fail instead of moving to another.
     strictPort: true,
-    // Rust rebuilds would otherwise reload the page.
     watch: { ignored: ['**/src-tauri/**'] },
   },
-  // Tauri's WebView on macOS is WebKit; this keeps the output within what it runs.
   build: {
     outDir: 'dist',
     emptyOutDir: true,
-    target: 'safari16',
+    // The WebView is the system's WebKit on macOS.
+    target: 'safari15',
   },
-  envPrefix: ['VITE_', 'TAURI_ENV_'],
 });

@@ -1,143 +1,308 @@
 // @vitest-environment jsdom
-import { fireEvent, screen, waitFor, within } from '@testing-library/react';
-import { describe, expect, it, vi } from 'vitest';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { SetupScreen } from '../src/setup/SetupScreen.tsx';
+import type { SetupInput, SetupState } from '../src/shell.ts';
 import { strings } from '../src/strings.ts';
-import { renderApp } from './harness.tsx';
-import { shellMock } from './shell-mock.ts';
-import { notConfigured, running } from './snapshots.ts';
+import { EMPTY_SETUP, FILLED_SETUP } from './fixtures.ts';
 
-vi.mock('../src/shell.ts', async () => ({ shell: (await import('./shell-mock.ts')).shellMock }));
+// DK-5 AC1: the setup screen. Secrets go in and never come back out.
+afterEach(cleanup);
 
-const field = (label: string) => screen.getByLabelText(label) as HTMLInputElement;
-const fill = (label: string, value: string) =>
+const { setup: text } = strings;
+const BOT_TOKEN = '123456:secret-bot-token';
+const API_KEY = 'sk-secret-provider-key';
+
+const renderSetup = (
+  setup: SetupState,
+  save: (input: SetupInput) => Promise<SetupState> = async () => FILLED_SETUP,
+) => {
+  const onSave = vi.fn(save);
+  const onClose = vi.fn();
+  render(<SetupScreen setup={setup} onSave={onSave} onClose={onClose} />);
+  return { onSave, onClose };
+};
+
+const field = (label: string): HTMLInputElement => screen.getByLabelText(label);
+const fill = (label: string, value: string): void => {
   fireEvent.change(field(label), { target: { value } });
-const save = () => fireEvent.click(screen.getByRole('button', { name: strings.save }));
-const openSettings = () => fireEvent.click(screen.getByRole('button', { name: strings.settings }));
+};
+const save = (): void => {
+  fireEvent.click(screen.getByRole('button', { name: text.save }));
+};
+const saved = async (onSave: ReturnType<typeof vi.fn>): Promise<SetupInput> => {
+  await waitFor(() => expect(onSave).toHaveBeenCalledOnce());
+  return onSave.mock.calls[0]?.[0] as SetupInput;
+};
 
-describe('setup (DK-5 AC1)', () => {
-  it('opens by itself when the daemon is not configured', async () => {
-    await renderApp(notConfigured());
+describe('what it shows', () => {
+  it('shows an empty setup with where to get each value', () => {
+    renderSetup(EMPTY_SETUP);
 
-    expect(screen.getByRole('heading', { name: strings.setupTitle })).toBeTruthy();
-    expect(field(strings.botTokenLabel).type).toBe('password');
+    expect(field(text.botToken).value).toBe('');
+    expect(field(text.botToken).type).toBe('password');
+    expect(field(text.chatId).value).toBe('');
+    expect(screen.getByText(text.botTokenHelp)).toBeTruthy();
+    expect(screen.getByText(text.chatIdHelp)).toBeTruthy();
+    expect(screen.getByText(text.keysNone)).toBeTruthy();
   });
 
-  it('sends what was typed, the bot token included', async () => {
-    await renderApp(notConfigured());
+  it('shows the stored values, and of a secret only that it is stored', () => {
+    renderSetup(FILLED_SETUP);
 
-    fill(strings.botTokenLabel, '123456:ABC-secret');
-    fill(strings.chatIdLabel, '4242');
-    fill(strings.modelLabel, 'openai/gpt-4o-mini');
-    fill(strings.visionModelLabel, 'openai/gpt-4o');
+    expect(field(text.botToken).value).toBe('');
+    expect(field(text.botToken).placeholder).toBe(text.botTokenStored);
+    expect(field(text.chatId).value).toBe('4242');
+    expect(field(text.model).value).toBe('openai/gpt-4o-mini');
+    expect(field(text.visionModel).value).toBe('openai/gpt-4o-mini');
+    const stored = screen.getByRole('list', { name: text.keys });
+    expect(within(stored).getByText('OPENAI_API_KEY')).toBeTruthy();
+    expect(within(stored).getByText(text.keyStored)).toBeTruthy();
+  });
+});
+
+describe('saving', () => {
+  it('sends the bot token only when one was typed', async () => {
+    const { onSave } = renderSetup(FILLED_SETUP);
+    fill(text.chatId, '777');
     save();
 
-    await waitFor(() => expect(shellMock.saveSetup).toHaveBeenCalledTimes(1));
-    expect(shellMock.saveSetup).toHaveBeenCalledWith({
-      telegramBotToken: '123456:ABC-secret',
-      principalChatId: '4242',
+    const input = await saved(onSave);
+    expect(input).toEqual({
+      principalChatId: '777',
       model: 'openai/gpt-4o-mini',
-      visionModel: 'openai/gpt-4o',
+      visionModel: 'openai/gpt-4o-mini',
       providerKeys: {},
     });
+    expect('telegramBotToken' in input).toBe(false);
   });
 
-  it('shows a stored bot token as stored and leaves it out when not typed', async () => {
-    await renderApp(running());
-    openSettings();
-
-    expect(field(strings.botTokenLabel).value).toBe('');
-    expect(screen.getByText(strings.botTokenStored)).toBeTruthy();
-    expect(field(strings.chatIdLabel).value).toBe('4242');
+  it('sends a typed bot token', async () => {
+    const { onSave } = renderSetup(EMPTY_SETUP);
+    fill(text.botToken, BOT_TOKEN);
+    fill(text.chatId, '4242');
     save();
 
-    await waitFor(() => expect(shellMock.saveSetup).toHaveBeenCalledTimes(1));
-    expect(shellMock.saveSetup.mock.calls[0]?.[0]).not.toHaveProperty('telegramBotToken');
+    expect(await saved(onSave)).toMatchObject({ telegramBotToken: BOT_TOKEN });
   });
 
-  it('refuses a chat ID that is not digits and a model that is not provider/model', async () => {
-    await renderApp(running());
-    openSettings();
-
-    fill(strings.chatIdLabel, '@principal');
-    fill(strings.modelLabel, 'gpt-4o-mini');
+  it('accepts a negative chat ID, as a group has', async () => {
+    const { onSave } = renderSetup(FILLED_SETUP);
+    fill(text.chatId, ' -1001234567890 ');
     save();
 
-    expect(await screen.findByText(strings.chatIdInvalid)).toBeTruthy();
-    expect(screen.getByText(strings.modelInvalid)).toBeTruthy();
-    expect(shellMock.saveSetup).not.toHaveBeenCalled();
+    expect(await saved(onSave)).toMatchObject({ principalChatId: '-1001234567890' });
   });
 
-  it('asks for the bot token when none is stored', async () => {
-    await renderApp(notConfigured());
-
-    fill(strings.chatIdLabel, '4242');
+  it.each(['12a', '4 2', '--4', '4.2'])('refuses the chat ID %j before saving', (value) => {
+    const { onSave } = renderSetup(FILLED_SETUP);
+    fill(text.chatId, value);
     save();
 
-    expect(await screen.findByText(strings.botTokenRequired)).toBeTruthy();
-    expect(shellMock.saveSetup).not.toHaveBeenCalled();
+    expect(onSave).not.toHaveBeenCalled();
+    expect(screen.getByText(text.chatIdInvalid)).toBeTruthy();
+    expect(field(text.chatId).getAttribute('aria-invalid')).toBe('true');
+    expect(screen.getByText(text.fixFields)).toBeTruthy();
   });
 
-  it('lists stored keys by name only, removes one and adds another', async () => {
-    await renderApp(running());
-    openSettings();
-
-    expect(within(screen.getByRole('list')).getByText('OPENAI_API_KEY')).toBeTruthy();
-    fireEvent.click(screen.getByRole('button', { name: strings.removeKey('OPENAI_API_KEY') }));
-    fireEvent.change(screen.getByLabelText(strings.keyVariableLabel), {
-      target: { value: 'ANTHROPIC_API_KEY' },
-    });
-    fill(strings.keyValueLabel, 'sk-ant-secret');
-    fireEvent.click(screen.getByRole('button', { name: strings.addKey }));
-
-    expect(document.body.textContent).not.toContain('sk-ant-secret');
-    expect(field(strings.keyValueLabel).value).toBe('');
-    save();
-    await waitFor(() => expect(shellMock.saveSetup).toHaveBeenCalledTimes(1));
-    expect(shellMock.saveSetup.mock.calls[0]?.[0].providerKeys).toEqual({
-      OPENAI_API_KEY: null,
-      ANTHROPIC_API_KEY: 'sk-ant-secret',
-    });
-  });
-
-  it('takes another *_API_KEY variable and refuses a name that is not one', async () => {
-    await renderApp(running());
-    openSettings();
-    fireEvent.change(screen.getByLabelText(strings.keyVariableLabel), { target: { value: '' } });
-
-    fill(strings.keyVariableCustomLabel, 'MISTRAL_TOKEN');
-    fill(strings.keyValueLabel, 'secret');
-    fireEvent.click(screen.getByRole('button', { name: strings.addKey }));
-    expect(screen.getByText(strings.keyVariableInvalid)).toBeTruthy();
-
-    fill(strings.keyVariableCustomLabel, 'MISTRAL_API_KEY');
-    fireEvent.click(screen.getByRole('button', { name: strings.addKey }));
-    expect(within(screen.getByRole('list')).getByText('MISTRAL_API_KEY')).toBeTruthy();
-  });
-
-  it('forgets every typed secret once it saved', async () => {
-    await renderApp(notConfigured());
-    shellMock.saveSetup.mockResolvedValue(running());
-    fill(strings.botTokenLabel, '123456:ABC-secret');
-    fill(strings.chatIdLabel, '4242');
-    fill(strings.keyValueLabel, 'sk-typed-not-added');
+  it.each(['gpt-4o-mini', '/gpt-4o', 'openai/'])('refuses the model %j before saving', (value) => {
+    const { onSave } = renderSetup(FILLED_SETUP);
+    fill(text.visionModel, value);
     save();
 
-    await waitFor(() => expect(shellMock.saveSetup).toHaveBeenCalledTimes(1));
-    await waitFor(() =>
-      expect(screen.queryByRole('heading', { name: strings.setupTitle })).toBeNull(),
+    expect(onSave).not.toHaveBeenCalled();
+    expect(screen.getByText(text.modelInvalid)).toBeTruthy();
+    expect(field(text.visionModel).getAttribute('aria-invalid')).toBe('true');
+    expect(field(text.model).getAttribute('aria-invalid')).not.toBe('true');
+  });
+
+  it('saves empty models and an empty chat ID as unset, as the shell takes them', async () => {
+    const { onSave } = renderSetup(FILLED_SETUP);
+    fill(text.chatId, '');
+    fill(text.model, '  ');
+    fill(text.visionModel, '');
+    save();
+
+    expect(await saved(onSave)).toMatchObject({ principalChatId: '', model: '', visionModel: '' });
+  });
+
+  it('keeps a model with a slash in its name', async () => {
+    const { onSave } = renderSetup(FILLED_SETUP);
+    fill(text.model, 'openrouter/anthropic/claude');
+    save();
+
+    expect(await saved(onSave)).toMatchObject({ model: 'openrouter/anthropic/claude' });
+  });
+
+  it('shows the rejection of the shell and keeps what was typed', async () => {
+    const { onSave, onClose } = renderSetup(EMPTY_SETUP, () =>
+      Promise.reject('could not store TELEGRAM_BOT_TOKEN'),
     );
-    openSettings();
-    expect(field(strings.botTokenLabel).value).toBe('');
-    expect(field(strings.keyValueLabel).value).toBe('');
+    fill(text.botToken, BOT_TOKEN);
+    save();
+    await saved(onSave);
+
+    const alert = await screen.findByRole('alert');
+    expect(alert.textContent).toContain(text.rejected);
+    expect(alert.textContent).toContain('could not store TELEGRAM_BOT_TOKEN');
+    expect(field(text.botToken).value).toBe(BOT_TOKEN);
+    expect(onClose).not.toHaveBeenCalled();
   });
 
-  it('goes back to the chat without saving', async () => {
-    await renderApp(running());
-    openSettings();
+  it('forgets every typed secret once saved', async () => {
+    const { onSave } = renderSetup(EMPTY_SETUP, async () => EMPTY_SETUP);
+    fill(text.botToken, BOT_TOKEN);
+    fill(text.keyValue, API_KEY);
+    fireEvent.click(screen.getByRole('button', { name: text.addKey }));
+    save();
+    await saved(onSave);
 
-    fireEvent.click(screen.getByRole('button', { name: strings.back }));
+    await waitFor(() => expect(field(text.botToken).value).toBe(''));
+    expect(document.documentElement.outerHTML).not.toContain(BOT_TOKEN);
+    expect(document.documentElement.outerHTML).not.toContain(API_KEY);
+  });
 
-    expect(screen.queryByRole('heading', { name: strings.setupTitle })).toBeNull();
-    expect(shellMock.saveSetup).not.toHaveBeenCalled();
+  it('says what is still missing when the saved setup cannot start the daemon', async () => {
+    renderSetup(EMPTY_SETUP, async () => EMPTY_SETUP);
+    fill(text.model, 'openai/gpt-4o-mini');
+    save();
+
+    expect(await screen.findByText(text.savedIncomplete)).toBeTruthy();
+  });
+
+  it('takes no second save while one is in progress', async () => {
+    let finish: (setup: SetupState) => void = () => {};
+    const { onSave } = renderSetup(
+      FILLED_SETUP,
+      () =>
+        new Promise((resolve) => {
+          finish = resolve;
+        }),
+    );
+    save();
+
+    const saving = await screen.findByRole<HTMLButtonElement>('button', { name: text.saving });
+    expect(saving.disabled).toBe(true);
+    fireEvent.click(saving);
+    expect(onSave).toHaveBeenCalledOnce();
+    finish(FILLED_SETUP);
+    await screen.findByRole('button', { name: text.save });
+  });
+
+  it('closes without saving', () => {
+    const { onSave, onClose } = renderSetup(FILLED_SETUP);
+    fireEvent.click(screen.getByRole('button', { name: text.cancel }));
+
+    expect(onClose).toHaveBeenCalledOnce();
+    expect(onSave).not.toHaveBeenCalled();
+  });
+});
+
+describe('provider keys', () => {
+  const keyList = () => screen.getByRole('list', { name: text.keys });
+
+  it('offers the usual providers', () => {
+    renderSetup(EMPTY_SETUP);
+    const options = within(field(text.provider)).getAllByRole<HTMLOptionElement>('option');
+
+    expect(options.map((option) => option.value)).toEqual([
+      'OPENAI_API_KEY',
+      'ANTHROPIC_API_KEY',
+      'GEMINI_API_KEY',
+      'OPENROUTER_API_KEY',
+      'other',
+    ]);
+  });
+
+  it('stores an added key, never showing its value', async () => {
+    const { onSave } = renderSetup(EMPTY_SETUP);
+    fireEvent.change(field(text.provider), { target: { value: 'ANTHROPIC_API_KEY' } });
+    fill(text.keyValue, API_KEY);
+    expect(field(text.keyValue).type).toBe('password');
+    fireEvent.click(screen.getByRole('button', { name: text.addKey }));
+
+    expect(within(keyList()).getByText('ANTHROPIC_API_KEY')).toBeTruthy();
+    expect(within(keyList()).getByText(text.keyNew)).toBeTruthy();
+    expect(keyList().textContent).not.toContain(API_KEY);
+    expect(field(text.keyValue).value).toBe('');
+
+    save();
+    expect((await saved(onSave)).providerKeys).toEqual({ ANTHROPIC_API_KEY: API_KEY });
+  });
+
+  it('stores a key typed but not added, so it is not lost', async () => {
+    const { onSave } = renderSetup(EMPTY_SETUP);
+    fill(text.keyValue, API_KEY);
+    save();
+
+    expect((await saved(onSave)).providerKeys).toEqual({ OPENAI_API_KEY: API_KEY });
+  });
+
+  it('takes another provider by the name of its variable', async () => {
+    const { onSave } = renderSetup(EMPTY_SETUP);
+    fireEvent.change(field(text.provider), { target: { value: 'other' } });
+    fill(text.keyName, 'mistral_api_key');
+    fill(text.keyValue, API_KEY);
+    fireEvent.click(screen.getByRole('button', { name: text.addKey }));
+    save();
+
+    expect((await saved(onSave)).providerKeys).toEqual({ MISTRAL_API_KEY: API_KEY });
+  });
+
+  it.each(['MISTRAL', '1X_API_KEY', 'MIS-TRAL_API_KEY', '_API_KEY'])(
+    'refuses the variable name %j',
+    (name) => {
+      const { onSave } = renderSetup(EMPTY_SETUP);
+      fireEvent.change(field(text.provider), { target: { value: 'other' } });
+      fill(text.keyName, name);
+      fill(text.keyValue, API_KEY);
+      fireEvent.click(screen.getByRole('button', { name: text.addKey }));
+
+      expect(screen.getByText(text.keyNameInvalid)).toBeTruthy();
+      expect(screen.queryByRole('list', { name: text.keys })).toBeNull();
+      save();
+      expect(onSave).not.toHaveBeenCalled();
+    },
+  );
+
+  it('asks for the key when only the provider was chosen', () => {
+    renderSetup(EMPTY_SETUP);
+    fireEvent.click(screen.getByRole('button', { name: text.addKey }));
+
+    expect(screen.getByText(text.keyValueMissing)).toBeTruthy();
+  });
+
+  it('removes a stored key on save, and can change its mind before', async () => {
+    const { onSave } = renderSetup(FILLED_SETUP);
+    fireEvent.click(screen.getByRole('button', { name: text.removeKey('OPENAI_API_KEY') }));
+    expect(within(keyList()).getByText(text.keyRemoved)).toBeTruthy();
+
+    fireEvent.click(screen.getByRole('button', { name: text.undoKey('OPENAI_API_KEY') }));
+    expect(within(keyList()).getByText(text.keyStored)).toBeTruthy();
+
+    fireEvent.click(screen.getByRole('button', { name: text.removeKey('OPENAI_API_KEY') }));
+    save();
+    expect((await saved(onSave)).providerKeys).toEqual({ OPENAI_API_KEY: null });
+  });
+
+  it('replaces a stored key with a new one of the same name', async () => {
+    const { onSave } = renderSetup(FILLED_SETUP);
+    fill(text.keyValue, API_KEY);
+    fireEvent.click(screen.getByRole('button', { name: text.addKey }));
+
+    expect(within(keyList()).getAllByRole('listitem')).toHaveLength(1);
+    expect(within(keyList()).getByText(text.keyReplaced)).toBeTruthy();
+    save();
+    expect((await saved(onSave)).providerKeys).toEqual({ OPENAI_API_KEY: API_KEY });
+  });
+
+  it('drops a key added by mistake', async () => {
+    const { onSave } = renderSetup(EMPTY_SETUP);
+    fill(text.keyValue, API_KEY);
+    fireEvent.click(screen.getByRole('button', { name: text.addKey }));
+    fireEvent.click(screen.getByRole('button', { name: text.removeKey('OPENAI_API_KEY') }));
+    save();
+
+    expect((await saved(onSave)).providerKeys).toEqual({});
   });
 });

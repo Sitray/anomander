@@ -1,64 +1,96 @@
 # ANOMANDER desktop
 
-The desktop app (M6, `docs/desktop-prd.md`): a Tauri shell in `src-tauri` that starts and
-supervises the daemon, and a React window in `src` with the chat, the setup screen and the
-daemon's status.
+The desktop app of milestone M6 (`docs/desktop-prd.md`): a Tauri 2 shell in Rust (`src-tauri/`)
+that starts and supervises the daemon, keeps its secrets in the macOS Keychain and lives in the
+menu bar, and a React window (`src/`) with a chat, a setup screen and the daemon's status.
 
-## The window
+This file covers the window. The two halves meet in `src/shell.ts`: every command and event they
+exchange, mirrored by the Rust side. Change both together.
 
-`src/shell.ts` is the seam with the shell: every Tauri command and event the two exchange. The
-window never calls Tauri anywhere else.
+## Running it
 
-| Folder | What it holds |
+| What | Command |
 | --- | --- |
-| `src/status/` | `useShell` (the shell's snapshot, kept current from its events), `useDaemonControl` (start, stop) and `StatusBar` |
-| `src/chat/` | `chat-client.ts` (the local channel's WebSocket protocol, with no React), `chat-state.ts` (the conversation as a pure reducer), `useChat`, `useDraft` and the screens |
-| `src/setup/` | `SetupScreen` (DK-5 AC1) |
-| `src/strings.ts` | Every string the principal reads, in Spanish, in one place to review |
+| The app, with the shell | `pnpm --dir apps/desktop tauri dev` |
+| The window alone, in a browser | `pnpm --dir apps/desktop dev`, then open `http://localhost:1420/test/preview/index.html` |
+| Tests | `pnpm vitest run apps/desktop` (from the repository root) |
+| Types | `pnpm --dir apps/desktop typecheck` |
+| Build the window into `dist/` | `pnpm --dir apps/desktop build` |
 
-Hooks own the side effects; components take props and call back.
+The dev server is always on port 1420 (`strictPort`): Tauri loads exactly that URL.
 
-### Status (DK-6 AC1, DK-1 AC2, DK-2)
+### The preview
 
-Always on top: running, starting, stopped or failing. When the daemon is not running, the window
-says why, by the snapshot's `reason`. After 3 exits in 5 minutes (`gave_up`) it shows the last
-error line verbatim in a monospace block. With `not_configured`, the setup screen opens by
-itself.
+`test/preview/` runs the window without the shell or a daemon: Tauri's IPC is mocked and the
+local channel is a scripted socket. It is never part of a build. The URL picks the scene:
 
-### Chat (DK-3, DK-4)
+| Parameter | Values |
+| --- | --- |
+| `daemon` | `running` (default), `starting`, `failing`, `not_configured`, `already_running`, `bot_in_use`, `gave_up`, `stopped_by_principal`, `failed` (stopped with no reason, only an error), `unreachable` (the shell does not answer) |
+| `setup` | `empty`, `filled` |
+| `error` | `long`: a 300-character last error |
+| `fail` | `start`, `stop`, `save`: the shell refuses that command |
 
-The window connects whenever the snapshot has a `channel`, with
-`new WebSocket(url, ['anomander.v1', token])`. The token is never put in a URL, the DOM, a log
-or storage. A new channel (a restarted daemon) closes the old socket and opens a new one, and a
-dropped socket is retried after 1 s, doubling up to 10 s.
+The scripted daemon answers by what is typed: `mercadona` asks a Sí/No question, `rechaza` is
+rejected, `corta` loses the connection, `lento` never answers, `largo` answers at length and
+`/login` answers with a link button. A PDF gets the daemon's PDF reply; images are read as a
+receipt.
 
-- Enter sends a `text` (at most 4096 characters, as the daemon accepts); Shift+Enter is a new
-  line.
-- Files dropped on the window, pasted or picked wait in the composer and leave together as one
-  `receipt`, at most 10, with the composer's text as the caption. Which files are receipts is the
-  daemon's call: a PDF gets S-18 and a large image S-20, as in Telegram.
-- A reply's text is shown exactly as received, as text. A `{label, data}` button sends a
-  `button` request with the reply's `channelRef`; the reply's buttons then wait for the answer.
-  A `{label, url}` button opens only an `https:` address.
-- Each message shows "Enviando…" until its `reply` or `done`. A `rejected`, or a connection lost
-  meanwhile, marks it "No se ha enviado." with a retry.
-- The conversation lives in memory only. The composer is disabled, saying why, while there is no
-  channel.
+## How the window is built
 
-### Setup (DK-5 AC1)
-
-The bot token and the provider keys are typed into password fields that are read only when a key
-is added or the form is saved, and cleared as soon as they are handed to `shell.saveSetup`. The
-shell never sends a secret back: a stored token shows as stored (leave it blank to keep it), and
-stored keys are listed by name, with a remove action that takes effect on save.
-
-## Commands
-
-From the repository root:
-
-```sh
-pnpm vitest run apps/desktop     # the window's tests (jsdom, a fake WebSocket, shell.ts mocked)
-pnpm --dir apps/desktop typecheck
-pnpm --dir apps/desktop dev      # Vite on port 1420, which the shell's devUrl points at
-pnpm --dir apps/desktop build    # into apps/desktop/dist, the shell's frontendDist
 ```
+src/
+  shell.ts            the contract with the Rust shell
+  strings.ts          every string the principal reads (es-ES), in one place
+  App.tsx             the container: status on top, chat or setup under it
+  styles.css          the one stylesheet: tokens, then each part
+  chat/
+    chat-client.ts    the local channel: socket, request ids, in-flight requests, reconnection
+    conversation.ts   the conversation as a pure reducer
+    attachments.ts    files waiting in the composer
+    use-chat.ts       binds the client to React        use-draft.ts   the composer's draft
+    ChatScreen.tsx    container                        MessageList.tsx, Composer.tsx   presentational
+  status/
+    describe.ts       what to say and offer for each state and reason
+    use-shell.ts      the latest snapshot and the commands
+    StatusBar.tsx     presentational
+  setup/
+    validation.ts     the shell's checks, made before saving
+    SetupScreen.tsx   presentational
+```
+
+Presentational components take props and call back; hooks own the side effects; `chat-client.ts`
+is framework-free, so it is tested against a fake `WebSocket` (`test/fake-web-socket.ts`).
+
+## What it guarantees
+
+- **The token** of the local channel (DK-3 AC3) goes from the snapshot to the chat client and to
+  the socket's second subprotocol. It is never in a URL, the DOM, a log or storage.
+- **The conversation** lives in memory only and is gone with the window. Opening the setup hides
+  the chat without unmounting it.
+- **A reply is plain text** (DK-4 AC1): shown exactly as received, line breaks kept, never HTML
+  or Markdown.
+- **Delivery honesty.** A `rejected` request did nothing: the window says it was not sent and
+  offers to send it again. A connection lost while a request was in flight may have reached the
+  daemon: the window says it does not know, and offers no one-click resend that could register
+  an expense twice. A button press can always be pressed again: a closed question answers S-19.
+- **Files** dropped, pasted or picked wait in the composer and go as one `receipt`, at most 10
+  and at most 45 MB together (the daemon closes a connection whose frame is over 64 MB). A file
+  that is not an image is sent as it is, so the daemon answers as it would in Telegram (DK-4 AC6).
+- **Link buttons** (`{label, url}`) are named, not offered: this WebView cannot open links, and
+  `/login` stays in Telegram (DK-4 AC7).
+- **Secrets** typed in the setup screen stay in uncontrolled fields and a ref, never in React
+  state or a DOM attribute, and are dropped once saved. Stored secrets are never sent to the
+  window: it only knows whether each one is stored.
+- **Snapshots** carry no sequence number, so an event that arrived while a command was on its
+  way wins over that command's answer.
+
+## Design
+
+The window borrows the app icon's three colours and nothing else: bone paper in light, ink in
+dark, and one ember accent, kept for what the principal can do next and for the status light
+(the icon's ring and dot, lit while the daemon runs). The daemon's words sit on the surface as
+plain text; only what the principal sent is boxed. System font, a 13-point utility scale, a
+4-point spacing scale, both themes checked for WCAG AA, motion only for a message arriving and
+for work in progress, and none under `prefers-reduced-motion`. The tokens are at the top of
+`src/styles.css`.

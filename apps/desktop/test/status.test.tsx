@@ -1,89 +1,169 @@
 // @vitest-environment jsdom
-import { fireEvent, screen } from '@testing-library/react';
-import { describe, expect, it, vi } from 'vitest';
-import type { StopReason } from '../src/shell.ts';
+import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import type { DaemonStatus } from '../src/shell.ts';
+import { StatusBar, type StatusBarProps } from '../src/status/StatusBar.tsx';
 import { strings } from '../src/strings.ts';
-import { emitSnapshot, renderApp } from './harness.tsx';
-import { shellMock } from './shell-mock.ts';
-import { running, stopped } from './snapshots.ts';
+import { RUNNING, STARTING, stopped } from './fixtures.ts';
 
-vi.mock('../src/shell.ts', async () => ({ shell: (await import('./shell-mock.ts')).shellMock }));
+// DK-1 AC2, DK-2 AC2, DK-6: what the window says about the daemon, and what it offers to do.
+afterEach(cleanup);
 
-const status = () => screen.getByRole('status');
+const renderStatus = (daemon: DaemonStatus, overrides: Partial<StatusBarProps> = {}) => {
+  const props: StatusBarProps = {
+    daemon,
+    busy: null,
+    commandError: null,
+    setupOpen: false,
+    onStart: vi.fn(),
+    onStop: vi.fn(),
+    onToggleSetup: vi.fn(),
+    onDismissError: vi.fn(),
+    ...overrides,
+  };
+  render(<StatusBar {...props} />);
+  return props;
+};
 
-describe('status (DK-6 AC1, DK-1 AC2, DK-2)', () => {
-  it('shows the daemon running, with a stop button', async () => {
-    await renderApp(running());
+const { status } = strings;
+const FAILING: DaemonStatus = { state: 'failing', reason: null, lastError: 'boom' };
 
-    expect(status().textContent).toContain(strings.state.running);
-    fireEvent.click(screen.getByRole('button', { name: strings.stop }));
-    expect(shellMock.stopDaemon).toHaveBeenCalledTimes(1);
+describe('wording and action', () => {
+  it.each<[string, DaemonStatus, string, string | null, string]>([
+    ['running', RUNNING, status.running, null, status.stop],
+    ['starting', STARTING, status.starting, null, status.stop],
+    ['failing', FAILING, status.failing, status.failingDetail, status.stop],
+    [
+      'not configured',
+      stopped('not_configured'),
+      status.notConfigured,
+      status.reasons.not_configured,
+      status.configure,
+    ],
+    [
+      'another daemon on this data',
+      stopped('already_running'),
+      status.stopped,
+      status.reasons.already_running,
+      status.start,
+    ],
+    [
+      'the bot in use elsewhere',
+      stopped('bot_in_use'),
+      status.stopped,
+      status.reasons.bot_in_use,
+      status.start,
+    ],
+    ['gave up', stopped('gave_up', 'boom'), status.stopped, status.reasons.gave_up, status.start],
+    [
+      'stopped by the principal',
+      stopped('stopped_by_principal'),
+      status.stopped,
+      status.reasons.stopped_by_principal,
+      status.start,
+    ],
+    [
+      'failed before it ran',
+      stopped(null, 'spawn node ENOENT'),
+      status.stopped,
+      status.failedToStart,
+      status.start,
+    ],
+    ['stopped, nothing known', stopped(null), status.stopped, null, status.start],
+  ])('%s', (_name, daemon, title, detail, action) => {
+    renderStatus(daemon);
+
+    expect(screen.getByRole('status').textContent).toBe(title);
+    if (detail !== null) expect(screen.getByText(detail)).toBeTruthy();
+    expect(screen.getByRole('button', { name: action })).toBeTruthy();
+    for (const other of [status.start, status.stop, status.configure]) {
+      if (other !== action) expect(screen.queryByRole('button', { name: other })).toBeNull();
+    }
   });
 
-  it('shows the daemon starting', async () => {
-    await renderApp(
-      running({ daemon: { state: 'starting', reason: null, lastError: null }, channel: null }),
-    );
+  it('starts, stops and leads to the setup', () => {
+    const start = renderStatus(stopped('stopped_by_principal'));
+    fireEvent.click(screen.getByRole('button', { name: status.start }));
+    expect(start.onStart).toHaveBeenCalledOnce();
+    cleanup();
 
-    expect(status().textContent).toContain(strings.state.starting);
+    const stop = renderStatus(RUNNING);
+    fireEvent.click(screen.getByRole('button', { name: status.stop }));
+    expect(stop.onStop).toHaveBeenCalledOnce();
+    cleanup();
+
+    const configure = renderStatus(stopped('not_configured'));
+    fireEvent.click(screen.getByRole('button', { name: status.configure }));
+    expect(configure.onToggleSetup).toHaveBeenCalledOnce();
   });
 
-  it.each<[StopReason, string]>([
-    ['already_running', strings.reason.already_running],
-    ['bot_in_use', strings.reason.bot_in_use],
-    ['stopped_by_principal', strings.reason.stopped_by_principal],
-  ])('says why it stopped when the reason is %s, with a start button', async (reason, text) => {
-    await renderApp(stopped({ reason }));
+  it('always offers the setup, and the way back from it', () => {
+    const props = renderStatus(RUNNING);
+    fireEvent.click(screen.getByRole('button', { name: status.openSetup }));
+    expect(props.onToggleSetup).toHaveBeenCalledOnce();
+    cleanup();
 
-    expect(screen.getByText(text)).toBeTruthy();
-    fireEvent.click(screen.getByRole('button', { name: strings.start }));
-    expect(shellMock.startDaemon).toHaveBeenCalledTimes(1);
+    renderStatus(RUNNING, { setupOpen: true });
+    expect(screen.getByRole('button', { name: status.closeSetup })).toBeTruthy();
   });
 
-  it('shows the last error verbatim, in a monospace block, after giving up', async () => {
-    const lastError = 'Error: ETIMEDOUT api.telegram.org:443 <retry 3/3>';
-    await renderApp(stopped({ state: 'failing', reason: 'gave_up', lastError }));
+  it('shows a command in progress and takes no second one', () => {
+    const props = renderStatus(stopped('stopped_by_principal'), { busy: 'start' });
+    const button = screen.getByRole<HTMLButtonElement>('button', { name: status.startBusy });
 
-    expect(status().textContent).toContain(strings.state.failing);
-    expect(screen.getByText(strings.reason.gave_up)).toBeTruthy();
-    const block = screen.getByText(lastError);
-    expect(block.closest('pre')).not.toBeNull();
-    expect(block.textContent).toBe(lastError);
+    expect(button.disabled).toBe(true);
+    fireEvent.click(button);
+    expect(props.onStart).not.toHaveBeenCalled();
+  });
+});
+
+describe('the last error (DK-1 AC2)', () => {
+  it('is shown verbatim', () => {
+    const line = '  Error: connect ECONNREFUSED 127.0.0.1:443 <html>&amp;';
+    renderStatus(stopped('gave_up', line));
+
+    expect(screen.getByLabelText(status.lastError).textContent).toBe(line);
+    expect(screen.queryByRole('button', { name: status.showAll })).toBeNull();
   });
 
-  it('says what is missing and leads to setup when not configured', async () => {
-    await renderApp(
-      stopped(
-        { reason: 'not_configured' },
-        {
-          hasTelegramBotToken: false,
-          principalChatId: null,
-          model: null,
-          visionModel: null,
-          providerKeys: [],
-        },
-      ),
-    );
+  it('is collapsed when long, and opens whole', () => {
+    const line = `Error: ${'no se pudo abrir la base de datos '.repeat(9)}`.trim();
+    renderStatus(stopped(null, line));
 
-    expect(screen.getByText(strings.reason.not_configured)).toBeTruthy();
-    expect(screen.queryByRole('button', { name: strings.start })).toBeNull();
+    const toggle = screen.getByRole('button', { name: status.showAll });
+    expect(toggle.getAttribute('aria-expanded')).toBe('false');
+    expect(screen.getByLabelText(status.lastError).textContent).toBe(line);
+
+    fireEvent.click(toggle);
+    expect(
+      screen.getByRole('button', { name: status.showLess }).getAttribute('aria-expanded'),
+    ).toBe('true');
   });
 
-  it('follows the snapshots the shell emits', async () => {
-    await renderApp(running());
+  it('is not shown while the daemon runs', () => {
+    renderStatus({ state: 'running', reason: null, lastError: 'an old failure' });
 
-    emitSnapshot(stopped({ state: 'failing', reason: 'bot_in_use' }));
+    expect(screen.queryByLabelText(status.lastError)).toBeNull();
+  });
+});
 
-    expect(status().textContent).toContain(strings.state.failing);
-    expect(screen.getByText(strings.reason.bot_in_use)).toBeTruthy();
+describe('a failed command', () => {
+  it('shows what failed and the error of the shell', () => {
+    const props = renderStatus(stopped('stopped_by_principal'), {
+      commandError: { command: 'start', message: 'the shell failed: no free port' },
+    });
+
+    const alert = screen.getByRole('alert');
+    expect(alert.textContent).toContain(status.startFailed);
+    expect(alert.textContent).toContain('the shell failed: no free port');
+
+    fireEvent.click(screen.getByRole('button', { name: status.dismiss }));
+    expect(props.onDismissError).toHaveBeenCalledOnce();
   });
 
-  it('says so when the shell cannot start the daemon', async () => {
-    await renderApp(stopped({ reason: 'stopped_by_principal' }));
-    shellMock.startDaemon.mockRejectedValueOnce(new Error('spawn failed'));
+  it('names a failed stop', () => {
+    renderStatus(RUNNING, { commandError: { command: 'stop', message: 'nope' } });
 
-    fireEvent.click(screen.getByRole('button', { name: strings.start }));
-
-    expect(await screen.findByText(strings.startFailed)).toBeTruthy();
+    expect(screen.getByRole('alert').textContent).toContain(status.stopFailed);
   });
 });

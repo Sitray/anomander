@@ -1,5 +1,5 @@
-// The window's few icons, drawn on one 16-unit grid with one stroke, so they read as a set.
-// They are decoration for a labelled control: hidden from assistive technology.
+// The window's icons: one 16-unit grid, one 1.5 stroke, round joins. All decorative; the control
+// that holds one carries the name.
 import type { ReactNode } from 'react';
 
 const Icon = ({ children }: { children: ReactNode }) => (
@@ -20,52 +20,65 @@ const Icon = ({ children }: { children: ReactNode }) => (
   </svg>
 );
 
-export const GearIcon = () => (
+export const ArrowUpIcon = () => (
   <Icon>
-    <circle cx="8" cy="8" r="2.1" />
-    <path d="M8 1.6v1.6M8 12.8v1.6M14.4 8h-1.6M3.2 8H1.6M12.5 3.5l-1.1 1.1M4.6 11.4l-1.1 1.1M12.5 12.5l-1.1-1.1M4.6 4.6 3.5 3.5" />
-    <circle cx="8" cy="8" r="4.6" />
+    <path d="M8 13V3.5M3.75 7.5 8 3.25l4.25 4.25" />
   </Icon>
 );
 
 export const PaperclipIcon = () => (
   <Icon>
-    <path d="M13.2 7.4 8 12.6a3.2 3.2 0 0 1-4.5-4.5l5.6-5.6a2.1 2.1 0 0 1 3 3L6.5 11.1a1.05 1.05 0 0 1-1.5-1.5l4.9-4.9" />
+    <path d="M13.25 7.5 8.1 12.65a3.1 3.1 0 0 1-4.4-4.4l5.5-5.5a2.07 2.07 0 0 1 2.93 2.93L6.7 11.1a1.04 1.04 0 0 1-1.47-1.47L10 4.9" />
   </Icon>
 );
 
-export const SendIcon = () => (
+export const SlidersIcon = () => (
   <Icon>
-    <path d="M8 13V3.4M3.8 7.4 8 3.2l4.2 4.2" />
+    <path d="M2.5 4.75h5M11.5 4.75h2M2.5 11.25h2M8.5 11.25h5" />
+    <circle cx="9.5" cy="4.75" r="1.75" />
+    <circle cx="6.5" cy="11.25" r="1.75" />
   </Icon>
 );
 
 export const CloseIcon = () => (
   <Icon>
-    <path d="m4.5 4.5 7 7M11.5 4.5l-7 7" />
+    <path d="m4 4 8 8M12 4l-8 8" />
   </Icon>
 );
 
-export const RetryIcon = () => (
+export const ChatIcon = () => (
   <Icon>
-    <path d="M13 8a5 5 0 1 1-1.5-3.6M13 2.6v2.6h-2.6" />
+    <path d="M2.75 4.5A1.75 1.75 0 0 1 4.5 2.75h7a1.75 1.75 0 0 1 1.75 1.75v5a1.75 1.75 0 0 1-1.75 1.75H7.2L4.25 13.5v-2.3A1.75 1.75 0 0 1 2.75 9.5z" />
   </Icon>
 );
 
-export const ExternalIcon = () => (
+export const AlertIcon = () => (
   <Icon>
-    <path d="M9.5 2.8h3.7v3.7M13.2 2.8 7.6 8.4M11.6 9.4v3a.9.9 0 0 1-.9.9H3.6a.9.9 0 0 1-.9-.9V5.3a.9.9 0 0 1 .9-.9h3" />
+    <circle cx="8" cy="8" r="5.75" />
+    <path d="M8 5v3.5M8 10.9v.1" />
   </Icon>
 );
 
-export const CheckIcon = () => (
+export const FileIcon = () => (
   <Icon>
-    <path d="m3.4 8.4 3 3 6.2-6.6" />
+    <path d="M9 2.25H5A1.25 1.25 0 0 0 3.75 3.5v9A1.25 1.25 0 0 0 5 13.75h6a1.25 1.25 0 0 0 1.25-1.25v-7zM9 2.25V5.5h3.25" />
   </Icon>
 );
 
-export const BackIcon = () => (
-  <Icon>
-    <path d="M10 3.2 5.2 8l4.8 4.8" />
-  </Icon>
+/**
+ * The app icon's ring and dot, as a status light and as the empty chat's mark: the ring is the
+ * daemon, the dot is lit while it runs.
+ */
+export const Mark = ({ size = 16 }: { size?: number }) => (
+  <svg
+    className="mark"
+    viewBox="0 0 16 16"
+    width={size}
+    height={size}
+    aria-hidden="true"
+    focusable="false"
+  >
+    <circle className="mark-ring" cx="8" cy="8" r="6" fill="none" strokeWidth="2" />
+    <circle className="mark-dot" cx="8" cy="8" r="2.5" />
+  </svg>
 );

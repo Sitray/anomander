@@ -1,160 +1,162 @@
-import { type KeyboardEvent, useId, useLayoutEffect, useRef } from 'react';
-import { MAX_IMAGES, strings } from '../strings.ts';
-import { CloseIcon, PaperclipIcon, SendIcon } from '../ui/icons.tsx';
-import { isImage, previewUrl } from './attachments.ts';
-import type { Attachment } from './chat-state.ts';
+// DK-4: where the principal types and where files wait. Presentational: the draft in, edits out.
+import {
+  type FormEvent,
+  type KeyboardEvent,
+  useEffect,
+  useId,
+  useLayoutEffect,
+  useRef,
+} from 'react';
+import { strings } from '../strings.ts';
+import { ArrowUpIcon, CloseIcon, FileIcon, PaperclipIcon } from '../ui/icons.tsx';
+import type { Attachment } from './attachments.ts';
+
+/** The longest `text` the daemon accepts. */
+const MAX_TEXT_LENGTH = 4096;
 
 export interface ComposerProps {
   text: string;
   attachments: Attachment[];
+  /** Why some files were left out. */
   notice: string | null;
-  tooLong: boolean;
-  /** Why nothing can be written now (no channel); `null` when the composer is usable. */
-  disabledReason: string | null;
-  /** Why a written message cannot leave yet, such as while connecting. */
-  waitingReason: string | null;
-  onTextChange: (text: string) => void;
-  onAddFiles: (files: File[]) => void;
-  onRemoveAttachment: (index: number) => void;
+  /** There is no channel: nothing can be typed. */
+  disabled: boolean;
+  /** Why nothing can be sent right now; `null` when it can. */
+  blocked: string | null;
+  onText: (text: string) => void;
+  onFiles: (files: File[]) => void;
+  onRemove: (id: string) => void;
   onSubmit: () => void;
 }
 
-/** The textarea grows with its text up to this, then scrolls. */
-const MAX_HEIGHT_PX = 132;
-
-export const Composer = ({
-  text,
-  attachments,
-  notice,
-  tooLong,
-  disabledReason,
-  waitingReason,
-  onTextChange,
-  onAddFiles,
-  onRemoveAttachment,
-  onSubmit,
-}: ComposerProps) => {
-  const noteId = useId();
-  const hintId = useId();
-  const input = useRef<HTMLTextAreaElement>(null);
-  const disabled = disabledReason !== null;
+export function Composer(props: ComposerProps) {
+  const { text, attachments, notice, disabled, blocked, onText, onFiles, onRemove, onSubmit } =
+    props;
+  const reasonId = useId();
+  const textarea = useRef<HTMLTextAreaElement>(null);
+  const picker = useRef<HTMLInputElement>(null);
   const empty = text.trim() === '' && attachments.length === 0;
-  const canSubmit = !disabled && waitingReason === null && !empty && !tooLong;
-  const note = disabledReason ?? (tooLong ? strings.tooLong(text.length) : notice) ?? waitingReason;
-  const full = attachments.length >= MAX_IMAGES;
 
-  // biome-ignore lint/correctness/useExhaustiveDependencies: the height follows the text
+  // Grows with what is typed, up to the height the stylesheet allows.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: measured again whenever the text changes.
   useLayoutEffect(() => {
-    const element = input.current;
+    const element = textarea.current;
     if (element === null) return;
     element.style.height = 'auto';
-    element.style.height = `${Math.min(element.scrollHeight, MAX_HEIGHT_PX)}px`;
+    element.style.height = `${element.scrollHeight}px`;
   }, [text]);
 
-  // Back from having no channel, the principal can type straight away.
-  useLayoutEffect(() => {
-    if (!disabled) input.current?.focus();
+  // The chat is where the principal writes: once there is a channel, the caret is already there,
+  // unless they are busy somewhere else.
+  useEffect(() => {
+    if (!disabled && document.activeElement === document.body) textarea.current?.focus();
   }, [disabled]);
 
-  const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
-    // Enter sends, Shift+Enter is a new line, and Enter that confirms an IME composition is neither.
-    if (event.key !== 'Enter' || event.shiftKey || event.nativeEvent.isComposing) return;
+  const submit = (event: FormEvent) => {
     event.preventDefault();
-    if (canSubmit) onSubmit();
+    onSubmit();
+  };
+
+  const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
+    // Enter confirms an input method's candidate before it may send anything; WebKit reports
+    // that Enter with keyCode 229 once the composition has already ended.
+    if (event.key !== 'Enter' || event.shiftKey) return;
+    if (event.nativeEvent.isComposing || event.keyCode === 229) return;
+    event.preventDefault();
+    onSubmit();
   };
 
   return (
-    <form
-      className="composer"
-      data-disabled={disabled || undefined}
-      onSubmit={(event) => {
-        event.preventDefault();
-        if (canSubmit) onSubmit();
-      }}
-    >
-      {attachments.length > 0 && (
-        // biome-ignore lint/a11y/noRedundantRoles: WebKit drops list semantics without it
-        <ul className="tray" role="list">
-          {attachments.map((attachment, index) => (
-            // Staged files have no id of their own; the tray is short and rebuilt on change.
-            // biome-ignore lint/suspicious/noArrayIndexKey: see above
-            <li key={index} className="tray-item">
-              {isImage(attachment) ? (
-                <img className="tray-thumb" src={previewUrl(attachment)} alt={attachment.name} />
-              ) : (
-                <span className="file-chip tray-thumb">{attachment.name}</span>
-              )}
-              <button
-                type="button"
-                className="tray-remove"
-                aria-label={strings.removeAttachment(attachment.name)}
-                onClick={() => onRemoveAttachment(index)}
-              >
-                <CloseIcon />
-              </button>
-            </li>
-          ))}
-        </ul>
+    <form className="composer" onSubmit={submit}>
+      {blocked !== null && (
+        <p className="composer-reason" id={reasonId}>
+          {blocked}
+        </p>
       )}
-      <div className="composer-row">
-        <label
-          className="icon-button"
-          data-disabled={disabled || full || undefined}
-          title={strings.attach}
-        >
+      {notice !== null && (
+        <p className="composer-notice" role="status">
+          {notice}
+        </p>
+      )}
+      <div className="composer-box" data-disabled={disabled || undefined}>
+        {attachments.length > 0 && (
+          <ul className="tray" aria-label={strings.chat.attachments}>
+            {attachments.map((attachment) => (
+              <li key={attachment.id} className="tray-item">
+                {attachment.previewUrl === null ? (
+                  <span className="tray-file">
+                    <FileIcon />
+                    <span className="file-name">{attachment.name}</span>
+                  </span>
+                ) : (
+                  <img src={attachment.previewUrl} alt={attachment.name} />
+                )}
+                <button
+                  type="button"
+                  className="tray-remove"
+                  aria-label={strings.chat.removeAttachment(attachment.name)}
+                  onClick={() => onRemove(attachment.id)}
+                >
+                  <CloseIcon />
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+        <div className="composer-row">
           <input
+            ref={picker}
             type="file"
-            className="visually-hidden"
-            aria-label={strings.attach}
-            accept="image/*,application/pdf"
             multiple
-            disabled={disabled || full}
+            hidden
+            tabIndex={-1}
+            aria-label={strings.chat.attach}
             onChange={(event) => {
-              onAddFiles(Array.from(event.target.files ?? []));
-              // Picking the same file again must fire `change` again.
+              onFiles(Array.from(event.target.files ?? []));
+              // So picking the same file twice in a row is still a change.
               event.target.value = '';
             }}
           />
-          <PaperclipIcon />
-        </label>
-        <textarea
-          ref={input}
-          className="composer-input"
-          rows={1}
-          aria-label={strings.composerLabel}
-          aria-describedby={note === null ? hintId : `${noteId} ${hintId}`}
-          aria-invalid={tooLong || undefined}
-          placeholder={strings.composerPlaceholder}
-          value={text}
-          disabled={disabled}
-          onChange={(event) => onTextChange(event.target.value)}
-          onKeyDown={onKeyDown}
-          onPaste={(event) => {
-            const files = Array.from(event.clipboardData.files);
-            if (files.length === 0) return;
-            event.preventDefault();
-            onAddFiles(files);
-          }}
-        />
-        <button
-          type="submit"
-          className="send-button"
-          aria-label={strings.send}
-          disabled={!canSubmit}
-        >
-          <SendIcon />
-        </button>
+          <button
+            type="button"
+            className="icon-button"
+            aria-label={strings.chat.attach}
+            title={strings.chat.attach}
+            disabled={disabled}
+            onClick={() => picker.current?.click()}
+          >
+            <PaperclipIcon />
+          </button>
+          <textarea
+            ref={textarea}
+            className="composer-input"
+            rows={1}
+            value={text}
+            maxLength={MAX_TEXT_LENGTH}
+            placeholder={disabled ? '' : strings.chat.placeholder}
+            aria-label={strings.chat.message}
+            aria-describedby={blocked === null ? undefined : reasonId}
+            disabled={disabled}
+            onChange={(event) => onText(event.target.value)}
+            onKeyDown={onKeyDown}
+            onPaste={(event) => {
+              const files = Array.from(event.clipboardData.files);
+              if (files.length === 0) return;
+              event.preventDefault();
+              onFiles(files);
+            }}
+          />
+          <button
+            type="submit"
+            className="send"
+            aria-label={strings.chat.send}
+            title={strings.chat.send}
+            disabled={blocked !== null || empty}
+          >
+            <ArrowUpIcon />
+          </button>
+        </div>
       </div>
-      <p
-        className="composer-note"
-        id={noteId}
-        data-tone={!disabled && (tooLong || notice !== null) ? 'error' : undefined}
-      >
-        {note}
-      </p>
-      <p className="visually-hidden" id={hintId}>
-        {strings.composerHint}
-      </p>
     </form>
   );
-};
+}
