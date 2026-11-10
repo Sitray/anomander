@@ -170,6 +170,7 @@ fn set_up(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         settings,
         token,
     ));
+    import_env_file(&core);
 
     let publisher = Publisher {
         app: app.handle().clone(),
@@ -188,6 +189,22 @@ fn set_up(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     // DK-1 AC1: opening the app starts the daemon.
     in_background(app.handle(), |shell| shell.supervisor.start());
     Ok(())
+}
+
+/// A one-time import of a Docker install's `.env`, asked for with `ANOMANDER_IMPORT_ENV=<path>` at
+/// launch: its secrets go to the Keychain and the rest to the settings, as a save from the setup
+/// screen would (DK-5). Without the variable the app never reads a `.env` (DK-5 AC3).
+fn import_env_file(core: &Core) {
+    let Some(path) = std::env::var_os("ANOMANDER_IMPORT_ENV") else {
+        return;
+    };
+    let imported = std::fs::read_to_string(&path)
+        .map_err(|error| error.to_string())
+        .and_then(|text| core.save_setup(&setup::setup_from_env_file(&text)));
+    match imported {
+        Ok(()) => eprintln!("imported the setup from {}", path.to_string_lossy()),
+        Err(error) => eprintln!("could not import the setup: {error}"),
+    }
 }
 
 /// Stops the daemon and waits for it (DK-1 AC1). Safe to call more than once.

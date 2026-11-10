@@ -159,6 +159,48 @@ pub fn apply_setup(
     })
 }
 
+/// The setup a Docker install's `.env` holds, for a one-time import (`ANOMANDER_IMPORT_ENV`): the
+/// bot token, the principal's chat ID, both models and every provider key. Paths, schedules and
+/// everything else are left out: the app owns its data folder. Lines are `NAME=value`, a value
+/// optionally in single or double quotes; comments and anything else are skipped.
+pub fn setup_from_env_file(text: &str) -> SetupInput {
+    let mut input = SetupInput {
+        telegram_bot_token: None,
+        principal_chat_id: String::new(),
+        model: String::new(),
+        vision_model: String::new(),
+        provider_keys: BTreeMap::new(),
+    };
+    for line in text.lines() {
+        let line = line.trim();
+        let line = line.strip_prefix("export ").unwrap_or(line);
+        let Some((name, value)) = line.split_once('=') else {
+            continue;
+        };
+        let (name, value) = (name.trim(), value.trim());
+        let value = ['"', '\'']
+            .iter()
+            .find_map(|&quote| value.strip_prefix(quote)?.strip_suffix(quote))
+            .unwrap_or(value);
+        if value.is_empty() {
+            continue;
+        }
+        match name {
+            TELEGRAM_BOT_TOKEN => input.telegram_bot_token = Some(value.to_owned()),
+            "ANOMANDER_PRINCIPAL_CHAT_ID" => input.principal_chat_id = value.to_owned(),
+            "ANOMANDER_MODEL" => input.model = value.to_owned(),
+            "ANOMANDER_VISION_MODEL" => input.vision_model = value.to_owned(),
+            name if is_provider_key_name(name) => {
+                input
+                    .provider_keys
+                    .insert(name.to_owned(), Some(value.to_owned()));
+            }
+            _ => {}
+        }
+    }
+    input
+}
+
 pub fn setup_state(settings: &Settings, has_telegram_bot_token: bool) -> SetupState {
     SetupState {
         has_telegram_bot_token,
@@ -187,6 +229,24 @@ pub fn load_secrets(settings: &Settings, store: &dyn SecretStore) -> Result<Secr
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn an_env_file_becomes_a_setup_with_its_secrets_and_none_of_its_paths() {
+        let input = setup_from_env_file(
+            "# Telegram\nTELEGRAM_BOT_TOKEN=123:abc\nANOMANDER_PRINCIPAL_CHAT_ID=4242\n\
+             ANOMANDER_DB_PATH=/app/data/anomander.db\nANOMANDER_MODEL=\"google/gemini-x\"\n\
+             export ANOMANDER_VISION_MODEL='google/gemini-y'\nGEMINI_API_KEY=g-key\n\
+             OPENAI_API_KEY=\nTZ=Europe/Madrid\nnot a line\n",
+        );
+        assert_eq!(input.telegram_bot_token.as_deref(), Some("123:abc"));
+        assert_eq!(input.principal_chat_id, "4242");
+        assert_eq!(input.model, "google/gemini-x");
+        assert_eq!(input.vision_model, "google/gemini-y");
+        assert_eq!(
+            input.provider_keys.into_iter().collect::<Vec<_>>(),
+            vec![("GEMINI_API_KEY".to_owned(), Some("g-key".to_owned()))]
+        );
+    }
     use crate::secure_store::MemoryStore;
     use serde_json::json;
 
