@@ -216,6 +216,17 @@ describe('the local channel', () => {
     expect(await rawExchange(daemon, upgrade(`${LOCAL_CHANNEL_PROTOCOL}, ${wrong}`))).toBe('');
     expect(await rawExchange(daemon, upgrade(TOKEN))).toBe('');
     expect(await rawExchange(daemon, 'GET / HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n')).toBe('');
+    // What Node's HTTP server would answer by itself: 400, 100 Continue and 431.
+    expect(await rawExchange(daemon, 'hello there\r\n\r\n')).toBe('');
+    expect(
+      await rawExchange(
+        daemon,
+        'POST / HTTP/1.1\r\nHost: 127.0.0.1\r\nExpect: 100-continue\r\nContent-Length: 5\r\n\r\n',
+      ),
+    ).toBe('');
+    expect(
+      await rawExchange(daemon, `GET / HTTP/1.1\r\nX-Long: ${'a'.repeat(20000)}\r\n\r\n`),
+    ).toBe('');
     await expect(client(daemon, wrong)).rejects.toThrow('closed before it opened');
     // The same request with the token is answered.
     expect(
@@ -241,6 +252,16 @@ describe('the local channel', () => {
     expect(await chat.answerTo(null)).toEqual({ type: 'rejected', inReplyTo: null });
     chat.sendRaw(JSON.stringify({ type: 'text', id: 'x1' }));
     expect(await chat.answerTo('x1')).toEqual({ type: 'rejected', inReplyTo: 'x1' });
+    // An image that is not base64 would cost a processor call for nothing.
+    chat.sendRaw(
+      JSON.stringify({
+        type: 'receipt',
+        id: 'x2',
+        images: [{ mimeType: 'image/png', data: '!!!' }],
+        caption: null,
+      }),
+    );
+    expect(await chat.answerTo('x2')).toEqual({ type: 'rejected', inReplyTo: 'x2' });
     expect(interpreted).toEqual([]);
   });
 });

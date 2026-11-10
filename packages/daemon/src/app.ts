@@ -256,15 +256,18 @@ export const startAnomander = <M>(config: Config, deps: AnomanderDeps<M>): Anoma
   const setupGaps = deps.setupGaps ?? (async () => []);
   // DK-2 AC1: before the store is opened, so a second daemon leaves the ledger unchanged.
   const lock = acquireDaemonLock(config.dbPath);
-  const db = (() => {
+  // A store that cannot be opened or migrated must not keep the lock.
+  const { db, applied } = (() => {
+    let opened: ReturnType<typeof openDatabase> | undefined;
     try {
-      return openDatabase(config.dbPath);
+      opened = openDatabase(config.dbPath);
+      return { db: opened, applied: applyMigrations(opened) };
     } catch (error) {
+      opened?.close();
       lock.release();
       throw error;
     }
   })();
-  const applied = applyMigrations(db);
   logger.info(`anomander store ready at ${config.dbPath} (${applied} migrations applied)`);
 
   // R-12: every processor call counts against the daily cap. A receipt reserves its reader call

@@ -427,7 +427,7 @@ The permission code both capabilities use lives in `src/store/permissions.ts`:
 The desktop app and Docker are two ways to run this daemon, never both at once
 (`docs/desktop-prd.md`). `startAnomander` and `startSetupGuide` take the lock of the database
 before anything else (`src/store/daemon-lock.ts`): an exclusive SQLite transaction on
-`<ANOMANDER_DB_PATH>.lock`, held until `stop`. A second daemon throws
+`<ANOMANDER_DB_PATH>.lock`, held until `stop` (SQLite keeps a small `.lock-journal` beside it). A second daemon throws
 `DaemonAlreadyRunningError` before the store is opened, so the ledger is unchanged (AC1). The
 operating system frees the lock when the process ends, so a crash leaves nothing stale.
 
