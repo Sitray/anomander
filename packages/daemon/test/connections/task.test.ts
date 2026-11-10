@@ -256,6 +256,8 @@ describe('DK-11: a task with connections', () => {
       v: 'hola\uFE00\uFE0F',
       w: 'a\u00A0b\u3000c\u2800d\u3164e',
       x: 'f\u{E0100}g\u{E0041}h',
+      // The object replacement character: a symbol that draws nothing.
+      y: 'i\uFFFCj',
       plain: 'ñ € «ok» 😀',
     };
     script = [call(['notes__create', hidden])];
@@ -270,6 +272,7 @@ describe('DK-11: a task with connections', () => {
         '  "v": "hola\\ufe00\\ufe0f",',
         '  "w": "a\\u00a0b\\u3000c\\u2800d\\u3164e",',
         '  "x": "f\\udb40\\udd00g\\udb40\\udc41h",',
+        '  "y": "i\\ufffcj",',
         '  "plain": "ñ € «ok» 😀"',
         '}',
       ].join('\n'),
@@ -348,7 +351,11 @@ describe('DK-11: a task with connections', () => {
 
   it('leaves out a tool whose name could not be shown as it is', async () => {
     script = [say('Nada.')];
-    const odd = connection('notes', ['search', 'crea»te', 'del\u202Eete', 'x'.repeat(90)], []);
+    const odd = connection(
+      'notes',
+      ['search', 'crea»te', 'del\u202Eete', 'cre\uFFFCate', 'x'.repeat(90)],
+      [],
+    );
 
     await start([odd]).start('Busca');
 

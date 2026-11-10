@@ -99,9 +99,10 @@ interface Pending {
 
 /**
  * What a reader cannot see, or that changes how the text around it reads: control and format
- * characters, every blank, variation selectors and the other characters that show as nothing.
+ * characters, every blank, variation selectors and the other characters that show as nothing,
+ * blank Braille and the object replacement character among them.
  */
-const UNSEEN = /[\p{C}\p{Z}\p{Default_Ignorable_Code_Point}\u2800]/gu;
+const UNSEEN = /[\p{C}\p{Z}\p{Default_Ignorable_Code_Point}\u2800\uFFFC]/gu;
 
 /** `text` with each of those written as its code, except the ones of `kept`. */
 const seen = (text: string, kept: string): string =>
