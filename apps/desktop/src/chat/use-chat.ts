@@ -264,7 +264,7 @@ export const useChat = (channel: LocalChannel | null, options: ChatOptions = {})
       if (requestId === null && mine === run.current) rest.current();
       dispatch({ type: 'left', id, requestId });
     },
-    [step, abandon, inTurn],
+    [step, abandon, inTurn, setRunning],
   );
 
   const task = useCallback(
@@ -333,7 +333,7 @@ export const useChat = (channel: LocalChannel | null, options: ChatOptions = {})
       if (requestId === null) rest.current();
       dispatch({ type: 'performed', id, requestId });
     },
-    [step, inTurn],
+    [step, inTurn, setRunning],
   );
   performing.current = (id) => void perform(id);
 
