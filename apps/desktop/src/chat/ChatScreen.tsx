@@ -112,13 +112,20 @@ export function ChatScreen(props: ChatScreenProps) {
       ? undefined
       : () => {
           if (!draft.takesScreen()) return;
-          onCaptureScreen().then(draft.addScreen, (error: unknown) =>
-            draft.warn(
-              error === 'screen_permission'
-                ? strings.chat.screenPermission
-                : strings.chat.screenFailed,
-            ),
-          );
+          // A task owns the screen while it goes: a look would bring the app back in its way.
+          if (chat.running) {
+            draft.warn(strings.chat.computerBusy);
+            return;
+          }
+          chat
+            .afterComputer(() => onCaptureScreen())
+            .then(draft.addScreen, (error: unknown) =>
+              draft.warn(
+                error === 'screen_permission'
+                  ? strings.chat.screenPermission
+                  : strings.chat.screenFailed,
+              ),
+            );
         };
 
   const endDrag = () => {

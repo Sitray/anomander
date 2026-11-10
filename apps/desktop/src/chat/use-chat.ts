@@ -33,6 +33,8 @@ export interface Chat {
   running: boolean;
   /** Stops the task that is running: nothing more is performed for it. */
   stop(): void;
+  /** Runs `work` on the screen once every capture and action asked before it is over. */
+  afterComputer<T>(work: () => Promise<T>): Promise<T>;
 }
 
 /** The shell's side of a task on the computer; both reject with the shell's own error. */
@@ -97,7 +99,13 @@ export const useChat = (channel: LocalChannel | null, options: ChatOptions = {})
   const asked = useRef(new Map<string, Step>());
   /** The proposals the principal has not answered, by the reply that carries them. */
   const proposed = useRef(new Map<string, Step & { action: ComputerAction; text: string }>());
-  const [running, setRunning] = useState(false);
+  const [running, show] = useState(false);
+  /** `running` as it is now, for what is decided between two renders. */
+  const going = useRef(false);
+  const setRunning = useCallback((next: boolean) => {
+    going.current = next;
+    show(next);
+  }, []);
   /**
    * One task at a time: starting a task or stopping one moves this on, and whatever belongs to
    * an earlier number is over. Its answers are shown, and nothing more is performed for it.
@@ -205,7 +213,11 @@ export const useChat = (channel: LocalChannel | null, options: ChatOptions = {})
     setRunning(false);
     const reveal = () => latest.current.computer?.reveal();
     if (busy.current === 0) reveal();
-    else void inTurn(async () => reveal());
+    // By its turn another task may be going: then the app stays out of the way.
+    else
+      void inTurn(async () => {
+        if (!going.current) reveal();
+      });
   };
 
   /** Ends whatever task there is: its steps that waited for the principal are answered. */
@@ -347,5 +359,16 @@ export const useChat = (channel: LocalChannel | null, options: ChatOptions = {})
     [deliver, begin],
   );
 
-  return { conversation, say, retry, press, task, allow, refuse, running, stop };
+  return {
+    conversation,
+    say,
+    retry,
+    press,
+    task,
+    allow,
+    refuse,
+    running,
+    stop,
+    afterComputer: inTurn,
+  };
 };

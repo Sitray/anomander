@@ -93,6 +93,7 @@ export const strings = {
     computerAuto: 'Paso rutinario: lo hago sin preguntar.',
     computerRunning: 'Estoy usando tu ordenador…',
     computerStop: 'Detener tarea',
+    computerBusy: 'Estoy usando tu ordenador. Detén la tarea o espera a que termine.',
     computerAllow: 'Permitir',
     computerRefuse: 'Detener',
     /** The capture around the point an action would touch. */

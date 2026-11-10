@@ -1001,5 +1001,58 @@ describe('a task on the computer (DK-10)', () => {
       await act(async () => {});
       expect(onPerformAction).not.toHaveBeenCalled();
     });
+
+    const lookAtScreen = () => screen.getByRole('button', { name: strings.chat.screen });
+
+    it('takes no look at the screen while a task runs', async () => {
+      const { socket, onCaptureScreen } = openWithComputer();
+      fireEvent.click(mode());
+      say(task);
+      await sentRequest(socket);
+
+      fireEvent.click(lookAtScreen());
+      await act(async () => {});
+
+      expect(onCaptureScreen).toHaveBeenCalledTimes(1);
+      expect(screen.getByText(strings.chat.computerBusy)).toBeTruthy();
+    });
+
+    it('a look at the screen waits for an action still being performed', async () => {
+      let finish: (jpeg: ArrayBuffer) => void = () => {};
+      const { socket, onCaptureScreen, onPerformAction, stopFromMenu } = openWithComputer(
+        () => new Promise<ArrayBuffer>((resolve) => (finish = resolve)),
+      );
+      await proposed(socket);
+      fireEvent.click(allow());
+      await waitFor(() => expect(onPerformAction).toHaveBeenCalledTimes(1));
+      stopFromMenu();
+
+      fireEvent.click(lookAtScreen());
+      await act(async () => {});
+      expect(onCaptureScreen).toHaveBeenCalledTimes(1);
+
+      await act(async () => finish(jpeg()));
+      await waitFor(() => expect(onCaptureScreen).toHaveBeenCalledTimes(2));
+      expect(onCaptureScreen).toHaveBeenLastCalledWith();
+    });
+
+    it('stays out of the way when a new task follows a stop made during an action', async () => {
+      let finish: (jpeg: ArrayBuffer) => void = () => {};
+      const { socket, onPerformAction, onReveal, stopFromMenu } = openWithComputer(
+        () => new Promise<ArrayBuffer>((resolve) => (finish = resolve)),
+      );
+      await proposed(socket);
+      onReveal.mockClear();
+      fireEvent.click(allow());
+      await waitFor(() => expect(onPerformAction).toHaveBeenCalledTimes(1));
+      stopFromMenu();
+      fireEvent.click(mode());
+      say('Abre Chrome');
+
+      await act(async () => finish(jpeg()));
+      await sentRequest(socket, 2);
+
+      expect(onReveal).not.toHaveBeenCalled();
+    });
   });
 });
