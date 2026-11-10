@@ -1,8 +1,9 @@
 # Desktop app (M6): draft PRD
 
-Status: approved by the principal (2026-11-10) and being built. Daemon side done: DK-2, DK-3 and
-the daemon half of DK-4 (§8). Its requirements move into `PRD.md` under milestone M6 once the app
-itself is built, and this file is then removed.
+Status: approved by the principal (2026-11-10) and built: the daemon side (§8) and the app in
+`apps/desktop` (§9). Still open: the subscription login in the Keychain (DK-5 AC1) and a first
+run against a real bot. Its requirements move into `PRD.md` under milestone M6 once the
+principal has tried the app, and this file is then removed.
 
 ## 1. Problem
 
@@ -77,7 +78,9 @@ and keep its secrets in the operating system instead of a text file.
     in the macOS Keychain, entered once in the app's setup screen.
   - AC2: the app hands them to the daemon when it starts it, as the child process's
     environment; they are never written to a file and never logged.
-  - AC3: `.env` keeps working for Docker installs; the app does not read it.
+  - AC3: `.env` keeps working for Docker installs; the app does not read it, except once, when
+    the principal asks: launched with `ANOMANDER_IMPORT_ENV=<path>`, it stores that file's bot
+    token and provider keys in the Keychain and its chat ID and models in its settings.
 - DK-6 Menu bar.
   - AC1: an icon shows whether ANOMANDER is running, stopped or failing.
   - AC2: its menu opens the chat, starts or stops ANOMANDER, and quits.
@@ -126,3 +129,19 @@ the principal to confirm:
 | Messages | `ChatRequest` (`text`, `receipt`, `button`) and `ChatEvent` (`reply`, `done`, `rejected`) in `packages/protocol/src/local-channel.ts` |
 | Why the daemon stopped (DK-2 AC3) | Exit code `3`: another daemon runs on the same database. `4`: another process uses the bot. `1`: anything else. `exitCodes` in `packages/protocol` |
 | The single-daemon lock (DK-2 AC1) | `<database>.lock` beside the database, held while the daemon runs and freed by the operating system when it ends, so a crash leaves nothing stale |
+
+## 9. The app
+
+Built in `apps/desktop` (see its README): a React window (`src/`) and a Tauri 2 shell in Rust
+(`src-tauri/`). Choices of this build, for the principal to confirm:
+
+| What | How |
+| --- | --- |
+| Starting the daemon (DK-1 AC1) | `node packages/daemon/src/main.ts` of this repository, with a cleared environment plus the setup, the data paths and this launch's token and port |
+| No daemon left behind (DK-1 AC1) | SIGTERM, then SIGKILL after 5 seconds. The daemon also stops when its stdin closes (`ANOMANDER_STOP_WITH_PARENT=1`), so a crashed or killed app leaves none |
+| Restarting (DK-1 AC2) | One second after an exit; exit codes 3 and 4 are never retried |
+| Secrets (DK-5) | Keychain items of service `ANOMANDER`, named as the daemon's variables. The rest in `settings.json` in the data folder, mode `600` |
+| The subscription login (DK-5 AC1) | Not in the Keychain yet: pi-ai keeps it in `auth.json` in the data folder, mode `600` |
+| The ledger | A new one in the app's data folder. A Docker install's ledger stays in its volume: nothing is moved or copied |
+| The window's strings | Spanish, all in `apps/desktop/src/strings.ts`, not yet in `PRD.md` §12 |
+

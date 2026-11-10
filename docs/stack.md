@@ -44,7 +44,7 @@ anomander/
 ├── packages/daemon     # runtime: processors, providers and the cycle of each matter
 ├── packages/protocol   # types shared between the daemon and the front doors
 ├── apps/telegram       # the first front door
-└── apps/desktop        # later: Tauri 2 and Rust
+└── apps/desktop        # the desktop app: a React window and a Tauri 2 shell in Rust
 ```
 
 One rule is enforced by a test: `packages/core` cannot import anything from `packages/daemon`, from any app or from any provider SDK; it imports only its own files and `zod`. It is a package-boundary test like the one in pi-subagent (`package-boundary.test.ts`).

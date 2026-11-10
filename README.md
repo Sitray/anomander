@@ -39,7 +39,7 @@ Design order, never reversed:
 flowchart LR
     subgraph doors["Front doors"]
         TG["Telegram bot<br/>apps/telegram"]
-        DESK["Desktop app<br/>apps/desktop (later)"]
+        DESK["Desktop app<br/>apps/desktop"]
     end
 
     subgraph daemon["packages/daemon"]
