@@ -10,7 +10,9 @@ services:
     volumes:
       - anomander-data:/app/data
     restart: unless-stopped
-    # No ports: Telegram long polling needs no public URL (PRD §20).
+    # No ports: Telegram long polling needs no public URL (PRD §20). The read API (RA-2) is off
+    # unless ANOMANDER_API_TOKEN is set, and binds to 127.0.0.1 inside the container; how other
+    # machines reach it is still open (docs/read-access-prd.md, decision 3).
 
 volumes:
   anomander-data:

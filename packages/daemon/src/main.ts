@@ -1,6 +1,6 @@
 // Daemon entry point: reads the configuration (PRD §14.4), resolves the model through pi-ai
-// (R-15 AC1) and starts the store and the Telegram front door, or the setup guide while `.env`
-// names no usable model (R-28). pi-ai reads the stored logins from `ANOMANDER_AUTH_PATH` on every
+// (R-15 AC1) and starts the store, the Telegram front door and, while `ANOMANDER_API_TOKEN` is set,
+// the read API (RA-2), or the setup guide while `.env` names no usable model (R-28). pi-ai reads the stored logins from `ANOMANDER_AUTH_PATH` on every
 // request (R-15 AC3, R-27 AC5).
 import { builtinModels } from '@earendil-works/pi-ai/providers/all';
 import { startAnomander, startSetupGuide } from './app.ts';
@@ -61,6 +61,11 @@ const anomander = (() => {
 anomander.started.then(
   () => console.info('anomander is listening on Telegram'),
   (error) => fail(`Telegram polling stopped: ${reason(error)}`),
+);
+// RA-2: logs the address only, never the token (AC2).
+anomander.readApi?.then(
+  ({ host, port }) => console.info(`anomander read API listening on ${host}:${port}`),
+  (error) => fail(`read API could not listen: ${reason(error)}`),
 );
 
 const stop = (signal: NodeJS.Signals): void => {

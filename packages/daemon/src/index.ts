@@ -76,6 +76,23 @@ export {
   type TextInterpreterInput,
 } from './processor/text-interpreter.ts';
 export {
+  type DayRange,
+  type Gasto,
+  isDay,
+  type LineaDeCompra,
+  openReadOnly,
+  type Pendientes,
+  readGastos,
+  readLineas,
+  readPendientes,
+} from './read-api/queries.ts';
+export {
+  type ReadApi,
+  type ReadApiAddress,
+  type ReadApiDeps,
+  startReadApi,
+} from './read-api/server.ts';
+export {
   createKeepReceiptAnswerHandler,
   type KeepReceiptDecisionDeps,
 } from './retention/keep-receipt-decision.ts';

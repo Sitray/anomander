@@ -1,7 +1,8 @@
+import { isIP } from 'node:net';
 import { z } from 'zod';
 
-// PRD §14.4. Every variable and default of the configuration table; secrets come only from
-// the environment (`.env`).
+// PRD §14.4, plus the read API of the read access draft (docs/read-access-prd.md §8). Every
+// variable and default of the configuration table; secrets come only from the environment (`.env`).
 
 /** A provider-qualified model ID such as `openai/gpt-4o-mini` (R-15 AC1). */
 export interface ModelId {
@@ -36,6 +37,11 @@ export interface Config {
   /** `ANOMANDER_AUTH_PATH`: the model login credentials (R-27 AC5). */
   authPath: string;
   timeZone: string;
+  /** `ANOMANDER_API_TOKEN`: while unset, the read API is off and no port opens (RA-2 AC1). */
+  apiToken: string | undefined;
+  /** `ANOMANDER_API_HOST`: the address the read API binds to (RA-2 AC3). */
+  apiHost: string;
+  apiPort: number;
 }
 
 const modelId = z.string().transform((value, ctx) => {
@@ -55,6 +61,8 @@ const isTimeZone = (value: string): boolean => {
     return false;
   }
 };
+
+const NOT_A_PORT = 'must be a port from 1 to 65535';
 
 const envSchema = z.object({
   TELEGRAM_BOT_TOKEN: z.string(),
@@ -81,6 +89,17 @@ const envSchema = z.object({
   ANOMANDER_INBOX_DIR: z.string().default('./data/inbox'),
   ANOMANDER_AUTH_PATH: z.string().default('./data/auth.json'),
   TZ: z.string().refine(isTimeZone, 'must be an IANA time zone').default('Europe/Madrid'),
+  ANOMANDER_API_TOKEN: z.string().optional(),
+  ANOMANDER_API_HOST: z
+    .string()
+    .refine((value) => isIP(value) !== 0, 'must be an IP address')
+    .default('127.0.0.1'),
+  ANOMANDER_API_PORT: z
+    .string()
+    .regex(/^\d+$/, NOT_A_PORT)
+    .default('4311')
+    .transform(Number)
+    .pipe(z.int().min(1, NOT_A_PORT).max(65535, NOT_A_PORT)),
 });
 
 type EnvKey = keyof typeof envSchema.shape;
@@ -133,5 +152,8 @@ export const loadConfig = (env: Record<string, string | undefined>): Config => {
     inboxDir: values.ANOMANDER_INBOX_DIR,
     authPath: values.ANOMANDER_AUTH_PATH,
     timeZone: values.TZ,
+    apiToken: values.ANOMANDER_API_TOKEN,
+    apiHost: values.ANOMANDER_API_HOST,
+    apiPort: values.ANOMANDER_API_PORT,
   };
 };
