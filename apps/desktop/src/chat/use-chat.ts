@@ -37,10 +37,15 @@ export interface Chat {
 
 /** The shell's side of a task on the computer; both reject with the shell's own error. */
 export interface Computer {
-  /** A JPEG of the screen as it is now. */
+  /** A JPEG of the screen as it is now; the app stays out of the way after it. */
   capture(): Promise<ArrayBuffer>;
-  /** Performs `action` and answers with a JPEG of the screen as it left it. */
+  /**
+   * Performs `action` and answers with a JPEG of the screen as it left it; the app stays out of
+   * the way after it.
+   */
   perform(action: ComputerAction): Promise<ArrayBuffer>;
+  /** Brings the app back: the task waits for the principal, or is over. */
+  reveal(): void;
 }
 
 export interface ChatOptions {
@@ -54,6 +59,8 @@ export interface ChatOptions {
 
 /** A step of a task that is waiting for its answer, or for the principal. */
 interface Step {
+  /** The task it belongs to: only the latest one may act (see `run`). */
+  run: number;
   task: string;
   /** The steps already performed, as the daemon described them. */
   done: string[];
@@ -61,6 +68,9 @@ interface Step {
 }
 
 /** Errors of the shell after which nothing was done: its permission checks come first. */
+/** The task ended while its action waited for its turn: it was not performed. */
+const ENDED = Symbol('ended');
+
 const NOTHING_DONE: Record<string, string> = {
   computer_permission: strings.chat.computerPermission,
   screen_permission: strings.chat.screenPermission,
@@ -88,10 +98,18 @@ export const useChat = (channel: LocalChannel | null, options: ChatOptions = {})
   /** The proposals the principal has not answered, by the reply that carries them. */
   const proposed = useRef(new Map<string, Step & { action: ComputerAction; text: string }>());
   const [running, setRunning] = useState(false);
-  /** The principal stopped the task: a step already on its way is not performed. */
-  const stopped = useRef(false);
+  /**
+   * One task at a time: starting a task or stopping one moves this on, and whatever belongs to
+   * an earlier number is over. Its answers are shown, and nothing more is performed for it.
+   */
+  const run = useRef(0);
+  /** What the shell is doing on the computer: one capture or action at a time, in order. */
+  const turns = useRef<Promise<unknown>>(Promise.resolve());
+  const busy = useRef(0);
   /** `perform`, which is defined below the client that calls it. */
   const performing = useRef<(id: string) => void>(() => {});
+  /** `rest`, defined below as well. */
+  const rest = useRef<() => void>(() => {});
 
   useEffect(() => {
     const created = createChatClient({
@@ -103,21 +121,26 @@ export const useChat = (channel: LocalChannel | null, options: ChatOptions = {})
         const action = outcome.type === 'reply' ? outcome.reply.computer : undefined;
         if (step !== undefined && outcome.type === 'reply' && action !== undefined) {
           const { channelRef, text } = outcome.reply;
+          const ended = step.run !== run.current;
           // DK-10 AC1: only a step the daemon calls routine goes without asking.
-          const routine = outcome.reply.confirm === false && !stopped.current;
+          const routine = outcome.reply.confirm === false && !ended;
           const proposal = { action, captureUrl: step.captureUrl, confirm: !routine };
           dispatch({ type: 'outcome', requestId, outcome, proposal });
-          if (stopped.current) {
+          if (ended) {
             dispatch({ type: 'refused', id: channelRef });
           } else {
             proposed.current.set(channelRef, { ...step, action, text });
-            if (routine) performing.current(channelRef);
-            else setRunning(false);
+            if (routine) {
+              performing.current(channelRef);
+              // A step on the way to the next one is not an answer to notify.
+              return;
+            }
+            rest.current();
           }
         } else {
           if (step !== undefined) {
             URL.revokeObjectURL(step.captureUrl);
-            setRunning(false);
+            if (step.run === run.current) rest.current();
           }
           dispatch({ type: 'outcome', requestId, outcome });
         }
@@ -163,13 +186,44 @@ export const useChat = (channel: LocalChannel | null, options: ChatOptions = {})
     dispatch({ type: 'pressed', id: message.id, data, requestId });
   }, []);
 
+  /** Runs `work` on the computer once everything asked before it is over. */
+  const inTurn = useCallback(<T>(work: () => Promise<T>): Promise<T> => {
+    busy.current += 1;
+    const turn = turns.current.then(work);
+    turns.current = turn.then(
+      () => {},
+      () => {},
+    );
+    void turns.current.then(() => {
+      busy.current -= 1;
+    });
+    return turn;
+  }, []);
+
+  /** The task no longer goes by itself: the app comes back, after any action still going. */
+  rest.current = () => {
+    setRunning(false);
+    const reveal = () => latest.current.computer?.reveal();
+    if (busy.current === 0) reveal();
+    else void inTurn(async () => reveal());
+  };
+
+  /** Ends whatever task there is: its steps that waited for the principal are answered. */
+  const abandon = useCallback(() => {
+    run.current += 1;
+    for (const id of proposed.current.keys()) dispatch({ type: 'refused', id });
+    proposed.current.clear();
+  }, []);
+
   /** Sends one step of `task` with the screen as `jpeg` shows it; `null` when it could not leave. */
-  const step = useCallback(async (task: string, done: string[], jpeg: ArrayBuffer) => {
+  const step = useCallback(async (of: number, task: string, done: string[], jpeg: ArrayBuffer) => {
     const image = await encodeJpeg(jpeg);
+    // The task ended while the screen was read: its step does not leave.
+    if (of !== run.current) return null;
     const requestId = client.current?.send({ type: 'computer', task, image, done }) ?? null;
     if (requestId !== null) {
       const captureUrl = URL.createObjectURL(new Blob([jpeg], { type: 'image/jpeg' }));
-      asked.current.set(requestId, { task, done, captureUrl });
+      asked.current.set(requestId, { run: of, task, done, captureUrl });
     }
     return requestId;
   }, []);
@@ -177,17 +231,28 @@ export const useChat = (channel: LocalChannel | null, options: ChatOptions = {})
   const begin = useCallback(
     async (id: string, text: string) => {
       const { computer, onProblem } = latest.current;
+      // One task at a time: this one ends the one before.
+      abandon();
+      const mine = run.current;
       let requestId: string | null = null;
-      stopped.current = false;
+      setRunning(computer !== undefined);
       try {
-        if (computer !== undefined) requestId = await step(text, [], await computer.capture());
+        if (computer !== undefined) {
+          const jpeg = await inTurn(() => {
+            if (mine !== run.current) throw ENDED;
+            return computer.capture();
+          });
+          requestId = await step(mine, text, [], jpeg);
+        }
       } catch (error) {
-        onProblem?.(NOTHING_DONE[String(error)] ?? strings.chat.screenFailed);
+        if (error !== ENDED && mine === run.current) {
+          onProblem?.(NOTHING_DONE[String(error)] ?? strings.chat.screenFailed);
+        }
       }
-      setRunning(requestId !== null);
+      if (requestId === null && mine === run.current) rest.current();
       dispatch({ type: 'left', id, requestId });
     },
-    [step],
+    [step, abandon, inTurn],
   );
 
   const task = useCallback(
@@ -207,35 +272,56 @@ export const useChat = (channel: LocalChannel | null, options: ChatOptions = {})
       if (computer === undefined || proposal === undefined) return;
       // Taken out first: a second press finds nothing to perform.
       proposed.current.delete(id);
-      stopped.current = false;
+      const mine = proposal.run;
       setRunning(true);
       dispatch({ type: 'allowed', id });
       let jpeg: ArrayBuffer;
       try {
-        jpeg = await computer.perform(proposal.action);
+        jpeg = await inTurn(() => {
+          if (mine !== run.current) throw ENDED;
+          return computer.perform(proposal.action);
+        });
       } catch (error) {
-        setRunning(false);
+        if (error === ENDED) {
+          dispatch({ type: 'refused', id });
+          return;
+        }
+        const current = mine === run.current;
+        if (current) rest.current();
         const nothingDone = NOTHING_DONE[String(error)];
         if (nothingDone === undefined) {
           // It may have been performed: it is never offered again.
           dispatch({ type: 'performed', id, requestId: null });
           return;
         }
-        proposed.current.set(id, proposal);
-        dispatch({ type: 'not_performed', id });
-        onProblem?.(nothingDone);
+        if (current) {
+          proposed.current.set(id, proposal);
+          dispatch({ type: 'not_performed', id });
+          onProblem?.(nothingDone);
+        } else {
+          dispatch({ type: 'refused', id });
+        }
+        return;
+      }
+      if (mine !== run.current) {
+        // Performed, and the task ended meanwhile: no next step is asked for.
+        dispatch({ type: 'performed_last', id });
         return;
       }
       let requestId: string | null = null;
       try {
-        requestId = await step(proposal.task, [...proposal.done, proposal.text], jpeg);
+        requestId = await step(mine, proposal.task, [...proposal.done, proposal.text], jpeg);
       } catch {
         // The action was performed and the next step could not leave.
       }
-      setRunning(requestId !== null);
+      if (mine !== run.current) {
+        dispatch({ type: 'performed_last', id });
+        return;
+      }
+      if (requestId === null) rest.current();
       dispatch({ type: 'performed', id, requestId });
     },
-    [step],
+    [step, inTurn],
   );
   performing.current = (id) => void perform(id);
 
@@ -247,9 +333,9 @@ export const useChat = (channel: LocalChannel | null, options: ChatOptions = {})
   }, []);
 
   const stop = useCallback(() => {
-    stopped.current = true;
-    setRunning(false);
-  }, []);
+    abandon();
+    rest.current();
+  }, [abandon]);
 
   const retry = useCallback(
     (message: OwnMessage) => {

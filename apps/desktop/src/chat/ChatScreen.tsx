@@ -19,12 +19,18 @@ export interface ChatScreenProps {
   /** Called with the text of every answer. */
   onReply?: (text: string) => void;
   /** Takes a JPEG of the screen; rejects with `screen_permission` when macOS does not allow it. */
-  onCaptureScreen?: () => Promise<ArrayBuffer>;
+  onCaptureScreen?: (keepHidden?: boolean) => Promise<ArrayBuffer>;
   /**
    * DK-10: performs one action on the computer and answers with a JPEG of the screen after it.
    * Rejects with `computer_permission` or `screen_permission` when macOS does not allow it.
    */
-  onPerformAction?: (action: ComputerAction) => Promise<ArrayBuffer>;
+  onPerformAction?: (action: ComputerAction, keepHidden?: boolean) => Promise<ArrayBuffer>;
+  /** Brings the app back after a capture or an action that kept it out of the way. */
+  onReveal?: () => void;
+  /** Called whenever a task on the computer starts or stops going by itself. */
+  onTaskRunning?: (running: boolean) => void;
+  /** Subscribes `stop` to the menu bar's "Detener tarea"; answers how to unsubscribe. */
+  subscribeStop?: (stop: () => void) => () => void;
 }
 
 /** Why there is no channel, in the principal's words. */
@@ -40,13 +46,19 @@ const carriesFiles = (event: DragEvent): boolean => event.dataTransfer.types.inc
 
 export function ChatScreen(props: ChatScreenProps) {
   const { daemon, channel, onThinking, onReply, onCaptureScreen, onPerformAction } = props;
+  const { onReveal, onTaskRunning, subscribeStop } = props;
   const draft = useDraft();
   const computer = useMemo(
     () =>
       onCaptureScreen === undefined || onPerformAction === undefined
         ? undefined
-        : { capture: onCaptureScreen, perform: onPerformAction },
-    [onCaptureScreen, onPerformAction],
+        : {
+            // A task keeps the app out of the way from its first capture until it rests.
+            capture: () => onCaptureScreen(true),
+            perform: (action: ComputerAction) => onPerformAction(action, true),
+            reveal: () => onReveal?.(),
+          },
+    [onCaptureScreen, onPerformAction, onReveal],
   );
   const chat = useChat(channel, {
     ...(onReply === undefined ? {} : { onReply }),
@@ -62,6 +74,10 @@ export function ChatScreen(props: ChatScreenProps) {
   const waiting = isWaiting(chat.conversation);
   useEffect(() => onThinking?.(waiting), [waiting, onThinking]);
   useEffect(() => () => onThinking?.(false), [onThinking]);
+
+  const { running, stop } = chat;
+  useEffect(() => onTaskRunning?.(running), [running, onTaskRunning]);
+  useEffect(() => subscribeStop?.(stop), [subscribeStop, stop]);
 
   const disabled = channel === null;
   const connecting = chat.conversation.connection !== 'open';

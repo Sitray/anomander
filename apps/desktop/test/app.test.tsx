@@ -26,6 +26,9 @@ vi.mock('../src/shell.ts', () => ({
     notifyReply: vi.fn(),
     captureScreen: vi.fn(),
     performAction: vi.fn(),
+    reveal: vi.fn(),
+    setTaskRunning: vi.fn(),
+    onStopTask: vi.fn(),
   },
 }));
 
@@ -49,6 +52,9 @@ beforeEach(() => {
   mocked.stopDaemon.mockResolvedValue(undefined);
   mocked.setThinking.mockResolvedValue(undefined);
   mocked.notifyReply.mockResolvedValue(undefined);
+  mocked.reveal.mockResolvedValue(undefined);
+  mocked.setTaskRunning.mockResolvedValue(undefined);
+  mocked.onStopTask.mockResolvedValue(() => {});
 });
 
 afterEach(() => {

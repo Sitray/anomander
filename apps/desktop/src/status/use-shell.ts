@@ -25,9 +25,15 @@ export interface Shell {
   /** Hands an answer to the shell to notify it; a failure only loses the notification. */
   notifyReply(text: string): void;
   /** `shell.captureScreen`, as it is: the chat says why a capture failed. */
-  captureScreen(): Promise<ArrayBuffer>;
+  captureScreen: typeof shell.captureScreen;
   /** `shell.performAction`, as it is. */
   performAction: typeof shell.performAction;
+  /** Brings the app back; a failure leaves it in the menu bar, where "Abrir chat" does the same. */
+  reveal(): void;
+  /** Tells the menu bar whether a task goes by itself; a failure only loses its "Detener tarea". */
+  setTaskRunning(running: boolean): void;
+  /** Subscribes `stop` to the menu bar's "Detener tarea"; answers how to unsubscribe. */
+  onStopTask(stop: () => void): () => void;
 }
 
 export const useShell = (): Shell => {
@@ -105,6 +111,31 @@ export const useShell = (): Shell => {
     shell.notifyReply(text).catch(() => {});
   }, []);
 
+  const reveal = useCallback(() => {
+    shell.reveal().catch(() => {});
+  }, []);
+
+  const setTaskRunning = useCallback((running: boolean) => {
+    shell.setTaskRunning(running).catch(() => {});
+  }, []);
+
+  const onStopTask = useCallback((stop: () => void) => {
+    let gone = false;
+    let unlisten: (() => void) | undefined;
+    shell.onStopTask(stop).then(
+      (off) => {
+        // The chat went away before the subscription was ready.
+        if (gone) off();
+        else unlisten = off;
+      },
+      () => {},
+    );
+    return () => {
+      gone = true;
+      unlisten?.();
+    };
+  }, []);
+
   return {
     snapshot,
     loadError,
@@ -119,5 +150,8 @@ export const useShell = (): Shell => {
     notifyReply,
     captureScreen: shell.captureScreen,
     performAction: shell.performAction,
+    reveal,
+    setTaskRunning,
+    onStopTask,
   };
 };

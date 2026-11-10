@@ -113,10 +113,14 @@ and keep its secrets in the operating system instead of a text file.
     allowed that very action (corrected by the principal on 2026-11-10: "no hace falta pedirme
     permisos para cada accion, solo cuando sepa que es algo de cuidado"). A step is of care when
     the processor says so, when it says nothing, or when the code takes it for one whatever the
-    processor says: a click on a control named as sending, paying, deleting, accepting,
-    installing, signing in or out or a password, or a shortcut outside the harmless ones. While
-    a task runs by itself the chat offers "Detener tarea": after it nothing more is performed,
-    not even a step already planned. For a step of care the app shows the action and performs it
+    processor says: a click on a control named as sending, sharing, paying, deleting, saving,
+    accepting, continuing, installing, downloading, signing in or out or a password, or a
+    shortcut outside the harmless ones (reloading and pasting are not harmless). There is one
+    task at a time: starting another ends the one before. While a task runs by itself the app
+    stays out of the way (asked by the principal on 2026-11-10: "arregla lo de que se cierre y
+    abra la app") and comes back when a step needs permission or the task ends; the chat and the
+    menu bar offer "Detener tarea": after it nothing more is performed, not even a step already
+    planned, and the same holds for a task ended by a newer one. For a step of care the app shows the action and performs it
     only on "Permitir"; "Detener" ends the task. An action is performed at most once, and one
     that may have been performed is never offered again.
   - AC2: the daemon only proposes. For a `computer` request (the task, a capture of the screen

@@ -71,6 +71,9 @@ export interface SetupInput {
 /** The event the shell emits with a new `Snapshot` whenever any part of it changes. */
 export const SNAPSHOT_EVENT = 'shell://snapshot';
 
+/** The event the shell emits when the menu bar's "Detener tarea" is chosen. */
+export const STOP_TASK_EVENT = 'shell://stop-task';
+
 export const shell = {
   snapshot: (): Promise<Snapshot> => invoke('get_snapshot'),
   /** Saves the setup and starts the daemon again with it. */
@@ -80,17 +83,26 @@ export const shell = {
   /** Whether the chat waits for an answer, which the menu bar shows (DK-6). */
   setThinking: (thinking: boolean): Promise<void> => invoke('set_thinking', { thinking }),
   /**
-   * A JPEG of the screen, taken now with the window out of the way. Rejects with
-   * `screen_permission` when macOS does not let the app record the screen.
+   * A JPEG of the screen, taken now with the app out of the way. With `keepHidden` the app stays
+   * away after a capture that worked, until `reveal`. Rejects with `screen_permission` when macOS
+   * does not let the app record the screen.
    */
-  captureScreen: (): Promise<ArrayBuffer> => invoke('capture_screen'),
+  captureScreen: (keepHidden = false): Promise<ArrayBuffer> =>
+    invoke('capture_screen', { keepHidden }),
   /**
    * DK-10: performs the one action the principal just allowed, with the app out of the way, and
-   * answers with a JPEG of the screen as it left it. Rejects with `computer_permission` or
+   * answers with a JPEG of the screen as it left it. With `keepHidden` the app stays away after
+   * an action that worked, until `reveal`. Rejects with `computer_permission` or
    * `screen_permission` when macOS does not allow it; then nothing was done.
    */
-  performAction: (action: ComputerAction): Promise<ArrayBuffer> =>
-    invoke('perform_action', { action }),
+  performAction: (action: ComputerAction, keepHidden = false): Promise<ArrayBuffer> =>
+    invoke('perform_action', { action, keepHidden }),
+  /** Brings the app and the chat back to the front. */
+  reveal: (): Promise<void> => invoke('reveal'),
+  /** Whether a task goes by itself, so the menu bar offers "Detener tarea" (DK-10). */
+  setTaskRunning: (running: boolean): Promise<void> => invoke('set_task_running', { running }),
+  /** The principal chose "Detener tarea" in the menu bar. */
+  onStopTask: (handler: () => void): Promise<UnlistenFn> => listen(STOP_TASK_EVENT, handler),
   /** An answer arrived: the shell notifies it unless the window is in front. */
   notifyReply: (text: string): Promise<void> => invoke('notify_reply', { text }),
   onSnapshot: (handler: (snapshot: Snapshot) => void): Promise<UnlistenFn> =>

@@ -98,8 +98,12 @@ is framework-free, so it is tested against a fake `WebSocket` (`test/fake-web-so
   Recording permission, which belongs to the signed app.
 - **A task on the computer** (DK-10) starts from the composer's pointer button. Each step is a
   `computer` request with a fresh capture; the daemon answers one proposed action and whether
-  it is routine (`confirm: false`). A routine step is performed at once and shown as done, with
-  "Detener tarea" on screen while the task runs; anything else, a missing `confirm` included, is
+  it is routine (`confirm: false`). A routine step is performed at once and shown as done.
+  There is one task at a time (`run` in `use-chat.ts`): a new task or "Detener tarea" ends the
+  one before, whose late answers are shown and never performed, and the shell is asked for one
+  capture or action at a time. While a task goes by itself the app stays hidden
+  (`keepHidden`), with "Detener tarea" in the menu bar; it comes back (`reveal`) when a step
+  needs permission, the task ends or something fails. Anything else, a missing `confirm` included, is
   shown with "Permitir" and "Detener" and, for a click or a scroll, the capture around the point
   with a mark. `perform_action` is called once per action: the proposal is taken out
   before the call, an action that may have been performed is never offered again, and an action

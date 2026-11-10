@@ -86,7 +86,7 @@ export const strings = {
     /** DK-10: a task on the computer, one allowed step at a time. */
     computer: 'Hacer algo en mi ordenador',
     computerMode:
-      'Voy a usar tu ordenador. Antes de cada paso te enseño qué quiero hacer y espero tu permiso.',
+      'Voy a usar tu ordenador. Los pasos rutinarios los hago sin preguntar; antes de algo delicado te enseño qué quiero hacer y espero tu permiso.',
     computerPlaceholder: '¿Qué hago en tu ordenador?',
     computerAlone: 'Una tarea en el ordenador va sin archivos. Quítalos o envíalos antes.',
     /** A routine step: performed without asking. */

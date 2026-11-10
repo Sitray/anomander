@@ -84,6 +84,8 @@ export type ConversationAction =
    * have been performed and nothing more is known.
    */
   | { type: 'performed'; id: string; requestId: string | null }
+  /** The allowed action was performed and the task ended meanwhile: nothing follows it. */
+  | { type: 'performed_last'; id: string }
   /** The allowed action was not performed at all: it can be allowed again. */
   | { type: 'not_performed'; id: string }
   /** The principal stopped at the proposal of the reply `id`. */
@@ -193,6 +195,8 @@ export const reduceConversation = (
         requestId: action.requestId,
         delivery: action.requestId === null ? 'unknown' : 'pending',
       });
+    case 'performed_last':
+      return answered(action.id, { data: 'allow', delivery: 'delivered', requestId: null });
     case 'not_performed':
       // Nothing was done: it can be allowed again, and from now on it is asked for.
       return mapped((message) =>

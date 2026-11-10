@@ -16,6 +16,7 @@ use crate::snapshot::{DaemonState, DaemonStatus, StopReason};
 pub const TRAY_ID: &str = "anomander";
 pub const OPEN_CHAT: &str = "open-chat";
 pub const TOGGLE: &str = "toggle-daemon";
+pub const STOP_TASK: &str = "stop-task";
 pub const QUIT: &str = "quit";
 
 /// The texts of the menu for one status.
@@ -101,6 +102,8 @@ pub fn labels(view: &View) -> Labels {
 pub struct TrayMenu {
     status: MenuItem<Wry>,
     toggle: MenuItem<Wry>,
+    /// "Detener tarea": enabled while a task on the computer goes by itself (DK-10).
+    stop_task: MenuItem<Wry>,
     view: Mutex<View>,
     /// Which frame of the thinking dots is on screen.
     frame: AtomicU8,
@@ -124,11 +127,15 @@ pub fn build(
     let status = MenuItem::with_id(app, "status", texts.status, false, None::<&str>)?;
     let open = MenuItem::with_id(app, OPEN_CHAT, "Abrir chat", true, None::<&str>)?;
     let toggle = MenuItem::with_id(app, TOGGLE, texts.toggle, true, None::<&str>)?;
+    // The app is out of the way while a task goes by itself: this is how to stop it then.
+    let stop_task = MenuItem::with_id(app, STOP_TASK, "Detener tarea", false, None::<&str>)?;
     let quit = MenuItem::with_id(app, QUIT, "Salir de ANOMANDER", true, Some("Cmd+Q"))?;
     let separator = PredefinedMenuItem::separator(app)?;
     let menu = Menu::with_items(
         app,
-        &[&status, &separator, &open, &toggle, &separator, &quit],
+        &[
+            &status, &separator, &open, &stop_task, &toggle, &separator, &quit,
+        ],
     )?;
     TrayIconBuilder::with_id(TRAY_ID)
         .icon(icon(view.look(), 0))
@@ -141,6 +148,7 @@ pub fn build(
     app.manage(TrayMenu {
         status,
         toggle,
+        stop_task,
         view: Mutex::new(view),
         frame: AtomicU8::new(0),
     });
@@ -204,6 +212,16 @@ pub fn show_status(app: &AppHandle, status: &DaemonStatus) {
 /// Shows whether the chat waits for an answer. Runs on the main thread.
 pub fn show_thinking(app: &AppHandle, thinking: bool) {
     change(app, |view| view.thinking = thinking);
+}
+
+/// Offers "Detener tarea" while a task on the computer goes by itself. Runs on the main thread.
+pub fn show_task(app: &AppHandle, running: bool) {
+    let Some(menu) = app.try_state::<TrayMenu>() else {
+        return;
+    };
+    if let Err(error) = menu.stop_task.set_enabled(running) {
+        eprintln!("could not update the menu: {error}");
+    }
 }
 
 fn change(app: &AppHandle, update: impl FnOnce(&mut View)) {

@@ -527,16 +527,33 @@ describe('a task on the computer (DK-10)', () => {
   ) => {
     const onCaptureScreen = vi.fn(capture);
     const onPerformAction = vi.fn(perform);
+    const onReveal = vi.fn();
+    const onTaskRunning = vi.fn();
+    /** Stops the task as the menu bar's "Detener tarea" does. */
+    let stopFromMenu = () => {};
     render(
       <ChatScreen
         daemon={RUNNING}
         channel={CHANNEL}
         onCaptureScreen={onCaptureScreen}
         onPerformAction={onPerformAction}
+        onReveal={onReveal}
+        onTaskRunning={onTaskRunning}
+        subscribeStop={(stop) => {
+          stopFromMenu = stop;
+          return () => {};
+        }}
       />,
     );
     act(() => FakeWebSocket.last.open());
-    return { socket: FakeWebSocket.last, onCaptureScreen, onPerformAction };
+    return {
+      socket: FakeWebSocket.last,
+      onCaptureScreen,
+      onPerformAction,
+      onReveal,
+      onTaskRunning,
+      stopFromMenu: () => act(() => stopFromMenu()),
+    };
   };
   const mode = () => screen.getByRole('button', { name: strings.chat.computer });
   const allow = () =>
@@ -605,7 +622,7 @@ describe('a task on the computer (DK-10)', () => {
       done: [PROPOSAL],
     });
     expect(onPerformAction).toHaveBeenCalledTimes(1);
-    expect(onPerformAction).toHaveBeenCalledWith(CLICK);
+    expect(onPerformAction).toHaveBeenCalledWith(CLICK, true);
     expect(allow().disabled).toBe(true);
     expect(refuse().disabled).toBe(true);
   });
@@ -769,7 +786,7 @@ describe('a task on the computer (DK-10)', () => {
 
       expect(await sentRequest(socket, 2)).toMatchObject({ type: 'computer', done: [PROPOSAL] });
       expect(onPerformAction).toHaveBeenCalledTimes(1);
-      expect(onPerformAction).toHaveBeenCalledWith(CLICK);
+      expect(onPerformAction).toHaveBeenCalledWith(CLICK, true);
       expect(screen.getByText(PROPOSAL)).toBeTruthy();
       expect(screen.getByText(strings.chat.computerAuto)).toBeTruthy();
       expect(screen.queryByRole('button', { name: strings.chat.computerAllow })).toBeNull();
@@ -874,6 +891,115 @@ describe('a task on the computer (DK-10)', () => {
       fireEvent.click(allow());
       await sentRequest(socket, 2);
       expect(onPerformAction).toHaveBeenCalledTimes(2);
+    });
+
+    const routineReply = (id: string, text = PROPOSAL) =>
+      replyTo(id, { text, computer: CLICK, confirm: false } as never);
+
+    it('a stopped task stays stopped when another one starts', async () => {
+      const { socket, onPerformAction } = openWithComputer();
+      fireEvent.click(mode());
+      say(task);
+      const first = await sentRequest(socket);
+      fireEvent.click(stop() as HTMLElement);
+      fireEvent.click(mode());
+      say('Abre Chrome');
+      await sentRequest(socket, 2);
+
+      act(() => socket.receive(routineReply(first.id)));
+      await act(async () => {});
+
+      expect(onPerformAction).not.toHaveBeenCalled();
+      expect(screen.getByText(strings.chat.computerRefused)).toBeTruthy();
+      // The new task is still going, with its way to stop it.
+      expect(stop()).not.toBeNull();
+    });
+
+    it('a new task ends the one before: its step that waited can no longer be allowed', async () => {
+      const { socket, onPerformAction } = openWithComputer();
+      await proposed(socket);
+      expect(allow().disabled).toBe(false);
+
+      fireEvent.click(mode());
+      say('Abre Chrome');
+      await sentRequest(socket, 2);
+
+      expect(allow().disabled).toBe(true);
+      fireEvent.click(allow());
+      await act(async () => {});
+      expect(onPerformAction).not.toHaveBeenCalled();
+    });
+
+    it('never performs two actions at once', async () => {
+      let finish: (jpeg: ArrayBuffer) => void = () => {};
+      const { socket, onPerformAction } = openWithComputer(
+        () => new Promise<ArrayBuffer>((resolve) => (finish = resolve)),
+      );
+      await proposed(socket);
+      fireEvent.click(allow());
+      await waitFor(() => expect(onPerformAction).toHaveBeenCalledTimes(1));
+
+      // While the first is being performed, the menu bar stops the task and a new one starts.
+      fireEvent.click(mode());
+      say('Abre Chrome');
+      await act(async () => {});
+      expect(onPerformAction).toHaveBeenCalledTimes(1);
+
+      await act(async () => finish(jpeg()));
+      // The first task was ended by the second: its next step is not asked for.
+      await waitFor(() => expect(socket.requests.length).toBeGreaterThanOrEqual(2));
+      expect(
+        socket.requests.filter((request) => 'done' in request && request.done.length > 0),
+      ).toEqual([]);
+    });
+
+    it('keeps the app out of the way while it runs by itself, and brings it back to ask or to end', async () => {
+      const { socket, onCaptureScreen, onPerformAction, onReveal } = openWithComputer();
+      await routine(socket);
+      const second = await sentRequest(socket, 2);
+
+      expect(onCaptureScreen).toHaveBeenCalledWith(true);
+      expect(onPerformAction).toHaveBeenCalledWith(CLICK, true);
+      expect(onReveal).not.toHaveBeenCalled();
+
+      act(() => socket.receive(replyTo(second.id, { text: 'Hecho.' })));
+      expect(onReveal).toHaveBeenCalledTimes(1);
+    });
+
+    it('brings the app back when a step of care arrives', async () => {
+      const { socket, onReveal } = openWithComputer();
+      await proposed(socket);
+
+      expect(onReveal).toHaveBeenCalledTimes(1);
+    });
+
+    it('brings the app back when the task could not even start', async () => {
+      const { onReveal } = openWithComputer(
+        async () => jpeg(),
+        async () => {
+          throw 'screen_permission';
+        },
+      );
+      fireEvent.click(mode());
+      say(task);
+
+      await waitFor(() => expect(onReveal).toHaveBeenCalledTimes(1));
+    });
+
+    it('tells the shell while a task runs, and stops from the menu bar', async () => {
+      const { socket, onPerformAction, onTaskRunning, onReveal, stopFromMenu } = openWithComputer();
+      fireEvent.click(mode());
+      say(task);
+      const request = await sentRequest(socket);
+      expect(onTaskRunning).toHaveBeenLastCalledWith(true);
+
+      stopFromMenu();
+      expect(onTaskRunning).toHaveBeenLastCalledWith(false);
+      expect(onReveal).toHaveBeenCalledTimes(1);
+
+      act(() => socket.receive(routineReply(request.id)));
+      await act(async () => {});
+      expect(onPerformAction).not.toHaveBeenCalled();
     });
   });
 });

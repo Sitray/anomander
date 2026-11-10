@@ -28,6 +28,8 @@ use crate::snapshot::{DaemonState, Snapshot};
 
 /// `SNAPSHOT_EVENT` of `shell.ts`.
 pub const SNAPSHOT_EVENT: &str = "shell://snapshot";
+/// `STOP_TASK_EVENT` of `shell.ts`.
+pub const STOP_TASK_EVENT: &str = "shell://stop-task";
 const MAIN_WINDOW: &str = "main";
 
 /// The app's managed state.
@@ -165,10 +167,40 @@ fn notify_reply(app: AppHandle, text: String) -> Result<(), String> {
 /// How long the app the principal was using takes to come back to the front once ours hides.
 const APP_LEAVES: Duration = Duration::from_millis(450);
 
+/// Brings the app and the chat back after a capture or an action.
+fn come_back(app: &AppHandle) {
+    if let Err(error) = app.show() {
+        eprintln!("could not show the app again: {error}");
+    }
+    show_chat(app);
+}
+
+/// The app comes back after its work on the screen, unless that work went well and the window
+/// asked to stay away: a task that goes by itself hides once, not at every step (DK-10).
+fn after_screen_work<T>(app: &AppHandle, keep_hidden: bool, outcome: &Result<T, String>) {
+    if !(keep_hidden && outcome.is_ok()) {
+        come_back(app);
+    }
+}
+
+/// The window asks for the app back: its task waits for the principal, or is over.
+#[tauri::command]
+fn reveal(app: AppHandle) {
+    come_back(&app);
+}
+
+/// A task goes by itself, or no longer does: the menu bar offers to stop it.
+#[tauri::command]
+fn set_task_running(app: AppHandle, running: bool) -> Result<(), String> {
+    let handle = app.clone();
+    app.run_on_main_thread(move || tray::show_task(&handle, running))
+        .map_err(|error| error.to_string())
+}
+
 /// A JPEG of the screen for a question the principal is asking in the chat, taken with the chat
 /// window out of the way. It runs only on their click, and nothing is kept on disk.
 #[tauri::command]
-async fn capture_screen(app: AppHandle) -> Result<tauri::ipc::Response, String> {
+async fn capture_screen(app: AppHandle, keep_hidden: bool) -> Result<tauri::ipc::Response, String> {
     if !screen::allowed() {
         return Err(screen::NO_PERMISSION.into());
     }
@@ -180,11 +212,7 @@ async fn capture_screen(app: AppHandle) -> Result<tauri::ipc::Response, String> 
         screen::capture(shell.core.data_root())
     })
     .await;
-    // Whatever happened, the chat comes back.
-    if let Err(error) = app.show() {
-        eprintln!("could not show the app again: {error}");
-    }
-    show_chat(&app);
+    after_screen_work(&app, keep_hidden, &captured);
     captured.map(tauri::ipc::Response::new)
 }
 
@@ -198,6 +226,7 @@ const SCREEN_SETTLES: Duration = Duration::from_millis(900);
 async fn perform_action(
     app: AppHandle,
     action: computer::Action,
+    keep_hidden: bool,
 ) -> Result<tauri::ipc::Response, String> {
     if !computer::allowed() {
         return Err(computer::NO_PERMISSION.into());
@@ -213,11 +242,7 @@ async fn perform_action(
         screen::capture(shell.core.data_root())
     })
     .await;
-    // Whatever happened, the chat comes back.
-    if let Err(error) = app.show() {
-        eprintln!("could not show the app again: {error}");
-    }
-    show_chat(&app);
+    after_screen_work(&app, keep_hidden, &captured);
     captured.map(tauri::ipc::Response::new)
 }
 
@@ -237,6 +262,12 @@ fn on_menu(app: &AppHandle, id: &str) {
                     shell.supervisor.stop();
                 }
             });
+        }
+        // The window stops its task and asks for the app back.
+        tray::STOP_TASK => {
+            if let Err(error) = app.emit_to(MAIN_WINDOW, STOP_TASK_EVENT, ()) {
+                eprintln!("could not stop the task: {error}");
+            }
         }
         tray::QUIT => app.exit(0),
         _ => {}
@@ -315,7 +346,9 @@ pub fn run() {
             set_thinking,
             notify_reply,
             capture_screen,
-            perform_action
+            perform_action,
+            reveal,
+            set_task_running
         ])
         .setup(set_up)
         .on_window_event(|window, event| {

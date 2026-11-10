@@ -83,6 +83,9 @@ export function App() {
                 onReply={shell.notifyReply}
                 onCaptureScreen={shell.captureScreen}
                 onPerformAction={shell.performAction}
+                onReveal={shell.reveal}
+                onTaskRunning={shell.setTaskRunning}
+                subscribeStop={shell.onStopTask}
               />
             </div>
             {setupOpen && (
