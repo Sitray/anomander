@@ -167,7 +167,7 @@ const answerTo = (request: ChatRequest): Answer => {
     }
     return { text: 'Apuntado: 47,85 € en Mercadona, supermercado, 12 líneas.' };
   }
-  const text = (request.type === 'computer' ? request.task : request.text).toLowerCase();
+  const text = ('task' in request ? request.task : request.text).toLowerCase();
   if (text.includes('rechaza')) return 'rejected';
   if (text.includes('corta')) return 'drop';
   if (text.includes('lento')) return 'never';

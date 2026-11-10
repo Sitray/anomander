@@ -97,7 +97,24 @@ export interface ChatComputer {
   done: string[];
 }
 
-export type ChatRequest = ChatText | ChatReceipt | ChatButtonPress | ChatScreen | ChatComputer;
+/**
+ * A task for the servers the principal connected (DK-11). The daemon runs it: a call that needs
+ * their permission comes back as a reply with "Permitir" and "Detener" buttons. Only the app
+ * can send it.
+ */
+export interface ChatConnect {
+  type: 'connect';
+  id: string;
+  task: string;
+}
+
+export type ChatRequest =
+  | ChatText
+  | ChatReceipt
+  | ChatButtonPress
+  | ChatScreen
+  | ChatComputer
+  | ChatConnect;
 
 /** A button under a reply: it comes back as a `ChatButtonPress`, or opens `url`. */
 export type ChatButton = { label: string; data: string } | { label: string; url: string };

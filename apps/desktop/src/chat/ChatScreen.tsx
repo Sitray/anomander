@@ -65,8 +65,11 @@ export function ChatScreen(props: ChatScreenProps) {
     ...(computer === undefined ? {} : { computer }),
     onProblem: draft.warn,
   });
-  /** The next message is a task on the computer. */
-  const [control, setControl] = useState(false);
+  /** What the next message is: a plain one, a task on the computer, or one with connections. */
+  const [mode, setMode] = useState<'plain' | 'control' | 'connect'>('plain');
+  const control = mode === 'control';
+  const toggle = (wanted: 'control' | 'connect') =>
+    setMode((current) => (current === wanted ? 'plain' : wanted));
   const [dropping, setDropping] = useState(false);
   /** `dragenter` minus `dragleave`: both also fire for every child the pointer crosses. */
   const dragDepth = useRef(0);
@@ -98,7 +101,17 @@ export function ChatScreen(props: ChatScreenProps) {
       chat.task(typed);
       draft.clear();
       // One task at a time: the next message is a plain one again.
-      setControl(false);
+      setMode('plain');
+      return;
+    }
+    if (mode === 'connect') {
+      if (draft.attachments.length > 0) {
+        draft.warn(strings.chat.connectAlone);
+        return;
+      }
+      chat.connect(typed);
+      draft.clear();
+      setMode('plain');
       return;
     }
     // A capture always goes with a question: without words, the obvious one.
@@ -187,7 +200,8 @@ export function ChatScreen(props: ChatScreenProps) {
         {...(look === undefined ? {} : { onScreen: look })}
         {...(computer === undefined
           ? {}
-          : { control: { on: control, onToggle: () => setControl((on) => !on) } })}
+          : { control: { on: control, onToggle: () => toggle('control') } })}
+        connect={{ on: mode === 'connect', onToggle: () => toggle('connect') }}
         onRemove={draft.remove}
         onSubmit={submit}
       />

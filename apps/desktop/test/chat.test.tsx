@@ -1056,3 +1056,71 @@ describe('a task on the computer (DK-10)', () => {
     });
   });
 });
+
+describe('a task with connections (DK-11)', () => {
+  const task = 'Apunta en mis notas el hotel de Lisboa';
+  const mode = () => screen.getByRole('button', { name: strings.chat.connect });
+
+  it('sends the next message as a task with connections, and only that one', async () => {
+    const socket = openChat();
+    fireEvent.click(mode());
+    expect(mode().getAttribute('aria-pressed')).toBe('true');
+    expect(screen.getByText(strings.chat.connectMode)).toBeTruthy();
+
+    say(task);
+
+    expect(await sentRequest(socket)).toMatchObject({ type: 'connect', task });
+    expect(mode().getAttribute('aria-pressed')).toBe('false');
+    say('23 € cena');
+    expect(await sentRequest(socket, 2)).toMatchObject({ type: 'text', text: '23 € cena' });
+  });
+
+  it('answers a call that waits with its buttons, as any other question', async () => {
+    const socket = openChat();
+    fireEvent.click(mode());
+    say(task);
+    const request = await sentRequest(socket);
+    act(() =>
+      socket.receive(
+        replyTo(request.id, {
+          text: 'Quiero usar «create» de «notes» con:\n{\n  "title": "Hotel Sol"\n}',
+          buttons: [
+            { label: 'Permitir', data: 'connection:abc:allow' },
+            { label: 'Detener', data: 'connection:abc:refuse' },
+          ],
+        }),
+      ),
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Permitir' }));
+
+    expect(await sentRequest(socket, 2)).toMatchObject({
+      type: 'button',
+      data: 'connection:abc:allow',
+    });
+  });
+
+  it('sends a task that was not sent again as a task, never as a plain text', async () => {
+    const socket = openChat();
+    fireEvent.click(mode());
+    say(task);
+    const request = await sentRequest(socket);
+    act(() => socket.receive({ type: 'rejected', inReplyTo: request.id }));
+
+    fireEvent.click(screen.getByRole('button', { name: strings.chat.sendAgain }));
+
+    expect(await sentRequest(socket, 2)).toMatchObject({ type: 'connect', task });
+  });
+
+  it('goes without files', async () => {
+    const socket = openChat();
+    fireEvent.paste(composer(), { clipboardData: { files: [image('ticket.png')] } });
+    fireEvent.click(mode());
+    say(task);
+
+    await waitFor(() =>
+      expect(screen.getByRole('status').textContent).toBe(strings.chat.connectAlone),
+    );
+    expect(socket.requests).toEqual([]);
+  });
+});

@@ -1,5 +1,6 @@
 import {
   type ComputerRequest,
+  type ConnectRequest,
   MAX_COMPUTER_STEPS,
   type Notify,
   type ScreenQuestion,
@@ -16,9 +17,18 @@ import { createTelegramLogin, type TelegramLoginDeps } from './auth/telegram-log
 import { budgeted, createAiBudget } from './budget/ai-budget.ts';
 import { createReceiptQueue } from './budget/receipt-queue.ts';
 import type { Config } from './config.ts';
+import { loadConnectionsConfig } from './connections/config.ts';
+import type { Connection } from './connections/connection.ts';
+import { createConnections } from './connections/mcp-client.ts';
+import {
+  createConnectionTasks,
+  MAX_CONNECTION_CALLS,
+  type TaskOutcome,
+} from './connections/task.ts';
 import {
   buttonTurn,
   computerTurn,
+  connectionTurn,
   createRecentTurns,
   receiptTurn,
   recordingNotices,
@@ -66,6 +76,10 @@ import { createWeeklySummary } from './summary/weekly-summary.ts';
 // process (PRD §14.3). `main.ts` passes pi-ai's `models.complete`; the e2e test passes recorded
 // responses and the fake Telegram API.
 
+/** The data of the buttons under a call that waits for the principal (DK-11). */
+const CONNECTION_BUTTON = 'connection:';
+const CONNECTION_PRESS = /^connection:([^:]+):(allow|refuse)$/;
+
 export interface AnomanderDeps<M> {
   /** The processor call: pi-ai's `models.complete` (R-14 AC3). It must honour `signal`. */
   complete: Complete<M>;
@@ -88,6 +102,11 @@ export interface AnomanderDeps<M> {
   setupGaps?: () => Promise<readonly SetupGap[]>;
   /** Points the bot at another Bot API server, such as the fake one in tests. */
   telegramApiRoot?: string;
+  /**
+   * The servers connected now (DK-11). Without it they are the ones of `ANOMANDER_MCP_CONFIG`,
+   * connected when a task first needs them; tests pass their own.
+   */
+  connections?: () => Promise<readonly Connection[]>;
   logger?: TelegramLogger;
   now?: () => Date;
 }
@@ -238,6 +257,7 @@ export const startSetupGuide = (config: Config, deps: SetupGuideDeps): Anomander
       onButton: async () => guide,
       onScreen: async () => guide,
       onComputer: async () => guide,
+      onConnect: async () => guide,
     },
     logger,
   );
@@ -450,6 +470,72 @@ export const startAnomander = <M>(config: Config, deps: AnomanderDeps<M>): Anoma
     }
   };
 
+  // DK-11: a task with the servers the principal connected. The processor asks for calls and
+  // `connectionTasks` decides each one; a call that needs permission comes back with buttons.
+  const servers =
+    deps.connections === undefined
+      ? createConnections({
+          config: loadConnectionsConfig(config.mcpConfigPath, logger),
+          logger,
+        })
+      : undefined;
+  const connectionTasks = createConnectionTasks({
+    complete: ai,
+    model,
+    connections: deps.connections ?? (async () => (await servers?.get()) ?? []),
+    logger,
+  });
+  /** The task whose calls are being answered: its end is a recent turn. */
+  let connectionTask = '';
+  const connectionReply = (outcome: TaskOutcome): TelegramReply => {
+    switch (outcome.kind) {
+      case 'answer':
+        // R-16 AC3: how the task ended is a recent turn; what the tools answered is not.
+        turns.add(connectionTurn(connectionTask), outcome.text);
+        return { text: outcome.text };
+      case 'ask':
+        return {
+          text: outcome.text,
+          buttons: [
+            { label: strings.connectionAllow(), data: `${CONNECTION_BUTTON}${outcome.id}:allow` },
+            { label: strings.connectionRefuse(), data: `${CONNECTION_BUTTON}${outcome.id}:refuse` },
+          ],
+        };
+      case 'stopped':
+        return { text: strings.connectionStopped() };
+      case 'gone':
+        return { text: strings.connectionGone() };
+      case 'no_connections':
+        return { text: strings.connectionNone() };
+      case 'too_many_calls':
+        return { text: strings.connectionTooManyCalls(MAX_CONNECTION_CALLS) };
+      case 'budget_exhausted':
+        return { text: strings.textLimitReached() };
+      case 'provider_limit':
+        return { text: strings.providerLimitReached() };
+      case 'failed':
+        return { text: strings.connectionFailed() };
+    }
+  };
+  const runConnections = async (request: ConnectRequest): Promise<TelegramReply> => {
+    connectionTask = request.task;
+    return connectionReply(await connectionTasks.start(request.task));
+  };
+  /**
+   * The answer to a press on "Permitir" or "Detener"; `undefined` for any other button. Only
+   * the app shows those buttons, so only its presses answer one: `fromApp`.
+   */
+  const answerConnection = async (
+    data: string,
+    fromApp: boolean,
+  ): Promise<TelegramReply | undefined> => {
+    if (!data.startsWith(CONNECTION_BUTTON)) return undefined;
+    const pressed = CONNECTION_PRESS.exec(data);
+    if (pressed === null || !fromApp) return { text: strings.connectionGone() };
+    const [, id = '', answer] = pressed;
+    return connectionReply(await connectionTasks.answer(id, answer === 'allow'));
+  };
+
   // What every front door calls (DK-4 AC1). R-28: `/start`, and the guide while a provider is
   // not connected.
   const inTurn = oneTurnAtATime();
@@ -465,7 +551,8 @@ export const startAnomander = <M>(config: Config, deps: AnomanderDeps<M>): Anoma
     }),
     onButton: inTurn(async (press) => {
       const gaps = await setupGaps();
-      return gaps.length > 0 ? { text: setupGuide(gaps) } : recordedButton(press);
+      if (gaps.length > 0) return { text: setupGuide(gaps) };
+      return (await answerConnection(press.data, false)) ?? recordedButton(press);
     }),
     onScreen: inTurn(async (question) => {
       const gaps = await setupGaps();
@@ -474,6 +561,10 @@ export const startAnomander = <M>(config: Config, deps: AnomanderDeps<M>): Anoma
     onComputer: inTurn(async (request) => {
       const gaps = await setupGaps();
       return gaps.length > 0 ? { text: setupGuide(gaps) } : planStep(request);
+    }),
+    onConnect: inTurn(async (request) => {
+      const gaps = await setupGaps();
+      return gaps.length > 0 ? { text: setupGuide(gaps) } : runConnections(request);
     }),
   };
 
@@ -541,7 +632,19 @@ export const startAnomander = <M>(config: Config, deps: AnomanderDeps<M>): Anoma
           logger,
         });
 
-  const localChannel = startChannel(config, chat, logger, now);
+  const localChannel = startChannel(
+    config,
+    {
+      ...chat,
+      onButton: inTurn(async (press) => {
+        const gaps = await setupGaps();
+        if (gaps.length > 0) return { text: setupGuide(gaps) };
+        return (await answerConnection(press.data, true)) ?? recordedButton(press);
+      }),
+    },
+    logger,
+    now,
+  );
 
   const { started, ended } = polling(bot);
   started.then(
@@ -560,6 +663,7 @@ export const startAnomander = <M>(config: Config, deps: AnomanderDeps<M>): Anoma
     stop: async () => {
       login?.stop();
       await localChannel?.stop();
+      await servers?.close();
       await readApi?.stop();
       await bot.stop();
       await scheduler.stop();

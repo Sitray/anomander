@@ -112,6 +112,22 @@ is framework-free, so it is tested against a fake `WebSocket` (`test/fake-web-so
   action again (`src-tauri/src/computer.rs`), hides the app so the input goes to the app the
   principal was using, and answers with the next capture. It needs macOS's Accessibility
   permission besides Screen Recording.
+- **A task with connections** (DK-11) starts from the composer's plug button and goes as a
+  `connect` request. The daemon runs it; a call that needs permission arrives as a reply with
+  "Permitir" and "Detener" buttons, pressed like any other. The servers are the ones of
+  `mcp.json` in the data folder, which the principal writes:
+
+  ```json
+  {
+    "mcpServers": {
+      "notes": { "command": "npx", "args": ["-y", "some-notes-mcp"], "readOnly": ["search"] },
+      "remote": { "url": "https://example.com/mcp", "headers": { "Authorization": "Bearer …" } }
+    }
+  }
+  ```
+
+  Only the tools listed in `readOnly` run without asking. The file may hold tokens and is not in
+  the Keychain yet. The daemon reads it when it starts.
 - **Link buttons** (`{label, url}`) are named, not offered: this WebView cannot open links, and
   `/login` stays in Telegram (DK-4 AC7).
 - **Secrets** typed in the setup screen stay in uncontrolled fields and a ref, never in React

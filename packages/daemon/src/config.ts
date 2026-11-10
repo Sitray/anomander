@@ -49,6 +49,11 @@ export interface Config {
   localToken: string | undefined;
   /** `ANOMANDER_LOCAL_PORT`: the port of the local channel, always on `127.0.0.1` (DK-3 AC1). */
   localPort: number;
+  /**
+   * `ANOMANDER_MCP_CONFIG`: the file with the servers the principal connected (DK-11). The
+   * desktop app sets it; while unset there are no connections.
+   */
+  mcpConfigPath: string | undefined;
 }
 
 const modelId = z.string().transform((value, ctx) => {
@@ -118,6 +123,7 @@ const envSchema = z.object({
     .default('4312')
     .transform(Number)
     .pipe(z.int().min(1, NOT_A_PORT).max(65535, NOT_A_PORT)),
+  ANOMANDER_MCP_CONFIG: z.string().min(1).optional(),
 });
 
 type EnvKey = keyof typeof envSchema.shape;
@@ -175,5 +181,6 @@ export const loadConfig = (env: Record<string, string | undefined>): Config => {
     apiPort: values.ANOMANDER_API_PORT,
     localToken: values.ANOMANDER_LOCAL_TOKEN,
     localPort: values.ANOMANDER_LOCAL_PORT,
+    mcpConfigPath: values.ANOMANDER_MCP_CONFIG,
   };
 };

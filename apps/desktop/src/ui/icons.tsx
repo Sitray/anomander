@@ -65,6 +65,12 @@ export const PointerIcon = () => (
   </Icon>
 );
 
+export const PlugIcon = () => (
+  <Icon>
+    <path d="M6 2.25v3M10 2.25v3M4.25 5.25h7.5v2.5a3.75 3.75 0 0 1-7.5 0zM8 11.5v2.25" />
+  </Icon>
+);
+
 export const ScreenIcon = () => (
   <Icon>
     <rect x="2" y="3" width="12" height="8" rx="1.25" />

@@ -6,6 +6,7 @@ import {
   type ChatEvent,
   type ChatRequest,
   type ComputerRequest,
+  type ConnectRequest,
   LOCAL_CHANNEL_PROTOCOL,
   MAX_COMPUTER_STEPS,
   type PrincipalText,
@@ -33,6 +34,8 @@ export interface ChatHandlers {
   onScreen: (question: ScreenQuestion) => Promise<TelegramReply | null>;
   /** DK-10: proposes the next step of a task on the computer; it never performs one. */
   onComputer: (request: ComputerRequest) => Promise<TelegramReply | null>;
+  /** DK-11: runs a task with the servers the principal connected. */
+  onConnect: (request: ConnectRequest) => Promise<TelegramReply | null>;
 }
 
 export interface LocalChannelDeps {
@@ -102,6 +105,11 @@ const requestSchema = z.discriminatedUnion('type', [
     task: z.string().trim().min(1).max(4096),
     image: z.strictObject({ mimeType: z.string().startsWith('image/'), data: z.base64().min(1) }),
     done: z.array(z.string().min(1).max(1024)).max(MAX_COMPUTER_STEPS),
+  }),
+  z.strictObject({
+    type: z.literal('connect'),
+    id,
+    task: z.string().trim().min(1).max(4096),
   }),
 ]);
 
@@ -178,6 +186,8 @@ export const startLocalChannel = (deps: LocalChannelDeps): LocalChannel => {
           channelRef,
           receivedAt: at,
         });
+      case 'connect':
+        return handlers.onConnect({ task: request.task, channelRef, receivedAt: at });
       case 'computer':
         if (decodedBytes(request.image.data) > MAX_FILE_BYTES) {
           return Promise.resolve({ text: strings.imageTooLarge() });

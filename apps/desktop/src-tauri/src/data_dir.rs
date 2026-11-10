@@ -36,6 +36,7 @@ impl DataDir {
             db: self.root.join("anomander.db"),
             inbox: self.root.join("inbox"),
             auth: self.root.join("auth.json"),
+            connections: self.root.join("mcp.json"),
         }
     }
 

@@ -23,6 +23,8 @@ export interface OwnMessage {
   requestId: string | null;
   /** A task on the computer (DK-10): sent with a capture of the screen, never as a plain text. */
   task: boolean;
+  /** A task with connections (DK-11): sent again as one, never as a plain text. */
+  connect: boolean;
 }
 
 /**
@@ -65,7 +67,14 @@ export interface Conversation {
 export type ConversationAction =
   | { type: 'connection'; state: ConnectionState }
   /** The principal sent a message; it has not left yet. */
-  | { type: 'said'; id: string; text: string; attachments: Attachment[]; task?: boolean }
+  | {
+      type: 'said';
+      id: string;
+      text: string;
+      attachments: Attachment[];
+      task?: boolean;
+      connect?: boolean;
+    }
   /** The principal asked to send a message that was not sent again. */
   | { type: 'retried'; id: string }
   /** A message left through the socket as `requestId`, or could not leave at all (`null`). */
@@ -143,6 +152,7 @@ export const reduceConversation = (
             delivery: 'pending',
             requestId: null,
             task: action.task ?? false,
+            connect: action.connect ?? false,
           },
         ],
       };

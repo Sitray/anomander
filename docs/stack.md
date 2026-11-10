@@ -88,5 +88,5 @@ Receipts are read by default with an external vision model, because it reads cro
 
 **Where pi and Engram fit:**
 
-- **pi** is not the core. It is the processor: it receives context and returns inferences and proposals. It is given no tools (PRD R-14 AC3); every proposal it returns goes through the authority check, in code, before anything runs.
+- **pi** is not the core. It is the processor: it receives context and returns inferences and proposals. It never executes anything (PRD R-14 AC3): it is given no tools, except the ones of the servers the principal connected (desktop PRD DK-11), whose calls it can only ask for. Every proposal and every call it asks for goes through the authority check, in code, before anything runs.
 - **Engram** is not ANOMANDER's memory. The SQLite ledger is the only memory, with full-text search through SQLite FTS5 in the same file. If ANOMANDER ever reads what the principal's coding agents stored in Engram, it does so read-only, and each item enters the ledger as an assertion with source `engram` and the mode it deserves (usually inferred). ANOMANDER never writes to Engram, so personal data such as expenses never ends up in coding-agent memory.
