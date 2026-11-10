@@ -72,7 +72,7 @@ const requestSchema = z.discriminatedUnion('type', [
     id,
     // R-3 AC4: as many images as a Telegram album holds.
     images: z
-      .array(z.strictObject({ mimeType: z.string().min(1), data: z.string() }))
+      .array(z.strictObject({ mimeType: z.string().min(1), data: z.base64().min(1) }))
       .min(1)
       .max(10),
     caption: z.string().nullable(),
@@ -217,6 +217,10 @@ export const startLocalChannel = (deps: LocalChannelDeps): LocalChannel => {
 
   // DK-3 AC2: anything that is not the app's WebSocket is closed with no data, plain HTTP too.
   const server = createServer((request) => request.socket.destroy());
+  // Node answers these by itself (400, 431, 100 Continue) unless the socket is closed first.
+  server.on('clientError', (_error, socket) => socket.destroy());
+  server.on('checkContinue', (request) => request.socket.destroy());
+  server.on('checkExpectation', (request) => request.socket.destroy());
   server.on('upgrade', (request, socket, head) => {
     if (!authorized(request.headers['sec-websocket-protocol'])) {
       logger.warn('local channel closed a connection that did not present the token');

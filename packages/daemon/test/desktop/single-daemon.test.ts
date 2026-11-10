@@ -97,6 +97,17 @@ describe('a single daemon', () => {
     expect(ledger()).toEqual(before);
   });
 
+  it('DK-2 AC1: a daemon that fails to start frees the database', () => {
+    // A store whose migrations cannot be applied.
+    acquireDaemonLock(dbPath()).release();
+    const db = new Database(dbPath());
+    db.exec('CREATE TABLE schema_migrations (wrong TEXT)');
+    db.close();
+
+    expect(() => startAnomander(config(), deps())).toThrow('no such column: version');
+    acquireDaemonLock(dbPath()).release();
+  });
+
   it('DK-2 AC1: a stopped daemon frees the database for the next one', async () => {
     const first = await start();
     await first.stop();
