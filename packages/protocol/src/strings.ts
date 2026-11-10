@@ -159,6 +159,22 @@ export const strings = {
   receiptKept: (lastDay: string) =>
     `Vale, lo guardo hasta poder leerlo, como mucho hasta el ${formatDate(lastDay)}.`,
   receiptNotKept: () => 'Vale, si no consigo leerlo antes, lo borro en una hora.',
+  /** DK-10 AC3: what an action is, said by code. `target` is the processor's claim, quoted. */
+  computerClick: (target: string, double: boolean) =>
+    `Quiero hacer ${double ? 'doble clic' : 'clic'} en «${target}».`,
+  /** The exact text that would be typed. */
+  computerType: (text: string) => `Quiero escribir: «${text}»`,
+  /** `keys` as the keyboard shows them, such as `⌘C`. */
+  computerKey: (keys: string) => `Quiero pulsar ${keys}.`,
+  computerScroll: (direction: 'up' | 'down') =>
+    `Quiero desplazar la pantalla hacia ${direction === 'up' ? 'arriba' : 'abajo'}.`,
+  computerTooManySteps: (steps: number) =>
+    `He llegado al máximo de ${steps} pasos seguidos y paro aquí. Si quieres que siga, pídemelo otra vez.`,
+  computerFailed: () => 'No he sabido qué hacer en tu ordenador. ¿Me lo pides de otra forma?',
+  /** The AI provider answered 429: its own quota or rate limit, not ANOMANDER's daily cap. */
+  providerLimitReached: () =>
+    'Tu proveedor de IA no acepta más peticiones por ahora: has agotado su cuota. Prueba más tarde o revisa tu plan.',
+  screenNotSeen: () => 'No he podido ver tu pantalla. ¿Me lo vuelves a pedir en un rato?',
   textLimitReached: () =>
     'He llegado al límite diario de IA y hoy no puedo procesar más mensajes. ¿Me lo vuelves a enviar mañana?',
   /** S-27: the header, then one line per memory with how it was learnt. */

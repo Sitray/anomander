@@ -5,9 +5,12 @@ import {
   type ButtonPress,
   type ChatEvent,
   type ChatRequest,
+  type ComputerRequest,
   LOCAL_CHANNEL_PROTOCOL,
+  MAX_COMPUTER_STEPS,
   type PrincipalText,
   type ReceiptHandler,
+  type ScreenQuestion,
   strings,
 } from '@anomander/protocol';
 import type { TelegramReply } from '@anomander/telegram';
@@ -26,6 +29,10 @@ export interface ChatHandlers {
   onText: (message: PrincipalText) => Promise<TelegramReply | null>;
   onReceipt: ReceiptHandler;
   onButton: (press: ButtonPress) => Promise<TelegramReply | null>;
+  /** Only the app asks about the screen: Telegram has no capture to send. */
+  onScreen: (question: ScreenQuestion) => Promise<TelegramReply | null>;
+  /** DK-10: proposes the next step of a task on the computer; it never performs one. */
+  onComputer: (request: ComputerRequest) => Promise<TelegramReply | null>;
 }
 
 export interface LocalChannelDeps {
@@ -82,6 +89,19 @@ const requestSchema = z.discriminatedUnion('type', [
     id,
     data: z.string().min(1),
     channelRef: z.string().min(1),
+  }),
+  z.strictObject({
+    type: z.literal('screen'),
+    id,
+    text: z.string().trim().min(1).max(4096),
+    image: z.strictObject({ mimeType: z.string().startsWith('image/'), data: z.base64().min(1) }),
+  }),
+  z.strictObject({
+    type: z.literal('computer'),
+    id,
+    task: z.string().trim().min(1).max(4096),
+    image: z.strictObject({ mimeType: z.string().startsWith('image/'), data: z.base64().min(1) }),
+    done: z.array(z.string().min(1).max(1024)).max(MAX_COMPUTER_STEPS),
   }),
 ]);
 
@@ -145,6 +165,33 @@ export const startLocalChannel = (deps: LocalChannelDeps): LocalChannel => {
           channelRef: request.channelRef,
           pressedAt: at,
         });
+      case 'screen':
+        if (decodedBytes(request.image.data) > MAX_FILE_BYTES) {
+          return Promise.resolve({ text: strings.imageTooLarge() });
+        }
+        return handlers.onScreen({
+          text: request.text,
+          image: {
+            mimeType: request.image.mimeType,
+            data: new Uint8Array(Buffer.from(request.image.data, 'base64')),
+          },
+          channelRef,
+          receivedAt: at,
+        });
+      case 'computer':
+        if (decodedBytes(request.image.data) > MAX_FILE_BYTES) {
+          return Promise.resolve({ text: strings.imageTooLarge() });
+        }
+        return handlers.onComputer({
+          task: request.task,
+          image: {
+            mimeType: request.image.mimeType,
+            data: new Uint8Array(Buffer.from(request.image.data, 'base64')),
+          },
+          done: request.done,
+          channelRef,
+          receivedAt: at,
+        });
       case 'receipt': {
         const refusal = unsupported(request);
         if (refusal !== undefined) return Promise.resolve({ text: refusal });
@@ -195,6 +242,10 @@ export const startLocalChannel = (deps: LocalChannelDeps): LocalChannel => {
       text: reply.text,
       buttons: [...(reply.buttons ?? [])],
       sentAt,
+      // DK-10 AC1: an action always says whether it must be allowed; asking is the default.
+      ...(reply.computer === undefined
+        ? {}
+        : { computer: reply.computer, confirm: reply.confirm !== false }),
     });
     // R-9 AC2: only a reply that left through the socket was delivered.
     reply.onDelivered?.({ channelRef, deliveredAt: sentAt });

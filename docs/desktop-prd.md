@@ -1,8 +1,9 @@
 # Desktop app (M6): draft PRD
 
-Status: approved by the principal (2026-11-10) and being built. Daemon side done: DK-2, DK-3 and
-the daemon half of DK-4 (§8). Its requirements move into `PRD.md` under milestone M6 once the app
-itself is built, and this file is then removed.
+Status: approved by the principal (2026-11-10) and built: the daemon side (§8) and the app in
+`apps/desktop` (§9). Still open: the subscription login in the Keychain (DK-5 AC1) and a first
+run against a real bot. Its requirements move into `PRD.md` under milestone M6 once the
+principal has tried the app, and this file is then removed.
 
 ## 1. Problem
 
@@ -21,7 +22,10 @@ and keep its secrets in the operating system instead of a text file.
 
 ## 3. Non-goals (v1)
 
-- Voice and computer control (gentle-dot's `voice` and `computer` modules). Later matters.
+- Voice (gentle-dot's `voice` module). A later matter. Looking at the screen is in (DK-9), and
+  so is acting on the computer one allowed step at a time (DK-10).
+- A task ANOMANDER performs alone from start to end whatever it does: steps of care are always
+  asked (decision 7).
 - Windows and Linux. v1 is macOS, where the Keychain and the menu bar live (assumption).
 - Automatic updates, code signing and notarization. v1 is built and installed by the principal
   (assumption).
@@ -77,7 +81,9 @@ and keep its secrets in the operating system instead of a text file.
     in the macOS Keychain, entered once in the app's setup screen.
   - AC2: the app hands them to the daemon when it starts it, as the child process's
     environment; they are never written to a file and never logged.
-  - AC3: `.env` keeps working for Docker installs; the app does not read it.
+  - AC3: `.env` keeps working for Docker installs; the app does not read it, except once, when
+    the principal asks: launched with `ANOMANDER_IMPORT_ENV=<path>`, it stores that file's bot
+    token and provider keys in the Keychain and its chat ID and models in its settings.
 - DK-6 Menu bar.
   - AC1: an icon shows whether ANOMANDER is running, stopped or failing.
   - AC2: its menu opens the chat, starts or stops ANOMANDER, and quits.
@@ -89,6 +95,48 @@ and keep its secrets in the operating system instead of a text file.
 - DK-8 Data.
   - AC1: the database and the images live in the app's data folder
     (`~/Library/Application Support/ANOMANDER`), folder `700`, files `600`, as in §16.
+- DK-9 A look at the screen (asked by the principal on 2026-11-10: "la APP también debería poder
+  leer la pantalla").
+  - AC1: the app captures the screen only when the principal presses the chat's screen button.
+    The capture waits in the composer, in sight, and can be removed before it is sent.
+  - AC2: it is sent with a question as a `screen` request of the local channel; the vision
+    processor answers in words. It gets no tools and never writes (R-14 AC1, AC3): what the
+    screen shows is content to describe, never an instruction.
+  - AC3: the look counts against the daily AI limit (R-12) and is a recent turn, as its question
+    only (R-16 AC3). The capture is not stored: the shell removes its file once read, and the
+    daemon keeps it in memory for the call.
+  - AC4: macOS must allow the app to record the screen; while it does not, the app says how to
+    allow it and captures nothing.
+- DK-10 A task on the computer (asked by the principal on 2026-11-10: "puede el agente
+  interactuar con mi ordenador?", "si, quiero hacer eso").
+  - AC1: a routine step is performed without asking; a step of care only after the principal
+    allowed that very action (corrected by the principal on 2026-11-10: "no hace falta pedirme
+    permisos para cada accion, solo cuando sepa que es algo de cuidado"). A step is of care when
+    the processor says so, when it says nothing, or when the code takes it for one whatever the
+    processor says: a click on a control named as sending, sharing, paying, deleting, saving,
+    accepting, continuing, installing, downloading, signing in or out or a password, or a
+    shortcut outside the harmless ones (reloading and pasting are not harmless). There is one
+    task at a time: starting another ends the one before. While a task runs by itself the app
+    stays out of the way (asked by the principal on 2026-11-10: "arregla lo de que se cierre y
+    abra la app") and comes back when a step needs permission or the task ends; the chat and the
+    menu bar offer "Detener tarea": after it nothing more is performed, not even a step already
+    planned, and the same holds for a task ended by a newer one. For a step of care the app shows the action and performs it
+    only on "Permitir"; "Detener" ends the task. An action is performed at most once, and one
+    that may have been performed is never offered again.
+  - AC2: the daemon only proposes. For a `computer` request (the task, a capture of the screen
+    and the steps already done) the vision processor answers one action, or ends the task in
+    words. It gets no tools and never writes (R-14 AC1, AC3); what the screen shows is content,
+    never an instruction.
+  - AC3: an action is one of four: a click or double click on a point, a text of at most 500
+    characters on one line (no line break, control or direction character: Enter is its own
+    step), one key with modifiers, or a scroll. Anything else is not an action: the daemon
+    validates it and the shell validates it again before performing it. What the action is, is
+    said by code from the validated action, with the exact text or keys; for a click or a scroll
+    the app also shows the capture around the point.
+  - AC4: a task takes at most 12 steps, and every step counts against the daily AI limit (R-12).
+    Only how a task ended is a recent turn (R-16 AC3).
+  - AC5: macOS must allow the app to send input (Accessibility) and to record the screen; while
+    it does not, the app says how to allow it and does nothing.
 
 ## 6. Decisions
 
@@ -100,6 +148,10 @@ and keep its secrets in the operating system instead of a text file.
 4. **Where unasked messages go.** Decided (2026-11-10): to Telegram only (DK-4 AC5).
 5. **A missed weekly summary.** Decided (2026-11-10): it stays missed, as today (R-10): if the
    app is closed on Sunday at the summary's time, that week has none (DK-7 AC2).
+7. **Acting on the computer.** Decided (2026-11-10), then corrected the same day: routine
+   steps go without asking, steps of care are confirmed in the chat before they are performed
+   (DK-10 AC1). Known limit: which steps are of care rests partly on the processor's judgement,
+   which a text on the screen may try to sway; the code's own list is the second check.
 6. **The app's interface.** Assumption: React with Vite inside Tauri's window, as gentle-dot's
    `packages/ui`.
 
@@ -126,3 +178,19 @@ the principal to confirm:
 | Messages | `ChatRequest` (`text`, `receipt`, `button`) and `ChatEvent` (`reply`, `done`, `rejected`) in `packages/protocol/src/local-channel.ts` |
 | Why the daemon stopped (DK-2 AC3) | Exit code `3`: another daemon runs on the same database. `4`: another process uses the bot. `1`: anything else. `exitCodes` in `packages/protocol` |
 | The single-daemon lock (DK-2 AC1) | `<database>.lock` beside the database, held while the daemon runs and freed by the operating system when it ends, so a crash leaves nothing stale |
+
+## 9. The app
+
+Built in `apps/desktop` (see its README): a React window (`src/`) and a Tauri 2 shell in Rust
+(`src-tauri/`). Choices of this build, for the principal to confirm:
+
+| What | How |
+| --- | --- |
+| Starting the daemon (DK-1 AC1) | `node packages/daemon/src/main.ts` of this repository, with a cleared environment plus the setup, the data paths and this launch's token and port |
+| No daemon left behind (DK-1 AC1) | SIGTERM, then SIGKILL after 5 seconds. The daemon also stops when its stdin closes (`ANOMANDER_STOP_WITH_PARENT=1`), so a crashed or killed app leaves none |
+| Restarting (DK-1 AC2) | One second after an exit; exit codes 3 and 4 are never retried |
+| Secrets (DK-5) | Keychain items of service `ANOMANDER`, named as the daemon's variables. The rest in `settings.json` in the data folder, mode `600` |
+| The subscription login (DK-5 AC1) | Not in the Keychain yet: pi-ai keeps it in `auth.json` in the data folder, mode `600` |
+| The ledger | A new one in the app's data folder. A Docker install's ledger stays in its volume: nothing is moved or copied |
+| The window's strings | Spanish, all in `apps/desktop/src/strings.ts`, not yet in `PRD.md` §12 |
+

@@ -19,8 +19,10 @@ import Database from 'better-sqlite3';
 import { afterEach, beforeEach, describe, expect, it, type Mock, vi } from 'vitest';
 import { type Anomander, startAnomander, startSetupGuide } from '../../src/app.ts';
 import { loadConfig } from '../../src/config.ts';
+import { COMPUTER_PLANNER_PROMPT } from '../../src/processor/computer-planner.ts';
 import { RECEIPT_READER_PROMPT } from '../../src/processor/receipt-reader.ts';
 import { REPLY_PHRASER_PROMPT } from '../../src/processor/reply-phraser.ts';
+import { SCREEN_READER_PROMPT } from '../../src/processor/screen-reader.ts';
 
 // DK-3 and DK-4 (docs/desktop-prd.md): a real WebSocket client, as the desktop app's window is,
 // against the local channel of a started daemon, with the fake Telegram API, a SQLite file and
@@ -32,6 +34,9 @@ const recorded = (path: string): AssistantMessage =>
   JSON.parse(readFileSync(resolve(FIXTURES, `${path}.json`), 'utf8'));
 const PHRASED = '¡Hecho! He apuntado 23,00 € de la cena en restaurantes.';
 const S19 = 'Esa pregunta ya no está abierta.';
+const SEEN = 'Tienes abierto un correo de Marta sobre la cena del viernes.';
+const CLICK = { kind: 'click', x: 512, y: 80, double: false, target: 'Enviar' };
+const NOT_SEEN = 'No he podido ver tu pantalla. ¿Me lo vuelves a pedir en un rato?';
 
 let scratch: string;
 let api: FakeTelegramApi;
@@ -39,6 +44,14 @@ let anomander: Anomander | undefined;
 let sockets: WebSocket[];
 /** The user turns the text interpreter received, parsed. */
 let interpreted: { recent: unknown; message: string }[];
+/** The contexts the computer planner received. */
+let plans: Context[];
+/** What the computer planner answers, as the text of its response. */
+let planned: () => Promise<string>;
+/** The contexts the screen reader received. */
+let screens: Context[];
+/** What the screen reader answers; a test replaces it to make the call fail. */
+let seen: () => Promise<string>;
 type Log = (message: string, fields?: Record<string, unknown>) => void;
 let logger: { info: Mock<Log>; warn: Mock<Log>; error: Mock<Log> };
 
@@ -47,6 +60,14 @@ const complete = async (_model: string, context: Context): Promise<AssistantMess
     return recorded('receipt-reader/lines-mismatch');
   }
   const reply = recorded('text-interpreter/expense-23-space-euro');
+  if (context.systemPrompt === COMPUTER_PLANNER_PROMPT) {
+    plans.push(context);
+    return { ...reply, content: [{ type: 'text', text: await planned() }] };
+  }
+  if (context.systemPrompt === SCREEN_READER_PROMPT) {
+    screens.push(context);
+    return { ...reply, content: [{ type: 'text', text: await seen() }] };
+  }
   if (context.systemPrompt === REPLY_PHRASER_PROMPT) {
     return { ...reply, content: [{ type: 'text', text: PHRASED }] };
   }
@@ -179,6 +200,10 @@ beforeEach(async () => {
   api = await startFakeTelegramApi();
   sockets = [];
   interpreted = [];
+  screens = [];
+  plans = [];
+  planned = async () => JSON.stringify(CLICK);
+  seen = async () => SEEN;
   logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn() };
 });
 
@@ -396,5 +421,385 @@ describe('the chat over the local channel', () => {
 
     const sent = await api.waitForSent(1);
     expect(reply(await chat.ask({ type: 'text', text: 'hola' })).text).toBe(sent[0]?.text);
+  });
+});
+
+describe('a question about the screen', () => {
+  const question = '¿De quién es este correo?';
+
+  it('answers what the vision model sees in the capture, without tools and without storing anything', async () => {
+    const chat = await client(await start());
+    const image = png();
+
+    const answer = reply(await chat.ask({ type: 'screen', text: question, image }));
+
+    expect(answer.text).toBe(SEEN);
+    expect(answer.buttons).toEqual([]);
+    expect(screens).toHaveLength(1);
+    const [context] = screens;
+    expect(context).not.toHaveProperty('tools');
+    expect(context?.messages).toHaveLength(1);
+    expect(context?.messages[0]?.content).toEqual([
+      { type: 'text', text: question },
+      { type: 'image', mimeType: 'image/png', data: image.data },
+    ]);
+    // Looking is not recording: no expense, and the capture is not kept.
+    expect(query('SELECT id FROM expenses')).toEqual([]);
+    expect(api.sent).toEqual([]);
+  });
+
+  it('is a recent turn, so the next message can refer to it (R-16 AC3)', async () => {
+    const chat = await client(await start());
+    await chat.ask({ type: 'screen', text: question, image: png() });
+
+    await chat.ask({ type: 'text', text: '23 € cena' });
+
+    expect(interpreted.at(-1)?.recent).toEqual([
+      { principal: `[captura de pantalla] ${question}`, reply: SEEN },
+    ]);
+  });
+
+  it('says it could not look when the vision model fails or answers nothing', async () => {
+    const chat = await client(await start());
+
+    seen = async () => {
+      throw new Error('the provider is down');
+    };
+    expect(reply(await chat.ask({ type: 'screen', text: question, image: png() })).text).toBe(
+      NOT_SEEN,
+    );
+
+    seen = async () => '  ';
+    expect(reply(await chat.ask({ type: 'screen', text: question, image: png() })).text).toBe(
+      NOT_SEEN,
+    );
+  });
+
+  it('counts against the daily AI limit (R-12)', async () => {
+    const chat = await client(
+      await start({ ANOMANDER_LOCAL_TOKEN: TOKEN, ANOMANDER_DAILY_AI_CALL_LIMIT: '1' }),
+    );
+
+    expect(reply(await chat.ask({ type: 'screen', text: question, image: png() })).text).toBe(SEEN);
+    expect(reply(await chat.ask({ type: 'screen', text: question, image: png() })).text).toBe(
+      'He llegado al límite diario de IA y hoy no puedo procesar más mensajes. ¿Me lo vuelves a enviar mañana?',
+    );
+    expect(screens).toHaveLength(1);
+  });
+
+  it('rejects a capture that is not an image, or a question without words', async () => {
+    const chat = await client(await start());
+
+    const notImage = { mimeType: 'application/pdf', data: png().data };
+    expect((await chat.ask({ type: 'screen', text: question, image: notImage })).type).toBe(
+      'rejected',
+    );
+    expect((await chat.ask({ type: 'screen', text: '', image: png() })).type).toBe('rejected');
+    expect(screens).toEqual([]);
+  });
+
+  it('answers with the setup guide while no model is usable (R-28)', async () => {
+    const guide = startSetupGuide(
+      { ...config({ ANOMANDER_LOCAL_TOKEN: TOKEN }), localPort: 0 },
+      { gaps: [{ kind: 'model_unset' }], telegramApiRoot: api.apiRoot, logger },
+    );
+    anomander = guide;
+    await guide.started;
+    const chat = await client(guide);
+
+    const sent = await api.waitForSent(1);
+    expect(reply(await chat.ask({ type: 'screen', text: question, image: png() })).text).toBe(
+      sent[0]?.text,
+    );
+  });
+});
+
+describe('a task on the computer (DK-10)', () => {
+  const task = 'Envía el correo que tengo abierto';
+  const ask = (chat: Awaited<ReturnType<typeof client>>, done: string[] = []) =>
+    chat.ask({ type: 'computer', task, image: png(), done });
+
+  it('AC2: proposes one action from the capture, without tools, and does nothing itself', async () => {
+    const chat = await client(await start());
+    const image = png();
+
+    const answer = reply(await chat.ask({ type: 'computer', task, image, done: ['Paso uno'] }));
+
+    expect(answer.text).toBe('Quiero hacer clic en «Enviar».');
+    expect(answer.computer).toEqual(CLICK);
+    expect(plans).toHaveLength(1);
+    const [context] = plans;
+    expect(context).not.toHaveProperty('tools');
+    expect(context?.messages).toHaveLength(1);
+    expect(context?.messages[0]?.content).toEqual([
+      { type: 'text', text: JSON.stringify({ task, done: ['Paso uno'] }) },
+      { type: 'image', mimeType: 'image/png', data: image.data },
+    ]);
+    expect(query('SELECT id FROM expenses')).toEqual([]);
+    expect(api.sent).toEqual([]);
+  });
+
+  it('AC3: says in code what each action is, with the exact text or keys', async () => {
+    const chat = await client(await start());
+    const proposes = async (action: Record<string, unknown>) => {
+      planned = async () => JSON.stringify(action);
+      return reply(await ask(chat));
+    };
+
+    const double = await proposes({ ...CLICK, double: true });
+    expect(double.text).toBe('Quiero hacer doble clic en «Enviar».');
+
+    const typing = await proposes({ kind: 'type', text: 'Hola, Marta:' });
+    expect(typing.text).toBe('Quiero escribir: «Hola, Marta:»');
+    expect(typing.computer).toEqual({ kind: 'type', text: 'Hola, Marta:' });
+
+    const keys = await proposes({ kind: 'key', key: 'c', modifiers: ['cmd', 'shift'] });
+    expect(keys.text).toBe('Quiero pulsar ⇧⌘C.');
+    expect((await proposes({ kind: 'key', key: 'enter', modifiers: [] })).text).toBe(
+      'Quiero pulsar Intro.',
+    );
+
+    const scroll = await proposes({ kind: 'scroll', x: 500, y: 500, direction: 'down' });
+    expect(scroll.text).toBe('Quiero desplazar la pantalla hacia abajo.');
+    expect(scroll.computer).toEqual({ kind: 'scroll', x: 500, y: 500, direction: 'down' });
+  });
+
+  it('AC1: a routine step needs no permission; a step of care always does', async () => {
+    const chat = await client(await start());
+    const confirms = async (action: Record<string, unknown>) => {
+      planned = async () => JSON.stringify(action);
+      const answer = reply(await ask(chat));
+      // What is performed never carries the processor's own judgement.
+      expect(answer.computer).not.toHaveProperty('sensitive');
+      return answer.confirm;
+    };
+    const click = (target: string, sensitive = false) => ({ ...CLICK, target, sensitive });
+    const key = (name: string, modifiers: string[] = []) => ({
+      kind: 'key',
+      key: name,
+      modifiers,
+      sensitive: false,
+    });
+
+    // Routine, by the processor's word and by the code's own look.
+    expect(await confirms(click('Barra de direcciones'))).toBe(false);
+    expect(await confirms({ kind: 'type', text: 'tiempo en Madrid', sensitive: false })).toBe(
+      false,
+    );
+    expect(await confirms(key('enter'))).toBe(false);
+    expect(await confirms(key('l', ['cmd']))).toBe(false);
+    expect(await confirms(key('space', ['cmd']))).toBe(false);
+    expect(
+      await confirms({ kind: 'scroll', x: 500, y: 500, direction: 'down', sensitive: false }),
+    ).toBe(false);
+
+    // The processor says it is of care.
+    expect(await confirms(click('Barra de direcciones', true))).toBe(true);
+    // The processor did not say: asking is the default.
+    expect(await confirms({ ...CLICK, target: 'Barra de direcciones' })).toBe(true);
+
+    // The code asks whatever the processor says: what the control is called...
+    for (const target of [
+      'Enviar',
+      'Botón ENVIAR mensaje',
+      'Pagar ahora',
+      'Comprar',
+      'Eliminar',
+      'Borrar todo',
+      'Aceptar',
+      'Confirmar pedido',
+      'Instalar',
+      'Publicar',
+      'Send',
+      'Delete',
+      'Buy now',
+      'Vaciar papelera',
+      'Cerrar sesión',
+      'Contraseña',
+      'Guardar',
+      'No guardar',
+      'Submit',
+      'OK',
+      'Sí',
+      'Continuar',
+      'Responder',
+      'Reenviar',
+      'Compartir',
+      'Finalizar compra',
+      'Checkout',
+      'Trash',
+      'Quitar',
+      'Salir de Chrome',
+      'Aplicar',
+      'Estoy de acuerdo',
+      'Donar',
+      'Reservar',
+      'Firmar',
+      'Bizum',
+      'Descargar',
+      'Ejecutar',
+      'Reemplazar',
+      'Darse de baja',
+      'Entrar',
+      'Registrarse',
+      'Tarjeta',
+      'Retirar',
+      'Confiar',
+    ]) {
+      expect(await confirms(click(target)), target).toBe(true);
+    }
+    // ...and a shortcut that is not one of the harmless ones.
+    expect(await confirms(key('q', ['cmd']))).toBe(true);
+    expect(await confirms(key('w', ['cmd']))).toBe(true);
+    expect(await confirms(key('enter', ['cmd']))).toBe(true);
+    expect(await confirms(key('backspace', ['cmd']))).toBe(true);
+    expect(await confirms(key('c', ['cmd', 'shift']))).toBe(true);
+    expect(await confirms(key('c', ['ctrl']))).toBe(true);
+    // Reloading can send a form again, and pasting writes what nobody was shown.
+    expect(await confirms(key('r', ['cmd']))).toBe(true);
+    expect(await confirms(key('v', ['cmd']))).toBe(true);
+    // A name that only looks like a word of care is still routine.
+    for (const target of ['Aplicaciones', 'Centrar', 'Configuración', 'Tokio', 'Google Chrome']) {
+      expect(await confirms(click(target)), target).toBe(false);
+    }
+  });
+
+  it('ends a task in words, with no action, and that end is a recent turn', async () => {
+    const chat = await client(await start());
+    planned = async () => JSON.stringify({ kind: 'done', message: 'Correo enviado.' });
+
+    const end = reply(await ask(chat, ['Quiero hacer clic en «Enviar».']));
+    expect(end.text).toBe('Correo enviado.');
+    expect(end).not.toHaveProperty('computer');
+
+    planned = async () => JSON.stringify({ kind: 'cannot', message: 'No veo ningún correo.' });
+    expect(reply(await ask(chat)).text).toBe('No veo ningún correo.');
+
+    await chat.ask({ type: 'text', text: '23 € cena' });
+    expect(interpreted.at(-1)?.recent).toEqual([
+      { principal: `[control del ordenador] ${task}`, reply: 'Correo enviado.' },
+      { principal: `[control del ordenador] ${task}`, reply: 'No veo ningún correo.' },
+    ]);
+  });
+
+  it('proposes nothing when the plan is not exactly one valid action', async () => {
+    const chat = await client(await start());
+    const FAILED = 'No he sabido qué hacer en tu ordenador. ¿Me lo pides de otra forma?';
+    const invalid = [
+      'haz clic en enviar',
+      JSON.stringify({ ...CLICK, x: 1001 }),
+      JSON.stringify({ ...CLICK, y: -1 }),
+      JSON.stringify({ ...CLICK, x: 1.5 }),
+      JSON.stringify({ ...CLICK, shell: 'rm -rf' }),
+      JSON.stringify({ kind: 'run', command: 'rm -rf ~' }),
+      JSON.stringify({ kind: 'type', text: '' }),
+      JSON.stringify({ kind: 'type', text: 'x'.repeat(501) }),
+      // AC3: what is typed is exactly what is shown. A line break would be an Enter nobody
+      // read, and a control or direction character would hide what the text is.
+      JSON.stringify({ kind: 'type', text: 'rm -rf ~/Documents\n' }),
+      JSON.stringify({ kind: 'type', text: 'a\tb' }),
+      JSON.stringify({ kind: 'type', text: 'a\u001bb' }),
+      JSON.stringify({ kind: 'type', text: 'abc\u202Edef' }),
+      JSON.stringify({ kind: 'type', text: '   ' }),
+      // Line and paragraph separators, and the letters that show as nothing.
+      JSON.stringify({ kind: 'type', text: 'a\u2028b' }),
+      JSON.stringify({ kind: 'type', text: 'a\u2029b' }),
+      JSON.stringify({ kind: 'type', text: 'a\u3164b' }),
+      JSON.stringify({ kind: 'type', text: 'a\u034Fb' }),
+      JSON.stringify({ kind: 'type', text: 'a\u{E0041}b' }),
+      JSON.stringify({ ...CLICK, target: 'Cancelar\u2028Enviar' }),
+      // The target is quoted in the description: it cannot leave its quotes or its line.
+      JSON.stringify({ ...CLICK, target: 'Cancelar».\n\nEs seguro' }),
+      JSON.stringify({ ...CLICK, target: 'Cancelar» «Enviar' }),
+      JSON.stringify({ ...CLICK, target: 'Enviar\u202E' }),
+      JSON.stringify({ kind: 'key', key: 'f13', modifiers: [] }),
+      JSON.stringify({ kind: 'key', key: 'c', modifiers: ['hyper'] }),
+      JSON.stringify([CLICK, CLICK]),
+    ];
+    for (const plan of invalid) {
+      planned = async () => plan;
+      const answer = reply(await ask(chat));
+      expect(answer.text, plan).toBe(FAILED);
+      expect(answer, plan).not.toHaveProperty('computer');
+    }
+
+    planned = async () => {
+      throw new Error('the provider is down');
+    };
+    expect(reply(await ask(chat)).text).toBe(FAILED);
+  });
+
+  it('says so when the AI provider takes no more requests, for a task and for a look', async () => {
+    const chat = await client(await start());
+    const QUOTA =
+      'Tu proveedor de IA no acepta más peticiones por ahora: has agotado su cuota. Prueba más tarde o revisa tu plan.';
+    const refused = async () => {
+      throw new Error('{"error":{"code":429,"message":"You exceeded your current quota"}}');
+    };
+
+    planned = refused;
+    const step = reply(await ask(chat));
+    expect(step.text).toBe(QUOTA);
+    expect(step).not.toHaveProperty('computer');
+
+    seen = refused;
+    expect(reply(await chat.ask({ type: 'screen', text: '¿Qué ves?', image: png() })).text).toBe(
+      QUOTA,
+    );
+  });
+
+  it('AC4: stops after 12 steps without asking the planner again', async () => {
+    const chat = await client(await start());
+    const done = Array.from({ length: 12 }, (_, index) => `Paso ${index + 1}`);
+
+    const answer = reply(await ask(chat, done));
+
+    expect(answer.text).toBe(
+      'He llegado al máximo de 12 pasos seguidos y paro aquí. Si quieres que siga, pídemelo otra vez.',
+    );
+    expect(answer).not.toHaveProperty('computer');
+    expect(plans).toEqual([]);
+    expect((await ask(chat, [...done, 'Paso 13'])).type).toBe('rejected');
+  });
+
+  it('counts each step against the daily AI limit (R-12)', async () => {
+    const chat = await client(
+      await start({ ANOMANDER_LOCAL_TOKEN: TOKEN, ANOMANDER_DAILY_AI_CALL_LIMIT: '1' }),
+    );
+
+    expect(reply(await ask(chat)).computer).toEqual(CLICK);
+    const second = reply(await ask(chat));
+    expect(second.text).toBe(
+      'He llegado al límite diario de IA y hoy no puedo procesar más mensajes. ¿Me lo vuelves a enviar mañana?',
+    );
+    expect(second).not.toHaveProperty('computer');
+  });
+
+  it('rejects a task without words or without an image', async () => {
+    const chat = await client(await start());
+
+    expect((await chat.ask({ type: 'computer', task: ' ', image: png(), done: [] })).type).toBe(
+      'rejected',
+    );
+    const pdf = { mimeType: 'application/pdf', data: png().data };
+    expect((await chat.ask({ type: 'computer', task, image: pdf, done: [] })).type).toBe(
+      'rejected',
+    );
+    expect(plans).toEqual([]);
+  });
+
+  it('answers with the setup guide while no model is usable (R-28)', async () => {
+    const guide = startSetupGuide(
+      { ...config({ ANOMANDER_LOCAL_TOKEN: TOKEN }), localPort: 0 },
+      { gaps: [{ kind: 'model_unset' }], telegramApiRoot: api.apiRoot, logger },
+    );
+    anomander = guide;
+    await guide.started;
+    const chat = await client(guide);
+
+    const sent = await api.waitForSent(1);
+    const answer = reply(await ask(chat));
+    expect(answer.text).toBe(sent[0]?.text);
+    expect(answer).not.toHaveProperty('computer');
   });
 });

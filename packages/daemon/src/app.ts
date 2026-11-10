@@ -1,4 +1,10 @@
-import { type Notify, strings } from '@anomander/protocol';
+import {
+  type ComputerRequest,
+  MAX_COMPUTER_STEPS,
+  type Notify,
+  type ScreenQuestion,
+  strings,
+} from '@anomander/protocol';
 import {
   createTelegramBot,
   createTelegramDelete,
@@ -12,10 +18,12 @@ import { createReceiptQueue } from './budget/receipt-queue.ts';
 import type { Config } from './config.ts';
 import {
   buttonTurn,
+  computerTurn,
   createRecentTurns,
   receiptTurn,
   recordingNotices,
   recordingTurns,
+  screenTurn,
 } from './conversation/recent-turns.ts';
 import { createButtonHandler, createDecisionAnswers, pressedOption } from './decisions/answer.ts';
 import { createCancelReminderAnswerHandler } from './decisions/cancel-reminder-decision.ts';
@@ -36,10 +44,12 @@ import {
   startLocalChannel,
 } from './local-channel/server.ts';
 import { createPatternOffers } from './patterns/pattern-offers.ts';
+import { createPiAiComputerPlanner } from './processor/computer-planner.ts';
 import { createPiAiCorrectionInterpreter } from './processor/correction-interpreter.ts';
 import { createPiAiReceiptReader } from './processor/receipt-reader.ts';
 import { createPiAiReplyPhraser } from './processor/reply-phraser.ts';
 import { withRetry } from './processor/retry.ts';
+import { createPiAiScreenReader } from './processor/screen-reader.ts';
 import { type Complete, createPiAiTextInterpreter } from './processor/text-interpreter.ts';
 import { withTimeout } from './processor/timeout.ts';
 import { type ReadApiAddress, startReadApi } from './read-api/server.ts';
@@ -222,7 +232,13 @@ export const startSetupGuide = (config: Config, deps: SetupGuideDeps): Anomander
   deleteMessage = createTelegramDelete(bot, config.principalChatId);
   const localChannel = startChannel(
     config,
-    { onText: async () => guide, onReceipt: async () => guide, onButton: async () => guide },
+    {
+      onText: async () => guide,
+      onReceipt: async () => guide,
+      onButton: async () => guide,
+      onScreen: async () => guide,
+      onComputer: async () => guide,
+    },
     logger,
   );
 
@@ -382,6 +398,58 @@ export const startAnomander = <M>(config: Config, deps: AnomanderDeps<M>): Anoma
     receipts.onReceipt,
   );
 
+  // A look at the screen: the budgeted call, so it counts against the daily cap (R-12).
+  const screenReader = createPiAiScreenReader({
+    complete: ai,
+    model: deps.visionModel ?? model,
+    logger,
+  });
+  const recordedScreen = recordingTurns(
+    turns,
+    (question: ScreenQuestion) => screenTurn(question.text),
+    async (question: ScreenQuestion) => {
+      const reading = await screenReader({ question: question.text, image: question.image });
+      switch (reading.kind) {
+        case 'answer':
+          return { text: reading.text };
+        case 'budget_exhausted':
+          return { text: strings.textLimitReached() };
+        case 'provider_limit':
+          return { text: strings.providerLimitReached() };
+        case 'failed':
+          return { text: strings.screenNotSeen() };
+      }
+    },
+  );
+
+  // DK-10: the next step of a task on the computer. The budgeted call, as a look at the screen.
+  const computerPlanner = createPiAiComputerPlanner({
+    complete: ai,
+    model: deps.visionModel ?? model,
+    logger,
+  });
+  const planStep = async (request: ComputerRequest): Promise<TelegramReply> => {
+    // AC4: a task that long is stopped here, whatever the app does.
+    if (request.done.length >= MAX_COMPUTER_STEPS) {
+      return { text: strings.computerTooManySteps(MAX_COMPUTER_STEPS) };
+    }
+    const plan = await computerPlanner(request);
+    switch (plan.kind) {
+      case 'action':
+        return { text: plan.text, computer: plan.action, confirm: plan.confirm };
+      case 'end':
+        // R-16 AC3: how the task ended is a recent turn; its steps are not.
+        turns.add(computerTurn(request.task), plan.text);
+        return { text: plan.text };
+      case 'budget_exhausted':
+        return { text: strings.textLimitReached() };
+      case 'provider_limit':
+        return { text: strings.providerLimitReached() };
+      case 'failed':
+        return { text: strings.computerFailed() };
+    }
+  };
+
   // What every front door calls (DK-4 AC1). R-28: `/start`, and the guide while a provider is
   // not connected.
   const inTurn = oneTurnAtATime();
@@ -398,6 +466,14 @@ export const startAnomander = <M>(config: Config, deps: AnomanderDeps<M>): Anoma
     onButton: inTurn(async (press) => {
       const gaps = await setupGaps();
       return gaps.length > 0 ? { text: setupGuide(gaps) } : recordedButton(press);
+    }),
+    onScreen: inTurn(async (question) => {
+      const gaps = await setupGaps();
+      return gaps.length > 0 ? { text: setupGuide(gaps) } : recordedScreen(question);
+    }),
+    onComputer: inTurn(async (request) => {
+      const gaps = await setupGaps();
+      return gaps.length > 0 ? { text: setupGuide(gaps) } : planStep(request);
     }),
   };
 

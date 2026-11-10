@@ -41,7 +41,63 @@ export interface ChatButtonPress {
   channelRef: string;
 }
 
-export type ChatRequest = ChatText | ChatReceipt | ChatButtonPress;
+/**
+ * A question about what is on the principal's screen, with the capture the app took when they
+ * asked. Only the app can send it: the capture is taken on their machine, at their request.
+ */
+export interface ChatScreen {
+  type: 'screen';
+  id: string;
+  /** What the principal asks about the screen. */
+  text: string;
+  image: ChatImage;
+}
+
+/** The most steps one task may take; after them the daemon stops proposing (DK-10 AC4). */
+export const MAX_COMPUTER_STEPS = 12;
+
+/** The keys a `key` action may press, besides one letter or digit. */
+export const COMPUTER_KEYS = [
+  'enter',
+  'tab',
+  'escape',
+  'backspace',
+  'space',
+  'up',
+  'down',
+  'left',
+  'right',
+] as const;
+export const COMPUTER_MODIFIERS = ['cmd', 'shift', 'alt', 'ctrl'] as const;
+export type ComputerModifier = (typeof COMPUTER_MODIFIERS)[number];
+
+/**
+ * One thing ANOMANDER proposes to do on the principal's computer (DK-10). The daemon only
+ * proposes it: the app performs it, after the principal allowed it when it is a step of care.
+ * `x` and `y` are a point of the capture, from 0 to 1000 across its width and its height.
+ */
+export type ComputerAction =
+  /** `target` is what the processor says is there: a claim, shown next to the capture itself. */
+  | { kind: 'click'; x: number; y: number; double: boolean; target: string }
+  | { kind: 'type'; text: string }
+  /** `key` is one of `COMPUTER_KEYS`, or one letter or digit. */
+  | { kind: 'key'; key: string; modifiers: ComputerModifier[] }
+  | { kind: 'scroll'; x: number; y: number; direction: 'up' | 'down' };
+
+/**
+ * A task on the principal's computer, one step at a time: what they asked, the screen as it is
+ * now, and what was already done for it. Only the app can send it.
+ */
+export interface ChatComputer {
+  type: 'computer';
+  id: string;
+  task: string;
+  image: ChatImage;
+  /** The steps already performed, as the daemon described them, oldest first. */
+  done: string[];
+}
+
+export type ChatRequest = ChatText | ChatReceipt | ChatButtonPress | ChatScreen | ChatComputer;
 
 /** A button under a reply: it comes back as a `ChatButtonPress`, or opens `url`. */
 export type ChatButton = { label: string; data: string } | { label: string; url: string };
@@ -55,6 +111,13 @@ export interface ChatReply {
   text: string;
   buttons: ChatButton[];
   sentAt: string;
+  /** The action `text` proposes, in answer to a `computer` request; absent when it proposes none. */
+  computer?: ComputerAction;
+  /**
+   * With `computer`: `false` when the action is routine and may be performed without asking;
+   * anything else means the principal must allow it first (DK-10 AC1).
+   */
+  confirm?: boolean;
 }
 
 /** The request `inReplyTo` was handled and has no reply. */

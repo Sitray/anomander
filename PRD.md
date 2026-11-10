@@ -818,7 +818,7 @@ anomander/
 ├── packages/daemon     # runtime: processors, providers, matter cycles, scheduler, migrations
 ├── packages/protocol   # types shared by the daemon and its front doors
 ├── apps/telegram       # first front door
-├── apps/desktop        # later: Tauri 2 and Rust
+├── apps/desktop        # the desktop app: a React window and a Tauri 2 shell in Rust (M6)
 ├── evals/receipts      # receipt evaluation set (images are local, not committed if personal)
 ├── evals/text          # text evaluation set (cases are local, never committed)
 ├── Dockerfile
@@ -834,7 +834,7 @@ anomander/
 flowchart LR
     subgraph doors["Front doors"]
         TG["Telegram bot<br/>apps/telegram"]
-        DESK["Desktop app<br/>apps/desktop (later)"]
+        DESK["Desktop app<br/>apps/desktop"]
     end
 
     subgraph daemon["packages/daemon"]
@@ -854,7 +854,7 @@ flowchart LR
     DASH["App-of-apps<br/>supermarket dashboard"]
 
     TG <-->|messages and buttons| CYCLE
-    DESK -.->|later| CYCLE
+    DESK <-->|local channel| CYCLE
     SCHED --> CYCLE
     CYCLE -->|context| PROC
     PROC <--> MODELS
