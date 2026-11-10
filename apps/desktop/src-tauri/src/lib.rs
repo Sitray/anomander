@@ -4,6 +4,7 @@
 // of every command and event is `apps/desktop/src/shell.ts`.
 pub mod daemon;
 pub mod data_dir;
+pub mod notification;
 pub mod secure_store;
 pub mod setup;
 pub mod shell;
@@ -13,6 +14,7 @@ pub mod tray;
 use std::sync::{Arc, Mutex, PoisonError};
 
 use tauri::{AppHandle, Emitter, Manager, RunEvent, WindowEvent};
+use tauri_plugin_notification::NotificationExt;
 
 use crate::daemon::launch::launch_token;
 use crate::daemon::supervisor::{Options, Supervisor, Update};
@@ -140,6 +142,23 @@ fn set_thinking(app: AppHandle, thinking: bool) -> Result<(), String> {
         .map_err(|error| error.to_string())
 }
 
+/// An answer arrived in the chat: notifies it, unless the principal is looking at the window.
+#[tauri::command]
+fn notify_reply(app: AppHandle, text: String) -> Result<(), String> {
+    let in_front = app
+        .get_webview_window(MAIN_WINDOW)
+        .is_some_and(|window| window.is_focused().unwrap_or(false));
+    if in_front {
+        return Ok(());
+    }
+    app.notification()
+        .builder()
+        .title("ANOMANDER")
+        .body(notification::body(&text))
+        .show()
+        .map_err(|error| error.to_string())
+}
+
 fn on_menu(app: &AppHandle, id: &str) {
     match id {
         tray::OPEN_CHAT => show_chat(app),
@@ -224,12 +243,14 @@ fn quit(app: &AppHandle) {
 
 pub fn run() {
     let app = tauri::Builder::default()
+        .plugin(tauri_plugin_notification::init())
         .invoke_handler(tauri::generate_handler![
             get_snapshot,
             save_setup,
             start_daemon,
             stop_daemon,
-            set_thinking
+            set_thinking,
+            notify_reply
         ])
         .setup(set_up)
         .on_window_event(|window, event| {

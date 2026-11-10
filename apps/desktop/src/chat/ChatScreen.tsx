@@ -15,6 +15,8 @@ export interface ChatScreenProps {
   channel: LocalChannel | null;
   /** Called whenever the chat starts or stops waiting for an answer, and with `false` on leaving. */
   onThinking?: (thinking: boolean) => void;
+  /** Called with the text of every answer. */
+  onReply?: (text: string) => void;
 }
 
 /** Why there is no channel, in the principal's words. */
@@ -28,8 +30,8 @@ const withoutChannel = ({ state, reason }: DaemonStatus): string => {
 
 const carriesFiles = (event: DragEvent): boolean => event.dataTransfer.types.includes('Files');
 
-export function ChatScreen({ daemon, channel, onThinking }: ChatScreenProps) {
-  const chat = useChat(channel);
+export function ChatScreen({ daemon, channel, onThinking, onReply }: ChatScreenProps) {
+  const chat = useChat(channel, onReply);
   const draft = useDraft();
   const [dropping, setDropping] = useState(false);
   /** `dragenter` minus `dragleave`: both also fire for every child the pointer crosses. */

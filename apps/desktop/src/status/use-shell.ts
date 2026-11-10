@@ -22,6 +22,8 @@ export interface Shell {
   saveSetup(input: SetupInput): Promise<Snapshot>;
   /** Tells the menu bar whether the chat waits for an answer; a failure only loses that sign. */
   setThinking(thinking: boolean): void;
+  /** Hands an answer to the shell to notify it; a failure only loses the notification. */
+  notifyReply(text: string): void;
 }
 
 export const useShell = (): Shell => {
@@ -95,6 +97,10 @@ export const useShell = (): Shell => {
     shell.setThinking(thinking).catch(() => {});
   }, []);
 
+  const notifyReply = useCallback((text: string) => {
+    shell.notifyReply(text).catch(() => {});
+  }, []);
+
   return {
     snapshot,
     loadError,
@@ -106,5 +112,6 @@ export const useShell = (): Shell => {
     dismissError,
     saveSetup,
     setThinking,
+    notifyReply,
   };
 };

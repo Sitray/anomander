@@ -23,6 +23,7 @@ vi.mock('../src/shell.ts', () => ({
     stopDaemon: vi.fn(),
     onSnapshot: vi.fn(),
     setThinking: vi.fn(),
+    notifyReply: vi.fn(),
   },
 }));
 
@@ -45,6 +46,7 @@ beforeEach(() => {
   mocked.startDaemon.mockResolvedValue(undefined);
   mocked.stopDaemon.mockResolvedValue(undefined);
   mocked.setThinking.mockResolvedValue(undefined);
+  mocked.notifyReply.mockResolvedValue(undefined);
 });
 
 afterEach(() => {
@@ -274,5 +276,37 @@ describe('thinking', () => {
     view.unmount();
 
     expect(thinking().at(-1)).toBe(false);
+  });
+});
+
+describe('notifications', () => {
+  it('hands every answer to the shell, which notifies when the window is not in front', async () => {
+    await open(runningSnapshot());
+    act(() => FakeWebSocket.last.open());
+    fireEvent.change(composer(), { target: { value: '23 € cena' } });
+    fireEvent.keyDown(composer(), { key: 'Enter' });
+    await waitFor(() => expect(FakeWebSocket.last.sent).toHaveLength(1));
+    expect(mocked.notifyReply).not.toHaveBeenCalled();
+
+    const text = 'Apuntado: 23,00 € en cena.';
+    act(() => FakeWebSocket.last.receive(replyTo(FakeWebSocket.last.lastRequest.id, { text })));
+
+    await waitFor(() => expect(mocked.notifyReply).toHaveBeenCalledTimes(1));
+    expect(mocked.notifyReply).toHaveBeenCalledWith(text);
+  });
+
+  it('does not notify a request the daemon handled without an answer', async () => {
+    await open(runningSnapshot());
+    act(() => FakeWebSocket.last.open());
+    fireEvent.change(composer(), { target: { value: '23 € cena' } });
+    fireEvent.keyDown(composer(), { key: 'Enter' });
+    await waitFor(() => expect(FakeWebSocket.last.sent).toHaveLength(1));
+
+    act(() =>
+      FakeWebSocket.last.receive({ type: 'done', inReplyTo: FakeWebSocket.last.lastRequest.id }),
+    );
+    await act(async () => {});
+
+    expect(mocked.notifyReply).not.toHaveBeenCalled();
   });
 });

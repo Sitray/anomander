@@ -31,14 +31,24 @@ const requestFor = async (text: string, attachments: Attachment[]): Promise<NewR
         caption: text === '' ? null : text,
       };
 
-export const useChat = (channel: LocalChannel | null): Chat => {
+export const useChat = (
+  channel: LocalChannel | null,
+  /** Called with the text of every answer the daemon sends. */
+  onReply?: (text: string) => void,
+): Chat => {
   const [conversation, dispatch] = useReducer(reduceConversation, emptyConversation);
   const client = useRef<ChatClient | null>(null);
+  // The latest callback, so a new one does not open the connection again.
+  const replied = useRef(onReply);
+  replied.current = onReply;
 
   useEffect(() => {
     const created = createChatClient({
       onConnection: (state) => dispatch({ type: 'connection', state }),
-      onOutcome: (requestId, outcome) => dispatch({ type: 'outcome', requestId, outcome }),
+      onOutcome: (requestId, outcome) => {
+        dispatch({ type: 'outcome', requestId, outcome });
+        if (outcome.type === 'reply') replied.current?.(outcome.reply.text);
+      },
     });
     client.current = created;
     return () => {

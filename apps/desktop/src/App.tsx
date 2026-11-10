@@ -80,6 +80,7 @@ export function App() {
                 daemon={snapshot.daemon}
                 channel={snapshot.channel}
                 onThinking={shell.setThinking}
+                onReply={shell.notifyReply}
               />
             </div>
             {setupOpen && (
