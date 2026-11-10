@@ -2,7 +2,9 @@
 // menu opens the chat, starts or stops ANOMANDER, and quits (AC2). While the chat waits for an
 // answer, the icon also shows that ANOMANDER is thinking. The texts are read by the
 // principal, so they are Spanish (es-ES); the icon is drawn here, as a template image.
+use std::sync::atomic::{AtomicU8, Ordering};
 use std::sync::{Mutex, PoisonError};
+use std::time::Duration;
 use tauri::image::Image;
 use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
 use tauri::tray::TrayIconBuilder;
@@ -100,7 +102,12 @@ pub struct TrayMenu {
     status: MenuItem<Wry>,
     toggle: MenuItem<Wry>,
     view: Mutex<View>,
+    /// Which frame of the thinking dots is on screen.
+    frame: AtomicU8,
 }
+
+/// How long each frame of the thinking dots stays.
+const FRAME: Duration = Duration::from_millis(280);
 
 /// Builds the icon and its menu; `on_menu` gets the ID of the chosen item.
 pub fn build(
@@ -124,7 +131,7 @@ pub fn build(
         &[&status, &separator, &open, &toggle, &separator, &quit],
     )?;
     TrayIconBuilder::with_id(TRAY_ID)
-        .icon(icon(view.look()))
+        .icon(icon(view.look(), 0))
         .icon_as_template(true)
         .tooltip(texts.status)
         .menu(&menu)
@@ -135,8 +142,58 @@ pub fn build(
         status,
         toggle,
         view: Mutex::new(view),
+        frame: AtomicU8::new(0),
     });
+    animate(app.handle().clone());
     Ok(())
+}
+
+/// Moves the thinking dots for as long as the app lives. While nothing is thinking it only
+/// looks, so an idle app draws nothing.
+fn animate(app: AppHandle) {
+    std::thread::spawn(move || loop {
+        std::thread::sleep(FRAME);
+        let Some(menu) = app.try_state::<TrayMenu>() else {
+            continue;
+        };
+        let thinking = menu
+            .view
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .look()
+            == Look::Thinking;
+        if !thinking {
+            continue;
+        }
+        let handle = app.clone();
+        // Menu bar changes run on the main thread.
+        let _ = app.run_on_main_thread(move || {
+            let Some(menu) = handle.try_state::<TrayMenu>() else {
+                return;
+            };
+            // The answer may have arrived in between: then the icon is no longer ours to draw.
+            let view = menu
+                .view
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .clone();
+            if view.look() != Look::Thinking {
+                return;
+            }
+            let frame = (menu.frame.load(Ordering::Relaxed) + 1) % FRAMES;
+            menu.frame.store(frame, Ordering::Relaxed);
+            draw(&handle, Look::Thinking, frame);
+        });
+    });
+}
+
+fn draw(app: &AppHandle, look: Look, frame: u8) {
+    let Some(tray) = app.tray_by_id(TRAY_ID) else {
+        return;
+    };
+    if let Err(error) = tray.set_icon_with_as_template(Some(icon(look, frame)), true) {
+        eprintln!("could not update the menu bar icon: {error}");
+    }
 }
 
 /// Shows the daemon's `status` in the menu bar. Runs on the main thread.
@@ -167,12 +224,10 @@ fn change(app: &AppHandle, update: impl FnOnce(&mut View)) {
 
 fn show(app: &AppHandle, menu: &TrayMenu, view: &View) {
     let texts = labels(view);
+    menu.frame.store(0, Ordering::Relaxed);
+    draw(app, view.look(), 0);
     if let Some(tray) = app.tray_by_id(TRAY_ID) {
-        let shown = tray
-            .set_icon(Some(icon(view.look())))
-            .and_then(|()| tray.set_icon_as_template(true))
-            .and_then(|()| tray.set_tooltip(Some(texts.status)));
-        if let Err(error) = shown {
+        if let Err(error) = tray.set_tooltip(Some(texts.status)) {
             eprintln!("could not update the menu bar icon: {error}");
         }
     }
@@ -198,22 +253,64 @@ const DIMMED: f32 = 0.42;
 /// - running: the solid mark;
 /// - stopped: the mark dimmed;
 /// - starting: the mark dimmed, with a small ring that says something is on its way;
-/// - thinking: the solid mark with three dots, as a chat shows the other side typing;
+/// - thinking: the solid mark and, beside it, three dots that rise one after another, as a chat
+///   shows the other side typing; `frame` says which dot is up;
 /// - failing: the solid mark with an exclamation badge.
-pub fn icon(look: Look) -> Image<'static> {
-    Image::new_owned(icon_rgba(look), SIZE, SIZE)
+pub fn icon(look: Look, frame: u8) -> Image<'static> {
+    Image::new_owned(icon_rgba(look, frame), width(look), SIZE)
 }
 
-fn icon_rgba(look: Look) -> Vec<u8> {
-    let mut rgba = Vec::with_capacity((SIZE * SIZE * 4) as usize);
+/// The frames of the thinking dots: one per dot, and one with all three at rest.
+pub const FRAMES: u8 = 4;
+/// The room the thinking dots take beside the mark.
+const DOTS_WIDTH: u32 = 30;
+
+/// The icon's width: the thinking dots sit beside the mark, so that icon is wider.
+fn width(look: Look) -> u32 {
+    if look == Look::Thinking {
+        SIZE + DOTS_WIDTH
+    } else {
+        SIZE
+    }
+}
+
+/// How opaque the thinking dots are at a point: the dot whose turn it is rises and is solid, the
+/// others wait dimmed on the line.
+fn dots(frame: u8, x: f32, y: f32) -> f32 {
+    const FIRST: f32 = 41.0;
+    const APART: f32 = 9.0;
+    const LINE: f32 = 23.0;
+    const RISE: f32 = 5.0;
+    const RADIUS: f32 = 3.0;
+    const WAITING: f32 = 0.5;
+    (0..3u8)
+        .map(|dot| {
+            let up = dot == frame % FRAMES;
+            let (cx, cy) = (
+                FIRST + APART * f32::from(dot),
+                if up { LINE - RISE } else { LINE },
+            );
+            let inside = ((x - cx).powi(2) + (y - cy).powi(2)).sqrt() <= RADIUS;
+            match (inside, up) {
+                (false, _) => 0.0,
+                (true, true) => 1.0,
+                (true, false) => WAITING,
+            }
+        })
+        .fold(0.0, f32::max)
+}
+
+fn icon_rgba(look: Look, frame: u8) -> Vec<u8> {
+    let width = width(look);
+    let mut rgba = Vec::with_capacity((width * SIZE * 4) as usize);
     for y in 0..SIZE {
-        for x in 0..SIZE {
+        for x in 0..width {
             let mut total = 0.0;
             for sy in 0..SAMPLES {
                 for sx in 0..SAMPLES {
                     let px = x as f32 + (sx as f32 + 0.5) / SAMPLES as f32;
                     let py = y as f32 + (sy as f32 + 0.5) / SAMPLES as f32;
-                    total += opacity(look, px, py);
+                    total += opacity(look, frame, px, py);
                 }
             }
             let alpha = (total / (SAMPLES * SAMPLES) as f32 * 255.0).round() as u8;
@@ -246,7 +343,7 @@ fn in_mark(point: (f32, f32)) -> bool {
 }
 
 /// How opaque the icon is at a point, from 0 to 1.
-fn opacity(look: Look, x: f32, y: f32) -> f32 {
+fn opacity(look: Look, frame: u8, x: f32, y: f32) -> f32 {
     // The badge sits in the corner the mark leaves empty, where a notification badge goes, with
     // a clear gap around it so it reads at 18 points and the mark stays whole.
     const BADGE: (f32, f32) = (29.0, 7.5);
@@ -265,19 +362,7 @@ fn opacity(look: Look, x: f32, y: f32) -> f32 {
     match look {
         Look::Running => mark(1.0),
         Look::Stopped => mark(DIMMED),
-        Look::Thinking => {
-            // Three dots across the badge, with no disc around them, so they read as an ellipsis.
-            const DOT: f32 = 1.6;
-            let in_dot = [-4.2, 0.0, 4.2].iter().any(|offset| {
-                let (ex, ey) = (dx - offset, dy);
-                (ex * ex + ey * ey).sqrt() <= DOT
-            });
-            if in_dot {
-                1.0
-            } else {
-                badged_mark(1.0)
-            }
-        }
+        Look::Thinking => mark(1.0).max(dots(frame, x, y)),
         Look::Starting => {
             if (BADGE_RADIUS - 2.3..=BADGE_RADIUS).contains(&from_badge) {
                 1.0
@@ -438,9 +523,9 @@ mod tests {
             Look::Starting,
             Look::Failing,
         ];
-        let icons: Vec<Vec<u8>> = looks.iter().map(|look| icon_rgba(*look)).collect();
+        let icons: Vec<Vec<u8>> = looks.iter().map(|look| icon_rgba(*look, 0)).collect();
         for (index, rgba) in icons.iter().enumerate() {
-            assert_eq!(rgba.len(), (SIZE * SIZE * 4) as usize);
+            assert_eq!(rgba.len(), (width(looks[index]) * SIZE * 4) as usize);
             // Template images: only the alpha channel carries the shape.
             assert!(rgba.chunks(4).all(|pixel| pixel[..3] == [0, 0, 0]));
             for other in &icons[index + 1..] {
@@ -451,25 +536,76 @@ mod tests {
 
     #[test]
     fn a_stopped_mark_is_dimmed_and_a_running_one_is_solid() {
-        assert_eq!(strongest(&icon_rgba(Look::Running)), 255);
-        let dimmed = strongest(&icon_rgba(Look::Stopped));
+        assert_eq!(strongest(&icon_rgba(Look::Running, 0)), 255);
+        let dimmed = strongest(&icon_rgba(Look::Stopped, 0));
         assert!((90..=120).contains(&dimmed), "dimmed alpha was {dimmed}");
         // The badges are solid even on a dimmed mark, so they are what the eye finds.
-        assert_eq!(strongest(&icon_rgba(Look::Starting)), 255);
-        assert_eq!(strongest(&icon_rgba(Look::Failing)), 255);
+        assert_eq!(strongest(&icon_rgba(Look::Starting, 0)), 255);
+        assert_eq!(strongest(&icon_rgba(Look::Failing, 0)), 255);
     }
 
     #[test]
     fn the_mark_stays_inside_the_icon_with_a_clear_edge() {
-        for look in [Look::Running, Look::Thinking, Look::Failing] {
-            let rgba = icon_rgba(look);
-            let alpha = |x: u32, y: u32| rgba[((y * SIZE + x) * 4 + 3) as usize];
-            for i in 0..SIZE {
-                assert_eq!(alpha(i, 0), 0);
-                assert_eq!(alpha(i, SIZE - 1), 0);
-                assert_eq!(alpha(0, i), 0);
-                assert_eq!(alpha(SIZE - 1, i), 0);
+        for (look, frame) in [
+            (Look::Running, 0),
+            (Look::Failing, 0),
+            (Look::Thinking, 0),
+            (Look::Thinking, 2),
+            (Look::Thinking, 3),
+        ] {
+            let width = width(look);
+            let rgba = icon_rgba(look, frame);
+            let alpha = |x: u32, y: u32| rgba[((y * width + x) * 4 + 3) as usize];
+            for x in 0..width {
+                assert_eq!(alpha(x, 0), 0);
+                assert_eq!(alpha(x, SIZE - 1), 0);
+            }
+            for y in 0..SIZE {
+                assert_eq!(alpha(0, y), 0);
+                assert_eq!(alpha(width - 1, y), 0);
             }
         }
+    }
+
+    /// The alpha of the icon's columns from `from` on, row by row.
+    fn columns(rgba: &[u8], width: u32, from: u32, to: u32) -> Vec<u8> {
+        (0..SIZE)
+            .flat_map(|y| (from..to).map(move |x| (y * width + x) * 4 + 3))
+            .map(|index| rgba[index as usize])
+            .collect()
+    }
+
+    #[test]
+    fn thinking_keeps_the_mark_whole_and_puts_the_dots_beside_it() {
+        let wide = width(Look::Thinking);
+        assert!(wide > SIZE);
+        let thinking = icon_rgba(Look::Thinking, 0);
+        let running = icon_rgba(Look::Running, 0);
+        assert_eq!(
+            columns(&thinking, wide, 0, SIZE),
+            columns(&running, SIZE, 0, SIZE)
+        );
+        assert!(columns(&thinking, wide, SIZE, wide).contains(&255));
+    }
+
+    #[test]
+    fn the_dots_move_and_the_mark_does_not() {
+        let wide = width(Look::Thinking);
+        let frames: Vec<Vec<u8>> = (0..FRAMES)
+            .map(|frame| icon_rgba(Look::Thinking, frame))
+            .collect();
+        for (index, frame) in frames.iter().enumerate() {
+            assert_eq!(
+                columns(frame, wide, 0, SIZE),
+                columns(&frames[0], wide, 0, SIZE)
+            );
+            for other in &frames[index + 1..] {
+                assert_ne!(frame, other);
+            }
+        }
+        // The frame after the last is the first again.
+        assert_eq!(icon_rgba(Look::Thinking, FRAMES), frames[0]);
+        // At rest all three dots wait dimmed: nothing in them is solid.
+        assert!(!columns(&frames[3], wide, SIZE, wide).contains(&255));
     }
 }
