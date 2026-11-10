@@ -521,10 +521,17 @@ export const startAnomander = <M>(config: Config, deps: AnomanderDeps<M>): Anoma
     connectionTask = request.task;
     return connectionReply(await connectionTasks.start(request.task));
   };
-  /** The answer to a press on "Permitir" or "Detener"; `undefined` for any other button. */
-  const answerConnection = async (data: string): Promise<TelegramReply | undefined> => {
+  /**
+   * The answer to a press on "Permitir" or "Detener"; `undefined` for any other button. Only
+   * the app shows those buttons, so only its presses answer one: `fromApp`.
+   */
+  const answerConnection = async (
+    data: string,
+    fromApp: boolean,
+  ): Promise<TelegramReply | undefined> => {
+    if (!data.startsWith(CONNECTION_BUTTON)) return undefined;
     const pressed = CONNECTION_PRESS.exec(data);
-    if (pressed === null) return undefined;
+    if (pressed === null || !fromApp) return { text: strings.connectionGone() };
     const [, id = '', answer] = pressed;
     return connectionReply(await connectionTasks.answer(id, answer === 'allow'));
   };
@@ -545,7 +552,7 @@ export const startAnomander = <M>(config: Config, deps: AnomanderDeps<M>): Anoma
     onButton: inTurn(async (press) => {
       const gaps = await setupGaps();
       if (gaps.length > 0) return { text: setupGuide(gaps) };
-      return (await answerConnection(press.data)) ?? recordedButton(press);
+      return (await answerConnection(press.data, false)) ?? recordedButton(press);
     }),
     onScreen: inTurn(async (question) => {
       const gaps = await setupGaps();
@@ -625,7 +632,19 @@ export const startAnomander = <M>(config: Config, deps: AnomanderDeps<M>): Anoma
           logger,
         });
 
-  const localChannel = startChannel(config, chat, logger, now);
+  const localChannel = startChannel(
+    config,
+    {
+      ...chat,
+      onButton: inTurn(async (press) => {
+        const gaps = await setupGaps();
+        if (gaps.length > 0) return { text: setupGuide(gaps) };
+        return (await answerConnection(press.data, true)) ?? recordedButton(press);
+      }),
+    },
+    logger,
+    now,
+  );
 
   const { started, ended } = polling(bot);
   started.then(

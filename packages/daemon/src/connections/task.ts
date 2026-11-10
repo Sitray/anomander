@@ -27,6 +27,8 @@ export const MAX_RESULT_CHARACTERS = 12_000;
 const MAX_SHOWN_ARGUMENTS = 1_500;
 const MAX_NAME = 80;
 const MAX_DESCRIPTION = 1_000;
+/** The longest schema of a tool's arguments handed to the processor. */
+const MAX_SCHEMA = 8_000;
 
 export type TaskOutcome =
   /** The task is over: the processor's own words. */
@@ -95,12 +97,26 @@ interface Pending {
   rest: ToolCall[];
 }
 
-/** What cannot be shown as it is: it would hide or reorder the text around it. */
-const HIDDEN = /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}ᅟᅠㅤﾠ]|͏/u;
+/**
+ * What a reader cannot see, or that changes how the text around it reads: control and format
+ * characters, every blank, variation selectors and the other characters that show as nothing.
+ */
+const UNSEEN = /[\p{C}\p{Z}\p{Default_Ignorable_Code_Point}\u2800]/gu;
+
+/** `text` with each of those written as its code, except the ones of `kept`. */
+const seen = (text: string, kept: string): string =>
+  text.replace(UNSEEN, (character) =>
+    kept.includes(character)
+      ? character
+      : Array.from(
+          { length: character.length },
+          (_, index) => `\\u${character.charCodeAt(index).toString(16).padStart(4, '0')}`,
+        ).join(''),
+  );
 
 /** A name the principal can be shown inside quotes, exactly as it is. */
 const showable = (name: string): boolean =>
-  name.trim() !== '' && name.length <= MAX_NAME && !HIDDEN.test(name) && !/[«»]/.test(name);
+  name.trim() !== '' && name.length <= MAX_NAME && seen(name, ' ') === name && !/[«»]/.test(name);
 
 /** What the processor calls a tool: providers take letters, digits, `_` and `-`, up to 64. */
 const apiName = (server: string, tool: string): string =>
@@ -112,7 +128,12 @@ const targetsOf = (connections: readonly Connection[], logger: Logger) => {
     for (const tool of connection.tools) {
       const name = apiName(connection.name, tool.name);
       // A tool that could not be shown as it is, or told from another, is not offered.
-      if (!showable(connection.name) || !showable(tool.name) || targets.has(name)) {
+      if (
+        !showable(connection.name) ||
+        !showable(tool.name) ||
+        targets.has(name) ||
+        JSON.stringify(tool.inputSchema).length > MAX_SCHEMA
+      ) {
         logger.warn('connection tool left out', { server: connection.name });
         continue;
       }
@@ -123,13 +144,12 @@ const targetsOf = (connections: readonly Connection[], logger: Logger) => {
 };
 
 /**
- * The arguments as the principal reads them, or `null` when they cannot be shown in full and as
- * they are. Line breaks and quotes are escaped by JSON itself.
+ * The arguments as the principal reads them, or `null` when they are too long to show in full.
+ * JSON escapes quotes and control characters itself; what it keeps and cannot be seen is written
+ * as its code, in names and in values. The spaces and line breaks left are the layout's own.
  */
 const shownArguments = (args: unknown): string | null => {
-  // On one line JSON escapes every control character; what is left to refuse is what it keeps.
-  if (HIDDEN.test(JSON.stringify(args))) return null;
-  const json = JSON.stringify(args, null, 2);
+  const json = seen(JSON.stringify(args, null, 2), ' \n');
   return json.length > MAX_SHOWN_ARGUMENTS ? null : json;
 };
 
@@ -220,7 +240,7 @@ export const createConnectionTasks = <M>(deps: ConnectionTasksDeps<M>): Connecti
       }
       const shown = shownArguments(call.arguments);
       if (shown === null) {
-        settle(run, call, rest, 'Not run: the arguments are too long or cannot be shown.', true);
+        settle(run, call, rest, 'Not run: the arguments are too long to show the user.', true);
         continue;
       }
       const step = { run, call, target, rest };

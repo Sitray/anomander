@@ -151,8 +151,10 @@ and keep its secrets in the operating system instead of a text file.
     decides each call.
   - AC3: a tool marked read-only runs without asking; any other call waits for "Permitir", shown
     by code with the tool, the server and the exact arguments. "Detener" ends the task. A call is
-    made at most once. A call whose arguments are over 1 500 characters, or hold characters that
-    cannot be shown as they are, is never made.
+    made at most once. What cannot be seen in the arguments (a direction mark, a variation
+    selector, a blank that is not a space) is shown as its code, in names and in values. A call
+    whose arguments are over 1 500 characters as shown is never made. Only a press in the app
+    answers a call: the same press from Telegram runs nothing.
   - AC4: once a server answered in a task, a call to another server always waits for "Permitir",
     read-only or not: what was read from one server never leaves towards another unasked.
   - AC5: a task carries the principal's words and what the tools answered, and nothing else: no

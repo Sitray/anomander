@@ -239,7 +239,6 @@ describe('DK-11: a task with connections', () => {
     script = [
       call(['notes__delete_all', {}]),
       call(['notes__create', { body: 'x'.repeat(3000) }]),
-      call(['notes__create', { body: 'abc‮def' }]),
       say('No puedo.'),
     ];
 
@@ -247,7 +246,52 @@ describe('DK-11: a task with connections', () => {
 
     expect(outcome).toEqual({ kind: 'answer', text: 'No puedo.' });
     expect(made).toEqual([]);
-    expect(given(contexts[3]).map((result) => result.isError)).toEqual([true, true, true]);
+    expect(given(contexts[2]).map((result) => result.isError)).toEqual([true, true]);
+  });
+
+  it('S3: shows what cannot be seen in the arguments as its code, in values and in names', async () => {
+    const hidden = {
+      // A direction mark, variation selectors, blanks that are not a space, tag characters.
+      'cla\u200Bve': 'abc\u202Edef',
+      v: 'hola\uFE00\uFE0F',
+      w: 'a\u00A0b\u3000c\u2800d\u3164e',
+      x: 'f\u{E0100}g\u{E0041}h',
+      plain: 'ñ € «ok» 😀',
+    };
+    script = [call(['notes__create', hidden])];
+
+    const outcome = asked(await start([notes()]).start('Apunta'));
+
+    expect(outcome.text).toBe(
+      [
+        'Quiero usar «create» de «notes» con:',
+        '{',
+        '  "cla\\u200bve": "abc\\u202edef",',
+        '  "v": "hola\\ufe00\\ufe0f",',
+        '  "w": "a\\u00a0b\\u3000c\\u2800d\\u3164e",',
+        '  "x": "f\\udb40\\udd00g\\udb40\\udc41h",',
+        '  "plain": "ñ € «ok» 😀"',
+        '}',
+      ].join('\n'),
+    );
+    // What runs is the call as it was asked for, not the text shown.
+    script = [say('Hecho.')];
+    await tasks.answer(outcome.id, true);
+    expect(made[0]?.args).toEqual(hidden);
+  });
+
+  it('leaves out a tool whose schema is too long to hand over', async () => {
+    script = [say('Nada.')];
+    const big = connection('notes', ['search', 'huge'], []);
+    const tools = big.tools.map((tool) =>
+      tool.name === 'huge'
+        ? { ...tool, inputSchema: { type: 'object', description: 'x'.repeat(9000) } }
+        : tool,
+    );
+
+    await start([{ ...big, tools }]).start('Busca');
+
+    expect(contexts[0]?.tools?.map((tool) => tool.name)).toEqual(['notes__search']);
   });
 
   it('a tool that fails or answers too much does not end the task', async () => {
@@ -304,7 +348,7 @@ describe('DK-11: a task with connections', () => {
 
   it('leaves out a tool whose name could not be shown as it is', async () => {
     script = [say('Nada.')];
-    const odd = connection('notes', ['search', 'crea»te', 'del‮ete', 'x'.repeat(90)], []);
+    const odd = connection('notes', ['search', 'crea»te', 'del\u202Eete', 'x'.repeat(90)], []);
 
     await start([odd]).start('Busca');
 

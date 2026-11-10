@@ -888,6 +888,29 @@ describe('a task with connections (DK-11)', () => {
     expect(made).toHaveLength(1);
   });
 
+  it('is answered in the app only: the same press from Telegram runs nothing', async () => {
+    const chat = await client(await start());
+    tooled = [calls('notes__create', { title: 'Hotel Sol' }), says('Apuntado.')];
+    const question = reply(await chat.ask({ type: 'connect', task }));
+    const [allow] = question.buttons;
+    if (allow === undefined || !('data' in allow)) throw new Error('no button to allow');
+
+    api.push(updates.callbackQuery({ chatId: PRINCIPAL }, allow.data, 1));
+    const [sent] = await api.waitForSent(1);
+
+    expect(sent?.text).toBe('Esa petición ya no está pendiente.');
+    expect(made).toEqual([]);
+
+    // It still waits in the app, and a press that is not one of its two is not one either.
+    const odd = { type: 'button' as const, data: `${allow.data}:extra` };
+    expect(reply(await chat.ask({ ...odd, channelRef: question.channelRef })).text).toBe(
+      'Esa petición ya no está pendiente.',
+    );
+    expect(JSON.stringify(logger.warn.mock.calls)).not.toContain(allow.data);
+    const press = { type: 'button' as const, data: allow.data, channelRef: question.channelRef };
+    expect(reply(await chat.ask(press)).text).toBe('Apuntado.');
+  });
+
   it('does nothing more on "Detener"', async () => {
     const chat = await client(await start());
     tooled = [calls('notes__create', { title: 'Hotel Sol' })];

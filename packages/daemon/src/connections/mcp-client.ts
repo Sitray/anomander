@@ -90,7 +90,8 @@ export const transportFor = (server: ServerConfig): Transport =>
         stderr: 'ignore',
       })
     : new StreamableHTTPClientTransport(new URL(server.url), {
-        requestInit: { headers: server.headers },
+        // A redirect would carry the headers, and the task, to an address nobody configured.
+        requestInit: { headers: server.headers, redirect: 'error' },
       });
 
 export interface Connections {
