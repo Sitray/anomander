@@ -11,6 +11,7 @@ import { createFileCredentialStore } from './auth/file-credential-store.ts';
 import { loadConfig } from './config.ts';
 import { createConnectionGaps, resolveModels } from './setup/setup-guide.ts';
 import { DaemonAlreadyRunningError } from './store/daemon-lock.ts';
+import { stopsWithParent, stopWhenParentGoes } from './supervised.ts';
 
 // The exit code tells whoever started the daemon why it stopped (`exitCodes`).
 const fail = (message: string, code: ExitCode = exitCodes.failed): never => {
@@ -89,8 +90,11 @@ anomander.localChannel?.then(
   (error) => fail(`local channel could not listen: ${reason(error)}`),
 );
 
-const stop = (signal: NodeJS.Signals): void => {
-  console.info(`anomander daemon stopping (${signal})`);
+let stopping = false;
+const stop = (cause: string): void => {
+  if (stopping) return;
+  stopping = true;
+  console.info(`anomander daemon stopping (${cause})`);
   anomander.stop().then(
     () => console.info('anomander daemon stopped'),
     (error) => fail(`could not stop cleanly: ${reason(error)}`),
@@ -99,3 +103,5 @@ const stop = (signal: NodeJS.Signals): void => {
 
 process.once('SIGTERM', stop);
 process.once('SIGINT', stop);
+// DK-1 AC1: under the desktop app, also when the app is gone without a signal.
+if (stopsWithParent(process.env)) stopWhenParentGoes(process.stdin, () => stop('the app is gone'));
