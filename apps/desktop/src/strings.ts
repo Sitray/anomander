@@ -62,7 +62,7 @@ export const strings = {
     emptyBody:
       'Escríbelo como te salga, por ejemplo «23\u00a0€\u00a0cena», o suelta aquí la foto de un ticket.',
 
-    placeholder: 'Escribe un gasto…',
+    placeholder: 'Escribe algo…',
     message: 'Mensaje',
     send: 'Enviar',
     attach: 'Adjuntar fotos',
