@@ -76,6 +76,8 @@ export const shell = {
   saveSetup: (setup: SetupInput): Promise<Snapshot> => invoke('save_setup', { setup }),
   startDaemon: (): Promise<void> => invoke('start_daemon'),
   stopDaemon: (): Promise<void> => invoke('stop_daemon'),
+  /** Whether the chat waits for an answer, which the menu bar shows (DK-6). */
+  setThinking: (thinking: boolean): Promise<void> => invoke('set_thinking', { thinking }),
   onSnapshot: (handler: (snapshot: Snapshot) => void): Promise<UnlistenFn> =>
     listen<Snapshot>(SNAPSHOT_EVENT, (event) => handler(event.payload)),
 };

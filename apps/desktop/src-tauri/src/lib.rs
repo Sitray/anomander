@@ -63,7 +63,7 @@ impl Publisher {
         let app = self.app.clone();
         if let Err(error) = self
             .app
-            .run_on_main_thread(move || tray::show(&app, &status))
+            .run_on_main_thread(move || tray::show_status(&app, &status))
         {
             eprintln!("could not update the menu bar: {error}");
         }
@@ -130,6 +130,14 @@ async fn stop_daemon(app: AppHandle) -> Result<(), String> {
         Ok(())
     })
     .await
+}
+
+/// The chat waits for an answer, or no longer does: the menu bar shows it.
+#[tauri::command]
+fn set_thinking(app: AppHandle, thinking: bool) -> Result<(), String> {
+    let handle = app.clone();
+    app.run_on_main_thread(move || tray::show_thinking(&handle, thinking))
+        .map_err(|error| error.to_string())
 }
 
 fn on_menu(app: &AppHandle, id: &str) {
@@ -220,7 +228,8 @@ pub fn run() {
             get_snapshot,
             save_setup,
             start_daemon,
-            stop_daemon
+            stop_daemon,
+            set_thinking
         ])
         .setup(set_up)
         .on_window_event(|window, event| {

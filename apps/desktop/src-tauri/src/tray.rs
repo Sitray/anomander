@@ -1,9 +1,12 @@
 // DK-6: the menu bar icon shows whether ANOMANDER is running, stopped or failing (AC1), and its
-// menu opens the chat, starts or stops ANOMANDER, and quits (AC2). The texts are read by the
+// menu opens the chat, starts or stops ANOMANDER, and quits (AC2). While the chat waits for an
+// answer, the icon also shows that ANOMANDER is thinking. The texts are read by the
 // principal, so they are Spanish (es-ES); the icon is drawn here, as a template image.
+use std::sync::{Mutex, PoisonError};
 use tauri::image::Image;
 use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
 use tauri::tray::TrayIconBuilder;
+
 use tauri::{App, AppHandle, Manager, Wry};
 
 use crate::snapshot::{DaemonState, DaemonStatus, StopReason};
@@ -28,8 +31,40 @@ const STOP: &str = "Detener ANOMANDER";
 /// the setup screen by itself.
 const SET_UP: &str = "Configurar ANOMANDER…";
 
-pub fn labels(status: &DaemonStatus) -> Labels {
+/// What the menu bar shows: the daemon's status, and whether the chat waits for an answer.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct View {
+    pub status: DaemonStatus,
+    pub thinking: bool,
+}
+
+/// How the icon is drawn. Thinking only shows on a running daemon: one that is not running owes
+/// nothing, whatever the window last said.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Look {
+    Running,
+    Thinking,
+    Stopped,
+    Starting,
+    Failing,
+}
+
+impl View {
+    pub fn look(&self) -> Look {
+        match self.status.state {
+            DaemonState::Running if self.thinking => Look::Thinking,
+            DaemonState::Running => Look::Running,
+            DaemonState::Stopped => Look::Stopped,
+            DaemonState::Starting => Look::Starting,
+            DaemonState::Failing => Look::Failing,
+        }
+    }
+}
+
+pub fn labels(view: &View) -> Labels {
+    let status = &view.status;
     let (status, toggle) = match (status.state, status.reason) {
+        (DaemonState::Running, _) if view.thinking => ("ANOMANDER está pensando…", STOP),
         (DaemonState::Running, _) => ("ANOMANDER está en marcha", STOP),
         (DaemonState::Starting, _) => ("ANOMANDER está arrancando…", STOP),
         (DaemonState::Failing, _) => ("ANOMANDER se ha caído; reiniciando…", STOP),
@@ -60,10 +95,11 @@ pub fn labels(status: &DaemonStatus) -> Labels {
     Labels { status, toggle }
 }
 
-/// The menu items whose text follows the status.
+/// The menu items whose text follows the status, and what they show now.
 pub struct TrayMenu {
     status: MenuItem<Wry>,
     toggle: MenuItem<Wry>,
+    view: Mutex<View>,
 }
 
 /// Builds the icon and its menu; `on_menu` gets the ID of the chosen item.
@@ -72,7 +108,11 @@ pub fn build(
     initial: &DaemonStatus,
     on_menu: impl Fn(&AppHandle, &str) + Send + Sync + 'static,
 ) -> tauri::Result<()> {
-    let texts = labels(initial);
+    let view = View {
+        status: initial.clone(),
+        thinking: false,
+    };
+    let texts = labels(&view);
     // The status reads as a heading: it cannot be chosen.
     let status = MenuItem::with_id(app, "status", texts.status, false, None::<&str>)?;
     let open = MenuItem::with_id(app, OPEN_CHAT, "Abrir chat", true, None::<&str>)?;
@@ -84,37 +124,64 @@ pub fn build(
         &[&status, &separator, &open, &toggle, &separator, &quit],
     )?;
     TrayIconBuilder::with_id(TRAY_ID)
-        .icon(icon(initial.state))
+        .icon(icon(view.look()))
         .icon_as_template(true)
         .tooltip(texts.status)
         .menu(&menu)
         .show_menu_on_left_click(true)
         .on_menu_event(move |app, event| on_menu(app, event.id().as_ref()))
         .build(app)?;
-    app.manage(TrayMenu { status, toggle });
+    app.manage(TrayMenu {
+        status,
+        toggle,
+        view: Mutex::new(view),
+    });
     Ok(())
 }
 
-/// Shows `status` in the menu bar. Runs on the main thread.
-pub fn show(app: &AppHandle, status: &DaemonStatus) {
-    let texts = labels(status);
+/// Shows the daemon's `status` in the menu bar. Runs on the main thread.
+pub fn show_status(app: &AppHandle, status: &DaemonStatus) {
+    change(app, |view| view.status = status.clone());
+}
+
+/// Shows whether the chat waits for an answer. Runs on the main thread.
+pub fn show_thinking(app: &AppHandle, thinking: bool) {
+    change(app, |view| view.thinking = thinking);
+}
+
+fn change(app: &AppHandle, update: impl FnOnce(&mut View)) {
+    let Some(menu) = app.try_state::<TrayMenu>() else {
+        return;
+    };
+    let view = {
+        let mut view = menu.view.lock().unwrap_or_else(PoisonError::into_inner);
+        let before = view.clone();
+        update(&mut view);
+        if *view == before {
+            return;
+        }
+        view.clone()
+    };
+    show(app, &menu, &view);
+}
+
+fn show(app: &AppHandle, menu: &TrayMenu, view: &View) {
+    let texts = labels(view);
     if let Some(tray) = app.tray_by_id(TRAY_ID) {
         let shown = tray
-            .set_icon(Some(icon(status.state)))
+            .set_icon(Some(icon(view.look())))
             .and_then(|()| tray.set_icon_as_template(true))
             .and_then(|()| tray.set_tooltip(Some(texts.status)));
         if let Err(error) = shown {
             eprintln!("could not update the menu bar icon: {error}");
         }
     }
-    if let Some(menu) = app.try_state::<TrayMenu>() {
-        let shown = menu
-            .status
-            .set_text(texts.status)
-            .and_then(|()| menu.toggle.set_text(texts.toggle));
-        if let Err(error) = shown {
-            eprintln!("could not update the menu bar menu: {error}");
-        }
+    let shown = menu
+        .status
+        .set_text(texts.status)
+        .and_then(|()| menu.toggle.set_text(texts.toggle));
+    if let Err(error) = shown {
+        eprintln!("could not update the menu bar menu: {error}");
     }
 }
 
@@ -131,12 +198,13 @@ const DIMMED: f32 = 0.42;
 /// - running: the solid mark;
 /// - stopped: the mark dimmed;
 /// - starting: the mark dimmed, with a small ring that says something is on its way;
+/// - thinking: the solid mark with three dots, as a chat shows the other side typing;
 /// - failing: the solid mark with an exclamation badge.
-pub fn icon(state: DaemonState) -> Image<'static> {
-    Image::new_owned(icon_rgba(state), SIZE, SIZE)
+pub fn icon(look: Look) -> Image<'static> {
+    Image::new_owned(icon_rgba(look), SIZE, SIZE)
 }
 
-fn icon_rgba(state: DaemonState) -> Vec<u8> {
+fn icon_rgba(look: Look) -> Vec<u8> {
     let mut rgba = Vec::with_capacity((SIZE * SIZE * 4) as usize);
     for y in 0..SIZE {
         for x in 0..SIZE {
@@ -145,7 +213,7 @@ fn icon_rgba(state: DaemonState) -> Vec<u8> {
                 for sx in 0..SAMPLES {
                     let px = x as f32 + (sx as f32 + 0.5) / SAMPLES as f32;
                     let py = y as f32 + (sy as f32 + 0.5) / SAMPLES as f32;
-                    total += opacity(state, px, py);
+                    total += opacity(look, px, py);
                 }
             }
             let alpha = (total / (SAMPLES * SAMPLES) as f32 * 255.0).round() as u8;
@@ -178,7 +246,7 @@ fn in_mark(point: (f32, f32)) -> bool {
 }
 
 /// How opaque the icon is at a point, from 0 to 1.
-fn opacity(state: DaemonState, x: f32, y: f32) -> f32 {
+fn opacity(look: Look, x: f32, y: f32) -> f32 {
     // The badge sits in the corner the mark leaves empty, where a notification badge goes, with
     // a clear gap around it so it reads at 18 points and the mark stays whole.
     const BADGE: (f32, f32) = (29.0, 7.5);
@@ -194,17 +262,30 @@ fn opacity(state: DaemonState, x: f32, y: f32) -> f32 {
             mark(strength)
         }
     };
-    match state {
-        DaemonState::Running => mark(1.0),
-        DaemonState::Stopped => mark(DIMMED),
-        DaemonState::Starting => {
+    match look {
+        Look::Running => mark(1.0),
+        Look::Stopped => mark(DIMMED),
+        Look::Thinking => {
+            // Three dots across the badge, with no disc around them, so they read as an ellipsis.
+            const DOT: f32 = 1.6;
+            let in_dot = [-4.2, 0.0, 4.2].iter().any(|offset| {
+                let (ex, ey) = (dx - offset, dy);
+                (ex * ex + ey * ey).sqrt() <= DOT
+            });
+            if in_dot {
+                1.0
+            } else {
+                badged_mark(1.0)
+            }
+        }
+        Look::Starting => {
             if (BADGE_RADIUS - 2.3..=BADGE_RADIUS).contains(&from_badge) {
                 1.0
             } else {
                 badged_mark(DIMMED)
             }
         }
-        DaemonState::Failing => {
+        Look::Failing => {
             let bar = dx.abs() <= 1.2 && (-3.9..=0.6).contains(&dy);
             let dot = dx.abs() <= 1.2 && (2.2..=4.2).contains(&dy);
             if from_badge <= BADGE_RADIUS {
@@ -224,11 +305,41 @@ fn opacity(state: DaemonState, x: f32, y: f32) -> f32 {
 mod tests {
     use super::*;
 
-    fn status(state: DaemonState, reason: Option<StopReason>) -> DaemonStatus {
-        DaemonStatus {
-            state,
-            reason,
-            last_error: None,
+    fn status(state: DaemonState, reason: Option<StopReason>) -> View {
+        View {
+            status: DaemonStatus {
+                state,
+                reason,
+                last_error: None,
+            },
+            thinking: false,
+        }
+    }
+
+    fn thinking(state: DaemonState) -> View {
+        View {
+            thinking: true,
+            ..status(state, None)
+        }
+    }
+
+    #[test]
+    fn a_running_daemon_that_owes_an_answer_says_it_is_thinking() {
+        let texts = labels(&thinking(DaemonState::Running));
+        assert_eq!(texts.status, "ANOMANDER está pensando…");
+        assert_eq!(texts.toggle, "Detener ANOMANDER");
+        assert_eq!(thinking(DaemonState::Running).look(), Look::Thinking);
+    }
+
+    #[test]
+    fn thinking_never_hides_a_daemon_that_is_not_running() {
+        for (state, look) in [
+            (DaemonState::Stopped, Look::Stopped),
+            (DaemonState::Starting, Look::Starting),
+            (DaemonState::Failing, Look::Failing),
+        ] {
+            assert_eq!(thinking(state).look(), look);
+            assert_eq!(labels(&thinking(state)), labels(&status(state, None)));
         }
     }
 
@@ -299,10 +410,13 @@ mod tests {
 
     #[test]
     fn a_daemon_that_never_ran_is_not_shown_as_merely_stopped() {
-        let never_ran = DaemonStatus {
-            state: DaemonState::Stopped,
-            reason: None,
-            last_error: Some("node was not found".into()),
+        let never_ran = View {
+            status: DaemonStatus {
+                state: DaemonState::Stopped,
+                reason: None,
+                last_error: Some("node was not found".into()),
+            },
+            thinking: false,
         };
         assert_eq!(labels(&never_ran).status, "ANOMANDER no ha podido arrancar");
         assert_eq!(
@@ -317,13 +431,14 @@ mod tests {
 
     #[test]
     fn each_state_has_its_own_template_icon() {
-        let states = [
-            DaemonState::Running,
-            DaemonState::Stopped,
-            DaemonState::Starting,
-            DaemonState::Failing,
+        let looks = [
+            Look::Running,
+            Look::Thinking,
+            Look::Stopped,
+            Look::Starting,
+            Look::Failing,
         ];
-        let icons: Vec<Vec<u8>> = states.iter().map(|state| icon_rgba(*state)).collect();
+        let icons: Vec<Vec<u8>> = looks.iter().map(|look| icon_rgba(*look)).collect();
         for (index, rgba) in icons.iter().enumerate() {
             assert_eq!(rgba.len(), (SIZE * SIZE * 4) as usize);
             // Template images: only the alpha channel carries the shape.
@@ -336,18 +451,18 @@ mod tests {
 
     #[test]
     fn a_stopped_mark_is_dimmed_and_a_running_one_is_solid() {
-        assert_eq!(strongest(&icon_rgba(DaemonState::Running)), 255);
-        let dimmed = strongest(&icon_rgba(DaemonState::Stopped));
+        assert_eq!(strongest(&icon_rgba(Look::Running)), 255);
+        let dimmed = strongest(&icon_rgba(Look::Stopped));
         assert!((90..=120).contains(&dimmed), "dimmed alpha was {dimmed}");
         // The badges are solid even on a dimmed mark, so they are what the eye finds.
-        assert_eq!(strongest(&icon_rgba(DaemonState::Starting)), 255);
-        assert_eq!(strongest(&icon_rgba(DaemonState::Failing)), 255);
+        assert_eq!(strongest(&icon_rgba(Look::Starting)), 255);
+        assert_eq!(strongest(&icon_rgba(Look::Failing)), 255);
     }
 
     #[test]
     fn the_mark_stays_inside_the_icon_with_a_clear_edge() {
-        for state in [DaemonState::Running, DaemonState::Failing] {
-            let rgba = icon_rgba(state);
+        for look in [Look::Running, Look::Thinking, Look::Failing] {
+            let rgba = icon_rgba(look);
             let alpha = |x: u32, y: u32| rgba[((y * SIZE + x) * 4 + 3) as usize];
             for i in 0..SIZE {
                 assert_eq!(alpha(i, 0), 0);

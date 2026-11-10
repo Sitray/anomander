@@ -76,7 +76,11 @@ export function App() {
           <>
             {/* Hidden, not unmounted: the conversation lives in memory only (DK-4). */}
             <div className="view" hidden={setupOpen}>
-              <ChatScreen daemon={snapshot.daemon} channel={snapshot.channel} />
+              <ChatScreen
+                daemon={snapshot.daemon}
+                channel={snapshot.channel}
+                onThinking={shell.setThinking}
+              />
             </div>
             {setupOpen && (
               <div className="view">

@@ -20,6 +20,8 @@ export interface Shell {
   dismissError(): void;
   /** Saves the setup, which restarts the daemon; rejects as the shell does when it refuses it. */
   saveSetup(input: SetupInput): Promise<Snapshot>;
+  /** Tells the menu bar whether the chat waits for an answer; a failure only loses that sign. */
+  setThinking(thinking: boolean): void;
 }
 
 export const useShell = (): Shell => {
@@ -89,5 +91,20 @@ export const useShell = (): Shell => {
     return saved;
   }, []);
 
-  return { snapshot, loadError, busy, commandError, reload, start, stop, dismissError, saveSetup };
+  const setThinking = useCallback((thinking: boolean) => {
+    shell.setThinking(thinking).catch(() => {});
+  }, []);
+
+  return {
+    snapshot,
+    loadError,
+    busy,
+    commandError,
+    reload,
+    start,
+    stop,
+    dismissError,
+    saveSetup,
+    setThinking,
+  };
 };

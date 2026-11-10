@@ -1,6 +1,6 @@
 // DK-4: the chat. The container: it owns the connection and the draft, and hands both to the
 // presentational list and composer.
-import { type DragEvent, useRef, useState } from 'react';
+import { type DragEvent, useEffect, useRef, useState } from 'react';
 import type { DaemonStatus, LocalChannel } from '../shell.ts';
 import { strings } from '../strings.ts';
 import { Composer } from './Composer.tsx';
@@ -13,6 +13,8 @@ export interface ChatScreenProps {
   daemon: DaemonStatus;
   /** Where the daemon listens; `null` unless it is running. */
   channel: LocalChannel | null;
+  /** Called whenever the chat starts or stops waiting for an answer, and with `false` on leaving. */
+  onThinking?: (thinking: boolean) => void;
 }
 
 /** Why there is no channel, in the principal's words. */
@@ -26,12 +28,16 @@ const withoutChannel = ({ state, reason }: DaemonStatus): string => {
 
 const carriesFiles = (event: DragEvent): boolean => event.dataTransfer.types.includes('Files');
 
-export function ChatScreen({ daemon, channel }: ChatScreenProps) {
+export function ChatScreen({ daemon, channel, onThinking }: ChatScreenProps) {
   const chat = useChat(channel);
   const draft = useDraft();
   const [dropping, setDropping] = useState(false);
   /** `dragenter` minus `dragleave`: both also fire for every child the pointer crosses. */
   const dragDepth = useRef(0);
+
+  const waiting = isWaiting(chat.conversation);
+  useEffect(() => onThinking?.(waiting), [waiting, onThinking]);
+  useEffect(() => () => onThinking?.(false), [onThinking]);
 
   const disabled = channel === null;
   const connecting = chat.conversation.connection !== 'open';
@@ -82,7 +88,7 @@ export function ChatScreen({ daemon, channel }: ChatScreenProps) {
     >
       <MessageList
         messages={chat.conversation.messages}
-        waiting={isWaiting(chat.conversation)}
+        waiting={waiting}
         onRetry={chat.retry}
         onPress={chat.press}
       />

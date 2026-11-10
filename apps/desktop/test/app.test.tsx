@@ -5,7 +5,14 @@ import { App } from '../src/App.tsx';
 import { type Snapshot, shell } from '../src/shell.ts';
 import { strings } from '../src/strings.ts';
 import { FakeWebSocket } from './fake-web-socket.ts';
-import { FILLED_SETUP, runningSnapshot, STARTING, stoppedSnapshot, TOKEN } from './fixtures.ts';
+import {
+  FILLED_SETUP,
+  replyTo,
+  runningSnapshot,
+  STARTING,
+  stoppedSnapshot,
+  TOKEN,
+} from './fixtures.ts';
 
 // The whole window against a mocked shell: never real Tauri.
 vi.mock('../src/shell.ts', () => ({
@@ -15,6 +22,7 @@ vi.mock('../src/shell.ts', () => ({
     startDaemon: vi.fn(),
     stopDaemon: vi.fn(),
     onSnapshot: vi.fn(),
+    setThinking: vi.fn(),
   },
 }));
 
@@ -36,6 +44,7 @@ beforeEach(() => {
   });
   mocked.startDaemon.mockResolvedValue(undefined);
   mocked.stopDaemon.mockResolvedValue(undefined);
+  mocked.setThinking.mockResolvedValue(undefined);
 });
 
 afterEach(() => {
@@ -236,5 +245,34 @@ describe('the setup', () => {
     fireEvent.click(screen.getByRole('button', { name: strings.status.closeSetup }));
 
     expect(screen.getByText('23 € cena')).toBeTruthy();
+  });
+});
+
+describe('thinking', () => {
+  const thinking = () => mocked.setThinking.mock.calls.map(([value]) => value);
+
+  it('tells the shell while an answer is owed, so the menu bar shows it', async () => {
+    await open(runningSnapshot());
+    act(() => FakeWebSocket.last.open());
+    expect(thinking()).not.toContain(true);
+
+    fireEvent.change(composer(), { target: { value: '23 € cena' } });
+    fireEvent.keyDown(composer(), { key: 'Enter' });
+    await waitFor(() => expect(thinking().at(-1)).toBe(true));
+
+    act(() => FakeWebSocket.last.receive(replyTo(FakeWebSocket.last.lastRequest.id)));
+    await waitFor(() => expect(thinking().at(-1)).toBe(false));
+  });
+
+  it('stops when the window goes away while an answer is owed', async () => {
+    const view = await open(runningSnapshot());
+    act(() => FakeWebSocket.last.open());
+    fireEvent.change(composer(), { target: { value: '23 € cena' } });
+    fireEvent.keyDown(composer(), { key: 'Enter' });
+    await waitFor(() => expect(thinking().at(-1)).toBe(true));
+
+    view.unmount();
+
+    expect(thinking().at(-1)).toBe(false);
   });
 });
