@@ -7,6 +7,7 @@ import {
 import type { AssistantMessage, Context } from '@earendil-works/pi-ai';
 import { z } from 'zod';
 import { AiBudgetExhaustedError } from '../budget/ai-budget.ts';
+import { isProviderLimit } from './provider-limit.ts';
 import type { Complete, Logger } from './text-interpreter.ts';
 
 // DK-10: a task on the principal's computer, one step at a time. The vision processor sees the
@@ -33,7 +34,9 @@ export type ComputerPlan =
   /** The task is over, done or not: the processor's own words. */
   | { kind: 'end'; text: string }
   | { kind: 'failed' }
-  | { kind: 'budget_exhausted' };
+  | { kind: 'budget_exhausted' }
+  /** The provider's own quota or rate limit is spent. */
+  | { kind: 'provider_limit' };
 
 export type ComputerPlanner = (input: ComputerPlannerInput) => Promise<ComputerPlan>;
 
@@ -66,7 +69,8 @@ const point = z.int().min(0).max(1000);
  * in a text would be an Enter nobody read) and no format character (one that reorders or hides
  * what is written).
  */
-const plain = (text: string): boolean => !/[\p{Cc}\p{Cf}]/u.test(text) && text.trim() !== '';
+const plain = (text: string): boolean =>
+  !/[\p{Cc}\p{Cf}\p{Zl}\p{Zp}\u115F\u1160\u3164\uFFA0]|\u034F/u.test(text) && text.trim() !== '';
 /** The processor's own judgement; when it gives none, the step is of care. */
 const sensitive = z.boolean().default(true);
 const planSchema = z.discriminatedUnion('kind', [
@@ -151,10 +155,10 @@ export const describeAction = (action: ComputerAction): string => {
  * or case: sending, paying, deleting, accepting, installing, signing out, passwords.
  */
 const CAREFUL_TARGET =
-  /envi|send|pag[aou]|pay|compr|buy|purchas|pedido|order|elimin|borr|delet|remov|vaci|empty|descart|discard|acept|accept|confirm|autoriz|authori|permit|allow|instal|publi|post|contrasen|password|sesion|log ?in|log ?out|sign ?(in|out|up)|transf|suscri|subscri|format|restabl|reset|apag|shut ?down|reinici|restart/;
+  /envi|send|submit|respond|reply|forward|compart|share|tweet|pag[aou]|pay|compr|buy|purchas|pedido|order|tramit|checkout|finaliz|reserv|donar|donat|bizum|retir|withdraw|tarjeta|elimin|borr|delet|remov|erase|quit|vaci|empty|papelera|trash|descart|discard|guard|save|reemplaz|replac|sobrescrib|overwrit|acept|accept|confirm|confiar|trust|acuerdo|agree|continu|autoriz|authori|permit|allow|firmar|instal|descarg|download|ejecut|publi|post|contrasen|password|clave|sesion|log ?in|log ?out|sign ?(in|out|up)|registr|acced|transf|suscri|subscri|format|restabl|reset|apag|shut ?down|reinici|restart|\b(ok|si|yes|pin|run|baja|salir|entrar|aplicar|apply|sign)\b/;
 
 /** The shortcuts that only move around, find, copy or open: Cmd with one of these keys. */
-const HARMLESS_WITH_CMD = new Set(['a', 'c', 'v', 'f', 'l', 't', 'n', 'r', 'space', 'tab']);
+const HARMLESS_WITH_CMD = new Set(['a', 'c', 'f', 'l', 't', 'n', 'space', 'tab']);
 
 /** DK-10 AC1: whether the code itself takes `action` for a step of care, whatever was said. */
 const looksCareful = (action: ComputerAction): boolean => {
@@ -235,10 +239,15 @@ export const createPiAiComputerPlanner =
       response = await complete(model, context);
     } catch (error) {
       if (error instanceof AiBudgetExhaustedError) return { kind: 'budget_exhausted' };
-      return fail(`processor call failed: ${(error as Error).message}`);
+      const reason = (error as Error).message;
+      fail(`processor call failed: ${reason}`);
+      return isProviderLimit(reason) ? { kind: 'provider_limit' } : { kind: 'failed' };
     }
     if (response.stopReason === 'error' || response.stopReason === 'aborted') {
-      return fail(`processor stopped: ${response.errorMessage ?? response.stopReason}`);
+      fail(`processor stopped: ${response.errorMessage ?? response.stopReason}`);
+      return isProviderLimit(response.errorMessage)
+        ? { kind: 'provider_limit' }
+        : { kind: 'failed' };
     }
     const plan = planSchema.safeParse(parseJson(responseText(response)));
     if (!plan.success) return fail('processor response is not one valid step');

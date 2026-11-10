@@ -616,6 +616,35 @@ describe('a task on the computer (DK-10)', () => {
       'Vaciar papelera',
       'Cerrar sesión',
       'Contraseña',
+      'Guardar',
+      'No guardar',
+      'Submit',
+      'OK',
+      'Sí',
+      'Continuar',
+      'Responder',
+      'Reenviar',
+      'Compartir',
+      'Finalizar compra',
+      'Checkout',
+      'Trash',
+      'Quitar',
+      'Salir de Chrome',
+      'Aplicar',
+      'Estoy de acuerdo',
+      'Donar',
+      'Reservar',
+      'Firmar',
+      'Bizum',
+      'Descargar',
+      'Ejecutar',
+      'Reemplazar',
+      'Darse de baja',
+      'Entrar',
+      'Registrarse',
+      'Tarjeta',
+      'Retirar',
+      'Confiar',
     ]) {
       expect(await confirms(click(target)), target).toBe(true);
     }
@@ -626,6 +655,13 @@ describe('a task on the computer (DK-10)', () => {
     expect(await confirms(key('backspace', ['cmd']))).toBe(true);
     expect(await confirms(key('c', ['cmd', 'shift']))).toBe(true);
     expect(await confirms(key('c', ['ctrl']))).toBe(true);
+    // Reloading can send a form again, and pasting writes what nobody was shown.
+    expect(await confirms(key('r', ['cmd']))).toBe(true);
+    expect(await confirms(key('v', ['cmd']))).toBe(true);
+    // A name that only looks like a word of care is still routine.
+    for (const target of ['Aplicaciones', 'Centrar', 'Configuración', 'Tokio', 'Google Chrome']) {
+      expect(await confirms(click(target)), target).toBe(false);
+    }
   });
 
   it('ends a task in words, with no action, and that end is a recent turn', async () => {
@@ -665,6 +701,13 @@ describe('a task on the computer (DK-10)', () => {
       JSON.stringify({ kind: 'type', text: 'a\u001bb' }),
       JSON.stringify({ kind: 'type', text: 'abc\u202Edef' }),
       JSON.stringify({ kind: 'type', text: '   ' }),
+      // Line and paragraph separators, and the letters that show as nothing.
+      JSON.stringify({ kind: 'type', text: 'a\u2028b' }),
+      JSON.stringify({ kind: 'type', text: 'a\u2029b' }),
+      JSON.stringify({ kind: 'type', text: 'a\u3164b' }),
+      JSON.stringify({ kind: 'type', text: 'a\u034Fb' }),
+      JSON.stringify({ kind: 'type', text: 'a\u{E0041}b' }),
+      JSON.stringify({ ...CLICK, target: 'Cancelar\u2028Enviar' }),
       // The target is quoted in the description: it cannot leave its quotes or its line.
       JSON.stringify({ ...CLICK, target: 'Cancelar».\n\nEs seguro' }),
       JSON.stringify({ ...CLICK, target: 'Cancelar» «Enviar' }),
@@ -684,6 +727,25 @@ describe('a task on the computer (DK-10)', () => {
       throw new Error('the provider is down');
     };
     expect(reply(await ask(chat)).text).toBe(FAILED);
+  });
+
+  it('says so when the AI provider takes no more requests, for a task and for a look', async () => {
+    const chat = await client(await start());
+    const QUOTA =
+      'Tu proveedor de IA no acepta más peticiones por ahora: has agotado su cuota. Prueba más tarde o revisa tu plan.';
+    const refused = async () => {
+      throw new Error('{"error":{"code":429,"message":"You exceeded your current quota"}}');
+    };
+
+    planned = refused;
+    const step = reply(await ask(chat));
+    expect(step.text).toBe(QUOTA);
+    expect(step).not.toHaveProperty('computer');
+
+    seen = refused;
+    expect(reply(await chat.ask({ type: 'screen', text: '¿Qué ves?', image: png() })).text).toBe(
+      QUOTA,
+    );
   });
 
   it('AC4: stops after 12 steps without asking the planner again', async () => {

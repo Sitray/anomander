@@ -171,6 +171,9 @@ export const strings = {
   computerTooManySteps: (steps: number) =>
     `He llegado al máximo de ${steps} pasos seguidos y paro aquí. Si quieres que siga, pídemelo otra vez.`,
   computerFailed: () => 'No he sabido qué hacer en tu ordenador. ¿Me lo pides de otra forma?',
+  /** The AI provider answered 429: its own quota or rate limit, not ANOMANDER's daily cap. */
+  providerLimitReached: () =>
+    'Tu proveedor de IA no acepta más peticiones por ahora: has agotado su cuota. Prueba más tarde o revisa tu plan.',
   screenNotSeen: () => 'No he podido ver tu pantalla. ¿Me lo vuelves a pedir en un rato?',
   textLimitReached: () =>
     'He llegado al límite diario de IA y hoy no puedo procesar más mensajes. ¿Me lo vuelves a enviar mañana?',

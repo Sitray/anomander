@@ -135,12 +135,25 @@ fn key_code(key: &str) -> Option<u16> {
 }
 
 /// The characters that write nothing and change how the rest reads: zero-width and direction
-/// marks, as the daemon's planner refuses them.
+/// marks, line and paragraph separators, and the letters that show as nothing, as the daemon's
+/// planner refuses them.
 fn is_format(character: char) -> bool {
     matches!(
         character,
         '\u{00AD}'
+            | '\u{034F}'
+            | '\u{0600}'..='\u{0605}'
             | '\u{061C}'
+            | '\u{06DD}'
+            | '\u{070F}'
+            | '\u{08E2}'
+            | '\u{115F}'..='\u{1160}'
+            | '\u{2028}'..='\u{2029}'
+            | '\u{3164}'
+            | '\u{FFA0}'
+            | '\u{110BD}'
+            | '\u{1D173}'..='\u{1D17A}'
+            | '\u{E0000}'..='\u{E007F}'
             | '\u{180E}'
             | '\u{200B}'..='\u{200F}'
             | '\u{202A}'..='\u{202E}'
@@ -497,6 +510,11 @@ mod tests {
         // A direction character would show the text in another order than it is typed.
         assert!(done(r#"{"kind":"type","text":"abc\u202edef"}"#).is_err());
         assert!(done(r#"{"kind":"type","text":"a\u200bb"}"#).is_err());
+        // A line separator, a letter that shows as nothing, a tag character.
+        assert!(done(r#"{"kind":"type","text":"a\u2028b"}"#).is_err());
+        assert!(done(r#"{"kind":"type","text":"a\u3164b"}"#).is_err());
+        assert!(done(r#"{"kind":"type","text":"a\u034fb"}"#).is_err());
+        assert!(done(r#"{"kind":"type","text":"a\udb40\udc41b"}"#).is_err());
         assert!(done(r#"{"kind":"type","text":""}"#).is_err());
         let long = format!(r#"{{"kind":"type","text":"{}"}}"#, "ñ".repeat(501));
         assert!(done(&long).is_err());

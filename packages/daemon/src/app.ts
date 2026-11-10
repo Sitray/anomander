@@ -409,13 +409,16 @@ export const startAnomander = <M>(config: Config, deps: AnomanderDeps<M>): Anoma
     (question: ScreenQuestion) => screenTurn(question.text),
     async (question: ScreenQuestion) => {
       const reading = await screenReader({ question: question.text, image: question.image });
-      if (reading.kind === 'answer') return { text: reading.text };
-      return {
-        text:
-          reading.kind === 'budget_exhausted'
-            ? strings.textLimitReached()
-            : strings.screenNotSeen(),
-      };
+      switch (reading.kind) {
+        case 'answer':
+          return { text: reading.text };
+        case 'budget_exhausted':
+          return { text: strings.textLimitReached() };
+        case 'provider_limit':
+          return { text: strings.providerLimitReached() };
+        case 'failed':
+          return { text: strings.screenNotSeen() };
+      }
     },
   );
 
@@ -440,6 +443,8 @@ export const startAnomander = <M>(config: Config, deps: AnomanderDeps<M>): Anoma
         return { text: plan.text };
       case 'budget_exhausted':
         return { text: strings.textLimitReached() };
+      case 'provider_limit':
+        return { text: strings.providerLimitReached() };
       case 'failed':
         return { text: strings.computerFailed() };
     }

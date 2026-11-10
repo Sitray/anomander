@@ -1,5 +1,6 @@
 import type { AssistantMessage, Context } from '@earendil-works/pi-ai';
 import { AiBudgetExhaustedError } from '../budget/ai-budget.ts';
+import { isProviderLimit } from './provider-limit.ts';
 import type { Complete, Logger } from './text-interpreter.ts';
 
 // The principal asks about what is on their screen, and the app sends the capture it took at
@@ -15,7 +16,9 @@ export interface ScreenReaderInput {
 export type ScreenReading =
   | { kind: 'answer'; text: string }
   | { kind: 'failed' }
-  | { kind: 'budget_exhausted' };
+  | { kind: 'budget_exhausted' }
+  /** The provider's own quota or rate limit is spent. */
+  | { kind: 'provider_limit' };
 
 /** The vision processor port for the screen. */
 export type ScreenReader = (input: ScreenReaderInput) => Promise<ScreenReading>;
@@ -78,10 +81,15 @@ export const createPiAiScreenReader =
       response = await complete(model, context);
     } catch (error) {
       if (error instanceof AiBudgetExhaustedError) return { kind: 'budget_exhausted' };
-      return fail(`processor call failed: ${(error as Error).message}`);
+      const reason = (error as Error).message;
+      fail(`processor call failed: ${reason}`);
+      return isProviderLimit(reason) ? { kind: 'provider_limit' } : { kind: 'failed' };
     }
     if (response.stopReason === 'error' || response.stopReason === 'aborted') {
-      return fail(`processor stopped: ${response.errorMessage ?? response.stopReason}`);
+      fail(`processor stopped: ${response.errorMessage ?? response.stopReason}`);
+      return isProviderLimit(response.errorMessage)
+        ? { kind: 'provider_limit' }
+        : { kind: 'failed' };
     }
     const text = responseText(response);
     if (text === '') return fail('the processor answered nothing');
