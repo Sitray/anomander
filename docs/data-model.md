@@ -279,6 +279,53 @@ CREATE TABLE digest_sends (
 
 A row is written only after the digest's send succeeded, so a failed one is tried again on the next minute. A day when every part of the digest is empty sends nothing but gets its row all the same: its digest was the empty one, so something added later that morning does not bring a late "Buenos días". The table holds no digest text.
 
+Ledger read access (RA-1 of the draft [`read-access-prd.md`](read-access-prd.md), milestone M5b) adds three views in the migration `0007_read_views.sql`. They are the whole contract for readers such as the daemon's read API: only `current` expenses are served, every row carries its `modo`, money stays in cents and `fecha` is the `YYYY-MM-DD` day in `TZ` of `expenses.occurred_on`. `origen` is `texto` for an expense with no document and `ticket` for a receipt. A missing merchant or category is `NULL`, never a dropped row. `pendientes_de_confirmar` always has exactly one row, `0` and `0` when nothing is pending:
+
+```sql
+-- Ledger read access (RA-1): what other applications read; they never touch the tables
+-- One row per current expense
+CREATE VIEW gastos AS
+SELECT
+  e.id          AS id,
+  e.occurred_on AS fecha,
+  m.name        AS comercio,
+  c.name        AS categoria,
+  e.total_cents AS total_cents,
+  e.mode        AS modo,
+  CASE WHEN e.document_id IS NULL THEN 'texto' ELSE 'ticket' END AS origen
+FROM expenses e
+LEFT JOIN entities m   ON m.id = e.merchant_id
+LEFT JOIN categories c ON c.id = e.category_id
+WHERE e.status = 'current';
+
+-- One row per purchase line of a current expense, any category
+CREATE VIEW lineas_de_compra AS
+SELECT
+  l.expense_id   AS gasto_id,
+  l.product_name AS producto,
+  l.quantity     AS cantidad,
+  l.amount_cents AS precio_cents,
+  m.name         AS comercio,
+  c.name         AS categoria,
+  e.occurred_on  AS fecha,
+  e.mode         AS modo
+FROM purchase_lines l
+JOIN expenses e        ON e.id = l.expense_id
+LEFT JOIN entities m   ON m.id = e.merchant_id
+LEFT JOIN categories c ON c.id = e.category_id
+WHERE e.status = 'current';
+
+-- Always one row: how many expenses wait for the principal, and their total
+CREATE VIEW pendientes_de_confirmar AS
+SELECT
+  count(*)                      AS cantidad,
+  coalesce(sum(total_cents), 0) AS total_cents
+FROM expenses
+WHERE status = 'pending';
+```
+
+`supermarket_purchases` stays as it was. Unlike `0003` to `0006`, `0007` is not yet a block of PRD §13: it joins it when the draft moves into `PRD.md`.
+
 Schema decisions:
 
 - **Money is stored in cents** (`INTEGER`), never as decimals, so that sums add up exactly.
@@ -290,5 +337,5 @@ Schema decisions:
 - **The daily AI budget is counted in the database** (`ai_usage`, one row per day in `TZ`), so a restart does not reset it, and `limit_notified` makes the limit notice go out once a day (PRD R-12).
 - **At most one pending decision waits for my text** (`awaiting_text`), enforced by a partial unique index (PRD R-17).
 - **The database does not stop the processor from writing "confirmed"; the code does.** The processor never writes directly: it returns inferences and proposals, and only the code that checks authority turns them into rows.
-- **The dashboard only reads the view.** It never touches the tables, so changing the internal schema does not break the app of apps as long as the view keeps returning the same columns.
+- **Readers only read views.** The dashboard reads `supermarket_purchases` and the read API reads `gastos`, `lineas_de_compra` and `pendientes_de_confirmar`; neither touches the tables, so changing the internal schema does not break the app of apps as long as the views keep returning the same columns. Changing or removing a view column breaks a consumer.
 - **Category names and view columns are in Spanish** because they are the principal's own scheme and the dashboard's labels. The rest of the schema is in English.
