@@ -1,0 +1,158 @@
+import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
+import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
+import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
+import type { Logger } from '../processor/text-interpreter.ts';
+import type { ConnectionsConfig, ServerConfig } from './config.ts';
+import type { Connection, ToolInfo } from './connection.ts';
+
+// DK-11: the MCP client. It connects to the servers of `mcp.json`, lists their tools and calls
+// one when `task.ts` decided that call runs. It decides nothing itself.
+
+const CONNECT_TIMEOUT_MS = 20_000;
+const CALL_TIMEOUT_MS = 60_000;
+/** The most pages of tools read from one server. */
+const MAX_TOOL_PAGES = 5;
+
+export interface ConnectedServer {
+  connection: Connection;
+  close(): Promise<void>;
+}
+
+/** Connects to the server behind `transport` and reads its tools. */
+export const connectTo = async (
+  name: string,
+  readOnly: readonly string[],
+  transport: Transport,
+  onClosed: () => void = () => {},
+): Promise<ConnectedServer> => {
+  const client = new Client({ name: 'anomander', version: '1.0.0' });
+  client.onclose = onClosed;
+  await client.connect(transport, { timeout: CONNECT_TIMEOUT_MS });
+  const tools: ToolInfo[] = [];
+  try {
+    let cursor: string | undefined;
+    for (let page = 0; page < MAX_TOOL_PAGES; page += 1) {
+      const listed = await client.listTools(cursor === undefined ? {} : { cursor }, {
+        timeout: CONNECT_TIMEOUT_MS,
+      });
+      for (const tool of listed.tools) {
+        tools.push({
+          name: tool.name,
+          description: tool.description ?? '',
+          inputSchema: tool.inputSchema,
+        });
+      }
+      cursor = listed.nextCursor;
+      if (cursor === undefined) break;
+    }
+  } catch (error) {
+    await client.close().catch(() => {});
+    throw error;
+  }
+  return {
+    connection: {
+      name,
+      tools,
+      readOnly: new Set(readOnly),
+      call: async (tool, args) => {
+        const result = await client.callTool({ name: tool, arguments: args }, undefined, {
+          timeout: CALL_TIMEOUT_MS,
+        });
+        const content = Array.isArray(result.content) ? result.content : [];
+        return {
+          // Only text goes back to the processor: the rest is named.
+          text: content
+            .map((part: { type: string; text?: unknown }) =>
+              part.type === 'text' && typeof part.text === 'string'
+                ? part.text
+                : `[${part.type} left out]`,
+            )
+            .join('\n'),
+          isError: result.isError === true,
+        };
+      },
+    },
+    close: () => client.close(),
+  };
+};
+
+/** How a configured server is reached. */
+export const transportFor = (server: ServerConfig): Transport =>
+  server.kind === 'process'
+    ? new StdioClientTransport({
+        command: server.command,
+        args: server.args,
+        // The SDK adds only HOME, LOGNAME, PATH, SHELL, TERM and USER: a server never gets the
+        // daemon's own environment, which holds its secrets.
+        env: server.env,
+        // What a server writes to its error output stays out of the daemon's own.
+        stderr: 'ignore',
+      })
+    : new StreamableHTTPClientTransport(new URL(server.url), {
+        requestInit: { headers: server.headers },
+      });
+
+export interface Connections {
+  /** The servers connected now. One not connected yet is tried, and left out if it fails. */
+  get(): Promise<Connection[]>;
+  close(): Promise<void>;
+}
+
+export interface ConnectionsDeps {
+  config: ConnectionsConfig;
+  logger: Logger;
+  /** How a server is reached; tests join one in memory. */
+  open?: (name: string, server: ServerConfig) => Promise<Transport>;
+}
+
+/**
+ * The connections, made when a task first needs them: a daemon that is never asked for one
+ * starts no server.
+ */
+export const createConnections = (deps: ConnectionsDeps): Connections => {
+  const { config, logger, open = async (_, server) => transportFor(server) } = deps;
+  const connected = new Map<string, ConnectedServer>();
+  /** One `get` at a time, so a server is never connected twice. */
+  let turn: Promise<unknown> = Promise.resolve();
+
+  const connectMissing = async (): Promise<Connection[]> => {
+    await Promise.all(
+      Object.entries(config)
+        .filter(([name]) => !connected.has(name))
+        .map(async ([name, server]) => {
+          try {
+            const made = await connectTo(name, server.readOnly, await open(name, server), () =>
+              connected.delete(name),
+            );
+            connected.set(name, made);
+            logger.info(`connected to ${name} (${made.connection.tools.length} tools)`);
+          } catch (error) {
+            // Its code only: a message may quote the address or a header.
+            logger.warn('could not connect to a server', {
+              server: name,
+              reason: (error as NodeJS.ErrnoException).code ?? (error as Error).name,
+            });
+          }
+        }),
+    );
+    // In the order the principal wrote them.
+    return Object.keys(config).flatMap((name) => {
+      const server = connected.get(name);
+      return server === undefined ? [] : [server.connection];
+    });
+  };
+
+  return {
+    get: () => {
+      const next = turn.then(connectMissing);
+      turn = next.catch(() => {});
+      return next;
+    },
+    close: async () => {
+      const servers = [...connected.values()];
+      connected.clear();
+      await Promise.all(servers.map((server) => server.close().catch(() => {})));
+    },
+  };
+};

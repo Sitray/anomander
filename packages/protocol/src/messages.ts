@@ -32,6 +32,13 @@ export interface ComputerRequest {
   receivedAt: string;
 }
 
+/** A task for the servers the principal connected (DK-11). */
+export interface ConnectRequest {
+  task: string;
+  channelRef: string;
+  receivedAt: string;
+}
+
 /** Proof that a reply reached the principal (R-9 AC2). */
 export interface Delivery {
   /** The sent message: `telegram:<message_id>`. */

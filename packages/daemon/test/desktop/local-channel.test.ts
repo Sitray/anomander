@@ -19,6 +19,8 @@ import Database from 'better-sqlite3';
 import { afterEach, beforeEach, describe, expect, it, type Mock, vi } from 'vitest';
 import { type Anomander, startAnomander, startSetupGuide } from '../../src/app.ts';
 import { loadConfig } from '../../src/config.ts';
+import type { Connection } from '../../src/connections/connection.ts';
+import { CONNECTION_TASK_PROMPT } from '../../src/connections/task.ts';
 import { COMPUTER_PLANNER_PROMPT } from '../../src/processor/computer-planner.ts';
 import { RECEIPT_READER_PROMPT } from '../../src/processor/receipt-reader.ts';
 import { REPLY_PHRASER_PROMPT } from '../../src/processor/reply-phraser.ts';
@@ -52,6 +54,10 @@ let planned: () => Promise<string>;
 let screens: Context[];
 /** What the screen reader answers; a test replaces it to make the call fail. */
 let seen: () => Promise<string>;
+/** The servers a task with connections finds connected. */
+let connected: Connection[];
+/** What the processor answers to a task with connections, one response per call. */
+let tooled: AssistantMessage['content'][];
 type Log = (message: string, fields?: Record<string, unknown>) => void;
 let logger: { info: Mock<Log>; warn: Mock<Log>; error: Mock<Log> };
 
@@ -63,6 +69,9 @@ const complete = async (_model: string, context: Context): Promise<AssistantMess
   if (context.systemPrompt === COMPUTER_PLANNER_PROMPT) {
     plans.push(context);
     return { ...reply, content: [{ type: 'text', text: await planned() }] };
+  }
+  if (context.systemPrompt === CONNECTION_TASK_PROMPT) {
+    return { ...reply, content: tooled.shift() ?? [] };
   }
   if (context.systemPrompt === SCREEN_READER_PROMPT) {
     screens.push(context);
@@ -90,7 +99,13 @@ const config = (env: Record<string, string> = {}) =>
 const start = async (env: Record<string, string> = { ANOMANDER_LOCAL_TOKEN: TOKEN }) => {
   anomander = startAnomander(
     { ...config(env), localPort: 0 },
-    { complete, model: 'openai/gpt-4o-mini', telegramApiRoot: api.apiRoot, logger },
+    {
+      complete,
+      model: 'openai/gpt-4o-mini',
+      telegramApiRoot: api.apiRoot,
+      logger,
+      connections: async () => connected,
+    },
   );
   await anomander.started;
   return anomander;
@@ -204,6 +219,8 @@ beforeEach(async () => {
   plans = [];
   planned = async () => JSON.stringify(CLICK);
   seen = async () => SEEN;
+  connected = [];
+  tooled = [];
   logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn() };
 });
 
@@ -801,5 +818,122 @@ describe('a task on the computer (DK-10)', () => {
     const answer = reply(await ask(chat));
     expect(answer.text).toBe(sent[0]?.text);
     expect(answer).not.toHaveProperty('computer');
+  });
+});
+
+describe('a task with connections (DK-11)', () => {
+  const task = 'Apunta en mis notas el hotel de Lisboa';
+  let made: { tool: string; args: unknown }[];
+  const notes = (): Connection => ({
+    name: 'notes',
+    tools: ['search', 'create'].map((name) => ({
+      name,
+      description: name,
+      inputSchema: { type: 'object' },
+    })),
+    readOnly: new Set(['search']),
+    call: async (tool, args) => {
+      made.push({ tool, args });
+      return { text: `result of ${tool}`, isError: false };
+    },
+  });
+  const calls = (name: string, args: Record<string, string>): AssistantMessage['content'] => [
+    { type: 'toolCall', id: `call-${name}`, name, arguments: args },
+  ];
+  const says = (text: string): AssistantMessage['content'] => [{ type: 'text', text }];
+
+  beforeEach(() => {
+    made = [];
+    connected = [notes()];
+  });
+
+  it('answers in words once the processor calls no more tools, and that end is a recent turn', async () => {
+    const chat = await client(await start());
+    tooled = [calls('notes__search', { query: 'Lisboa' }), says('No hay ninguna nota de Lisboa.')];
+
+    const answer = reply(await chat.ask({ type: 'connect', task }));
+
+    expect(answer.text).toBe('No hay ninguna nota de Lisboa.');
+    expect(answer.buttons).toEqual([]);
+    expect(made).toEqual([{ tool: 'search', args: { query: 'Lisboa' } }]);
+    expect(query('SELECT id FROM expenses')).toEqual([]);
+    expect(api.sent).toEqual([]);
+
+    await chat.ask({ type: 'text', text: '23 € cena' });
+    expect(interpreted.at(-1)?.recent).toEqual([
+      { principal: `[conexiones] ${task}`, reply: 'No hay ninguna nota de Lisboa.' },
+    ]);
+  });
+
+  it('asks before a call that is not read-only, and makes it once on "Permitir"', async () => {
+    const chat = await client(await start());
+    tooled = [calls('notes__create', { title: 'Hotel Sol' }), says('Apuntado.')];
+
+    const question = reply(await chat.ask({ type: 'connect', task }));
+
+    expect(made).toEqual([]);
+    expect(question.text).toBe(
+      'Quiero usar «create» de «notes» con:\n{\n  "title": "Hotel Sol"\n}',
+    );
+    expect(question.buttons.map((button) => button.label)).toEqual(['Permitir', 'Detener']);
+    const [allow] = question.buttons;
+    if (allow === undefined || !('data' in allow)) throw new Error('no button to allow');
+    expect(allow.data).toMatch(/^connection:[0-9a-f-]{36}:allow$/);
+
+    const press = { type: 'button' as const, data: allow.data, channelRef: question.channelRef };
+    expect(reply(await chat.ask(press)).text).toBe('Apuntado.');
+    expect(made).toEqual([{ tool: 'create', args: { title: 'Hotel Sol' } }]);
+
+    expect(reply(await chat.ask(press)).text).toBe('Esa petición ya no está pendiente.');
+    expect(made).toHaveLength(1);
+  });
+
+  it('does nothing more on "Detener"', async () => {
+    const chat = await client(await start());
+    tooled = [calls('notes__create', { title: 'Hotel Sol' })];
+    const question = reply(await chat.ask({ type: 'connect', task }));
+    const refuse = question.buttons[1];
+    if (refuse === undefined || !('data' in refuse)) throw new Error('no button to refuse');
+
+    const answer = reply(
+      await chat.ask({ type: 'button', data: refuse.data, channelRef: question.channelRef }),
+    );
+
+    expect(answer.text).toBe('Detenido. No he hecho nada más.');
+    expect(made).toEqual([]);
+  });
+
+  it('says so when no server is connected, and when the task goes wrong', async () => {
+    const chat = await client(await start());
+    connected = [];
+    expect(reply(await chat.ask({ type: 'connect', task })).text).toBe(
+      'No tengo ninguna conexión disponible. Añádelas en mcp.json, en la carpeta de datos de ANOMANDER, y reinicia.',
+    );
+
+    connected = [notes()];
+    tooled = [says('  ')];
+    expect(reply(await chat.ask({ type: 'connect', task })).text).toBe(
+      'No he podido hacerlo con tus conexiones. ¿Me lo pides de otra forma?',
+    );
+  });
+
+  it('rejects a task without words', async () => {
+    const chat = await client(await start());
+
+    expect((await chat.ask({ type: 'connect', task: '  ' })).type).toBe('rejected');
+    expect((await chat.ask({ type: 'connect', task, image: png() })).type).toBe('rejected');
+  });
+
+  it('answers with the setup guide while no model is usable (R-28)', async () => {
+    const guide = startSetupGuide(
+      { ...config({ ANOMANDER_LOCAL_TOKEN: TOKEN }), localPort: 0 },
+      { gaps: [{ kind: 'model_unset' }], telegramApiRoot: api.apiRoot, logger },
+    );
+    anomander = guide;
+    await guide.started;
+    const chat = await client(guide);
+
+    const sent = await api.waitForSent(1);
+    expect(reply(await chat.ask({ type: 'connect', task })).text).toBe(sent[0]?.text);
   });
 });

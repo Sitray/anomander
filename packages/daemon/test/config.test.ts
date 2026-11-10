@@ -50,6 +50,7 @@ describe('loadConfig', () => {
       apiPort: 4311,
       localToken: undefined,
       localPort: 4312,
+      mcpConfigPath: undefined,
     });
   });
 
@@ -69,5 +70,15 @@ describe('loadConfig', () => {
     ).toThrow(
       'invalid configuration: ANOMANDER_API_HOST must be an IP address; ANOMANDER_API_PORT must be a port from 1 to 65535',
     );
+  });
+
+  it('reads where the connections are configured (DK-11)', () => {
+    expect(
+      loadConfig({
+        TELEGRAM_BOT_TOKEN: '123:abc',
+        ANOMANDER_PRINCIPAL_CHAT_ID: '4242',
+        ANOMANDER_MCP_CONFIG: '/data/mcp.json',
+      }).mcpConfigPath,
+    ).toBe('/data/mcp.json');
   });
 });
