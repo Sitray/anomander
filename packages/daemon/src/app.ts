@@ -1,4 +1,10 @@
-import { type Notify, type ScreenQuestion, strings } from '@anomander/protocol';
+import {
+  type ComputerRequest,
+  MAX_COMPUTER_STEPS,
+  type Notify,
+  type ScreenQuestion,
+  strings,
+} from '@anomander/protocol';
 import {
   createTelegramBot,
   createTelegramDelete,
@@ -12,6 +18,7 @@ import { createReceiptQueue } from './budget/receipt-queue.ts';
 import type { Config } from './config.ts';
 import {
   buttonTurn,
+  computerTurn,
   createRecentTurns,
   receiptTurn,
   recordingNotices,
@@ -37,6 +44,7 @@ import {
   startLocalChannel,
 } from './local-channel/server.ts';
 import { createPatternOffers } from './patterns/pattern-offers.ts';
+import { createPiAiComputerPlanner } from './processor/computer-planner.ts';
 import { createPiAiCorrectionInterpreter } from './processor/correction-interpreter.ts';
 import { createPiAiReceiptReader } from './processor/receipt-reader.ts';
 import { createPiAiReplyPhraser } from './processor/reply-phraser.ts';
@@ -229,6 +237,7 @@ export const startSetupGuide = (config: Config, deps: SetupGuideDeps): Anomander
       onReceipt: async () => guide,
       onButton: async () => guide,
       onScreen: async () => guide,
+      onComputer: async () => guide,
     },
     logger,
   );
@@ -410,6 +419,32 @@ export const startAnomander = <M>(config: Config, deps: AnomanderDeps<M>): Anoma
     },
   );
 
+  // DK-10: the next step of a task on the computer. The budgeted call, as a look at the screen.
+  const computerPlanner = createPiAiComputerPlanner({
+    complete: ai,
+    model: deps.visionModel ?? model,
+    logger,
+  });
+  const planStep = async (request: ComputerRequest): Promise<TelegramReply> => {
+    // AC4: a task that long is stopped here, whatever the app does.
+    if (request.done.length >= MAX_COMPUTER_STEPS) {
+      return { text: strings.computerTooManySteps(MAX_COMPUTER_STEPS) };
+    }
+    const plan = await computerPlanner(request);
+    switch (plan.kind) {
+      case 'action':
+        return { text: plan.text, computer: plan.action };
+      case 'end':
+        // R-16 AC3: how the task ended is a recent turn; its steps are not.
+        turns.add(computerTurn(request.task), plan.text);
+        return { text: plan.text };
+      case 'budget_exhausted':
+        return { text: strings.textLimitReached() };
+      case 'failed':
+        return { text: strings.computerFailed() };
+    }
+  };
+
   // What every front door calls (DK-4 AC1). R-28: `/start`, and the guide while a provider is
   // not connected.
   const inTurn = oneTurnAtATime();
@@ -430,6 +465,10 @@ export const startAnomander = <M>(config: Config, deps: AnomanderDeps<M>): Anoma
     onScreen: inTurn(async (question) => {
       const gaps = await setupGaps();
       return gaps.length > 0 ? { text: setupGuide(gaps) } : recordedScreen(question);
+    }),
+    onComputer: inTurn(async (request) => {
+      const gaps = await setupGaps();
+      return gaps.length > 0 ? { text: setupGuide(gaps) } : planStep(request);
     }),
   };
 

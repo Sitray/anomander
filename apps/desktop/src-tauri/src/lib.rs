@@ -2,6 +2,7 @@
 // touched (docs/stack.md). It starts and supervises the daemon (DK-1), keeps the secrets in the
 // Keychain (DK-5), lives in the menu bar (DK-6) and owns the data folder (DK-8). The window's side
 // of every command and event is `apps/desktop/src/shell.ts`.
+pub mod computer;
 pub mod daemon;
 pub mod data_dir;
 pub mod notification;
@@ -184,6 +185,41 @@ async fn capture_screen(app: AppHandle) -> Result<tauri::ipc::Response, String> 
     captured.map(tauri::ipc::Response::new)
 }
 
+/// How long the app the principal was using takes to come back to the front once ours hides.
+const APP_LEAVES: Duration = Duration::from_millis(450);
+/// How long the screen takes to show what an action did, before it is captured again.
+const SCREEN_SETTLES: Duration = Duration::from_millis(900);
+
+/// DK-10 AC1: performs the one action the principal just allowed in the chat, and answers with a
+/// JPEG of the screen as that action left it. The app hides for it, so the click or the keys go
+/// to the app the principal was using.
+#[tauri::command]
+async fn perform_action(
+    app: AppHandle,
+    action: computer::Action,
+) -> Result<tauri::ipc::Response, String> {
+    if !computer::allowed() {
+        return Err(computer::NO_PERMISSION.into());
+    }
+    if !screen::allowed() {
+        return Err(screen::NO_PERMISSION.into());
+    }
+    app.hide().map_err(|error| error.to_string())?;
+    let captured = blocking(app.clone(), move |shell| {
+        std::thread::sleep(APP_LEAVES);
+        computer::perform(&action, computer::screen_size(), &mut computer::SystemInput)?;
+        std::thread::sleep(SCREEN_SETTLES);
+        screen::capture(shell.core.data_root())
+    })
+    .await;
+    // Whatever happened, the chat comes back.
+    if let Err(error) = app.show() {
+        eprintln!("could not show the app again: {error}");
+    }
+    show_chat(&app);
+    captured.map(tauri::ipc::Response::new)
+}
+
 fn on_menu(app: &AppHandle, id: &str) {
     match id {
         tray::OPEN_CHAT => show_chat(app),
@@ -277,7 +313,8 @@ pub fn run() {
             stop_daemon,
             set_thinking,
             notify_reply,
-            capture_screen
+            capture_screen,
+            perform_action
         ])
         .setup(set_up)
         .on_window_event(|window, event| {

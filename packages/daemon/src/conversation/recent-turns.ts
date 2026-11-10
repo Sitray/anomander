@@ -67,6 +67,9 @@ export const recordingNotices =
     turns.add(null, message.text);
   };
 
+/** How a task on the computer appears in the recent turns: what was asked, never the screen. */
+export const computerTurn = (task: string): string => `[control del ordenador] ${task}`;
+
 /** How a question about the screen appears in the recent turns: no image, only the question. */
 export const screenTurn = (question: string): string => `[captura de pantalla] ${question}`;
 

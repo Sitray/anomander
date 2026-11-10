@@ -1,6 +1,8 @@
 // The contract between a front door (apps/telegram) and the daemon. A front door decides who
 // may talk (R-1) and which inputs are supported (R-20); the daemon decides what a text means.
 
+import type { ComputerAction } from './local-channel.ts';
+
 /** A text the principal sent, already past the principal check. */
 export interface PrincipalText {
   text: string;
@@ -16,6 +18,16 @@ export interface PrincipalText {
 export interface ScreenQuestion {
   text: string;
   image: { mimeType: string; data: Uint8Array };
+  channelRef: string;
+  receivedAt: string;
+}
+
+/** One step of a task on the principal's computer (DK-10), with the screen as it is now. */
+export interface ComputerRequest {
+  task: string;
+  image: { mimeType: string; data: Uint8Array };
+  /** The steps already performed, as they were described, oldest first. */
+  done: string[];
   channelRef: string;
   receivedAt: string;
 }
@@ -38,6 +50,8 @@ export interface Reply {
   text: string;
   /** Shown under `text`, in one row (R-6 AC3). */
   buttons?: ReplyButton[];
+  /** DK-10: the action `text` proposes on the principal's computer. Only the app can show it. */
+  computer?: ComputerAction;
   /** Called once the front door has sent `text`, to record the delivery. */
   onDelivered?: (delivery: Delivery) => void;
 }

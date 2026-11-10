@@ -19,6 +19,7 @@ import Database from 'better-sqlite3';
 import { afterEach, beforeEach, describe, expect, it, type Mock, vi } from 'vitest';
 import { type Anomander, startAnomander, startSetupGuide } from '../../src/app.ts';
 import { loadConfig } from '../../src/config.ts';
+import { COMPUTER_PLANNER_PROMPT } from '../../src/processor/computer-planner.ts';
 import { RECEIPT_READER_PROMPT } from '../../src/processor/receipt-reader.ts';
 import { REPLY_PHRASER_PROMPT } from '../../src/processor/reply-phraser.ts';
 import { SCREEN_READER_PROMPT } from '../../src/processor/screen-reader.ts';
@@ -34,6 +35,7 @@ const recorded = (path: string): AssistantMessage =>
 const PHRASED = '¡Hecho! He apuntado 23,00 € de la cena en restaurantes.';
 const S19 = 'Esa pregunta ya no está abierta.';
 const SEEN = 'Tienes abierto un correo de Marta sobre la cena del viernes.';
+const CLICK = { kind: 'click', x: 512, y: 80, double: false, target: 'Enviar' };
 const NOT_SEEN = 'No he podido ver tu pantalla. ¿Me lo vuelves a pedir en un rato?';
 
 let scratch: string;
@@ -42,6 +44,10 @@ let anomander: Anomander | undefined;
 let sockets: WebSocket[];
 /** The user turns the text interpreter received, parsed. */
 let interpreted: { recent: unknown; message: string }[];
+/** The contexts the computer planner received. */
+let plans: Context[];
+/** What the computer planner answers, as the text of its response. */
+let planned: () => Promise<string>;
 /** The contexts the screen reader received. */
 let screens: Context[];
 /** What the screen reader answers; a test replaces it to make the call fail. */
@@ -54,6 +60,10 @@ const complete = async (_model: string, context: Context): Promise<AssistantMess
     return recorded('receipt-reader/lines-mismatch');
   }
   const reply = recorded('text-interpreter/expense-23-space-euro');
+  if (context.systemPrompt === COMPUTER_PLANNER_PROMPT) {
+    plans.push(context);
+    return { ...reply, content: [{ type: 'text', text: await planned() }] };
+  }
   if (context.systemPrompt === SCREEN_READER_PROMPT) {
     screens.push(context);
     return { ...reply, content: [{ type: 'text', text: await seen() }] };
@@ -191,6 +201,8 @@ beforeEach(async () => {
   sockets = [];
   interpreted = [];
   screens = [];
+  plans = [];
+  planned = async () => JSON.stringify(CLICK);
   seen = async () => SEEN;
   logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn() };
 });
@@ -499,5 +511,158 @@ describe('a question about the screen', () => {
     expect(reply(await chat.ask({ type: 'screen', text: question, image: png() })).text).toBe(
       sent[0]?.text,
     );
+  });
+});
+
+describe('a task on the computer (DK-10)', () => {
+  const task = 'Envía el correo que tengo abierto';
+  const ask = (chat: Awaited<ReturnType<typeof client>>, done: string[] = []) =>
+    chat.ask({ type: 'computer', task, image: png(), done });
+
+  it('AC2: proposes one action from the capture, without tools, and does nothing itself', async () => {
+    const chat = await client(await start());
+    const image = png();
+
+    const answer = reply(await chat.ask({ type: 'computer', task, image, done: ['Paso uno'] }));
+
+    expect(answer.text).toBe('Quiero hacer clic en «Enviar».');
+    expect(answer.computer).toEqual(CLICK);
+    expect(plans).toHaveLength(1);
+    const [context] = plans;
+    expect(context).not.toHaveProperty('tools');
+    expect(context?.messages).toHaveLength(1);
+    expect(context?.messages[0]?.content).toEqual([
+      { type: 'text', text: JSON.stringify({ task, done: ['Paso uno'] }) },
+      { type: 'image', mimeType: 'image/png', data: image.data },
+    ]);
+    expect(query('SELECT id FROM expenses')).toEqual([]);
+    expect(api.sent).toEqual([]);
+  });
+
+  it('AC3: says in code what each action is, with the exact text or keys', async () => {
+    const chat = await client(await start());
+    const proposes = async (action: Record<string, unknown>) => {
+      planned = async () => JSON.stringify(action);
+      return reply(await ask(chat));
+    };
+
+    const double = await proposes({ ...CLICK, double: true });
+    expect(double.text).toBe('Quiero hacer doble clic en «Enviar».');
+
+    const typing = await proposes({ kind: 'type', text: 'Hola, Marta:' });
+    expect(typing.text).toBe('Quiero escribir: «Hola, Marta:»');
+    expect(typing.computer).toEqual({ kind: 'type', text: 'Hola, Marta:' });
+
+    const keys = await proposes({ kind: 'key', key: 'c', modifiers: ['cmd', 'shift'] });
+    expect(keys.text).toBe('Quiero pulsar ⇧⌘C.');
+    expect((await proposes({ kind: 'key', key: 'enter', modifiers: [] })).text).toBe(
+      'Quiero pulsar Intro.',
+    );
+
+    const scroll = await proposes({ kind: 'scroll', x: 500, y: 500, direction: 'down' });
+    expect(scroll.text).toBe('Quiero desplazar la pantalla hacia abajo.');
+    expect(scroll.computer).toEqual({ kind: 'scroll', x: 500, y: 500, direction: 'down' });
+  });
+
+  it('ends a task in words, with no action, and that end is a recent turn', async () => {
+    const chat = await client(await start());
+    planned = async () => JSON.stringify({ kind: 'done', message: 'Correo enviado.' });
+
+    const end = reply(await ask(chat, ['Quiero hacer clic en «Enviar».']));
+    expect(end.text).toBe('Correo enviado.');
+    expect(end).not.toHaveProperty('computer');
+
+    planned = async () => JSON.stringify({ kind: 'cannot', message: 'No veo ningún correo.' });
+    expect(reply(await ask(chat)).text).toBe('No veo ningún correo.');
+
+    await chat.ask({ type: 'text', text: '23 € cena' });
+    expect(interpreted.at(-1)?.recent).toEqual([
+      { principal: `[control del ordenador] ${task}`, reply: 'Correo enviado.' },
+      { principal: `[control del ordenador] ${task}`, reply: 'No veo ningún correo.' },
+    ]);
+  });
+
+  it('proposes nothing when the plan is not exactly one valid action', async () => {
+    const chat = await client(await start());
+    const FAILED = 'No he sabido qué hacer en tu ordenador. ¿Me lo pides de otra forma?';
+    const invalid = [
+      'haz clic en enviar',
+      JSON.stringify({ ...CLICK, x: 1001 }),
+      JSON.stringify({ ...CLICK, y: -1 }),
+      JSON.stringify({ ...CLICK, x: 1.5 }),
+      JSON.stringify({ ...CLICK, shell: 'rm -rf' }),
+      JSON.stringify({ kind: 'run', command: 'rm -rf ~' }),
+      JSON.stringify({ kind: 'type', text: '' }),
+      JSON.stringify({ kind: 'type', text: 'x'.repeat(501) }),
+      JSON.stringify({ kind: 'key', key: 'f13', modifiers: [] }),
+      JSON.stringify({ kind: 'key', key: 'c', modifiers: ['hyper'] }),
+      JSON.stringify([CLICK, CLICK]),
+    ];
+    for (const plan of invalid) {
+      planned = async () => plan;
+      const answer = reply(await ask(chat));
+      expect(answer.text, plan).toBe(FAILED);
+      expect(answer, plan).not.toHaveProperty('computer');
+    }
+
+    planned = async () => {
+      throw new Error('the provider is down');
+    };
+    expect(reply(await ask(chat)).text).toBe(FAILED);
+  });
+
+  it('AC4: stops after 12 steps without asking the planner again', async () => {
+    const chat = await client(await start());
+    const done = Array.from({ length: 12 }, (_, index) => `Paso ${index + 1}`);
+
+    const answer = reply(await ask(chat, done));
+
+    expect(answer.text).toBe(
+      'He llegado al máximo de 12 pasos seguidos y paro aquí. Si quieres que siga, pídemelo otra vez.',
+    );
+    expect(answer).not.toHaveProperty('computer');
+    expect(plans).toEqual([]);
+    expect((await ask(chat, [...done, 'Paso 13'])).type).toBe('rejected');
+  });
+
+  it('counts each step against the daily AI limit (R-12)', async () => {
+    const chat = await client(
+      await start({ ANOMANDER_LOCAL_TOKEN: TOKEN, ANOMANDER_DAILY_AI_CALL_LIMIT: '1' }),
+    );
+
+    expect(reply(await ask(chat)).computer).toEqual(CLICK);
+    const second = reply(await ask(chat));
+    expect(second.text).toBe(
+      'He llegado al límite diario de IA y hoy no puedo procesar más mensajes. ¿Me lo vuelves a enviar mañana?',
+    );
+    expect(second).not.toHaveProperty('computer');
+  });
+
+  it('rejects a task without words or without an image', async () => {
+    const chat = await client(await start());
+
+    expect((await chat.ask({ type: 'computer', task: ' ', image: png(), done: [] })).type).toBe(
+      'rejected',
+    );
+    const pdf = { mimeType: 'application/pdf', data: png().data };
+    expect((await chat.ask({ type: 'computer', task, image: pdf, done: [] })).type).toBe(
+      'rejected',
+    );
+    expect(plans).toEqual([]);
+  });
+
+  it('answers with the setup guide while no model is usable (R-28)', async () => {
+    const guide = startSetupGuide(
+      { ...config({ ANOMANDER_LOCAL_TOKEN: TOKEN }), localPort: 0 },
+      { gaps: [{ kind: 'model_unset' }], telegramApiRoot: api.apiRoot, logger },
+    );
+    anomander = guide;
+    await guide.started;
+    const chat = await client(guide);
+
+    const sent = await api.waitForSent(1);
+    const answer = reply(await ask(chat));
+    expect(answer.text).toBe(sent[0]?.text);
+    expect(answer).not.toHaveProperty('computer');
   });
 });
