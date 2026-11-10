@@ -45,6 +45,27 @@ describe('loadConfig', () => {
       inboxDir: './data/inbox',
       authPath: './data/auth.json',
       timeZone: 'Europe/Madrid',
+      apiToken: undefined,
+      apiHost: '127.0.0.1',
+      apiPort: 4311,
     });
+  });
+
+  // RA-2 AC1, AC3 (docs/read-access-prd.md): the read API's token, address and port.
+  it('reads the read API settings and rejects a host that is not an address or a bad port', () => {
+    const required = { TELEGRAM_BOT_TOKEN: '123:abc', ANOMANDER_PRINCIPAL_CHAT_ID: '4242' };
+    expect(
+      loadConfig({
+        ...required,
+        ANOMANDER_API_TOKEN: 's3cret',
+        ANOMANDER_API_HOST: '100.64.0.7',
+        ANOMANDER_API_PORT: '8080',
+      }),
+    ).toMatchObject({ apiToken: 's3cret', apiHost: '100.64.0.7', apiPort: 8080 });
+    expect(() =>
+      loadConfig({ ...required, ANOMANDER_API_HOST: 'example.com', ANOMANDER_API_PORT: '70000' }),
+    ).toThrow(
+      'invalid configuration: ANOMANDER_API_HOST must be an IP address; ANOMANDER_API_PORT must be a port from 1 to 65535',
+    );
   });
 });

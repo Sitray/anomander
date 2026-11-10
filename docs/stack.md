@@ -82,7 +82,7 @@ Receipts are read by default with an external vision model, because it reads cro
 
 **Models:** first through a subscription or an API key, chosen at install time; no model is hard-coded. An API key goes in `.env`; a subscription login (Claude, ChatGPT or GitHub Copilot) is made with `/login` in Telegram or `pnpm run login` on the server and stored by pi-ai in the file at `ANOMANDER_AUTH_PATH` (default `./data/auth.json`, mode 600, in the data volume). Each provider sets its own terms for using a subscription outside its apps; check them before connecting. Local models come later, for example served by Ollama on another machine and reached over a private network.
 
-**Hosting:** locally with `docker compose up` during development, and a small VPS with Docker and a persistent volume once it should run 24/7. Telegram long polling needs no public URL or open port.
+**Hosting:** locally with `docker compose up` during development, and a small VPS with Docker and a persistent volume once it should run 24/7. Telegram long polling needs no public URL or open port. The read API for other applications (`docs/read-access-prd.md`) is off unless `ANOMANDER_API_TOKEN` is set, and binds to `127.0.0.1` unless `ANOMANDER_API_HOST` names a private network's address.
 
 **Who else uses this data.** The supermarket dashboard in the app of apps is just another consumer: it reads supermarket expenses with their purchase lines, and they show up there automatically once registered. The dashboard does not decide what is true: it shows each expense with its mode and marks as pending those not yet confirmed or corroborated. The ontology is the contract between ANOMANDER and any app that reads its data.
 

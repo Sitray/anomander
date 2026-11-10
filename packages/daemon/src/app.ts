@@ -36,6 +36,7 @@ import { createPiAiReplyPhraser } from './processor/reply-phraser.ts';
 import { withRetry } from './processor/retry.ts';
 import { type Complete, createPiAiTextInterpreter } from './processor/text-interpreter.ts';
 import { withTimeout } from './processor/timeout.ts';
+import { type ReadApiAddress, startReadApi } from './read-api/server.ts';
 import { createDueReminders } from './reminders/send-due.ts';
 import { createKeepReceiptAnswerHandler } from './retention/keep-receipt-decision.ts';
 import { createRetention } from './retention/retention-job.ts';
@@ -79,6 +80,11 @@ type LoginDeps = Pick<TelegramLoginDeps, 'models' | 'credentials' | 'getDeviceId
 export interface Anomander {
   /** Resolves when the store is ready and the bot polls for messages. */
   started: Promise<void>;
+  /**
+   * Resolves with the read API's address once it listens (RA-2); `undefined` while
+   * `ANOMANDER_API_TOKEN` is unset, when no port is opened at all (AC1).
+   */
+  readApi: Promise<ReadApiAddress> | undefined;
   stop(): Promise<void>;
 }
 
@@ -114,7 +120,8 @@ export interface SetupGuideDeps {
 
 /**
  * R-28: the bot that runs while `.env` names no usable model. It answers everything with the
- * guide, except `/login` and `/logout` (R-17 AC7); no processor, store or scheduled job runs.
+ * guide, except `/login` and `/logout` (R-17 AC7); no processor, store, scheduled job or read API
+ * runs.
  */
 export const startSetupGuide = (config: Config, deps: SetupGuideDeps): Anomander => {
   const { gaps, logger = console } = deps;
@@ -160,6 +167,7 @@ export const startSetupGuide = (config: Config, deps: SetupGuideDeps): Anomander
   );
   return {
     started,
+    readApi: undefined,
     stop: async () => {
       login?.stop();
       await bot.stop();
@@ -350,6 +358,19 @@ export const startAnomander = <M>(config: Config, deps: AnomanderDeps<M>): Anoma
     logger,
   });
 
+  // RA-2: the read API, only while `ANOMANDER_API_TOKEN` is set (AC1). It opens its own
+  // read-only connection, after the migrations created the views it reads.
+  const readApi =
+    config.apiToken === undefined
+      ? undefined
+      : startReadApi({
+          dbPath: config.dbPath,
+          token: config.apiToken,
+          host: config.apiHost,
+          port: config.apiPort,
+          logger,
+        });
+
   const started = polling(bot);
   started.then(
     () =>
@@ -361,8 +382,10 @@ export const startAnomander = <M>(config: Config, deps: AnomanderDeps<M>): Anoma
 
   return {
     started,
+    readApi: readApi?.listening,
     stop: async () => {
       login?.stop();
+      await readApi?.stop();
       await bot.stop();
       await scheduler.stop();
       db.close();

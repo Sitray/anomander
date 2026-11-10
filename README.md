@@ -149,6 +149,6 @@ The documentation lives in a `docs/` folder:
 | [`docs/ontology.md`](docs/ontology.md) | The classes, who owns each truth, provenance and lifecycle |
 | [`docs/authority.md`](docs/authority.md) | Authority levels, capabilities and operations |
 | [`docs/workflows/expenses.md`](docs/workflows/expenses.md) | The full cycle of the first matter |
-| [`docs/data-model.md`](docs/data-model.md) | The SQLite schema and the dashboard view |
+| [`docs/data-model.md`](docs/data-model.md) | The SQLite schema and the views readers use |
 | [`docs/stack.md`](docs/stack.md) | Stack, repository layout, tests, Docker and providers |
 | [`docs/decisions.md`](docs/decisions.md) | What is out of scope, the size of the ontology and the decisions taken |

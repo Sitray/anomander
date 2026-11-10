@@ -90,3 +90,16 @@ refuted expenses are never served as expenses; pending ones are counted apart (R
 
 M5b Ledger read access: the views of RA-1 and the read API of RA-2. The dashboard is built
 afterwards in the app of apps, against this API.
+
+## 8. Configuration
+
+These variables join the table of `PRD.md` §14.4 when this draft moves there. Until then
+`.env.example` lists them too, and its test reads this table.
+
+| Variable | Purpose | Default |
+| --- | --- | --- |
+| `ANOMANDER_API_TOKEN` | Bearer token of the read API (RA-2 AC2); unset turns the API off (AC1) | unset |
+| `ANOMANDER_API_HOST` | Address the read API binds to (RA-2 AC3) | `127.0.0.1` |
+| `ANOMANDER_API_PORT` | Port of the read API | `4311` |
+
+`ANOMANDER_API_PORT` and its default are a choice of the build, not of RA-2: to be confirmed.

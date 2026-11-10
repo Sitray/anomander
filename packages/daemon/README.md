@@ -422,6 +422,43 @@ The permission code both capabilities use lives in `src/store/permissions.ts`:
 `activePermissions`, `grantPermission` (revokes the earlier ones first), `revokePermissions` and
 `openGrantDecision`. A new permission granted by the principal reuses them.
 
+## The read API (RA-2)
+
+Other applications, first the dashboard of the app of apps, read the ledger over HTTP
+(`src/read-api/`, specified in `docs/read-access-prd.md`). `startAnomander` starts it only while
+`ANOMANDER_API_TOKEN` is set; unset or empty, no port is opened at all (AC1). The setup guide
+never starts it. It binds to `ANOMANDER_API_HOST` (default `127.0.0.1`, AC3) and
+`ANOMANDER_API_PORT` (default `4311`); the port variable and its default are a choice of this
+build, still to be confirmed in the PRD. `Anomander.readApi` resolves with the address once it
+listens; `main.ts` logs it and stops the daemon when the port cannot be opened.
+
+Every request is checked in this order:
+
+1. `Authorization` must be exactly `Bearer <ANOMANDER_API_TOKEN>`, compared through SHA-256
+   digests with `timingSafeEqual`, so in constant time whatever its length. Otherwise `401`
+   `{"error":"unauthorized"}`, whatever the method or path (AC2).
+2. Any method but `GET` gets `405` `{"error":"method not allowed"}` with `Allow: GET` (AC4).
+3. The route:
+
+| Request | Answer |
+| --- | --- |
+| `GET /v1/gastos?desde=YYYY-MM-DD&hasta=YYYY-MM-DD` | array of `gastos` rows, by `fecha` then `id` |
+| `GET /v1/lineas?desde=…&hasta=…[&producto=…]` | array of `lineas_de_compra` rows, by `fecha`, `gasto_id`, `producto` |
+| `GET /v1/pendientes` | the one `pendientes_de_confirmar` row as an object: `cantidad`, `total_cents` |
+
+Each object's keys are the view's columns (`docs/data-model.md`). `desde` and `hasta` are both
+required and both inclusive, calendar days in `TZ`; a missing, malformed or impossible day gets
+`400` `{"error":"desde and hasta must both be days as YYYY-MM-DD"}`. `producto` keeps only the
+lines whose product equals it exactly, as printed on the receipt (case and accents included);
+nothing else is searched. Any other path gets `404`; a failing query gets `500` and logs the
+path only. Every answer is JSON with `Cache-Control: no-store`. There is no pagination, CORS or
+rate limiting: the API is for the principal's own machines.
+
+The queries live in `src/read-api/queries.ts` (`readGastos`, `readLineas`, `readPendientes`),
+the one place a later MCP server reuses (AC6). They read only the views of RA-1, never a table,
+through their own connection opened with `readonly: true`, so no reader can write even by
+mistake. A new endpoint adds its query there, over a view.
+
 ## The processor ports
 
 `CorrectionInterpreter` (`src/processor/correction-interpreter.ts`) reads a correction text.
@@ -559,6 +596,13 @@ The error names every missing required variable.
 | `ANOMANDER_INBOX_DIR` | `./data/inbox` |
 | `ANOMANDER_AUTH_PATH` | `./data/auth.json` |
 | `TZ` | `Europe/Madrid` |
+| `ANOMANDER_API_TOKEN` | unset: the read API is off (RA-2 AC1) |
+| `ANOMANDER_API_HOST` | `127.0.0.1`, an IP address |
+| `ANOMANDER_API_PORT` | `4311`, from 1 to 65535 |
+
+The read API's variables come from `docs/read-access-prd.md` §8 until it moves into PRD §14.4;
+`.env.example` lists both tables. Any non-empty token turns the API on, so use a long random
+one, for example `openssl rand -hex 32`.
 
 `parseModelId` splits a model ID at its first `/`: `openrouter/anthropic/x` is provider
 `openrouter` and model `anthropic/x`.
@@ -570,7 +614,8 @@ pnpm vitest run packages/daemon
 pnpm -F @anomander/daemon typecheck
 ```
 
-`test/e2e/` runs the whole path: the fake Telegram API (`@anomander/telegram/fake-telegram-api`),
+`test/read-api/` sends real HTTP requests to the read API of a started daemon, which listens
+on a free port of `127.0.0.1` (`apiPort: 0`), never on `4311`. `test/e2e/` runs the whole path: the fake Telegram API (`@anomander/telegram/fake-telegram-api`),
 the real bot, `startAnomander`, a SQLite file and recorded processor responses. Receipt tests
 send generated 1×1 PNGs (`pngBytes`), never real receipts, with the inbox in the same `mkdtemp`
 folder. `test/e2e/telegram-decisions.test.ts` wires the bot and the decision handlers itself,
@@ -605,5 +650,7 @@ expected kind and fields for the cases in `evals/text/cases.json`, also out of g
   item is logged by its reason and predicate only (R-14 AC2).
 - Tokens and what the principal pastes during a login are never logged, stored outside
   `ANOMANDER_AUTH_PATH` or sent to the chat (R-27 AC3, AC5).
+- Readers see only views, through a read-only connection; the read API's token, query strings
+  and response bodies are never logged (RA-2 AC2, AC5).
 - Bot text comes from `strings` in `@anomander/protocol`, except the processor's
   conversational reply (R-16) and the phrased replies that passed the R-21 guard.
