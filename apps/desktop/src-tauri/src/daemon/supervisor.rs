@@ -5,7 +5,7 @@
 // One child at a time. Every launch gets a generation; anything that happens to an older one
 // (its output, its exit, a pending restart) is ignored, so a stop or a new start always wins.
 use std::ffi::OsString;
-use std::io::{BufRead, BufReader, Read};
+use std::io::{BufRead, BufReader, Read, Write};
 use std::os::unix::process::CommandExt;
 use std::path::PathBuf;
 use std::process::{Child, ChildStdin, Command, Stdio};
@@ -391,7 +391,12 @@ impl Inner {
                 );
                 watcher("anomander-daemon-stdout", move || {
                     for_each_line(stdout, |line| {
-                        println!("[daemon] {}", scrub(line, &as_strs(&secrets)));
+                        // A closed output must not end this thread: the daemon would block on a full pipe.
+                        let _ = writeln!(
+                            std::io::stdout(),
+                            "[daemon] {}",
+                            scrub(line, &as_strs(&secrets))
+                        );
                         if listening_port(line) == Some(running.port) {
                             inner.listening(&running);
                         }
@@ -404,7 +409,8 @@ impl Inner {
                     if let Some(stderr) = stderr {
                         for_each_line(stderr, |line| {
                             let secrets = as_strs(&secrets);
-                            eprintln!("[daemon] {}", scrub(line, &secrets));
+                            let _ =
+                                writeln!(std::io::stderr(), "[daemon] {}", scrub(line, &secrets));
                             if !line.trim().is_empty() {
                                 *lock(&running.last_error) = Some(redact(line, &secrets));
                             }
