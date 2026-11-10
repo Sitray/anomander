@@ -42,6 +42,13 @@ export interface Config {
   /** `ANOMANDER_API_HOST`: the address the read API binds to (RA-2 AC3). */
   apiHost: string;
   apiPort: number;
+  /**
+   * `ANOMANDER_LOCAL_TOKEN`: the token the desktop app generated for this launch (DK-3 AC2).
+   * While unset, the local channel is off and no port opens.
+   */
+  localToken: string | undefined;
+  /** `ANOMANDER_LOCAL_PORT`: the port of the local channel, always on `127.0.0.1` (DK-3 AC1). */
+  localPort: number;
 }
 
 const modelId = z.string().transform((value, ctx) => {
@@ -100,6 +107,17 @@ const envSchema = z.object({
     .default('4311')
     .transform(Number)
     .pipe(z.int().min(1, NOT_A_PORT).max(65535, NOT_A_PORT)),
+  // DK-3 AC2: it travels as a WebSocket subprotocol, so only characters a header token allows.
+  ANOMANDER_LOCAL_TOKEN: z
+    .string()
+    .min(32, 'must have at least 32 characters')
+    .regex(/^[A-Za-z0-9._~+-]+$/, 'must use only letters, digits and . _ ~ + -')
+    .optional(),
+  ANOMANDER_LOCAL_PORT: z
+    .string()
+    .default('4312')
+    .transform(Number)
+    .pipe(z.int().min(1, NOT_A_PORT).max(65535, NOT_A_PORT)),
 });
 
 type EnvKey = keyof typeof envSchema.shape;
@@ -155,5 +173,7 @@ export const loadConfig = (env: Record<string, string | undefined>): Config => {
     apiToken: values.ANOMANDER_API_TOKEN,
     apiHost: values.ANOMANDER_API_HOST,
     apiPort: values.ANOMANDER_API_PORT,
+    localToken: values.ANOMANDER_LOCAL_TOKEN,
+    localPort: values.ANOMANDER_LOCAL_PORT,
   };
 };

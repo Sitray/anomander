@@ -422,6 +422,57 @@ The permission code both capabilities use lives in `src/store/permissions.ts`:
 `activePermissions`, `grantPermission` (revokes the earlier ones first), `revokePermissions` and
 `openGrantDecision`. A new permission granted by the principal reuses them.
 
+## A single daemon (DK-2)
+
+The desktop app and Docker are two ways to run this daemon, never both at once
+(`docs/desktop-prd.md`). `startAnomander` and `startSetupGuide` take the lock of the database
+before anything else (`src/store/daemon-lock.ts`): an exclusive SQLite transaction on
+`<ANOMANDER_DB_PATH>.lock`, held until `stop`. A second daemon throws
+`DaemonAlreadyRunningError` before the store is opened, so the ledger is unchanged (AC1). The
+operating system frees the lock when the process ends, so a crash leaves nothing stale.
+
+`Anomander.polling` settles when Telegram polling ends: it resolves after `stop` and rejects
+when Telegram ends it, for example with the `409 Conflict` of another process reading the same
+bot (`isBotInUse`, AC2). `main.ts` then exits instead of staying up deaf. Its exit code tells
+whoever started it why (`exitCodes` in `packages/protocol`):
+
+| Code | Meaning |
+| --- | --- |
+| `1` | Any other failure: configuration, the store, lost polling |
+| `3` | Another daemon runs on the same database |
+| `4` | Another process uses the Telegram bot |
+
+## The local channel (DK-3, DK-4)
+
+The desktop app talks to the daemon over a WebSocket (`src/local-channel/`). It starts only
+while `ANOMANDER_LOCAL_TOKEN` is set; unset, no port is opened. It always binds to `127.0.0.1`
+(DK-3 AC1), on `ANOMANDER_LOCAL_PORT`. `Anomander.localChannel` resolves with the address once
+it listens.
+
+The app presents the token as the second WebSocket subprotocol,
+`new WebSocket(url, ['anomander.v1', token])`, so it never travels in a URL. It is compared
+through SHA-256 digests with `timingSafeEqual`. A connection that does not present exactly the
+protocol and the token, plain HTTP included, is closed without a byte (DK-3 AC2). The token is
+never logged.
+
+Each message is one JSON text frame, typed in `packages/protocol/src/local-channel.ts`:
+
+| The app sends | The daemon answers |
+| --- | --- |
+| `text` | `reply` with the same string Telegram would get (DK-4 AC1) |
+| `receipt`: one or several images in base64 | `reply`; a PDF, another file type or an image over 20 MB gets R-20's reply, as in Telegram |
+| `button`: the `data` of a reply's button | `reply`; S-19 when the decision is no longer open, whichever door closed it (DK-4 AC3) |
+| A frame that is none of these | `rejected`, and nothing is done with it |
+
+A `reply` carries its own `channelRef`, `desktop:<uuid>`, which is recorded as the delivery
+(R-9 AC2) once the frame left through the socket. The channel only answers: what ANOMANDER
+sends unasked goes to Telegram (DK-4 AC5). `/login` and `/logout` are Telegram's alone.
+
+Both doors call the same handlers, `chat` in `src/app.ts`, wrapped by `oneTurnAtATime`: inputs
+are handled one after another in the order they arrive, so Telegram and the app share the
+recent turns (DK-4 AC4) and two turns never interleave. While no model is usable, the channel
+answers everything with the setup guide (R-28).
+
 ## The read API (RA-2)
 
 Other applications, first the dashboard of the app of apps, read the ledger over HTTP
@@ -599,9 +650,12 @@ The error names every missing required variable.
 | `ANOMANDER_API_TOKEN` | unset: the read API is off (RA-2 AC1) |
 | `ANOMANDER_API_HOST` | `127.0.0.1`, an IP address |
 | `ANOMANDER_API_PORT` | `4311`, from 1 to 65535 |
+| `ANOMANDER_LOCAL_TOKEN` | unset: the local channel is off (DK-3). At least 32 characters |
+| `ANOMANDER_LOCAL_PORT` | `4312`, from 1 to 65535 |
 
 The read API's variables come from `docs/read-access-prd.md` §8 until it moves into PRD §14.4;
-`.env.example` lists both tables. Any non-empty token turns the API on, so use a long random
+`.env.example` lists both tables. The local channel's two variables are not in `.env.example`:
+the desktop app sets them when it starts the daemon (`docs/desktop-prd.md` §8). Any non-empty token turns the API on, so use a long random
 one, for example `openssl rand -hex 32`.
 
 `parseModelId` splits a model ID at its first `/`: `openrouter/anthropic/x` is provider
@@ -614,7 +668,8 @@ pnpm vitest run packages/daemon
 pnpm -F @anomander/daemon typecheck
 ```
 
-`test/read-api/` sends real HTTP requests to the read API of a started daemon, which listens
+`test/desktop/` connects a real WebSocket client to the local channel of a started daemon
+(`localPort: 0`) and starts two daemons on one database. `test/read-api/` sends real HTTP requests to the read API of a started daemon, which listens
 on a free port of `127.0.0.1` (`apiPort: 0`), never on `4311`. `test/e2e/` runs the whole path: the fake Telegram API (`@anomander/telegram/fake-telegram-api`),
 the real bot, `startAnomander`, a SQLite file and recorded processor responses. Receipt tests
 send generated 1×1 PNGs (`pngBytes`), never real receipts, with the inbox in the same `mkdtemp`
@@ -650,6 +705,8 @@ expected kind and fields for the cases in `evals/text/cases.json`, also out of g
   item is logged by its reason and predicate only (R-14 AC2).
 - Tokens and what the principal pastes during a login are never logged, stored outside
   `ANOMANDER_AUTH_PATH` or sent to the chat (R-27 AC3, AC5).
+- The local channel listens on `127.0.0.1` only and closes, without a byte, any connection
+  that does not present the token; the token is never logged (DK-3).
 - Readers see only views, through a read-only connection; the read API's token, query strings
   and response bodies are never logged (RA-2 AC2, AC5).
 - Bot text comes from `strings` in `@anomander/protocol`, except the processor's

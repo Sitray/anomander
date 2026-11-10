@@ -83,6 +83,11 @@ anomander.readApi?.then(
   ({ host, port }) => console.info(`anomander read API listening on ${host}:${port}`),
   (error) => fail(`read API could not listen: ${reason(error)}`),
 );
+// DK-3: logs the address only, never the token (AC2).
+anomander.localChannel?.then(
+  ({ host, port }) => console.info(`anomander local channel listening on ${host}:${port}`),
+  (error) => fail(`local channel could not listen: ${reason(error)}`),
+);
 
 const stop = (signal: NodeJS.Signals): void => {
   console.info(`anomander daemon stopping (${signal})`);

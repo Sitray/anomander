@@ -1,7 +1,8 @@
 # Desktop app (M6): draft PRD
 
-Status: draft for the principal to correct. Once approved, its requirements move into `PRD.md`
-under milestone M6, and this file is removed.
+Status: approved by the principal (2026-11-10) and being built. Daemon side done: DK-2, DK-3 and
+the daemon half of DK-4 (§8). Its requirements move into `PRD.md` under milestone M6 once the app
+itself is built, and this file is then removed.
 
 ## 1. Problem
 
@@ -49,11 +50,14 @@ and keep its secrets in the operating system instead of a text file.
     and says so; the ledger is unchanged.
   - AC2: when Telegram answers `409 Conflict` (another process, such as a Docker install, reads
     the same bot), the app shows that another ANOMANDER is using the bot.
+  - AC3: a daemon that stops by itself says why through its exit code (§8), and the app does not
+    start it again when the code says that starting again cannot help (AC1, AC2).
 - DK-3 Local channel.
   - AC1: the daemon listens on `127.0.0.1` only, on a WebSocket whose message types live in
     `packages/protocol`.
   - AC2: every connection must present a token the app generates at each launch and hands to
     the daemon without writing it to disk; any other connection is closed with no data.
+  - AC3: the token is never logged and never travels in a URL.
 - DK-4 Chat.
   - AC1: a text typed in the app goes through the same path as a Telegram text, and its answer
     is the same string: "23 € cena" creates the same expense and the same S-1 reply.
@@ -65,6 +69,9 @@ and keep its secrets in the operating system instead of a text file.
     context (R-16 AC3).
   - AC5: what ANOMANDER sends unasked (reminders, the morning digest, the weekly summary) goes
     to Telegram only, as today, whether or not the app's chat is open (decision 4).
+  - AC6: an input R-20 does not support gets the same reply as in Telegram: S-18 for a PDF,
+    S-20 for an image over 20 MB.
+  - AC7: `/login` and `/logout` stay in Telegram (R-27): their messages go out through the bot.
 - DK-5 Secrets in the Keychain.
   - AC1: the Telegram bot token, the provider API keys and the subscription login are stored
     in the macOS Keychain, entered once in the app's setup screen.
@@ -96,8 +103,26 @@ and keep its secrets in the operating system instead of a text file.
 6. **The app's interface.** Assumption: React with Vite inside Tauri's window, as gentle-dot's
    `packages/ui`.
 
+7. **One turn at a time.** Decided while building (2026-11-10): inputs from Telegram and from
+   the app are handled one after another, in the order they arrive, so the conversation is one
+   (DK-4 AC4) and two turns never interleave.
+
 ## 7. Milestone
 
 M6 Desktop, in slices: first the app that starts and supervises the daemon, with the menu bar
 and the Keychain (DK-1, DK-2, DK-5 to DK-8); then the local channel and the chat (DK-3, DK-4).
 It does not depend on M5b.
+
+## 8. What the daemon offers the app
+
+Built in `packages/daemon` (see its README) and `packages/protocol`. Choices of this build, for
+the principal to confirm:
+
+| What | How |
+| --- | --- |
+| The token (DK-3 AC2) | `ANOMANDER_LOCAL_TOKEN` in the daemon's environment, at least 32 characters of `A-Z a-z 0-9 . _ ~ + -`. Unset: the channel is off and no port opens, as under Docker |
+| The port | `ANOMANDER_LOCAL_PORT`, default `4312`, always on `127.0.0.1`. The app picks a free one at each launch |
+| Presenting the token | As the second WebSocket subprotocol: `new WebSocket(url, ['anomander.v1', token])` |
+| Messages | `ChatRequest` (`text`, `receipt`, `button`) and `ChatEvent` (`reply`, `done`, `rejected`) in `packages/protocol/src/local-channel.ts` |
+| Why the daemon stopped (DK-2 AC3) | Exit code `3`: another daemon runs on the same database. `4`: another process uses the bot. `1`: anything else. `exitCodes` in `packages/protocol` |
+| The single-daemon lock (DK-2 AC1) | `<database>.lock` beside the database, held while the daemon runs and freed by the operating system when it ends, so a crash leaves nothing stale |
