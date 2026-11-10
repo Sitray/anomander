@@ -67,6 +67,45 @@ fn run(command: &mut Command) -> Result<(), String> {
     }
 }
 
+/// How a capture's file is named, so one left by a crash can be told apart and removed.
+const PREFIX: &str = "screen-";
+const SUFFIX: &str = ".jpg";
+
+fn create_private(path: &Path) -> Result<(), String> {
+    use std::os::unix::fs::OpenOptionsExt;
+    std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .mode(0o600)
+        .open(path)
+        .map(|_| ())
+        .map_err(|error| format!("the capture could not be created: {error}"))
+}
+
+fn private(path: &Path) -> Result<(), String> {
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))
+        .map_err(|error| format!("the capture could not be made private: {error}"))
+}
+
+/// Removes the captures a crash left in `dir`: the app died between taking one and removing it.
+/// Called at launch, before anything can be captured.
+pub fn remove_leftovers(dir: &Path) {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let name = entry.file_name();
+        let name = name.to_string_lossy();
+        let is_capture = name.starts_with(PREFIX) && name.ends_with(SUFFIX);
+        if is_capture && entry.file_type().is_ok_and(|kind| kind.is_file()) {
+            if let Err(error) = std::fs::remove_file(entry.path()) {
+                eprintln!("could not remove a capture left behind: {error}");
+            }
+        }
+    }
+}
+
 /// Lets `take` write the capture to a file in `dir`, reads it and removes it.
 fn capture_with(
     dir: &Path,
@@ -75,8 +114,11 @@ fn capture_with(
     let nanos = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_or(0, |elapsed| elapsed.as_nanos());
-    let scratch = Scratch(dir.join(format!("screen-{}-{nanos}.jpg", std::process::id())));
+    let scratch = Scratch(dir.join(format!("{PREFIX}{}-{nanos}{SUFFIX}", std::process::id())));
+    // DK-8: private from its first byte, and again in case the tool replaced the file.
+    create_private(&scratch.0)?;
     take(&scratch.0)?;
+    private(&scratch.0)?;
     let bytes = std::fs::read(&scratch.0)
         .map_err(|error| format!("the capture could not be read: {error}"))?;
     if bytes.is_empty() {
@@ -101,6 +143,48 @@ mod tests {
         });
         assert_eq!(bytes.unwrap(), b"jpeg");
         assert_eq!(files_in(dir.path()), 0);
+    }
+
+    #[test]
+    fn the_capture_is_private_while_it_exists() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let mode = |path: &Path| std::fs::metadata(path).unwrap().permissions().mode() & 0o777;
+        let mut before = 0;
+        capture_with(dir.path(), |path| {
+            before = mode(path);
+            std::fs::write(path, b"jpeg").map_err(|error| error.to_string())
+        })
+        .unwrap();
+        assert_eq!(before, 0o600);
+
+        // A tool that replaced the file would leave its own mode: it is made private again.
+        let replaced = dir.path().join("replaced.jpg");
+        std::fs::write(&replaced, b"jpeg").unwrap();
+        std::fs::set_permissions(&replaced, std::fs::Permissions::from_mode(0o644)).unwrap();
+        private(&replaced).unwrap();
+        assert_eq!(mode(&replaced), 0o600);
+    }
+
+    #[test]
+    fn captures_left_by_a_crash_are_removed_and_nothing_else() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("screen-123-456.jpg"), b"left").unwrap();
+        std::fs::write(dir.path().join("anomander.db"), b"ledger").unwrap();
+        std::fs::write(dir.path().join("screen-notes.txt"), b"mine").unwrap();
+        std::fs::create_dir(dir.path().join("screen-dir.jpg")).unwrap();
+
+        remove_leftovers(dir.path());
+
+        let mut names: Vec<String> = std::fs::read_dir(dir.path())
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+            .collect();
+        names.sort();
+        assert_eq!(
+            names,
+            ["anomander.db", "screen-dir.jpg", "screen-notes.txt"]
+        );
     }
 
     #[test]

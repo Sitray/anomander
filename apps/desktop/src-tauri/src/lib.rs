@@ -209,6 +209,7 @@ fn on_menu(app: &AppHandle, id: &str) {
 fn set_up(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     // DK-8 AC1: `~/Library/Application Support/ANOMANDER`, not the identifier's folder.
     let data = DataDir::open(app.path().data_dir()?.join(FOLDER_NAME))?;
+    screen::remove_leftovers(data.root());
     let settings = load_settings(&data.settings_path()).unwrap_or_else(|error| {
         eprintln!("{error}; starting with an empty setup");
         Settings::default()
