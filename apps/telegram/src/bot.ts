@@ -12,7 +12,7 @@ import {
   type ReplyButton,
   strings,
 } from '@anomander/protocol';
-import { type Api, Bot, type Context, type Transformer } from 'grammy';
+import { type Api, Bot, type Context, GrammyError, type Transformer } from 'grammy';
 import type { InlineKeyboardMarkup, Message } from 'grammy/types';
 
 export interface TelegramLogger {
@@ -157,6 +157,13 @@ export const createTelegramDelete =
     if (!Number.isSafeInteger(messageId)) throw new Error(`not a Telegram message: ${ref}`);
     await bot.api.deleteMessage(principalChatId, messageId);
   };
+
+/**
+ * Whether polling stopped because Telegram answered `409 Conflict`: another process, such as a
+ * Docker install, reads the same bot (DK-2 AC2).
+ */
+export const isBotInUse = (error: unknown): boolean =>
+  error instanceof GrammyError && error.error_code === 409;
 
 export const createTelegramBot = (options: TelegramBotOptions): Bot => {
   const { principalChatId, onText, onReceipt, onButton, logger = console } = options;

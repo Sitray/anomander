@@ -935,7 +935,7 @@ Checks every feature document should run:
 | M5e Setup guide | `/start` and a guide to what `.env` still needs | R-17 AC8, R-28 |
 | M5f Opt-in weekly summary | The weekly summary sent only after the principal asks for it, the third capability | R-10 AC5-AC8 |
 | M5b Ledger read access | Read access to the ledger from other applications or the AI assistant (API or MCP) | To be specified |
-| M6 Desktop | Tauri 2 app with Rust, talking to the same daemon | To be specified |
+| M6 Desktop | Tauri 2 app with Rust, talking to the same daemon | `docs/desktop-prd.md` (DK-1 to DK-8), in progress |
 
 ## 18. Suggested ODD feature documents
 
@@ -960,4 +960,4 @@ For each one, `L1` in `## Log` should be the request that starts it, and `## Spe
 
 - **Development (M0 to M3):** the daemon runs locally on the principal's machine with `docker compose up`; Telegram long polling needs no public URL.
 - **Production:** a small VPS with Docker and a persistent volume for the SQLite file, once the bot is ready to run 24/7. The provider is chosen at that point.
-- The daemon binds to no public port in v1. Any future web or desktop front door that needs one goes behind HTTPS and authentication.
+- The daemon binds to no public port in v1. The desktop app's channel listens on `127.0.0.1` only, behind a token (`docs/desktop-prd.md` DK-3). Any future front door that needs a public port goes behind HTTPS and authentication.

@@ -48,6 +48,8 @@ describe('loadConfig', () => {
       apiToken: undefined,
       apiHost: '127.0.0.1',
       apiPort: 4311,
+      localToken: undefined,
+      localPort: 4312,
     });
   });
 

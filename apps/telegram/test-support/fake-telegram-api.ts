@@ -45,6 +45,8 @@ export interface FakeTelegramApi {
   deleted: DeletedMessage[];
   /** The next `count` sendMessage calls fail with `errorCode` and are not recorded in `sent`. */
   refuseNextSends(count: number, errorCode: number): void;
+  /** Every `getUpdates` from now on answers 409, as when another process polls the same bot. */
+  conflictPolling(): void;
   /** Resolves once at least `count` messages were sent; rejects after `timeoutMs`. */
   waitForSent(count: number, timeoutMs?: number): Promise<SentMessage[]>;
   close(): Promise<void>;
@@ -71,6 +73,7 @@ export const startFakeTelegramApi = async (): Promise<FakeTelegramApi> => {
   const answeredCallbacks: string[] = [];
   const deleted: DeletedMessage[] = [];
   const refusals = { count: 0, errorCode: 500 };
+  let pollingConflict = false;
   const onChange = new Set<() => void>();
   const notify = () => {
     for (const listener of onChange) listener();
@@ -185,6 +188,14 @@ export const startFakeTelegramApi = async (): Promise<FakeTelegramApi> => {
       });
       return;
     }
+    if (match[2] === 'getUpdates' && pollingConflict) {
+      respond(res, 409, {
+        ok: false,
+        error_code: 409,
+        description: 'Conflict: terminated by other getUpdates request',
+      });
+      return;
+    }
     const method = methods[match[2] ?? ''];
     const result = method === undefined ? true : await method(body);
     if (result === undefined) {
@@ -210,6 +221,9 @@ export const startFakeTelegramApi = async (): Promise<FakeTelegramApi> => {
     refuseNextSends: (count, errorCode) => {
       refusals.count = count;
       refusals.errorCode = errorCode;
+    },
+    conflictPolling: () => {
+      pollingConflict = true;
     },
     push: (update) => {
       queue.push({ ...update, update_id: nextUpdateId++ } as Update);

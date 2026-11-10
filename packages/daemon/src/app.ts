@@ -29,6 +29,12 @@ import { createTextRouter } from './decisions/router.ts';
 import { createMorningDigest } from './digest/send-digest.ts';
 import { createReceiptExpenseCycle } from './expenses/receipt-expense.ts';
 import { createTextExpenseHandler } from './expenses/text-expense.ts';
+import {
+  type ChatHandlers,
+  type LocalChannel,
+  type LocalChannelAddress,
+  startLocalChannel,
+} from './local-channel/server.ts';
 import { createPatternOffers } from './patterns/pattern-offers.ts';
 import { createPiAiCorrectionInterpreter } from './processor/correction-interpreter.ts';
 import { createPiAiReceiptReader } from './processor/receipt-reader.ts';
@@ -42,6 +48,7 @@ import { createKeepReceiptAnswerHandler } from './retention/keep-receipt-decisio
 import { createRetention } from './retention/retention-job.ts';
 import { startScheduler } from './scheduler/scheduler.ts';
 import { describeGap, type SetupGap, setupGuide } from './setup/setup-guide.ts';
+import { acquireDaemonLock } from './store/daemon-lock.ts';
 import { applyMigrations, openDatabase } from './store/database.ts';
 import { createWeeklySummary } from './summary/weekly-summary.ts';
 
@@ -81,12 +88,54 @@ export interface Anomander {
   /** Resolves when the store is ready and the bot polls for messages. */
   started: Promise<void>;
   /**
+   * Settles when polling ends: resolves after `stop`, rejects when Telegram ends it, for example
+   * with the 409 of another process reading the same bot (DK-2 AC2). The daemon is deaf from then
+   * on, so the caller should stop it.
+   */
+  polling: Promise<void>;
+  /**
    * Resolves with the read API's address once it listens (RA-2); `undefined` while
    * `ANOMANDER_API_TOKEN` is unset, when no port is opened at all (AC1).
    */
   readApi: Promise<ReadApiAddress> | undefined;
+  /**
+   * Resolves with the local channel's address once it listens (DK-3); `undefined` while
+   * `ANOMANDER_LOCAL_TOKEN` is unset, when no port is opened at all.
+   */
+  localChannel: Promise<LocalChannelAddress> | undefined;
   stop(): Promise<void>;
 }
+
+/**
+ * Runs the inputs of every front door one at a time, in the order they arrived: Telegram and the
+ * desktop app are one conversation (DK-4 AC4), and two turns never interleave.
+ */
+const oneTurnAtATime = () => {
+  let last: Promise<unknown> = Promise.resolve();
+  return <I, R>(handler: (input: I) => Promise<R>) =>
+    (input: I): Promise<R> => {
+      const turn = last.then(() => handler(input));
+      last = turn.catch(() => {});
+      return turn;
+    };
+};
+
+/** DK-3: the desktop app's front door, only while `ANOMANDER_LOCAL_TOKEN` is set. */
+const startChannel = (
+  config: Config,
+  handlers: ChatHandlers,
+  logger: TelegramLogger,
+  now?: () => Date,
+): LocalChannel | undefined =>
+  config.localToken === undefined
+    ? undefined
+    : startLocalChannel({
+        token: config.localToken,
+        port: config.localPort,
+        handlers,
+        logger,
+        ...(now === undefined ? {} : { now }),
+      });
 
 /** `/start`, `/start@bot` or `/start anything`, as Telegram sends a command. */
 const isStart = (text: string) => /^\/start(?:@\w+)?(?:\s|$)/.test(text.trim());
@@ -104,11 +153,22 @@ const announceGaps = async (
   });
 };
 
-/** Resolves when the bot polls for messages; `bot.start()` resolves only when polling stops. */
-const polling = (bot: ReturnType<typeof createTelegramBot>) =>
-  new Promise<void>((resolve, reject) => {
-    bot.start({ onStart: () => resolve() }).catch(reject);
-  });
+/**
+ * `started` resolves when the bot polls for messages; `ended` settles when polling stops, since
+ * `bot.start()` resolves only then. An `ended` nobody watches must not be an unhandled rejection.
+ */
+const polling = (bot: ReturnType<typeof createTelegramBot>) => {
+  let started = (): void => {};
+  const ended = bot.start({ onStart: () => started() });
+  ended.catch(() => {});
+  return {
+    started: new Promise<void>((resolve, reject) => {
+      started = resolve;
+      ended.catch(reject);
+    }),
+    ended,
+  };
+};
 
 export interface SetupGuideDeps {
   /** The model gaps `resolveModels` found: never empty. */
@@ -120,11 +180,13 @@ export interface SetupGuideDeps {
 
 /**
  * R-28: the bot that runs while `.env` names no usable model. It answers everything with the
- * guide, except `/login` and `/logout` (R-17 AC7); no processor, store, scheduled job or read API
- * runs.
+ * guide, except `/login` and `/logout` (R-17 AC7), in Telegram and in the desktop app's chat; no
+ * processor, store, scheduled job or read API runs.
  */
 export const startSetupGuide = (config: Config, deps: SetupGuideDeps): Anomander => {
   const { gaps, logger = console } = deps;
+  // DK-2 AC1: no store runs here, but the daemon is still the only one of its data folder.
+  const lock = acquireDaemonLock(config.dbPath);
   const guide = { text: setupGuide(gaps) };
   let send = async (_: TelegramReply): Promise<void> => {
     throw new Error('send used before the bot was created');
@@ -158,8 +220,13 @@ export const startSetupGuide = (config: Config, deps: SetupGuideDeps): Anomander
   });
   send = createTelegramNotify(bot, config.principalChatId);
   deleteMessage = createTelegramDelete(bot, config.principalChatId);
+  const localChannel = startChannel(
+    config,
+    { onText: async () => guide, onReceipt: async () => guide, onButton: async () => guide },
+    logger,
+  );
 
-  const started = polling(bot);
+  const { started, ended } = polling(bot);
   // A failed start is the caller's to report, through `started`.
   started.then(
     () => announceGaps(gaps, send, logger),
@@ -167,10 +234,14 @@ export const startSetupGuide = (config: Config, deps: SetupGuideDeps): Anomander
   );
   return {
     started,
+    polling: ended,
     readApi: undefined,
+    localChannel: localChannel?.listening,
     stop: async () => {
       login?.stop();
+      await localChannel?.stop();
       await bot.stop();
+      lock.release();
     },
   };
 };
@@ -183,8 +254,20 @@ export const startAnomander = <M>(config: Config, deps: AnomanderDeps<M>): Anoma
     throw new Error('both models must be set; without them, start the setup guide (R-28)');
   }
   const setupGaps = deps.setupGaps ?? (async () => []);
-  const db = openDatabase(config.dbPath);
-  const applied = applyMigrations(db);
+  // DK-2 AC1: before the store is opened, so a second daemon leaves the ledger unchanged.
+  const lock = acquireDaemonLock(config.dbPath);
+  // A store that cannot be opened or migrated must not keep the lock.
+  const { db, applied } = (() => {
+    let opened: ReturnType<typeof openDatabase> | undefined;
+    try {
+      opened = openDatabase(config.dbPath);
+      return { db: opened, applied: applyMigrations(opened) };
+    } catch (error) {
+      opened?.close();
+      lock.release();
+      throw error;
+    }
+  })();
   logger.info(`anomander store ready at ${config.dbPath} (${applied} migrations applied)`);
 
   // R-12: every processor call counts against the daily cap. A receipt reserves its reader call
@@ -299,28 +382,39 @@ export const startAnomander = <M>(config: Config, deps: AnomanderDeps<M>): Anoma
     receipts.onReceipt,
   );
 
+  // What every front door calls (DK-4 AC1). R-28: `/start`, and the guide while a provider is
+  // not connected.
+  const inTurn = oneTurnAtATime();
+  const chat: ChatHandlers = {
+    onText: inTurn(async (message) => {
+      const gaps = await setupGaps();
+      if (gaps.length > 0) return { text: setupGuide(gaps) };
+      return isStart(message.text) ? { text: strings.hello() } : recordedText(message);
+    }),
+    onReceipt: inTurn(async (receipt) => {
+      const gaps = await setupGaps();
+      return gaps.length > 0 ? { text: setupGuide(gaps) } : recordedReceipt(receipt);
+    }),
+    onButton: inTurn(async (press) => {
+      const gaps = await setupGaps();
+      return gaps.length > 0 ? { text: setupGuide(gaps) } : recordedButton(press);
+    }),
+  };
+
   const bot = createTelegramBot({
     token: config.telegramBotToken,
     principalChatId: config.principalChatId,
     // R-17 AC7: `/login`, `/logout`, their buttons and the text a running login waits for come
-    // before every other route. They never reach the processor and are never recent turns.
-    // R-28: then `/start`, and the guide while a provider is not connected.
+    // before every other route. They never reach the processor and are never recent turns. A
+    // login is made in Telegram only: its messages go out through the bot.
     onText: async (message) => {
       const handled = await login?.handleText(message);
-      if (handled !== undefined) return handled.reply;
-      const gaps = await setupGaps();
-      if (gaps.length > 0) return { text: setupGuide(gaps) };
-      return isStart(message.text) ? { text: strings.hello() } : recordedText(message);
+      return handled === undefined ? chat.onText(message) : handled.reply;
     },
-    onReceipt: async (receipt) => {
-      const gaps = await setupGaps();
-      return gaps.length > 0 ? { text: setupGuide(gaps) } : recordedReceipt(receipt);
-    },
+    onReceipt: chat.onReceipt,
     onButton: async (press) => {
       const handled = await login?.handleButton(press);
-      if (handled !== undefined) return handled.reply;
-      const gaps = await setupGaps();
-      return gaps.length > 0 ? { text: setupGuide(gaps) } : recordedButton(press);
+      return handled === undefined ? chat.onButton(press) : handled.reply;
     },
     logger,
     ...(deps.telegramApiRoot === undefined ? {} : { apiRoot: deps.telegramApiRoot }),
@@ -371,7 +465,9 @@ export const startAnomander = <M>(config: Config, deps: AnomanderDeps<M>): Anoma
           logger,
         });
 
-  const started = polling(bot);
+  const localChannel = startChannel(config, chat, logger, now);
+
+  const { started, ended } = polling(bot);
   started.then(
     () =>
       setupGaps()
@@ -382,13 +478,17 @@ export const startAnomander = <M>(config: Config, deps: AnomanderDeps<M>): Anoma
 
   return {
     started,
+    polling: ended,
     readApi: readApi?.listening,
+    localChannel: localChannel?.listening,
     stop: async () => {
       login?.stop();
+      await localChannel?.stop();
       await readApi?.stop();
       await bot.stop();
       await scheduler.stop();
       db.close();
+      lock.release();
     },
   };
 };
