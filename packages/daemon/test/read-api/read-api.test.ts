@@ -1,4 +1,5 @@
 import { mkdtempSync, rmSync } from 'node:fs';
+import { request } from 'node:http';
 import { Server } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -333,5 +334,27 @@ describe('the read API (RA-2)', () => {
         });
       }
     }
+  });
+
+  it('answers 400 to a request target that is not a URL, and keeps serving', async () => {
+    const base = new URL(await readApi());
+
+    // `fetch` would tidy the target up; the daemon must survive the raw one.
+    const status = await new Promise<number | undefined>((resolve, reject) => {
+      request(
+        {
+          host: base.hostname,
+          port: base.port,
+          path: '//[',
+          headers: { authorization: `Bearer ${TOKEN}` },
+        },
+        (response) => resolve(response.resume().statusCode),
+      )
+        .on('error', reject)
+        .end();
+    });
+
+    expect(status).toBe(400);
+    expect((await get(`${base.origin}/v1/pendientes`)).status).toBe(200);
   });
 });

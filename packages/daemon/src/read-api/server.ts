@@ -83,7 +83,13 @@ export const startReadApi = (deps: ReadApiDeps): ReadApi => {
       send(response, 405, { error: 'method not allowed' });
       return;
     }
-    const url = new URL(request.url ?? '/', 'http://read-api');
+    const target = request.url ?? '/';
+    // A target Node accepted and `URL` does not (`//[`): an answer, never an uncaught error.
+    if (!URL.canParse(target, 'http://read-api')) {
+      send(response, 400, { error: 'bad request' });
+      return;
+    }
+    const url = new URL(target, 'http://read-api');
     try {
       const [status, body] = answer(url);
       send(response, status, body);
