@@ -120,7 +120,7 @@ describe('DK-11: a server reached over HTTP', () => {
         { description: 'Searches', inputSchema: { query: z.string() } },
         async ({ query }) => ({ content: [{ type: 'text', text: `found: ${query}` }] }),
       );
-      const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
+      const transport = new StreamableHTTPServerTransport({});
       response.on('close', () => {
         void transport.close();
         void server.close();
