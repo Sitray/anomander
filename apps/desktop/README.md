@@ -131,7 +131,10 @@ is framework-free, so it is tested against a fake `WebSocket` (`test/fake-web-so
   (`src-tauri/src/connection_secrets.rs`) and rewrites the file with `@keychain` in their place,
   so a token is in the file only until the next start. To change a value, write the new one over
   its `@keychain` and restart the app; a value whose server or name leaves the file leaves the
-  Keychain too. The rewrite keeps the order of the servers and normalises the spacing.
+  Keychain too, and `"mcpServers": {}` removes them all. A renamed server or variable needs its
+  value written again: until then nothing is removed. A missing file, or one that is a link, is
+  left alone with what is stored. The rewrite keeps the order of the servers and normalises the
+  spacing.
 - **Link buttons** (`{label, url}`) are named, not offered: this WebView cannot open links, and
   `/login` stays in Telegram (DK-4 AC7).
 - **Secrets** typed in the setup screen stay in uncontrolled fields and a ref, never in React

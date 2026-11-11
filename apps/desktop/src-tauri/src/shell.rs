@@ -186,7 +186,7 @@ impl Core {
             connection_secrets
                 .into_iter()
                 .map(|(_, secret)| secret)
-                .filter(|secret| secret.len() >= SHORTEST_REDACTED),
+                .filter(|secret| secret.chars().count() >= SHORTEST_REDACTED),
         );
         Prepared::Ready(LaunchSpec {
             program: node,

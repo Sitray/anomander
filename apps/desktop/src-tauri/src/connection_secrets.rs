@@ -17,7 +17,7 @@ const FIELDS: [&str; 2] = ["env", "headers"];
 pub struct Swept {
     /// By Keychain account: what the daemon fills the markers with.
     pub secrets: Vec<(String, String)>,
-    /// The accounts in use, sorted, so they are removed once the file no longer names them.
+    /// The accounts to remember, sorted, so they are removed once the file no longer names them.
     pub accounts: Vec<String>,
 }
 
@@ -28,7 +28,7 @@ pub fn account(server: &str, field: &str, name: &str) -> String {
 }
 
 /// A server name as the daemon accepts it: a letter or digit, then up to 39 of those, spaces,
-/// `.`, `_` and `-`. A file with any other name connects nothing, so it is left as written.
+/// `.`, `_` and `-`. The daemon refuses a file with any other name, so that server is skipped.
 fn is_server_name(name: &str) -> bool {
     let mut chars = name.chars();
     name.len() <= 40
@@ -37,10 +37,12 @@ fn is_server_name(name: &str) -> bool {
 }
 
 /// Removes the accounts of `known` that `used` lacks; the ones that could not be removed stay
-/// listed, to try again at the next start.
+/// listed, to try again at the next start. `known` comes from `settings.json`: a name there that
+/// is not an account of the connections is never removed.
 fn forget(store: &dyn SecretStore, known: &[String], used: &[String]) -> Vec<String> {
     let mut left = Vec::new();
-    for account in known.iter().filter(|account| !used.contains(account)) {
+    let ours = known.iter().filter(|account| account.starts_with("mcp/"));
+    for account in ours.filter(|account| !used.contains(account)) {
         if let Err(error) = store.delete(account) {
             eprintln!("{error}");
             left.push(account.clone());
@@ -50,21 +52,25 @@ fn forget(store: &dyn SecretStore, known: &[String], used: &[String]) -> Vec<Str
 }
 
 /// Moves every value of `mcp.json` to `store` and returns the secrets the file refers to. `known`
-/// is the accounts the last sweep left. A file that cannot be read as the daemon would is left as
-/// it is, with what is stored: the principal may be halfway through writing it.
+/// is the accounts the last sweep left. A file that is missing, a link, or not JSON with its
+/// servers is left as it is, with what is stored: the principal may be halfway through writing it.
 pub fn sweep(data: &DataDir, store: &dyn SecretStore, known: &[String]) -> Swept {
     let untouched = || Swept {
         secrets: Vec::new(),
         accounts: known.to_vec(),
     };
-    let bytes = match std::fs::read(data.root().join(FILE_NAME)) {
-        Ok(bytes) => bytes,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            return Swept {
-                secrets: Vec::new(),
-                accounts: forget(store, known, &[]),
-            };
+    let path = data.root().join(FILE_NAME);
+    match std::fs::symlink_metadata(&path) {
+        Ok(meta) if meta.is_file() => {}
+        // Rewriting would replace the link and leave the values in the file it points to.
+        Ok(_) => {
+            eprintln!("{FILE_NAME} is not a plain file: its values stay in it");
+            return untouched();
         }
+        Err(_) => return untouched(),
+    }
+    let bytes = match std::fs::read(&path) {
+        Ok(bytes) => bytes,
         Err(error) => {
             eprintln!("could not read {FILE_NAME}: {error}");
             return untouched();
@@ -121,19 +127,32 @@ pub fn sweep(data: &DataDir, store: &dyn SecretStore, known: &[String]) -> Swept
 
     used.sort();
     let mut secrets = Vec::new();
-    let mut accounts = forget(store, known, &used);
-    for account in used {
-        match store.get(&account) {
+    let mut found = Vec::new();
+    let mut waiting = false;
+    for account in &used {
+        match store.get(account) {
             Ok(Some(secret)) => {
                 secrets.push((account.clone(), secret));
-                accounts.push(account);
+                found.push(account.clone());
             }
             // The daemon leaves that server out and says which value is missing.
-            Ok(None) => {}
-            Err(error) => eprintln!("{error}"),
+            Ok(None) => waiting = true,
+            Err(error) => {
+                eprintln!("{error}");
+                waiting = true;
+            }
         }
     }
+    // A marker without its value is most likely a renamed server or variable, whose value is
+    // still stored under the old name: nothing is removed until every marker has one.
+    let mut accounts = if waiting {
+        known.to_vec()
+    } else {
+        forget(store, known, &used)
+    };
+    accounts.extend(found);
     accounts.sort();
+    accounts.dedup();
     Swept { secrets, accounts }
 }
 
@@ -288,11 +307,104 @@ mod tests {
         assert_eq!(second.accounts, vec![TOKEN.to_owned()]);
         assert_eq!(store.names(), vec![TOKEN.to_owned()]);
 
-        // Without the file nothing is kept.
-        std::fs::remove_file(f.path()).map_err(|e| e.to_string())?;
+        // A file that names no server keeps nothing.
+        f.write(&json!({ "mcpServers": {} }))?;
         let third = sweep(&f.data, &store, &second.accounts);
         assert!(third.secrets.is_empty() && third.accounts.is_empty());
         assert!(store.names().is_empty());
+        Ok(())
+    }
+
+    #[test]
+    fn a_renamed_server_or_value_does_not_lose_its_secret() -> Outcome {
+        for (from, to) in [("\"zeta\"", "\"omega\""), ("\"TOKEN\"", "\"API_TOKEN\"")] {
+            let f = Fixture::new()?;
+            f.write(&written())?;
+            let store = MemoryStore::default();
+            let first = sweep(&f.data, &store, &[]);
+            std::fs::write(f.path(), f.text()?.replace(from, to)).map_err(|e| e.to_string())?;
+
+            // A marker waits for a value nobody stored: nothing is removed meanwhile.
+            let second = sweep(&f.data, &store, &first.accounts);
+            assert_eq!(store.get(TOKEN), Ok(Some("tok-1".into())), "{from}");
+            assert_eq!(second.accounts, first.accounts, "{from}");
+            assert_eq!(second.secrets, pairs(&[(HEADER, "Bearer b-2")]), "{from}");
+
+            // Once the principal writes the value under the new name, the old one goes.
+            let mut file = f.file()?;
+            for server in ["zeta", "omega"] {
+                for name in ["TOKEN", "API_TOKEN"] {
+                    if file["mcpServers"][server]["env"][name] == json!(MARKER) {
+                        file["mcpServers"][server]["env"][name] = json!("tok-2");
+                    }
+                }
+            }
+            f.write(&file)?;
+            let third = sweep(&f.data, &store, &second.accounts);
+            assert_eq!(store.get(TOKEN), Ok(None), "{from}");
+            assert_eq!(store.names().len(), 2, "{from}");
+            assert_eq!(third.secrets.len(), 2, "{from}");
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn a_missing_file_keeps_what_is_stored() -> Outcome {
+        let f = Fixture::new()?;
+        f.write(&written())?;
+        let store = MemoryStore::default();
+        let first = sweep(&f.data, &store, &[]);
+        let swept_file = f.text()?;
+        std::fs::remove_file(f.path()).map_err(|e| e.to_string())?;
+
+        let second = sweep(&f.data, &store, &first.accounts);
+        assert!(second.secrets.is_empty());
+        assert_eq!(second.accounts, first.accounts);
+
+        // Put back, it works again.
+        std::fs::write(f.path(), swept_file).map_err(|e| e.to_string())?;
+        assert_eq!(
+            sweep(&f.data, &store, &second.accounts).secrets,
+            first.secrets
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn a_file_that_is_a_link_is_left_as_it_is() -> Outcome {
+        let f = Fixture::new()?;
+        let target = f.data.root().join("elsewhere.json");
+        std::fs::write(&target, written().to_string()).map_err(|e| e.to_string())?;
+        std::os::unix::fs::symlink(&target, f.path()).map_err(|e| e.to_string())?;
+        let store = MemoryStore::default();
+
+        let swept = sweep(&f.data, &store, &[]);
+
+        // Rewriting would replace the link and leave the values in the file it points to.
+        let link = std::fs::symlink_metadata(f.path()).map_err(|e| e.to_string())?;
+        assert!(link.file_type().is_symlink());
+        assert_eq!(f.text()?, written().to_string());
+        assert!(swept.secrets.is_empty() && store.names().is_empty());
+        Ok(())
+    }
+
+    #[test]
+    fn only_accounts_of_the_connections_are_ever_removed() -> Outcome {
+        let f = Fixture::new()?;
+        f.write(&json!({ "mcpServers": {} }))?;
+        let store = MemoryStore::default();
+        store.set("TELEGRAM_BOT_TOKEN", "bot:1").map_err(|e| e.0)?;
+        store.set(TOKEN, "tok-1").map_err(|e| e.0)?;
+
+        // As a `settings.json` edited by hand could list.
+        let swept = sweep(
+            &f.data,
+            &store,
+            &["TELEGRAM_BOT_TOKEN".to_owned(), TOKEN.to_owned()],
+        );
+
+        assert_eq!(store.names(), vec!["TELEGRAM_BOT_TOKEN".to_owned()]);
+        assert!(swept.accounts.is_empty());
         Ok(())
     }
 
