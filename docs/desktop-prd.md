@@ -149,15 +149,17 @@ and keep its secrets in the operating system instead of a text file.
     The values of `env` and `headers` are secrets (DK-5): before each start of the daemon the app
     moves them to the Keychain and leaves `@keychain` in the file; a server whose secret is
     missing is not connected.
-  - AC2: a task with connections is asked in the app's chat (a `connect` request). The processor
+  - AC2: a task with connections is asked in the app's chat (a `connect` request) or in
+    Telegram with `/mcp <tarea>`; `/mcp` alone answers how to ask. Only the principal's chat is
+    served, as for every other message. The processor
     is given the tools and asks for calls, one at a time; it never makes one (R-14 AC3). Code
     decides each call.
   - AC3: a tool marked read-only runs without asking; any other call waits for "Permitir", shown
     by code with the tool, the server and the exact arguments. "Detener" ends the task. A call is
     made at most once. What cannot be seen in the arguments (a direction mark, a variation
     selector, a blank that is not a space) is shown as its code, in names and in values. A call
-    whose arguments are over 1 500 characters as shown is never made. Only a press in the app
-    answers a call: the same press from Telegram runs nothing.
+    whose arguments are over 1 500 characters as shown is never made. A call is answered where
+    its task was asked: a press at the other front door runs nothing.
   - AC4: once a server answered in a task, a call to another server always waits for "Permitir",
     read-only or not: what was read from one server never leaves towards another unasked.
   - AC5: a task carries the principal's words and what the tools answered, and nothing else: no
@@ -173,10 +175,14 @@ and keep its secrets in the operating system instead of a text file.
     is wrong, or which servers could not be connected. A server that could not be reached is
     not tried again for a minute, and one whose connection broke under a call is connected
     again by the next task.
+  - AC8: a task does not hold the chat's turn while it waits for a server or the processor: a
+    text, a receipt or a button is answered meanwhile. There is one task at a time: one asked
+    while another runs is refused, and a press made while its task runs answers nothing. A task
+    asked while another waits for "Permitir" ends that one. How the task ended is a recent
+    turn, added when it ends. In Telegram an answer is cut to 4 096 characters.
   - Open, for the principal: a value written in `mcp.json` is in the file until the next start
     of the daemon, and in whatever copied the file meanwhile (a backup, an editor);
-    there is no setup screen for it; no OAuth; Telegram cannot ask
-    for these tasks; "read-only" is the principal's word about a tool, which the code cannot
+    there is no setup screen for it; no OAuth; "read-only" is the principal's word about a tool, which the code cannot
     check.
 
 ## 6. Decisions
