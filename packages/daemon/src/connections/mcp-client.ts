@@ -2,6 +2,7 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
+import { ErrorCode, McpError } from '@modelcontextprotocol/sdk/types.js';
 import type { Logger } from '../processor/text-interpreter.ts';
 import type { ConnectionsConfig, ServerConfig } from './config.ts';
 import type { Connection, ToolInfo } from './connection.ts';
@@ -11,6 +12,8 @@ import type { Connection, ToolInfo } from './connection.ts';
 
 const CONNECT_TIMEOUT_MS = 20_000;
 const CALL_TIMEOUT_MS = 60_000;
+/** How long a server that could not be reached is left alone: a task never waits for it twice. */
+const RETRY_AFTER_MS = 60_000;
 /** The most pages of tools read from one server. */
 const MAX_TOOL_PAGES = 5;
 
@@ -97,6 +100,8 @@ export const transportFor = (server: ServerConfig): Transport =>
 export interface Connections {
   /** The servers connected now. One not connected yet is tried, and left out if it fails. */
   get(): Promise<Connection[]>;
+  /** The configured servers that are not connected, as the last `get` left them. */
+  unreachable(): string[];
   close(): Promise<void>;
 }
 
@@ -105,30 +110,68 @@ export interface ConnectionsDeps {
   logger: Logger;
   /** How a server is reached; tests join one in memory. */
   open?: (name: string, server: ServerConfig) => Promise<Transport>;
+  now?: () => number;
 }
+
+/**
+ * Whether `error` means the connection is of no more use: anything but the server's own answer
+ * to one request (such as an HTTP server that forgot the session), or the connection closing.
+ * A call that timed out says nothing about the next one.
+ */
+const broke = (error: unknown): boolean =>
+  !(error instanceof McpError) || error.code === ErrorCode.ConnectionClosed;
 
 /**
  * The connections, made when a task first needs them: a daemon that is never asked for one
  * starts no server.
  */
 export const createConnections = (deps: ConnectionsDeps): Connections => {
-  const { config, logger, open = async (_, server) => transportFor(server) } = deps;
+  const { config, logger, open = async (_, server) => transportFor(server), now = Date.now } = deps;
   const connected = new Map<string, ConnectedServer>();
+  /** When each server last could not be reached. */
+  const failedAt = new Map<string, number>();
+  const resting = (name: string): boolean => {
+    const at = failedAt.get(name);
+    return at !== undefined && now() - at < RETRY_AFTER_MS;
+  };
   /** One `get` at a time, so a server is never connected twice. */
   let turn: Promise<unknown> = Promise.resolve();
 
   const connectMissing = async (): Promise<Connection[]> => {
     await Promise.all(
       Object.entries(config)
-        .filter(([name]) => !connected.has(name))
+        .filter(([name]) => !connected.has(name) && !resting(name))
         .map(async ([name, server]) => {
           try {
-            const made = await connectTo(name, server.readOnly, await open(name, server), () =>
-              connected.delete(name),
-            );
-            connected.set(name, made);
+            let entry: ConnectedServer | undefined;
+            // Only its own entry: by then the server may be connected again.
+            const forget = () => {
+              if (entry !== undefined && connected.get(name) === entry) connected.delete(name);
+            };
+            const made = await connectTo(name, server.readOnly, await open(name, server), forget);
+            entry = {
+              close: made.close,
+              connection: {
+                ...made.connection,
+                call: async (tool, args) => {
+                  try {
+                    return await made.connection.call(tool, args);
+                  } catch (error) {
+                    if (broke(error)) {
+                      // The next task connects again.
+                      forget();
+                      void made.close().catch(() => {});
+                    }
+                    throw error;
+                  }
+                },
+              },
+            };
+            connected.set(name, entry);
+            failedAt.delete(name);
             logger.info(`connected to ${name} (${made.connection.tools.length} tools)`);
           } catch (error) {
+            failedAt.set(name, now());
             // Its code only: a message may quote the address or a header.
             logger.warn('could not connect to a server', {
               server: name,
@@ -150,6 +193,7 @@ export const createConnections = (deps: ConnectionsDeps): Connections => {
       turn = next.catch(() => {});
       return next;
     },
+    unreachable: () => Object.keys(config).filter((name) => !connected.has(name)),
     close: async () => {
       const servers = [...connected.values()];
       connected.clear();

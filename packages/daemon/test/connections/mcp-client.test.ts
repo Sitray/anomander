@@ -5,7 +5,11 @@ import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
-import { loadConnectionsConfig, parseConnectionsConfig } from '../../src/connections/config.ts';
+import {
+  loadConnectionsConfig,
+  parseConnectionsConfig,
+  readConnections,
+} from '../../src/connections/config.ts';
 import { connectTo, createConnections, transportFor } from '../../src/connections/mcp-client.ts';
 
 // DK-11: the MCP side. A real client against a real server of the SDK, joined in memory: no
@@ -104,10 +108,12 @@ describe('DK-11: the connections, made when a task first needs them', () => {
   it('connects each server once, and leaves out one that cannot be reached until it can', async () => {
     const log = logger();
     let reachable = false;
+    let clock = 1_000_000;
     const opened: string[] = [];
     const connections = createConnections({
       config,
       logger: log,
+      now: () => clock,
       open: async (name) => {
         opened.push(name);
         if (name === 'down' && !reachable) throw new Error('ECONNREFUSED https://user:secret@x');
@@ -118,14 +124,57 @@ describe('DK-11: the connections, made when a task first needs them', () => {
 
     expect((await connections.get()).map((connection) => connection.name)).toEqual(['notes']);
     expect(JSON.stringify(log.warn.mock.calls)).not.toContain('secret');
+    expect(connections.unreachable()).toEqual(['down']);
 
+    // A server that just failed is not tried again by the next task: it would wait for it.
     reachable = true;
+    clock += 59_000;
+    expect((await connections.get()).map((connection) => connection.name)).toEqual(['notes']);
+    expect(opened).toEqual(['notes', 'down']);
+
+    clock += 1_000;
     expect((await connections.get()).map((connection) => connection.name)).toEqual([
       'notes',
       'down',
     ]);
     expect(opened).toEqual(['notes', 'down', 'down']);
+    expect(connections.unreachable()).toEqual([]);
     expect([...((await connections.get())[0]?.readOnly ?? [])]).toEqual(['search']);
+    await connections.close();
+  });
+
+  it('connects again to a server whose connection broke under a call', async () => {
+    let broken = false;
+    const opened: string[] = [];
+    const connections = createConnections({
+      config: parseConnectionsConfig({ mcpServers: { notes: { url: 'https://example.com/mcp' } } }),
+      logger: logger(),
+      open: async (name) => {
+        opened.push(name);
+        const { transport } = await serve();
+        const send = transport.send.bind(transport);
+        // As an HTTP server that forgot the session: every request fails from then on.
+        transport.send = async (message, options) => {
+          if (broken) throw new Error('404 session not found');
+          return send(message, options);
+        };
+        return transport;
+      },
+    });
+    const [first] = await connections.get();
+    expect(await first?.call('search', { query: 'a' })).toMatchObject({ text: 'found: a' });
+
+    broken = true;
+    await expect(first?.call('search', { query: 'b' })).rejects.toThrow();
+    broken = false;
+
+    const [second] = await connections.get();
+    expect(opened).toEqual(['notes', 'notes']);
+    expect(await second?.call('search', { query: 'c' })).toMatchObject({ text: 'found: c' });
+    // A tool that fails is the tool's answer, not a broken connection.
+    expect(await second?.call('broken', {})).toMatchObject({ isError: true });
+    await connections.get();
+    expect(opened).toEqual(['notes', 'notes']);
     await connections.close();
   });
 });
@@ -242,6 +291,31 @@ describe('DK-11: mcp.json', () => {
       expect(loadConnectionsConfig(path, log, secrets), secrets).toEqual({});
       expect(JSON.stringify(log.error.mock.calls), secrets).not.toContain('hunter2');
     }
+  });
+
+  it('says what kept servers out: a file that is wrong, or a secret nobody handed over', () => {
+    const path = join(dir, 'mcp.json');
+    expect(readConnections(join(dir, 'none.json'), logger())).toEqual({
+      config: {},
+      invalid: false,
+      leftOut: [],
+    });
+
+    writeFileSync(path, '{ not json');
+    expect(readConnections(path, logger())).toEqual({ config: {}, invalid: true, leftOut: [] });
+
+    writeFileSync(
+      path,
+      JSON.stringify({
+        mcpServers: {
+          remote: { url: 'https://example.com/mcp', headers: { Authorization: '@keychain' } },
+          plain: { command: 'plain-mcp' },
+        },
+      }),
+    );
+    const read = readConnections(path, logger());
+    expect(Object.keys(read.config)).toEqual(['plain']);
+    expect(read).toMatchObject({ invalid: false, leftOut: ['remote'] });
   });
 
   it('is no connections when the file is missing or no path was given', () => {

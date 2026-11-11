@@ -56,6 +56,8 @@ let screens: Context[];
 let seen: () => Promise<string>;
 /** The servers a task with connections finds connected. */
 let connected: Connection[];
+/** What the code knows about the servers that are not. */
+let problems: { invalid: boolean; unreachable: string[] };
 /** What the processor answers to a task with connections, one response per call. */
 let tooled: AssistantMessage['content'][];
 type Log = (message: string, fields?: Record<string, unknown>) => void;
@@ -105,6 +107,7 @@ const start = async (env: Record<string, string> = { ANOMANDER_LOCAL_TOKEN: TOKE
       telegramApiRoot: api.apiRoot,
       logger,
       connections: async () => connected,
+      connectionProblems: () => problems,
     },
   );
   await anomander.started;
@@ -220,6 +223,7 @@ beforeEach(async () => {
   planned = async () => JSON.stringify(CLICK);
   seen = async () => SEEN;
   connected = [];
+  problems = { invalid: false, unreachable: [] };
   tooled = [];
   logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn() };
 });
@@ -938,6 +942,30 @@ describe('a task with connections (DK-11)', () => {
     expect(reply(await chat.ask({ type: 'connect', task })).text).toBe(
       'No he podido hacerlo con tus conexiones. ¿Me lo pides de otra forma?',
     );
+  });
+
+  it('says why no server is connected, when the code knows', async () => {
+    const chat = await client(await start());
+    connected = [];
+    problems = { invalid: false, unreachable: ['notes', 'My mail'] };
+    expect(reply(await chat.ask({ type: 'connect', task })).text).toBe(
+      'No he podido conectar con «notes», «My mail». Revisa cómo están en mcp.json y vuelve a pedírmelo.',
+    );
+
+    problems = { invalid: true, unreachable: [] };
+    expect(reply(await chat.ask({ type: 'connect', task })).text).toBe(
+      'No puedo usar mcp.json: no es un JSON válido o algún servidor no está bien escrito. Corrígelo y reinicia.',
+    );
+  });
+
+  it('says how many calls a task that went wrong had made', async () => {
+    const chat = await client(await start());
+    tooled = [calls('notes__search', { query: 'Lisboa' }), says('  ')];
+
+    expect(reply(await chat.ask({ type: 'connect', task })).text).toBe(
+      'No he podido hacerlo con tus conexiones. ¿Me lo pides de otra forma? Antes de parar se hizo 1 llamada a tus conexiones.',
+    );
+    expect(made).toHaveLength(1);
   });
 
   it('rejects a task without words', async () => {

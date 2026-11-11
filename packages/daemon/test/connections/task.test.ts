@@ -62,7 +62,10 @@ describe('DK-11: a task with connections', () => {
     },
   });
 
-  const start = (connections: Connection[]) => {
+  const start = (
+    connections: Connection[],
+    problems?: { invalid: boolean; unreachable: string[] },
+  ) => {
     tasks = createConnectionTasks({
       complete: async (_model: string, context: Context) => {
         // A copy: the task keeps adding to its own.
@@ -74,6 +77,7 @@ describe('DK-11: a task with connections', () => {
       },
       model: 'google/gemini',
       connections: async () => connections,
+      ...(problems === undefined ? {} : { problems: () => problems }),
       logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
       newId: () => `id-${++ids}`,
     });
@@ -310,7 +314,11 @@ describe('DK-11: a task with connections', () => {
 
     expect(outcome).toEqual({ kind: 'answer', text: 'Listo.' });
     expect(given(contexts[1])).toEqual([
-      { tool: 'notes__search', isError: true, text: 'The call failed.' },
+      {
+        tool: 'notes__search',
+        isError: true,
+        text: 'The call failed or timed out: it may or may not have run. Do not ask for it again; tell the user.',
+      },
     ]);
 
     script = [call(['notes__search', { query: 'a' }]), say('Listo.')];
@@ -322,16 +330,46 @@ describe('DK-11: a task with connections', () => {
     expect(long.length).toBeLessThan(MAX_RESULT_CHARACTERS + 50);
   });
 
-  it(`stops after ${MAX_CONNECTION_CALLS} calls`, async () => {
+  it(`stops after ${MAX_CONNECTION_CALLS} calls: one more is asked for and never runs`, async () => {
     script = Array.from({ length: MAX_CONNECTION_CALLS + 1 }, () =>
       call(['notes__search', { query: 'otra vez' }]),
     );
 
     const outcome = await start([notes()]).start('Busca sin parar');
 
-    expect(outcome).toEqual({ kind: 'too_many_calls' });
+    expect(outcome).toEqual({ kind: 'too_many_calls', performed: MAX_CONNECTION_CALLS });
     expect(made).toHaveLength(MAX_CONNECTION_CALLS);
-    expect(contexts).toHaveLength(MAX_CONNECTION_CALLS);
+    expect(contexts).toHaveLength(MAX_CONNECTION_CALLS + 1);
+  });
+
+  it(`after its ${MAX_CONNECTION_CALLS} calls the processor still answers with what the last one gave`, async () => {
+    script = [
+      ...Array.from({ length: MAX_CONNECTION_CALLS }, () =>
+        call(['notes__search', { query: 'otra vez' }]),
+      ),
+      say('Esto es lo que he encontrado.'),
+    ];
+
+    const outcome = await start([notes()]).start('Busca mucho');
+
+    expect(outcome).toEqual({ kind: 'answer', text: 'Esto es lo que he encontrado.' });
+    expect(given(contexts.at(-1))).toHaveLength(MAX_CONNECTION_CALLS);
+  });
+
+  it('a task cut short says how many calls it had made', async () => {
+    script = [call(['notes__search', { query: 'a' }]), new Error('boom')];
+    expect(await start([notes()]).start('Busca')).toEqual({ kind: 'failed', performed: 1 });
+
+    script = [call(['notes__create', { title: 'x' }]), new AiBudgetExhaustedError()];
+    const question = asked(await tasks.start('Apunta x'));
+    expect(await tasks.answer(question.id, true)).toEqual({
+      kind: 'budget_exhausted',
+      performed: 1,
+    });
+
+    // A call the code refused was not made.
+    script = [call(['notes__nothing', {}]), new Error('429 quota exceeded')];
+    expect(await tasks.start('Busca')).toEqual({ kind: 'provider_limit', performed: 0 });
   });
 
   it('a new task ends the one that waited', async () => {
@@ -345,8 +383,19 @@ describe('DK-11: a task with connections', () => {
   });
 
   it('says so without connections, and never calls the processor', async () => {
-    expect(await start([]).start('Busca')).toEqual({ kind: 'no_connections' });
+    expect(await start([]).start('Busca')).toEqual({
+      kind: 'no_connections',
+      invalid: false,
+      unreachable: [],
+    });
     expect(contexts).toEqual([]);
+
+    // And why, when the code knows.
+    const problems = { invalid: true, unreachable: ['notes'] };
+    expect(await start([], problems).start('Busca')).toEqual({
+      kind: 'no_connections',
+      ...problems,
+    });
   });
 
   it('leaves out a tool whose name could not be shown as it is', async () => {
@@ -364,15 +413,18 @@ describe('DK-11: a task with connections', () => {
 
   it('tells apart the daily cap, the provider quota and any other failure', async () => {
     script = [new AiBudgetExhaustedError()];
-    expect(await start([notes()]).start('Busca')).toEqual({ kind: 'budget_exhausted' });
+    expect(await start([notes()]).start('Busca')).toEqual({
+      kind: 'budget_exhausted',
+      performed: 0,
+    });
 
     script = [new Error('429 quota exceeded')];
-    expect(await tasks.start('Busca')).toEqual({ kind: 'provider_limit' });
+    expect(await tasks.start('Busca')).toEqual({ kind: 'provider_limit', performed: 0 });
 
     script = [new Error('boom')];
-    expect(await tasks.start('Busca')).toEqual({ kind: 'failed' });
+    expect(await tasks.start('Busca')).toEqual({ kind: 'failed', performed: 0 });
 
     script = [say('   ')];
-    expect(await tasks.start('Busca')).toEqual({ kind: 'failed' });
+    expect(await tasks.start('Busca')).toEqual({ kind: 'failed', performed: 0 });
   });
 });
