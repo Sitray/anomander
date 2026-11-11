@@ -18,15 +18,19 @@ use crate::snapshot::{SetupState, Snapshot};
 /// code cannot tell which are: a value under such a name, or any header, is hidden in the
 /// daemon's output from `SHORTEST_NAMED` characters; any other only from `SHORTEST_UNNAMED`, so
 /// a `NODE_ENV=production` does not blank that word wherever the daemon writes it.
-const SECRET_NAMES: [&str; 8] = [
+const SECRET_NAMES: [&str; 12] = [
     "token",
     "key",
     "secret",
-    "password",
-    "passwd",
+    "pass",
+    "pwd",
     "auth",
     "credential",
     "cookie",
+    "session",
+    "pat",
+    "api",
+    "dsn",
 ];
 const SHORTEST_NAMED: usize = 4;
 const SHORTEST_UNNAMED: usize = 16;
@@ -396,8 +400,9 @@ mod tests {
             ("mcp/s/env/GITHUB_TOKEN", "ñ-12"),
             ("mcp/s/env/db_password", "hunter2"),
             ("mcp/s/headers/X-Custom", "abcd"),
+            ("mcp/s/env/GH_PAT", "ghp_1234"),
             // Under any name, once it is long enough to be one.
-            ("mcp/s/env/DSN", "postgres://u:p@h/db"),
+            ("mcp/s/env/ENDPOINT", "https://u:p@host/db"),
         ] {
             assert!(hidden(account, value), "{account}");
         }
