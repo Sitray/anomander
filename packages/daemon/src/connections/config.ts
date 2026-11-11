@@ -5,6 +5,10 @@ import type { Logger } from '../processor/text-interpreter.ts';
 // DK-11: the servers the principal connected, from `mcp.json` in the data folder. The format is
 // the `mcpServers` object other MCP clients read, plus `readOnly`: the tools of that server the
 // principal marks as only reading, the only ones that may run without asking.
+//
+// The desktop app keeps the values of `env` and `headers` in the Keychain (DK-5): it leaves
+// `@keychain` in their place and hands the values over in `ANOMANDER_MCP_SECRETS`, a JSON object
+// by `mcp/<server>/<env|headers>/<name>`.
 
 /** A server started as a process and spoken to over its standard input and output. */
 export interface ProcessServer {
@@ -65,13 +69,68 @@ const fileSchema = z.strictObject({
 export const parseConnectionsConfig = (raw: unknown): ConnectionsConfig =>
   fileSchema.parse(raw).mcpServers;
 
+/** What the desktop app leaves in the file in place of a value it keeps in the Keychain. */
+export const KEPT_SECRET = '@keychain';
+
+const secretsSchema = z.record(z.string(), z.string());
+
+/** The secrets `raw` holds; none when it is not a JSON object of texts. */
+const handedOver = (raw: string | undefined, logger: Logger): Record<string, string> => {
+  if (raw === undefined) return {};
+  try {
+    return secretsSchema.parse(JSON.parse(raw));
+  } catch {
+    // Never what it says: it holds tokens.
+    logger.error('the secrets of the connections are not valid; none is used');
+    return {};
+  }
+};
+
+/**
+ * `config` with each kept value replaced by its secret. A server with a value nobody handed over
+ * is left out: the marker is never sent in the place of a token.
+ */
+const filled = (
+  config: ConnectionsConfig,
+  secrets: Record<string, string>,
+  logger: Logger,
+): ConnectionsConfig => {
+  const servers: [string, ServerConfig][] = [];
+  for (const [name, server] of Object.entries(config)) {
+    const field = server.kind === 'process' ? 'env' : 'headers';
+    const values: Record<string, string> = {};
+    let missing: string | undefined;
+    for (const [key, value] of Object.entries(
+      server.kind === 'process' ? server.env : server.headers,
+    )) {
+      const secret = value === KEPT_SECRET ? secrets[`mcp/${name}/${field}/${key}`] : value;
+      if (secret === undefined) missing ??= key;
+      else values[key] = secret;
+    }
+    if (missing !== undefined) {
+      logger.error('a secret of a connection was not handed over; the server is not connected', {
+        server: name,
+        missing,
+      });
+      continue;
+    }
+    servers.push([
+      name,
+      server.kind === 'process' ? { ...server, env: values } : { ...server, headers: values },
+    ]);
+  }
+  return Object.fromEntries(servers);
+};
+
 /**
  * Reads `path`; no path or no file is no connections. A file that is wrong anywhere connects
- * nothing: half a configuration is not what the principal wrote.
+ * nothing: half a configuration is not what the principal wrote. `secrets` is
+ * `ANOMANDER_MCP_SECRETS` as it came.
  */
 export const loadConnectionsConfig = (
   path: string | undefined,
   logger: Logger,
+  secrets?: string,
 ): ConnectionsConfig => {
   if (path === undefined) return {};
   let text: string;
@@ -85,7 +144,7 @@ export const loadConnectionsConfig = (
     return {};
   }
   try {
-    return parseConnectionsConfig(JSON.parse(text));
+    return filled(parseConnectionsConfig(JSON.parse(text)), handedOver(secrets, logger), logger);
   } catch (error) {
     // Where it is wrong, never what it says: the file may hold tokens.
     const where =

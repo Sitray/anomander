@@ -3,6 +3,7 @@
 // Keychain (DK-5), lives in the menu bar (DK-6) and owns the data folder (DK-8). The window's side
 // of every command and event is `apps/desktop/src/shell.ts`.
 pub mod computer;
+pub mod connection_secrets;
 pub mod daemon;
 pub mod data_dir;
 pub mod notification;

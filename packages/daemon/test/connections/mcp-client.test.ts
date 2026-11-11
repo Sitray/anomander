@@ -173,6 +173,77 @@ describe('DK-11: mcp.json', () => {
     });
   });
 
+  it('fills each `@keychain` value with the secret the app handed over', () => {
+    const path = join(dir, 'mcp.json');
+    writeFileSync(
+      path,
+      JSON.stringify({
+        mcpServers: {
+          notes: { command: 'npx', env: { NOTES_TOKEN: '@keychain', DEBUG: '1' } },
+          remote: { url: 'https://example.com/mcp', headers: { Authorization: '@keychain' } },
+        },
+      }),
+    );
+    const secrets = JSON.stringify({
+      'mcp/notes/env/NOTES_TOKEN': 'abc',
+      'mcp/remote/headers/Authorization': 'Bearer xyz',
+    });
+
+    const log = logger();
+    expect(loadConnectionsConfig(path, log, secrets)).toEqual({
+      notes: {
+        kind: 'process',
+        command: 'npx',
+        args: [],
+        env: { NOTES_TOKEN: 'abc', DEBUG: '1' },
+        readOnly: [],
+      },
+      remote: {
+        kind: 'http',
+        url: 'https://example.com/mcp',
+        headers: { Authorization: 'Bearer xyz' },
+        readOnly: [],
+      },
+    });
+    expect(log.error).not.toHaveBeenCalled();
+  });
+
+  it('leaves out a server whose secret was not handed over, and only that server', () => {
+    const path = join(dir, 'mcp.json');
+    writeFileSync(
+      path,
+      JSON.stringify({
+        mcpServers: {
+          notes: { command: 'npx', env: { NOTES_TOKEN: '@keychain' } },
+          remote: { url: 'https://example.com/mcp', headers: { Authorization: '@keychain' } },
+          plain: { command: 'plain-mcp' },
+        },
+      }),
+    );
+    const secrets = JSON.stringify({ 'mcp/notes/env/NOTES_TOKEN': 'abc' });
+
+    const log = logger();
+    expect(Object.keys(loadConnectionsConfig(path, log, secrets))).toEqual(['notes', 'plain']);
+    expect(log.error).toHaveBeenCalledTimes(1);
+    expect(log.error.mock.calls[0]?.[1]).toEqual({ server: 'remote', missing: 'Authorization' });
+
+    // Without the app there is nothing to fill a marker with: it is never sent as the value.
+    expect(Object.keys(loadConnectionsConfig(path, logger()))).toEqual(['plain']);
+  });
+
+  it('takes secrets that are not a JSON object of texts as none, without logging them', () => {
+    const path = join(dir, 'mcp.json');
+    writeFileSync(
+      path,
+      JSON.stringify({ mcpServers: { notes: { command: 'npx', env: { T: '@keychain' } } } }),
+    );
+    for (const secrets of ['hunter2-not-json', JSON.stringify({ 'mcp/notes/env/T': 7 })]) {
+      const log = logger();
+      expect(loadConnectionsConfig(path, log, secrets), secrets).toEqual({});
+      expect(JSON.stringify(log.error.mock.calls), secrets).not.toContain('hunter2');
+    }
+  });
+
   it('is no connections when the file is missing or no path was given', () => {
     expect(loadConnectionsConfig(join(dir, 'none.json'), logger())).toEqual({});
     expect(loadConnectionsConfig(undefined, logger())).toEqual({});
