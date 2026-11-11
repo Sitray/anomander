@@ -475,7 +475,7 @@ export const startAnomander = <M>(config: Config, deps: AnomanderDeps<M>): Anoma
   const servers =
     deps.connections === undefined
       ? createConnections({
-          config: loadConnectionsConfig(config.mcpConfigPath, logger),
+          config: loadConnectionsConfig(config.mcpConfigPath, logger, config.mcpSecrets),
           logger,
         })
       : undefined;

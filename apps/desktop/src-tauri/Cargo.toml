@@ -16,7 +16,8 @@ tauri-build = { version = "2.5", features = [] }
 [dependencies]
 tauri = { version = "2.12", features = ["tray-icon"] }
 serde = { version = "1", features = ["derive"] }
-serde_json = "1"
+# `preserve_order`: `mcp.json` is rewritten with its servers in the order the principal wrote.
+serde_json = { version = "1", features = ["preserve_order"] }
 # DK-3 AC2: the launch token comes from the operating system's CSPRNG.
 tauri-plugin-notification = "2"
 getrandom = "0.3"

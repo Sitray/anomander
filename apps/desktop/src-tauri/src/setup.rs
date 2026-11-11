@@ -12,7 +12,7 @@ use crate::snapshot::SetupState;
 /// The Keychain account of the bot token: the daemon's variable name.
 pub const TELEGRAM_BOT_TOKEN: &str = "TELEGRAM_BOT_TOKEN";
 
-/// What `settings.json` holds: no secret, only which provider keys are stored.
+/// What `settings.json` holds: no secret, only which ones are stored.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct Settings {
@@ -20,6 +20,8 @@ pub struct Settings {
     pub model: Option<String>,
     pub vision_model: Option<String>,
     pub provider_keys: Vec<String>,
+    /// The Keychain accounts that hold values of `mcp.json` (`connection_secrets`).
+    pub connection_secrets: Vec<String>,
 }
 
 /// `SetupInput` of `shell.ts`. Holds secrets: no `Debug`.
@@ -156,6 +158,7 @@ pub fn apply_setup(
         model,
         vision_model,
         provider_keys,
+        connection_secrets: current.connection_secrets.clone(),
     })
 }
 
@@ -300,6 +303,7 @@ mod tests {
                 model: Some("openai/gpt-4o-mini".into()),
                 vision_model: None,
                 provider_keys: vec!["ANTHROPIC_API_KEY".into(), "OPENAI_API_KEY".into()],
+                connection_secrets: Vec::new(),
             }
         );
         assert_eq!(
@@ -424,6 +428,7 @@ mod tests {
             model: Some("openai/gpt-4o-mini".into()),
             vision_model: None,
             provider_keys: vec!["OPENAI_API_KEY".into()],
+            connection_secrets: Vec::new(),
         };
         assert_eq!(
             setup_state(&settings, true),
@@ -465,6 +470,7 @@ mod tests {
             model: None,
             vision_model: Some("openai/gpt-4o".into()),
             provider_keys: vec!["OPENAI_API_KEY".into()],
+            connection_secrets: vec!["mcp/notes/env/TOKEN".into()],
         };
         save_settings(&dir, &settings).map_err(|e| e.to_string())?;
         let text = std::fs::read_to_string(dir.settings_path()).map_err(|e| e.to_string())?;
@@ -475,7 +481,8 @@ mod tests {
                 "principalChatId": "42",
                 "model": null,
                 "visionModel": "openai/gpt-4o",
-                "providerKeys": ["OPENAI_API_KEY"]
+                "providerKeys": ["OPENAI_API_KEY"],
+                "connectionSecrets": ["mcp/notes/env/TOKEN"]
             })
         );
         let mode = std::fs::metadata(dir.settings_path())

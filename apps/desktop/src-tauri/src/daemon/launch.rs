@@ -36,6 +36,8 @@ pub struct DaemonInputs<'a> {
     pub vision_model: Option<&'a str>,
     /// By provider variable, such as `OPENAI_API_KEY`.
     pub provider_keys: &'a [(String, String)],
+    /// The values of `mcp.json` kept in the Keychain, by account (`connection_secrets`).
+    pub connection_secrets: &'a [(String, String)],
     pub paths: &'a DaemonPaths,
     pub local_token: &'a str,
     pub local_port: u16,
@@ -73,6 +75,17 @@ pub fn child_env(
         "ANOMANDER_MCP_CONFIG",
         &inputs.paths.connections.to_string_lossy(),
     );
+    if !inputs.connection_secrets.is_empty() {
+        let secrets: serde_json::Map<String, serde_json::Value> = inputs
+            .connection_secrets
+            .iter()
+            .map(|(account, secret)| (account.clone(), secret.as_str().into()))
+            .collect();
+        set(
+            "ANOMANDER_MCP_SECRETS",
+            &serde_json::Value::Object(secrets).to_string(),
+        );
+    }
     set("ANOMANDER_LOCAL_TOKEN", inputs.local_token);
     set("ANOMANDER_LOCAL_PORT", &inputs.local_port.to_string());
     // DK-1 AC1: the daemon stops when its stdin closes, so a crashed app leaves no daemon.
@@ -174,6 +187,7 @@ mod tests {
             model: Some("openai/gpt-4o-mini"),
             vision_model: Some("openai/gpt-4o"),
             provider_keys: &keys,
+            connection_secrets: &[],
             paths: &paths,
             local_token: "t".repeat(64).leak(),
             local_port: 50123,
@@ -212,11 +226,13 @@ mod tests {
             model: None,
             vision_model: None,
             provider_keys: &[],
+            connection_secrets: &[],
             paths: &paths,
             local_token: "t",
             local_port: 1,
         };
         let env: BTreeMap<_, _> = child_env(&|_| None, &inputs).into_iter().collect();
+        assert!(!env.contains_key("ANOMANDER_MCP_SECRETS"));
         assert!(!env.contains_key("ANOMANDER_MODEL"));
         assert!(!env.contains_key("ANOMANDER_VISION_MODEL"));
         assert!(!env.contains_key("HOME"));
@@ -224,6 +240,38 @@ mod tests {
             env.get("PATH").map(String::as_str),
             Some("/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin:/usr/local/bin")
         );
+    }
+
+    #[test]
+    fn the_secrets_of_the_connections_travel_as_one_json_object_by_account() {
+        let paths = paths();
+        let secrets = vec![
+            (
+                "mcp/notes/env/TOKEN".to_owned(),
+                "a \"quoted\" one".to_owned(),
+            ),
+            (
+                "mcp/remote/headers/Authorization".to_owned(),
+                "Bearer b".to_owned(),
+            ),
+        ];
+        let inputs = DaemonInputs {
+            telegram_bot_token: "bot:1",
+            principal_chat_id: "42",
+            model: None,
+            vision_model: None,
+            provider_keys: &[],
+            connection_secrets: &secrets,
+            paths: &paths,
+            local_token: "t",
+            local_port: 1,
+        };
+        let env: BTreeMap<_, _> = child_env(&|_| None, &inputs).into_iter().collect();
+        let sent: BTreeMap<String, String> = env
+            .get("ANOMANDER_MCP_SECRETS")
+            .and_then(|json| serde_json::from_str(json).ok())
+            .unwrap_or_default();
+        assert_eq!(sent, secrets.into_iter().collect());
     }
 
     #[test]

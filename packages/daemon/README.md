@@ -655,6 +655,8 @@ The error names every missing required variable.
 | `ANOMANDER_API_PORT` | `4311`, from 1 to 65535 |
 | `ANOMANDER_LOCAL_TOKEN` | unset: the local channel is off (DK-3). At least 32 characters |
 | `ANOMANDER_LOCAL_PORT` | `4312`, from 1 to 65535 |
+| `ANOMANDER_MCP_CONFIG` | unset: no connections (DK-11). The path of `mcp.json` |
+| `ANOMANDER_MCP_SECRETS` | unset. Set by the desktop app: a JSON object with the values it keeps in the Keychain for `mcp.json`, by `mcp/<server>/<env or headers>/<name>`; each fills an `@keychain` in the file |
 
 The read API's variables come from `docs/read-access-prd.md` §8 until it moves into PRD §14.4;
 `.env.example` lists both tables. The local channel's two variables are not in `.env.example`:

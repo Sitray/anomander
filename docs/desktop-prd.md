@@ -146,6 +146,9 @@ and keep its secrets in the operating system instead of a text file.
     plus `readOnly`, the tools of that server they mark as only reading. A URL is HTTPS, or HTTP
     to this machine. A file that is wrong anywhere connects nothing. A server process gets none
     of the daemon's environment. Servers are connected when a task first needs them.
+    The values of `env` and `headers` are secrets (DK-5): before each start of the daemon the app
+    moves them to the Keychain and leaves `@keychain` in the file; a server whose secret is
+    missing is not connected.
   - AC2: a task with connections is asked in the app's chat (a `connect` request). The processor
     is given the tools and asks for calls, one at a time; it never makes one (R-14 AC3). Code
     decides each call.
@@ -162,8 +165,9 @@ and keep its secrets in the operating system instead of a text file.
     instruction. Only how a task ended is a recent turn (R-16 AC3).
   - AC6: a task makes at most 8 calls, and every processor call counts against the daily AI
     limit (R-12). A result over 12 000 characters is cut; what is not text is only named.
-  - Open, for the principal: `mcp.json` may hold tokens (`env`, `headers`) and is not in the
-    Keychain (against DK-5 AC1); there is no setup screen for it; no OAuth; Telegram cannot ask
+  - Open, for the principal: a value written in `mcp.json` is in the file until the next start
+    of the daemon, and in whatever copied the file meanwhile (a backup, an editor);
+    there is no setup screen for it; no OAuth; Telegram cannot ask
     for these tasks; "read-only" is the principal's word about a tool, which the code cannot
     check.
 
@@ -219,6 +223,7 @@ Built in `apps/desktop` (see its README): a React window (`src/`) and a Tauri 2 
 | No daemon left behind (DK-1 AC1) | SIGTERM, then SIGKILL after 5 seconds. The daemon also stops when its stdin closes (`ANOMANDER_STOP_WITH_PARENT=1`), so a crashed or killed app leaves none |
 | Restarting (DK-1 AC2) | One second after an exit; exit codes 3 and 4 are never retried |
 | Secrets (DK-5) | Keychain items of service `ANOMANDER`, named as the daemon's variables. The rest in `settings.json` in the data folder, mode `600` |
+| Secrets of the connections (DK-11 AC1) | Keychain items named `mcp/<server>/<env or headers>/<name>`, listed in `settings.json`. The daemon gets them in `ANOMANDER_MCP_SECRETS`, a JSON object by that name. Every value is moved, secret or not: the code cannot tell |
 | The subscription login (DK-5 AC1) | Not in the Keychain yet: pi-ai keeps it in `auth.json` in the data folder, mode `600` |
 | The ledger | A new one in the app's data folder. A Docker install's ledger stays in its volume: nothing is moved or copied |
 | The window's strings | Spanish, all in `apps/desktop/src/strings.ts`, not yet in `PRD.md` §12 |

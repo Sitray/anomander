@@ -54,6 +54,11 @@ export interface Config {
    * desktop app sets it; while unset there are no connections.
    */
   mcpConfigPath: string | undefined;
+  /**
+   * `ANOMANDER_MCP_SECRETS`: the values the desktop app keeps in the Keychain for that file, as a
+   * JSON object. Read by `loadConnectionsConfig`.
+   */
+  mcpSecrets: string | undefined;
 }
 
 const modelId = z.string().transform((value, ctx) => {
@@ -124,6 +129,7 @@ const envSchema = z.object({
     .transform(Number)
     .pipe(z.int().min(1, NOT_A_PORT).max(65535, NOT_A_PORT)),
   ANOMANDER_MCP_CONFIG: z.string().min(1).optional(),
+  ANOMANDER_MCP_SECRETS: z.string().min(1).optional(),
 });
 
 type EnvKey = keyof typeof envSchema.shape;
@@ -182,5 +188,6 @@ export const loadConfig = (env: Record<string, string | undefined>): Config => {
     localToken: values.ANOMANDER_LOCAL_TOKEN,
     localPort: values.ANOMANDER_LOCAL_PORT,
     mcpConfigPath: values.ANOMANDER_MCP_CONFIG,
+    mcpSecrets: values.ANOMANDER_MCP_SECRETS,
   };
 };

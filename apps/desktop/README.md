@@ -126,8 +126,16 @@ is framework-free, so it is tested against a fake `WebSocket` (`test/fake-web-so
   }
   ```
 
-  Only the tools listed in `readOnly` run without asking. The file may hold tokens and is not in
-  the Keychain yet. The daemon reads it when it starts.
+  Only the tools listed in `readOnly` run without asking. The daemon reads the file when it
+  starts. Just before, the shell moves every value of `env` and `headers` to the Keychain
+  (`src-tauri/src/connection_secrets.rs`) and rewrites the file with `@keychain` in their place,
+  so a token is in the file only until the next start. To change a value, write the new one over
+  its `@keychain` and restart the app; a value whose server or name leaves the file leaves the
+  Keychain too, and `"mcpServers": {}` removes them all. A renamed server or variable needs its
+  value written again: until then, and while any server is not as the daemon reads it, nothing
+  is removed. A missing file, or one that is a link, is
+  left alone with what is stored. The rewrite keeps the order of the servers and normalises the
+  spacing.
 - **Link buttons** (`{label, url}`) are named, not offered: this WebView cannot open links, and
   `/login` stays in Telegram (DK-4 AC7).
 - **Secrets** typed in the setup screen stay in uncontrolled fields and a ref, never in React

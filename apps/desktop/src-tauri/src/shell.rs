@@ -2,6 +2,7 @@
 // secrets (DK-5) and this launch's token (DK-3 AC2), and how they become one start of the daemon.
 use std::sync::{Mutex, MutexGuard, PoisonError};
 
+use crate::connection_secrets::sweep;
 use crate::daemon::launch::{
     child_env, daemon_entry, find_node, free_port, search_path, DaemonInputs,
 };
@@ -12,6 +13,10 @@ use crate::setup::{
     apply_setup, load_secrets, save_settings, setup_state, Settings, SetupInput, TELEGRAM_BOT_TOKEN,
 };
 use crate::snapshot::{SetupState, Snapshot};
+
+/// A value of `mcp.json` this short may be no secret (`DEBUG=1`), and hiding it would blank the
+/// daemon's output wherever those characters appear.
+const SHORTEST_REDACTED: usize = 8;
 
 /// Reads a variable of the app's own environment; injected so tests never depend on the real one.
 pub type Environment = Box<dyn Fn(&str) -> Option<String> + Send + Sync>;
@@ -96,6 +101,28 @@ impl Core {
         Ok(())
     }
 
+    /// DK-11: moves the values of `mcp.json` to the Keychain and returns the ones the file refers
+    /// to. Nothing here stops a start: a server whose secret is missing is left out by the daemon.
+    fn connection_secrets(&self) -> Vec<(String, String)> {
+        let mut setup = lock(&self.setup);
+        let swept = sweep(
+            &self.data,
+            self.store.as_ref(),
+            &setup.settings.connection_secrets,
+        );
+        if swept.accounts != setup.settings.connection_secrets {
+            let settings = Settings {
+                connection_secrets: swept.accounts,
+                ..setup.settings.clone()
+            };
+            match save_settings(&self.data, &settings) {
+                Ok(()) => setup.settings = settings,
+                Err(error) => eprintln!("could not save the settings: {error}"),
+            }
+        }
+        swept.secrets
+    }
+
     /// One start of the daemon (DK-1 AC1): `node <repo>/packages/daemon/src/main.ts`, with the
     /// setup and its secrets in the environment (DK-5 AC2) and a fresh port.
     pub fn prepare(&self) -> Prepared {
@@ -129,6 +156,7 @@ impl Core {
                 return Prepared::Failed(format!("no free port on 127.0.0.1: {error}"));
             }
         };
+        let connection_secrets = self.connection_secrets();
         let paths = self.data.daemon_paths();
         let parent = |name: &str| {
             if name == "PATH" {
@@ -146,6 +174,7 @@ impl Core {
                 model: settings.model.as_deref(),
                 vision_model: settings.vision_model.as_deref(),
                 provider_keys: &secrets.provider_keys,
+                connection_secrets: &connection_secrets,
                 paths: &paths,
                 local_token: &self.token,
                 local_port: port,
@@ -153,6 +182,12 @@ impl Core {
         );
         let mut redacted = vec![bot_token, self.token.clone()];
         redacted.extend(secrets.provider_keys.into_iter().map(|(_, key)| key));
+        redacted.extend(
+            connection_secrets
+                .into_iter()
+                .map(|(_, secret)| secret)
+                .filter(|secret| secret.chars().count() >= SHORTEST_REDACTED),
+        );
         Prepared::Ready(LaunchSpec {
             program: node,
             args: vec![entry.into_os_string()],
@@ -206,6 +241,7 @@ mod tests {
             model: Some("openai/gpt-4o-mini".into()),
             vision_model: None,
             provider_keys: vec!["OPENAI_API_KEY".into()],
+            connection_secrets: Vec::new(),
         };
         (store, settings)
     }
@@ -261,6 +297,82 @@ mod tests {
                 "{secret} is not redacted"
             );
         }
+    }
+
+    #[test]
+    fn a_launch_moves_the_values_of_the_connections_to_the_store_and_hands_them_over(
+    ) -> Result<(), String> {
+        let (store, settings) = configured();
+        let f = fixture(store, settings);
+        let file = f.root.join("mcp.json");
+        let written = json!({
+            "mcpServers": {
+                "notes": { "command": "npx", "env": { "TOKEN": "tok-secret-1", "DEBUG": "1" } }
+            }
+        });
+        std::fs::write(&file, written.to_string()).map_err(|e| e.to_string())?;
+
+        let Prepared::Ready(spec) = f.core.prepare() else {
+            return Err("a configured setup was not ready".into());
+        };
+
+        let sent = spec
+            .env
+            .iter()
+            .find(|(name, _)| name == "ANOMANDER_MCP_SECRETS")
+            .map(|(_, json)| json.as_str())
+            .ok_or("the secrets were not handed over")?;
+        let sent: BTreeMap<String, String> =
+            serde_json::from_str(sent).map_err(|e| e.to_string())?;
+        assert_eq!(
+            sent.get("mcp/notes/env/TOKEN").map(String::as_str),
+            Some("tok-secret-1")
+        );
+        assert_eq!(
+            sent.get("mcp/notes/env/DEBUG").map(String::as_str),
+            Some("1")
+        );
+        // Out of the file, hidden in the daemon's output, and only named in the settings.
+        let left = std::fs::read_to_string(&file).map_err(|e| e.to_string())?;
+        assert!(!left.contains("tok-secret-1"), "{left}");
+        assert!(spec.secrets.iter().any(|secret| secret == "tok-secret-1"));
+        assert!(!spec.secrets.iter().any(|secret| secret == "1"));
+        let saved =
+            std::fs::read_to_string(f.root.join("settings.json")).map_err(|e| e.to_string())?;
+        assert!(saved.contains("mcp/notes/env/TOKEN") && !saved.contains("tok-secret-1"));
+
+        // Saving the setup keeps the list: it is what removes them once the file drops them.
+        let input: SetupInput = serde_json::from_value(json!({
+            "principalChatId": "42", "model": "", "visionModel": ""
+        }))
+        .map_err(|e| e.to_string())?;
+        f.core.save_setup(&input)?;
+        let saved =
+            std::fs::read_to_string(f.root.join("settings.json")).map_err(|e| e.to_string())?;
+        assert!(saved.contains("mcp/notes/env/TOKEN"), "{saved}");
+
+        // The next start reads them back from the store.
+        let Prepared::Ready(again) = f.core.prepare() else {
+            return Err("the second start was not ready".into());
+        };
+        assert!(again.env.iter().any(|(name, json)| {
+            name == "ANOMANDER_MCP_SECRETS" && json.contains("tok-secret-1")
+        }));
+        Ok(())
+    }
+
+    #[test]
+    fn without_connections_no_secret_of_theirs_is_handed_over() {
+        let (store, settings) = configured();
+        let f = fixture(store, settings);
+        let Prepared::Ready(spec) = f.core.prepare() else {
+            panic!("a configured setup was not ready");
+        };
+        assert!(!spec
+            .env
+            .iter()
+            .any(|(name, _)| name == "ANOMANDER_MCP_SECRETS"));
+        assert!(!f.root.join("settings.json").exists());
     }
 
     #[test]
