@@ -183,6 +183,16 @@ export const strings = {
   connectionGone: () => 'Esa petición ya no está pendiente.',
   connectionNone: () =>
     'No tengo ninguna conexión disponible. Añádelas en mcp.json, en la carpeta de datos de ANOMANDER, y reinicia.',
+  /** The servers of `mcp.json` that could not be connected; no other is. */
+  connectionUnreachable: (servers: readonly string[]) =>
+    `No he podido conectar con ${servers.map((server) => `«${server}»`).join(', ')}. Revisa cómo están en mcp.json y vuelve a pedírmelo.`,
+  connectionFileInvalid: () =>
+    'No puedo usar mcp.json: no es un JSON válido o algún servidor no está bien escrito. Corrígelo y reinicia.',
+  /** Added to how a task was cut short, when it had made calls by then. */
+  connectionPerformed: (calls: number) =>
+    calls === 1
+      ? 'Antes de parar se hizo 1 llamada a tus conexiones.'
+      : `Antes de parar se hicieron ${calls} llamadas a tus conexiones.`,
   connectionTooManyCalls: (calls: number) =>
     `He llegado al máximo de ${calls} llamadas seguidas y paro aquí. Si quieres que siga, pídemelo otra vez.`,
   connectionFailed: () => 'No he podido hacerlo con tus conexiones. ¿Me lo pides de otra forma?',

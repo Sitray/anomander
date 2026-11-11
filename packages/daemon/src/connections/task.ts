@@ -39,12 +39,22 @@ export type TaskOutcome =
   | { kind: 'stopped' }
   /** That call no longer waits: answered already, or its task ended. */
   | { kind: 'gone' }
-  | { kind: 'no_connections' }
-  | { kind: 'too_many_calls' }
-  | { kind: 'failed' }
-  | { kind: 'budget_exhausted' }
+  /** No tool to offer; why, when the code knows (`ConnectionProblems`). */
+  | ({ kind: 'no_connections' } & ConnectionProblems)
+  // The task was cut short: `performed` is the calls it had sent to a server by then.
+  | { kind: 'too_many_calls'; performed: number }
+  | { kind: 'failed'; performed: number }
+  | { kind: 'budget_exhausted'; performed: number }
   /** The provider's own quota or rate limit is spent. */
-  | { kind: 'provider_limit' };
+  | { kind: 'provider_limit'; performed: number };
+
+/** What the code knows about the servers that are not connected. */
+export interface ConnectionProblems {
+  /** The configuration is there and is wrong: it connects nothing. */
+  invalid: boolean;
+  /** The configured servers that are not connected, by name. */
+  unreachable: readonly string[];
+}
 
 export interface ConnectionTasks {
   /** Starts a task; it ends whichever one was waiting for the principal. */
@@ -59,6 +69,8 @@ export interface ConnectionTasksDeps<M> {
   model: M;
   /** The servers that are connected now. */
   connections: () => Promise<readonly Connection[]>;
+  /** Asked after `connections`, when there is no tool to offer. */
+  problems?: () => ConnectionProblems;
   logger: Logger;
   newId?: () => string;
 }
@@ -84,6 +96,8 @@ interface Run {
   targets: ReadonlyMap<string, Target>;
   /** The calls made or refused by the code so far. */
   calls: number;
+  /** The ones of those sent to a server, whatever came of them. */
+  performed: number;
   /** The servers whose answers are in the task. */
   answered: Set<string>;
 }
@@ -176,6 +190,7 @@ const wordsOf = (message: AssistantMessage): string =>
 
 export const createConnectionTasks = <M>(deps: ConnectionTasksDeps<M>): ConnectionTasks => {
   const { complete, model, connections, logger, newId = () => crypto.randomUUID() } = deps;
+  const problems = deps.problems ?? (() => ({ invalid: false, unreachable: [] }));
   const pending = new Map<string, Pending>();
 
   /** Answers every call of a turn: `first` with what happened, the others as not run. */
@@ -191,6 +206,7 @@ export const createConnectionTasks = <M>(deps: ConnectionTasksDeps<M>): Connecti
     const { connection, tool } = target;
     // From here on what this server answers, or made of the call, is in the task.
     run.answered.add(connection.name);
+    run.performed += 1;
     try {
       const result = await connection.call(tool.name, call.arguments);
       settle(run, call, rest, cut(result.text), result.isError);
@@ -200,7 +216,14 @@ export const createConnectionTasks = <M>(deps: ConnectionTasksDeps<M>): Connecti
         server: connection.name,
         reason: (error as Error).name,
       });
-      settle(run, call, rest, 'The call failed.', true);
+      // It may have reached the server: the processor must not make it again by itself.
+      settle(
+        run,
+        call,
+        rest,
+        'The call failed or timed out: it may or may not have run. Do not ask for it again; tell the user.',
+        true,
+      );
     }
   };
 
@@ -210,29 +233,38 @@ export const createConnectionTasks = <M>(deps: ConnectionTasksDeps<M>): Connecti
     [...run.answered].every((server) => server === connection.name);
 
   const advance = async (run: Run): Promise<TaskOutcome> => {
-    while (run.calls < MAX_CONNECTION_CALLS) {
+    const cutShort = (kind: 'failed' | 'provider_limit'): TaskOutcome => ({
+      kind,
+      performed: run.performed,
+    });
+    // The processor is asked once more after the last call it may make, so what that call
+    // answered still reaches the principal; a call it asks for then is not made.
+    for (;;) {
       let response: AssistantMessage;
       try {
         response = await complete(model, run.context);
       } catch (error) {
-        if (error instanceof AiBudgetExhaustedError) return { kind: 'budget_exhausted' };
+        if (error instanceof AiBudgetExhaustedError) {
+          return { kind: 'budget_exhausted', performed: run.performed };
+        }
         const reason = (error as Error).message;
         logger.warn('connection task failed', { reason: `processor call failed: ${reason}` });
-        return isProviderLimit(reason) ? { kind: 'provider_limit' } : { kind: 'failed' };
+        return cutShort(isProviderLimit(reason) ? 'provider_limit' : 'failed');
       }
       if (response.stopReason === 'error' || response.stopReason === 'aborted') {
         const reason = response.errorMessage ?? response.stopReason;
         logger.warn('connection task failed', { reason: `processor stopped: ${reason}` });
-        return isProviderLimit(response.errorMessage)
-          ? { kind: 'provider_limit' }
-          : { kind: 'failed' };
+        return cutShort(isProviderLimit(response.errorMessage) ? 'provider_limit' : 'failed');
       }
       run.context.messages.push(response);
       const calls = response.content.filter((block) => block.type === 'toolCall');
       const [call, ...rest] = calls;
       if (call === undefined) {
         const text = wordsOf(response);
-        return text === '' ? { kind: 'failed' } : { kind: 'answer', text };
+        return text === '' ? cutShort('failed') : { kind: 'answer', text };
+      }
+      if (run.calls >= MAX_CONNECTION_CALLS) {
+        return { kind: 'too_many_calls', performed: run.performed };
       }
       const target = run.targets.get(call.name);
       if (target === undefined || call.argumentsError !== undefined) {
@@ -257,7 +289,6 @@ export const createConnectionTasks = <M>(deps: ConnectionTasksDeps<M>): Connecti
         text: strings.connectionCall(target.tool.name, target.connection.name, shown),
       };
     }
-    return { kind: 'too_many_calls' };
   };
 
   return {
@@ -265,7 +296,7 @@ export const createConnectionTasks = <M>(deps: ConnectionTasksDeps<M>): Connecti
       // One task at a time: whatever waited is over.
       pending.clear();
       const targets = targetsOf(await connections(), logger);
-      if (targets.size === 0) return { kind: 'no_connections' };
+      if (targets.size === 0) return { kind: 'no_connections', ...problems() };
       const tools: Tool[] = [...targets].map(([name, { tool }]) => ({
         name,
         description: tool.description.slice(0, MAX_DESCRIPTION),
@@ -280,6 +311,7 @@ export const createConnectionTasks = <M>(deps: ConnectionTasksDeps<M>): Connecti
         },
         targets,
         calls: 0,
+        performed: 0,
         answered: new Set(),
       });
     },

@@ -94,8 +94,9 @@ const filled = (
   config: ConnectionsConfig,
   secrets: Record<string, string>,
   logger: Logger,
-): ConnectionsConfig => {
+): { config: ConnectionsConfig; leftOut: string[] } => {
   const servers: [string, ServerConfig][] = [];
+  const leftOut: string[] = [];
   for (const [name, server] of Object.entries(config)) {
     const field = server.kind === 'process' ? 'env' : 'headers';
     const values: Record<string, string> = {};
@@ -112,6 +113,7 @@ const filled = (
         server: name,
         missing,
       });
+      leftOut.push(name);
       continue;
     }
     servers.push([
@@ -119,32 +121,45 @@ const filled = (
       server.kind === 'process' ? { ...server, env: values } : { ...server, headers: values },
     ]);
   }
-  return Object.fromEntries(servers);
+  return { config: Object.fromEntries(servers), leftOut };
 };
+
+/** The servers of the file, and what the principal can be told about the ones that are not. */
+export interface ReadConnections {
+  config: ConnectionsConfig;
+  /** The file is there and could not be read or is wrong: it connects nothing. */
+  invalid: boolean;
+  /** The servers left out because a secret of theirs was not handed over. */
+  leftOut: string[];
+}
 
 /**
  * Reads `path`; no path or no file is no connections. A file that is wrong anywhere connects
  * nothing: half a configuration is not what the principal wrote. `secrets` is
  * `ANOMANDER_MCP_SECRETS` as it came.
  */
-export const loadConnectionsConfig = (
+export const readConnections = (
   path: string | undefined,
   logger: Logger,
   secrets?: string,
-): ConnectionsConfig => {
-  if (path === undefined) return {};
+): ReadConnections => {
+  const none = (invalid: boolean): ReadConnections => ({ config: {}, invalid, leftOut: [] });
+  if (path === undefined) return none(false);
   let text: string;
   try {
     text = readFileSync(path, 'utf8');
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return {};
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return none(false);
     logger.error('could not read the connections file', {
       reason: (error as NodeJS.ErrnoException).code ?? 'unknown',
     });
-    return {};
+    return none(true);
   }
   try {
-    return filled(parseConnectionsConfig(JSON.parse(text)), handedOver(secrets, logger), logger);
+    return {
+      ...filled(parseConnectionsConfig(JSON.parse(text)), handedOver(secrets, logger), logger),
+      invalid: false,
+    };
   } catch (error) {
     // Where it is wrong, never what it says: the file may hold tokens.
     const where =
@@ -152,6 +167,13 @@ export const loadConnectionsConfig = (
         ? error.issues.map((issue) => issue.path.join('.')).join(', ')
         : 'not JSON';
     logger.error('the connections file is not valid; no server is connected', { where });
-    return {};
+    return none(true);
   }
 };
+
+/** Only the servers of `readConnections`. */
+export const loadConnectionsConfig = (
+  path: string | undefined,
+  logger: Logger,
+  secrets?: string,
+): ConnectionsConfig => readConnections(path, logger, secrets).config;

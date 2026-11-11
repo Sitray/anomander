@@ -17,10 +17,11 @@ import { createTelegramLogin, type TelegramLoginDeps } from './auth/telegram-log
 import { budgeted, createAiBudget } from './budget/ai-budget.ts';
 import { createReceiptQueue } from './budget/receipt-queue.ts';
 import type { Config } from './config.ts';
-import { loadConnectionsConfig } from './connections/config.ts';
+import { readConnections } from './connections/config.ts';
 import type { Connection } from './connections/connection.ts';
 import { createConnections } from './connections/mcp-client.ts';
 import {
+  type ConnectionProblems,
   createConnectionTasks,
   MAX_CONNECTION_CALLS,
   type TaskOutcome,
@@ -107,6 +108,8 @@ export interface AnomanderDeps<M> {
    * connected when a task first needs them; tests pass their own.
    */
   connections?: () => Promise<readonly Connection[]>;
+  /** What is known about the servers that are not connected; goes with `connections`. */
+  connectionProblems?: () => ConnectionProblems;
   logger?: TelegramLogger;
   now?: () => Date;
 }
@@ -472,21 +475,29 @@ export const startAnomander = <M>(config: Config, deps: AnomanderDeps<M>): Anoma
 
   // DK-11: a task with the servers the principal connected. The processor asks for calls and
   // `connectionTasks` decides each one; a call that needs permission comes back with buttons.
-  const servers =
+  const read =
     deps.connections === undefined
-      ? createConnections({
-          config: loadConnectionsConfig(config.mcpConfigPath, logger, config.mcpSecrets),
-          logger,
-        })
+      ? readConnections(config.mcpConfigPath, logger, config.mcpSecrets)
       : undefined;
+  const servers =
+    read === undefined ? undefined : createConnections({ config: read.config, logger });
   const connectionTasks = createConnectionTasks({
     complete: ai,
     model,
     connections: deps.connections ?? (async () => (await servers?.get()) ?? []),
+    problems:
+      deps.connectionProblems ??
+      (() => ({
+        invalid: read?.invalid ?? false,
+        unreachable: [...(read?.leftOut ?? []), ...(servers?.unreachable() ?? [])],
+      })),
     logger,
   });
   /** The task whose calls are being answered: its end is a recent turn. */
   let connectionTask = '';
+  /** How a task was cut short, and that it had made calls by then: they are not undone. */
+  const cutShort = (text: string, performed: number): string =>
+    performed === 0 ? text : `${text} ${strings.connectionPerformed(performed)}`;
   const connectionReply = (outcome: TaskOutcome): TelegramReply => {
     switch (outcome.kind) {
       case 'answer':
@@ -506,15 +517,21 @@ export const startAnomander = <M>(config: Config, deps: AnomanderDeps<M>): Anoma
       case 'gone':
         return { text: strings.connectionGone() };
       case 'no_connections':
-        return { text: strings.connectionNone() };
+        if (outcome.invalid) return { text: strings.connectionFileInvalid() };
+        return {
+          text:
+            outcome.unreachable.length > 0
+              ? strings.connectionUnreachable(outcome.unreachable)
+              : strings.connectionNone(),
+        };
       case 'too_many_calls':
         return { text: strings.connectionTooManyCalls(MAX_CONNECTION_CALLS) };
       case 'budget_exhausted':
-        return { text: strings.textLimitReached() };
+        return { text: cutShort(strings.textLimitReached(), outcome.performed) };
       case 'provider_limit':
-        return { text: strings.providerLimitReached() };
+        return { text: cutShort(strings.providerLimitReached(), outcome.performed) };
       case 'failed':
-        return { text: strings.connectionFailed() };
+        return { text: cutShort(strings.connectionFailed(), outcome.performed) };
     }
   };
   const runConnections = async (request: ConnectRequest): Promise<TelegramReply> => {

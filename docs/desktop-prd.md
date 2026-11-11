@@ -165,6 +165,14 @@ and keep its secrets in the operating system instead of a text file.
     instruction. Only how a task ended is a recent turn (R-16 AC3).
   - AC6: a task makes at most 8 calls, and every processor call counts against the daily AI
     limit (R-12). A result over 12 000 characters is cut; what is not text is only named.
+    After its last call the processor is asked once more, so what that call answered still
+    reaches the principal. A task that is cut short says how many calls it had made: they are
+    not undone. A call that fails or times out may have run, and the processor is told not to
+    make it again.
+  - AC7: when no tool can be offered the principal is told why, when the code knows: `mcp.json`
+    is wrong, or which servers could not be connected. A server that could not be reached is
+    not tried again for a minute, and one whose connection broke under a call is connected
+    again by the next task.
   - Open, for the principal: a value written in `mcp.json` is in the file until the next start
     of the daemon, and in whatever copied the file meanwhile (a backup, an editor);
     there is no setup screen for it; no OAuth; Telegram cannot ask
