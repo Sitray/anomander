@@ -284,7 +284,12 @@ fn set_up(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         Settings::default()
     });
     let token = launch_token()?;
-    let environment: shell::Environment = Box::new(|name| std::env::var(name).ok());
+    // `TZ` is the zone of this machine's clock, never the app's own variable: the daemon
+    // refuses one that is not an IANA name.
+    let environment: shell::Environment = Box::new(|name| match name {
+        "TZ" => daemon::launch::system_time_zone(),
+        _ => std::env::var(name).ok(),
+    });
     let core = Arc::new(Core::new(
         data,
         Box::new(secure_store::Keychain),

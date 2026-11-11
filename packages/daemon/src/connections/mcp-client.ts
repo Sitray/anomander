@@ -102,6 +102,7 @@ export interface Connections {
   get(): Promise<Connection[]>;
   /** The configured servers that are not connected, as the last `get` left them. */
   unreachable(): string[];
+  /** Closes every server, once any being connected is; nothing is connected after. */
   close(): Promise<void>;
 }
 
@@ -136,6 +137,7 @@ export const createConnections = (deps: ConnectionsDeps): Connections => {
   };
   /** One `get` at a time, so a server is never connected twice. */
   let turn: Promise<unknown> = Promise.resolve();
+  let closed = false;
 
   const connectMissing = async (): Promise<Connection[]> => {
     await Promise.all(
@@ -189,12 +191,15 @@ export const createConnections = (deps: ConnectionsDeps): Connections => {
 
   return {
     get: () => {
-      const next = turn.then(connectMissing);
+      const next = turn.then(() => (closed ? [] : connectMissing()));
       turn = next.catch(() => {});
       return next;
     },
     unreachable: () => Object.keys(config).filter((name) => !connected.has(name)),
     close: async () => {
+      closed = true;
+      // After the connection being made, so its server is closed with the others.
+      await turn;
       const servers = [...connected.values()];
       connected.clear();
       await Promise.all(servers.map((server) => server.close().catch(() => {})));

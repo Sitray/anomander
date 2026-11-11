@@ -135,7 +135,7 @@ is framework-free, so it is tested against a fake `WebSocket` (`test/fake-web-so
   value written again: until then, and while any server is not as the daemon reads it, nothing
   is removed. A missing file, or one that is a link, is
   left alone with what is stored. The rewrite keeps the order of the servers and normalises the
-  spacing.
+  spacing; a file saved while it is being swept is left for the next start.
 - **Link buttons** (`{label, url}`) are named, not offered: this WebView cannot open links, and
   `/login` stays in Telegram (DK-4 AC7).
 - **Secrets** typed in the setup screen stay in uncontrolled fields and a ref, never in React

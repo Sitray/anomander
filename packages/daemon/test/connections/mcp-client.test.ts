@@ -1,8 +1,11 @@
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { createServer, type Server } from 'node:http';
+import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
 import {
@@ -97,6 +100,69 @@ describe('DK-11: a server started as a process', () => {
   });
 });
 
+describe('DK-11: a server reached over HTTP', () => {
+  let http: Server;
+  let requests: { url: string; authorization: string | undefined }[];
+  const address = () => `http://127.0.0.1:${(http.address() as AddressInfo).port}`;
+
+  beforeEach(async () => {
+    requests = [];
+    // On this machine only, and stateless: a new MCP server answers each request.
+    http = createServer(async (request, response) => {
+      requests.push({ url: request.url ?? '', authorization: request.headers.authorization });
+      if (request.url === '/moved') {
+        response.writeHead(307, { Location: `${address()}/mcp` }).end();
+        return;
+      }
+      const server = new McpServer({ name: 'remote', version: '1.0.0' });
+      server.registerTool(
+        'search',
+        { description: 'Searches', inputSchema: { query: z.string() } },
+        async ({ query }) => ({ content: [{ type: 'text', text: `found: ${query}` }] }),
+      );
+      const transport = new StreamableHTTPServerTransport({});
+      response.on('close', () => {
+        void transport.close();
+        void server.close();
+      });
+      await server.connect(transport);
+      await transport.handleRequest(request, response);
+    });
+    await new Promise<void>((done) => http.listen(0, '127.0.0.1', done));
+  });
+  afterEach(async () => {
+    http.closeAllConnections();
+    await new Promise((done) => http.close(done));
+  });
+
+  const remote = (path: string) =>
+    transportFor({
+      kind: 'http',
+      url: `${address()}${path}`,
+      headers: { Authorization: 'Bearer abc' },
+      readOnly: [],
+    });
+
+  it('sends the configured headers with every request, and calls a tool', async () => {
+    const { connection, close } = await connectTo('remote', [], remote('/mcp'));
+
+    expect(connection.tools.map((tool) => tool.name)).toEqual(['search']);
+    expect(await connection.call('search', { query: 'Lisboa' })).toEqual({
+      text: 'found: Lisboa',
+      isError: false,
+    });
+    expect(requests.length).toBeGreaterThan(0);
+    expect(requests.every((request) => request.authorization === 'Bearer abc')).toBe(true);
+    await close();
+  });
+
+  it('does not follow a redirect: the headers go nowhere the principal did not write', async () => {
+    await expect(connectTo('remote', [], remote('/moved'))).rejects.toThrow();
+
+    expect(requests.map((request) => request.url)).toEqual(['/moved']);
+  });
+});
+
 describe('DK-11: the connections, made when a task first needs them', () => {
   const config = parseConnectionsConfig({
     mcpServers: {
@@ -141,6 +207,37 @@ describe('DK-11: the connections, made when a task first needs them', () => {
     expect(connections.unreachable()).toEqual([]);
     expect([...((await connections.get())[0]?.readOnly ?? [])]).toEqual(['search']);
     await connections.close();
+  });
+
+  it('closing waits for a connection being made, and nothing is connected after', async () => {
+    const opened: string[] = [];
+    let open: () => void = () => {};
+    const gate = new Promise<void>((done) => {
+      open = done;
+    });
+    const closed = vi.fn();
+    const connections = createConnections({
+      config: parseConnectionsConfig({ mcpServers: { notes: { command: 'notes-server' } } }),
+      logger: logger(),
+      open: async (name) => {
+        opened.push(name);
+        await gate;
+        const { transport, server } = await serve();
+        server.server.onclose = closed;
+        return transport;
+      },
+    });
+
+    const getting = connections.get();
+    await vi.waitFor(() => expect(opened).toEqual(['notes']));
+    const closing = connections.close();
+    open();
+    await Promise.all([getting, closing]);
+
+    // The server that was being connected is not left running.
+    expect(closed).toHaveBeenCalled();
+    expect(await connections.get()).toEqual([]);
+    expect(opened).toEqual(['notes']);
   });
 
   it('connects again to a server whose connection broke under a call', async () => {
