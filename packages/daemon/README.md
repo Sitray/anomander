@@ -476,6 +476,23 @@ are handled one after another in the order they arrive, so Telegram and the app 
 recent turns (DK-4 AC4) and two turns never interleave. While no model is usable, the channel
 answers everything with the setup guide (R-28).
 
+### A task with connections, from either door (DK-11)
+
+A task is asked with `connect` in the app, or with `/mcp <tarea>` in Telegram (`/mcp` alone
+answers how to ask). A call that needs permission is asked at the door the task came from, with
+"Permitir" and "Detener", and only a press at that door answers it: the same press at the other
+door answers "Esa petición ya no está pendiente." and runs nothing.
+
+A task does not hold the chat's turn while it waits for a server or the processor
+(`connectionStep` in `src/app.ts`): each step, its start or one answered call, begins in a turn,
+runs outside it, and what it came to is said in a turn again, where its end becomes a recent
+turn. A text, a receipt or a button is answered meanwhile. There is one task at a time: while a
+step runs, another task is refused with "Todavía estoy con la tarea anterior. Pídeme otra cuando
+termine." and a press answers nothing; a task asked while one waits for the principal ends that
+one, as before. In the app the `reply` to `connect` (or to the press) arrives when the step is
+over. In Telegram the handler returns at once and the reply is sent when the step is over, cut
+to 4 096 characters, the most one Telegram message holds.
+
 ## The read API (RA-2)
 
 Other applications, first the dashboard of the app of apps, read the ledger over HTTP

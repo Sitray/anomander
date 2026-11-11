@@ -60,6 +60,8 @@ let connected: Connection[];
 let problems: { invalid: boolean; unreachable: string[] };
 /** What the processor answers to a task with connections, one response per call. */
 let tooled: AssistantMessage['content'][];
+/** What the processor of a task with connections waits for before each answer. */
+let held: Promise<void>;
 type Log = (message: string, fields?: Record<string, unknown>) => void;
 let logger: { info: Mock<Log>; warn: Mock<Log>; error: Mock<Log> };
 
@@ -73,6 +75,7 @@ const complete = async (_model: string, context: Context): Promise<AssistantMess
     return { ...reply, content: [{ type: 'text', text: await planned() }] };
   }
   if (context.systemPrompt === CONNECTION_TASK_PROMPT) {
+    await held;
     return { ...reply, content: tooled.shift() ?? [] };
   }
   if (context.systemPrompt === SCREEN_READER_PROMPT) {
@@ -225,6 +228,7 @@ beforeEach(async () => {
   connected = [];
   problems = { invalid: false, unreachable: [] };
   tooled = [];
+  held = Promise.resolve();
   logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn() };
 });
 
@@ -966,6 +970,262 @@ describe('a task with connections (DK-11)', () => {
       'No he podido hacerlo con tus conexiones. ¿Me lo pides de otra forma? Antes de parar se hizo 1 llamada a tus conexiones.',
     );
     expect(made).toHaveLength(1);
+  });
+
+  describe('asked from Telegram with /mcp', () => {
+    const fromPrincipal = { chatId: PRINCIPAL };
+    /** The data of the buttons under a message the bot sent. */
+    const buttonsOf = (message: FakeTelegramApi['sent'][number] | undefined) => {
+      const markup = message?.payload.reply_markup as
+        | { inline_keyboard: { text: string; callback_data: string }[][] }
+        | undefined;
+      return markup?.inline_keyboard[0] ?? [];
+    };
+
+    it('runs the task and answers in that chat, and that end is a recent turn', async () => {
+      await start();
+      tooled = [calls('notes__search', { query: 'Lisboa' }), says('No hay ninguna nota.')];
+
+      api.push(updates.text(fromPrincipal, `/mcp ${task}`));
+      const [answer] = await api.waitForSent(1);
+
+      expect(answer?.text).toBe('No hay ninguna nota.');
+      expect(buttonsOf(answer)).toEqual([]);
+      expect(made).toEqual([{ tool: 'search', args: { query: 'Lisboa' } }]);
+      // The command never reaches the text interpreter, and nothing of the ledger moves.
+      expect(interpreted).toEqual([]);
+      expect(query('SELECT id FROM expenses')).toEqual([]);
+
+      api.push(updates.text(fromPrincipal, '23 € cena'));
+      await api.waitForSent(2);
+      expect(interpreted.at(-1)?.recent).toEqual([
+        { principal: `[conexiones] ${task}`, reply: 'No hay ninguna nota.' },
+      ]);
+    });
+
+    it('asks with "Permitir" and "Detener" in that chat, and a press there makes the call once', async () => {
+      await start();
+      tooled = [calls('notes__create', { title: 'Hotel Sol' }), says('Apuntado.')];
+
+      api.push(updates.text(fromPrincipal, `/mcp@anomander_bot ${task}`));
+      const [question] = await api.waitForSent(1);
+
+      expect(made).toEqual([]);
+      expect(question?.text).toBe(
+        'Quiero usar «create» de «notes» con:\n{\n  "title": "Hotel Sol"\n}',
+      );
+      const [allow, refuse] = buttonsOf(question);
+      expect([allow?.text, refuse?.text]).toEqual(['Permitir', 'Detener']);
+      expect(allow?.callback_data).toMatch(/^connection:[0-9a-f-]{36}:allow$/);
+
+      const press = () =>
+        updates.callbackQuery(fromPrincipal, allow?.callback_data ?? '', question?.messageId ?? 0);
+      api.push(press());
+      expect((await api.waitForSent(2))[1]?.text).toBe('Apuntado.');
+      expect(made).toEqual([{ tool: 'create', args: { title: 'Hotel Sol' } }]);
+
+      api.push(press());
+      expect((await api.waitForSent(3))[2]?.text).toBe('Esa petición ya no está pendiente.');
+      expect(made).toHaveLength(1);
+    });
+
+    it('does nothing more on "Detener"', async () => {
+      await start();
+      tooled = [calls('notes__create', { title: 'Hotel Sol' })];
+      api.push(updates.text(fromPrincipal, `/mcp ${task}`));
+      const [question] = await api.waitForSent(1);
+      const refuse = buttonsOf(question)[1]?.callback_data ?? '';
+
+      api.push(updates.callbackQuery(fromPrincipal, refuse, question?.messageId ?? 0));
+
+      expect((await api.waitForSent(2))[1]?.text).toBe('Detenido. No he hecho nada más.');
+      expect(made).toEqual([]);
+    });
+
+    it('is answered in Telegram only: the same press from the app runs nothing', async () => {
+      const chat = await client(await start());
+      tooled = [calls('notes__create', { title: 'Hotel Sol' }), says('Apuntado.')];
+      api.push(updates.text(fromPrincipal, `/mcp ${task}`));
+      const [question] = await api.waitForSent(1);
+      const allow = buttonsOf(question)[0]?.callback_data ?? '';
+
+      const pressed = await chat.ask({ type: 'button', data: allow, channelRef: 'desktop:x' });
+
+      expect(reply(pressed).text).toBe('Esa petición ya no está pendiente.');
+      expect(made).toEqual([]);
+
+      // It still waits in Telegram.
+      api.push(updates.callbackQuery(fromPrincipal, allow, question?.messageId ?? 0));
+      expect((await api.waitForSent(2))[1]?.text).toBe('Apuntado.');
+      expect(made).toHaveLength(1);
+    });
+
+    it('makes the call once when "Permitir" is pressed again while it runs', async () => {
+      await start();
+      let finish = (): void => {};
+      const slow = new Promise<void>((resolveCall) => {
+        finish = resolveCall;
+      });
+      connected = [
+        {
+          ...notes(),
+          call: async (tool, args) => {
+            made.push({ tool, args });
+            await slow;
+            return { text: 'created', isError: false };
+          },
+        },
+      ];
+      tooled = [calls('notes__create', { title: 'Hotel Sol' }), says('Apuntado.')];
+      api.push(updates.text(fromPrincipal, `/mcp ${task}`));
+      const [question] = await api.waitForSent(1);
+      const allow = buttonsOf(question)[0]?.callback_data ?? '';
+      const press = () => updates.callbackQuery(fromPrincipal, allow, question?.messageId ?? 0);
+
+      api.push(press());
+      api.push(press());
+
+      expect((await api.waitForSent(2))[1]?.text).toBe('Esa petición ya no está pendiente.');
+      finish();
+      expect((await api.waitForSent(3))[2]?.text).toBe('Apuntado.');
+      expect(made).toHaveLength(1);
+    });
+
+    it('says how to ask when the command carries no task', async () => {
+      await start();
+
+      api.push(updates.text(fromPrincipal, '/mcp'));
+
+      expect((await api.waitForSent(1))[0]?.text).toBe(
+        'Dime qué quieres que haga con tus conexiones: /mcp y la tarea.',
+      );
+      expect(interpreted).toEqual([]);
+    });
+
+    it('serves the principal only: a task or a press from anyone else runs nothing (R-1)', async () => {
+      await start();
+      tooled = [calls('notes__create', { title: 'Hotel Sol' }), says('Apuntado.')];
+      api.push(updates.text({ chatId: 9999 }, `/mcp ${task}`));
+      api.push(updates.text(fromPrincipal, `/mcp ${task}`));
+      const sent = await api.waitForSent(1);
+      const allow = buttonsOf(sent[0])[0]?.callback_data ?? '';
+
+      // Only the principal's task was started: the stranger's left the processor untouched.
+      expect(sent).toHaveLength(1);
+      expect(tooled).toHaveLength(1);
+
+      api.push(updates.callbackQuery({ chatId: 9999 }, allow, sent[0]?.messageId ?? 0));
+      api.push(updates.text(fromPrincipal, '/start'));
+      expect((await api.waitForSent(2))[1]?.text).toBe('¡Hola!');
+      expect(made).toEqual([]);
+    });
+
+    it('cuts an answer longer than a Telegram message', async () => {
+      await start();
+      tooled = [says('a'.repeat(5000))];
+
+      api.push(updates.text(fromPrincipal, `/mcp ${task}`));
+
+      expect((await api.waitForSent(1))[0]?.text).toBe('a'.repeat(4096));
+    });
+
+    it('answers with the setup guide while no model is usable (R-28)', async () => {
+      const guide = startSetupGuide(config(), {
+        gaps: [{ kind: 'model_unset' }],
+        telegramApiRoot: api.apiRoot,
+        logger,
+      });
+      anomander = guide;
+      await guide.started;
+      const [announced] = await api.waitForSent(1);
+
+      api.push(updates.text(fromPrincipal, `/mcp ${task}`));
+
+      expect((await api.waitForSent(2))[1]?.text).toBe(announced?.text);
+    });
+  });
+
+  describe('while it waits for a server or the processor', () => {
+    const fromPrincipal = { chatId: PRINCIPAL };
+    const BUSY = 'Todavía estoy con la tarea anterior. Pídeme otra cuando termine.';
+    /** Makes the processor of the task wait; the function it returns lets it answer. */
+    const holdProcessor = () => {
+      let release = (): void => {};
+      held = new Promise<void>((resolveHeld) => {
+        release = resolveHeld;
+      });
+      return release;
+    };
+
+    it('answers a text and a button meanwhile, and its end is a recent turn after them', async () => {
+      const chat = await client(await start());
+      tooled = [says('No hay ninguna nota.')];
+      const release = holdProcessor();
+
+      const asked = chat.ask({ type: 'connect', task });
+      expect(reply(await chat.ask({ type: 'text', text: '23 € cena' })).text).toBe(PHRASED);
+      api.push(updates.text(fromPrincipal, '/start'));
+      expect((await api.waitForSent(1))[0]?.text).toBe('¡Hola!');
+      const press = { type: 'button' as const, data: 'decision:none:x', channelRef: 'desktop:x' };
+      expect(reply(await chat.ask(press)).text).toBe(S19);
+
+      release();
+      expect(reply(await asked).text).toBe('No hay ninguna nota.');
+
+      await chat.ask({ type: 'text', text: '23 € comida' });
+      expect(interpreted.at(-1)?.recent).toEqual([
+        { principal: '23 € cena', reply: PHRASED },
+        { principal: '[botón]', reply: S19 },
+        { principal: `[conexiones] ${task}`, reply: 'No hay ninguna nota.' },
+      ]);
+    });
+
+    it('answers a Telegram text while a task asked in Telegram runs', async () => {
+      await start();
+      tooled = [says('No hay ninguna nota.')];
+      const release = holdProcessor();
+
+      api.push(updates.text(fromPrincipal, `/mcp ${task}`));
+      api.push(updates.text(fromPrincipal, '/start'));
+      expect((await api.waitForSent(1))[0]?.text).toBe('¡Hola!');
+
+      release();
+      expect((await api.waitForSent(2))[1]?.text).toBe('No hay ninguna nota.');
+    });
+
+    it('refuses a second task while one runs, from either door, and says so', async () => {
+      const chat = await client(await start());
+      tooled = [says('No hay ninguna nota.'), says('Otra respuesta.')];
+      const release = holdProcessor();
+
+      const asked = chat.ask({ type: 'connect', task });
+      expect(reply(await chat.ask({ type: 'connect', task: 'Otra tarea' })).text).toBe(BUSY);
+      api.push(updates.text(fromPrincipal, '/mcp Otra tarea'));
+      expect((await api.waitForSent(1))[0]?.text).toBe(BUSY);
+
+      release();
+      expect(reply(await asked).text).toBe('No hay ninguna nota.');
+      // The refused ones never reached the processor, and the next one is taken.
+      expect(tooled).toHaveLength(1);
+      expect(reply(await chat.ask({ type: 'connect', task: 'Otra tarea' })).text).toBe(
+        'Otra respuesta.',
+      );
+    });
+
+    it('still ends the task that waited for "Permitir" when another is asked', async () => {
+      const chat = await client(await start());
+      tooled = [calls('notes__create', { title: 'Hotel Sol' }), says('Otra respuesta.')];
+      const question = reply(await chat.ask({ type: 'connect', task }));
+      const [allow] = question.buttons;
+      if (allow === undefined || !('data' in allow)) throw new Error('no button to allow');
+
+      expect(reply(await chat.ask({ type: 'connect', task: 'Otra tarea' })).text).toBe(
+        'Otra respuesta.',
+      );
+      const press = { type: 'button' as const, data: allow.data, channelRef: question.channelRef };
+      expect(reply(await chat.ask(press)).text).toBe('Esa petición ya no está pendiente.');
+      expect(made).toEqual([]);
+    });
   });
 
   it('rejects a task without words', async () => {

@@ -181,6 +181,10 @@ export const strings = {
   connectionRefuse: () => 'Detener',
   connectionStopped: () => 'Detenido. No he hecho nada más.',
   connectionGone: () => 'Esa petición ya no está pendiente.',
+  /** A task was asked while another one runs: there is one at a time. */
+  connectionBusy: () => 'Todavía estoy con la tarea anterior. Pídeme otra cuando termine.',
+  /** `/mcp` with no task after it, in Telegram. */
+  connectionUsage: () => 'Dime qué quieres que haga con tus conexiones: /mcp y la tarea.',
   connectionNone: () =>
     'No tengo ninguna conexión disponible. Añádelas en mcp.json, en la carpeta de datos de ANOMANDER, y reinicia.',
   /** The servers of `mcp.json` that could not be connected; no other is. */

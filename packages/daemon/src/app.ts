@@ -1,6 +1,6 @@
 import {
+  type ButtonPress,
   type ComputerRequest,
-  type ConnectRequest,
   MAX_COMPUTER_STEPS,
   type Notify,
   type ScreenQuestion,
@@ -80,6 +80,15 @@ import { createWeeklySummary } from './summary/weekly-summary.ts';
 /** The data of the buttons under a call that waits for the principal (DK-11). */
 const CONNECTION_BUTTON = 'connection:';
 const CONNECTION_PRESS = /^connection:([^:]+):(allow|refuse)$/;
+/** The longest text Telegram delivers in one message. */
+const TELEGRAM_MAX_TEXT = 4096;
+
+/** The front door a task with connections was asked at; its calls are answered there. */
+type Door = 'app' | 'telegram';
+/** A reply that comes after the chat's turn: the turn does not wait for it. */
+interface Later {
+  later: Promise<TelegramReply | null>;
+}
 
 export interface AnomanderDeps<M> {
   /** The processor call: pi-ai's `models.complete` (R-14 AC3). It must honour `signal`. */
@@ -171,6 +180,16 @@ const startChannel = (
 
 /** `/start`, `/start@bot` or `/start anything`, as Telegram sends a command. */
 const isStart = (text: string) => /^\/start(?:@\w+)?(?:\s|$)/.test(text.trim());
+
+/** The task of `/mcp <tarea>` or `/mcp@bot <tarea>`, empty without one; `undefined` otherwise. */
+const connectionCommand = (text: string): string | undefined => {
+  const command = /^\/mcp(?:@\w+)?(?:\s+([\s\S]*))?$/.exec(text.trim());
+  return command === null ? undefined : (command[1] ?? '').trim();
+};
+
+/** What a handler answers once its turn is over: a `Later` is waited for outside the turn. */
+const settled = async (answer: TelegramReply | Later | null): Promise<TelegramReply | null> =>
+  answer !== null && 'later' in answer ? answer.later : answer;
 
 /** Logs the gaps in English and sends the guide, once the bot listens (R-28 AC3). */
 const announceGaps = async (
@@ -493,16 +512,14 @@ export const startAnomander = <M>(config: Config, deps: AnomanderDeps<M>): Anoma
       })),
     logger,
   });
-  /** The task whose calls are being answered: its end is a recent turn. */
-  let connectionTask = '';
   /** How a task was cut short, and that it had made calls by then: they are not undone. */
   const cutShort = (text: string, performed: number): string =>
     performed === 0 ? text : `${text} ${strings.connectionPerformed(performed)}`;
-  const connectionReply = (outcome: TaskOutcome): TelegramReply => {
+  const connectionReply = (outcome: TaskOutcome, task: string): TelegramReply => {
     switch (outcome.kind) {
       case 'answer':
         // R-16 AC3: how the task ended is a recent turn; what the tools answered is not.
-        turns.add(connectionTurn(connectionTask), outcome.text);
+        turns.add(connectionTurn(task), outcome.text);
         return { text: outcome.text };
       case 'ask':
         return {
@@ -534,28 +551,84 @@ export const startAnomander = <M>(config: Config, deps: AnomanderDeps<M>): Anoma
         return { text: cutShort(strings.connectionFailed(), outcome.performed) };
     }
   };
-  const runConnections = async (request: ConnectRequest): Promise<TelegramReply> => {
-    connectionTask = request.task;
-    return connectionReply(await connectionTasks.start(request.task));
-  };
-  /**
-   * The answer to a press on "Permitir" or "Detener"; `undefined` for any other button. Only
-   * the app shows those buttons, so only its presses answer one: `fromApp`.
-   */
-  const answerConnection = async (
-    data: string,
-    fromApp: boolean,
-  ): Promise<TelegramReply | undefined> => {
-    if (!data.startsWith(CONNECTION_BUTTON)) return undefined;
-    const pressed = CONNECTION_PRESS.exec(data);
-    if (pressed === null || !fromApp) return { text: strings.connectionGone() };
-    const [, id = '', answer] = pressed;
-    return connectionReply(await connectionTasks.answer(id, answer === 'allow'));
-  };
 
   // What every front door calls (DK-4 AC1). R-28: `/start`, and the guide while a provider is
   // not connected.
   const inTurn = oneTurnAtATime();
+
+  // A task waits on servers and on the processor, so it does not hold the chat's turn: a step
+  // (its start, or one answered call) begins in a turn, runs outside it, and what it came to is
+  // said in a turn again, where its end becomes a recent turn in order with the others.
+  /** The last task asked, and where: a call is answered at the door that asked for the task. */
+  let asked: { task: string; door: Door } = { task: '', door: 'app' };
+  /** A step of that task runs: no other task starts and no press is taken until it is said. */
+  let working = false;
+  const say = inTurn(async (said: { outcome: TaskOutcome; task: string }) =>
+    connectionReply(said.outcome, said.task),
+  );
+  const connectionStep = (
+    { task, door }: { task: string; door: Door },
+    step: () => Promise<TaskOutcome>,
+  ): Later | null => {
+    working = true;
+    const reply = step()
+      .then((outcome) => say({ outcome, task }))
+      .finally(() => {
+        working = false;
+      });
+    if (door === 'app') return { later: reply };
+    // Telegram hands over one update at a time, so its handler ends now and the reply goes out
+    // by itself, cut to what one message holds.
+    reply
+      .catch((error: unknown) => {
+        logger.error('The daemon failed to run a task with connections', { error });
+        return { text: strings.processingFailed() };
+      })
+      .then((message) => send({ ...message, text: message.text.slice(0, TELEGRAM_MAX_TEXT) }))
+      .catch((error: unknown) => {
+        logger.error('Could not send what a task with connections came to', { error });
+      });
+    return null;
+  };
+  /** Called in a turn. One task at a time: a second one is refused while a step runs. */
+  const runConnections = (task: string, door: Door): TelegramReply | Later | null => {
+    if (working) return { text: strings.connectionBusy() };
+    asked = { task, door };
+    return connectionStep(asked, () => connectionTasks.start(task));
+  };
+  /**
+   * Called in a turn: the answer to a press on "Permitir" or "Detener"; `undefined` for any
+   * other button. A press at the other door, or while a step of the task runs, answers nothing.
+   */
+  const answerConnection = (data: string, door: Door): TelegramReply | Later | null | undefined => {
+    if (!data.startsWith(CONNECTION_BUTTON)) return undefined;
+    const pressed = CONNECTION_PRESS.exec(data);
+    if (pressed === null || door !== asked.door || working) {
+      return { text: strings.connectionGone() };
+    }
+    const [, id = '', answer] = pressed;
+    return connectionStep(asked, () => connectionTasks.answer(id, answer === 'allow'));
+  };
+  const onButtonAt = (door: Door) => {
+    const pressed = inTurn(async (press: ButtonPress) => {
+      const gaps = await setupGaps();
+      if (gaps.length > 0) return { text: setupGuide(gaps) };
+      const answer = answerConnection(press.data, door);
+      return answer === undefined ? recordedButton(press) : answer;
+    });
+    return async (press: ButtonPress) => settled(await pressed(press));
+  };
+  const onConnectAt = (door: Door) => {
+    const begun = inTurn(async (task: string) => {
+      const gaps = await setupGaps();
+      if (gaps.length > 0) return { text: setupGuide(gaps) };
+      return task === '' ? { text: strings.connectionUsage() } : runConnections(task, door);
+    });
+    return async (task: string) => settled(await begun(task));
+  };
+  const connectFromApp = onConnectAt('app');
+  const connectFromTelegram = onConnectAt('telegram');
+
   const chat: ChatHandlers = {
     onText: inTurn(async (message) => {
       const gaps = await setupGaps();
@@ -566,11 +639,7 @@ export const startAnomander = <M>(config: Config, deps: AnomanderDeps<M>): Anoma
       const gaps = await setupGaps();
       return gaps.length > 0 ? { text: setupGuide(gaps) } : recordedReceipt(receipt);
     }),
-    onButton: inTurn(async (press) => {
-      const gaps = await setupGaps();
-      if (gaps.length > 0) return { text: setupGuide(gaps) };
-      return (await answerConnection(press.data, false)) ?? recordedButton(press);
-    }),
+    onButton: onButtonAt('telegram'),
     onScreen: inTurn(async (question) => {
       const gaps = await setupGaps();
       return gaps.length > 0 ? { text: setupGuide(gaps) } : recordedScreen(question);
@@ -579,10 +648,7 @@ export const startAnomander = <M>(config: Config, deps: AnomanderDeps<M>): Anoma
       const gaps = await setupGaps();
       return gaps.length > 0 ? { text: setupGuide(gaps) } : planStep(request);
     }),
-    onConnect: inTurn(async (request) => {
-      const gaps = await setupGaps();
-      return gaps.length > 0 ? { text: setupGuide(gaps) } : runConnections(request);
-    }),
+    onConnect: (request) => connectFromApp(request.task),
   };
 
   const bot = createTelegramBot({
@@ -593,7 +659,10 @@ export const startAnomander = <M>(config: Config, deps: AnomanderDeps<M>): Anoma
     // login is made in Telegram only: its messages go out through the bot.
     onText: async (message) => {
       const handled = await login?.handleText(message);
-      return handled === undefined ? chat.onText(message) : handled.reply;
+      if (handled !== undefined) return handled.reply;
+      // DK-11: `/mcp <tarea>` asks for a task with connections, as `connect` does in the app.
+      const task = connectionCommand(message.text);
+      return task === undefined ? chat.onText(message) : connectFromTelegram(task);
     },
     onReceipt: chat.onReceipt,
     onButton: async (press) => {
@@ -649,19 +718,7 @@ export const startAnomander = <M>(config: Config, deps: AnomanderDeps<M>): Anoma
           logger,
         });
 
-  const localChannel = startChannel(
-    config,
-    {
-      ...chat,
-      onButton: inTurn(async (press) => {
-        const gaps = await setupGaps();
-        if (gaps.length > 0) return { text: setupGuide(gaps) };
-        return (await answerConnection(press.data, true)) ?? recordedButton(press);
-      }),
-    },
-    logger,
-    now,
-  );
+  const localChannel = startChannel(config, { ...chat, onButton: onButtonAt('app') }, logger, now);
 
   const { started, ended } = polling(bot);
   started.then(

@@ -14,6 +14,8 @@ const CONNECT_TIMEOUT_MS = 20_000;
 const CALL_TIMEOUT_MS = 60_000;
 /** How long a server that could not be reached is left alone: a task never waits for it twice. */
 const RETRY_AFTER_MS = 60_000;
+/** Well under the five seconds the desktop app gives the daemon to stop. */
+const CLOSE_WAIT_MS = 2_000;
 /** The most pages of tools read from one server. */
 const MAX_TOOL_PAGES = 5;
 
@@ -112,6 +114,8 @@ export interface ConnectionsDeps {
   /** How a server is reached; tests join one in memory. */
   open?: (name: string, server: ServerConfig) => Promise<Transport>;
   now?: () => number;
+  /** How long closing waits for a server that is being connected. */
+  closeWaitMs?: number;
 }
 
 /**
@@ -127,7 +131,13 @@ const broke = (error: unknown): boolean =>
  * starts no server.
  */
 export const createConnections = (deps: ConnectionsDeps): Connections => {
-  const { config, logger, open = async (_, server) => transportFor(server), now = Date.now } = deps;
+  const {
+    config,
+    logger,
+    open = async (_, server) => transportFor(server),
+    now = Date.now,
+    closeWaitMs = CLOSE_WAIT_MS,
+  } = deps;
   const connected = new Map<string, ConnectedServer>();
   /** When each server last could not be reached. */
   const failedAt = new Map<string, number>();
@@ -151,6 +161,11 @@ export const createConnections = (deps: ConnectionsDeps): Connections => {
               if (entry !== undefined && connected.get(name) === entry) connected.delete(name);
             };
             const made = await connectTo(name, server.readOnly, await open(name, server), forget);
+            // Closed while this server answered: it is not kept.
+            if (closed) {
+              await made.close().catch(() => {});
+              return;
+            }
             entry = {
               close: made.close,
               connection: {
@@ -198,8 +213,16 @@ export const createConnections = (deps: ConnectionsDeps): Connections => {
     unreachable: () => Object.keys(config).filter((name) => !connected.has(name)),
     close: async () => {
       closed = true;
-      // After the connection being made, so its server is closed with the others.
-      await turn;
+      // After the connection being made, so its server is closed with the others; but not for
+      // long: a server that never answers must not keep the daemon from stopping in time.
+      let timer: NodeJS.Timeout | undefined;
+      await Promise.race([
+        turn,
+        new Promise((done) => {
+          timer = setTimeout(done, closeWaitMs);
+        }),
+      ]);
+      clearTimeout(timer);
       const servers = [...connected.values()];
       connected.clear();
       await Promise.all(servers.map((server) => server.close().catch(() => {})));

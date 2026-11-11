@@ -240,6 +240,37 @@ describe('DK-11: the connections, made when a task first needs them', () => {
     expect(opened).toEqual(['notes']);
   });
 
+  it('closing does not wait long for a server that never answers, and closes it if it ever does', async () => {
+    let open: () => void = () => {};
+    const gate = new Promise<void>((done) => {
+      open = done;
+    });
+    const closed = vi.fn();
+    const opening = vi.fn();
+    const connections = createConnections({
+      config: parseConnectionsConfig({ mcpServers: { notes: { command: 'notes-server' } } }),
+      logger: logger(),
+      closeWaitMs: 20,
+      open: async () => {
+        opening();
+        await gate;
+        const { transport, server } = await serve();
+        server.server.onclose = closed;
+        return transport;
+      },
+    });
+    const getting = connections.get();
+    await vi.waitFor(() => expect(opening).toHaveBeenCalled());
+
+    // The shell gives the daemon five seconds to stop.
+    await connections.close();
+    expect(closed).not.toHaveBeenCalled();
+
+    open();
+    expect(await getting).toEqual([]);
+    expect(closed).toHaveBeenCalled();
+  });
+
   it('connects again to a server whose connection broke under a call', async () => {
     let broken = false;
     const opened: string[] = [];
