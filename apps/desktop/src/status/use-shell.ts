@@ -20,6 +20,10 @@ export interface Shell {
   dismissError(): void;
   /** Saves the setup, which restarts the daemon; rejects as the shell does when it refuses it. */
   saveSetup(input: SetupInput): Promise<Snapshot>;
+  /** `shell.connections`, `saveConnection` and `removeConnection`, as they are: the screen says why one failed. */
+  connections: typeof shell.connections;
+  saveConnection: typeof shell.saveConnection;
+  removeConnection: typeof shell.removeConnection;
   /** Tells the menu bar whether the chat waits for an answer; a failure only loses that sign. */
   setThinking(thinking: boolean): void;
   /** Hands an answer to the shell to notify it; a failure only loses the notification. */
@@ -146,6 +150,9 @@ export const useShell = (): Shell => {
     stop,
     dismissError,
     saveSetup,
+    connections: shell.connections,
+    saveConnection: shell.saveConnection,
+    removeConnection: shell.removeConnection,
     setThinking,
     notifyReply,
     captureScreen: shell.captureScreen,

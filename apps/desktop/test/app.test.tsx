@@ -6,6 +6,7 @@ import { type Snapshot, shell } from '../src/shell.ts';
 import { strings } from '../src/strings.ts';
 import { FakeWebSocket } from './fake-web-socket.ts';
 import {
+  CONNECTIONS,
   FILLED_SETUP,
   replyTo,
   runningSnapshot,
@@ -19,6 +20,9 @@ vi.mock('../src/shell.ts', () => ({
   shell: {
     snapshot: vi.fn(),
     saveSetup: vi.fn(),
+    connections: vi.fn(),
+    saveConnection: vi.fn(),
+    removeConnection: vi.fn(),
     startDaemon: vi.fn(),
     stopDaemon: vi.fn(),
     onSnapshot: vi.fn(),
@@ -255,6 +259,57 @@ describe('the setup', () => {
     fireEvent.click(screen.getByRole('button', { name: strings.status.closeSetup }));
 
     expect(screen.getByText('23 € cena')).toBeTruthy();
+  });
+});
+
+describe('the connections', () => {
+  const heading = () => screen.queryByRole('heading', { name: strings.connections.title });
+
+  it('open from the status area with the servers of the shell, and close back to the chat', async () => {
+    mocked.connections.mockResolvedValue(CONNECTIONS);
+    await open(runningSnapshot());
+    fireEvent.click(screen.getByRole('button', { name: strings.status.openConnections }));
+
+    expect(heading()).toBeTruthy();
+    expect(await screen.findByRole('list', { name: strings.connections.servers })).toBeTruthy();
+    expect(composer().closest('[hidden]')).toBeTruthy();
+
+    fireEvent.click(screen.getByRole('button', { name: strings.status.closeSetup }));
+    expect(heading()).toBeNull();
+    expect(composer().closest('[hidden]')).toBeNull();
+  });
+
+  it('remove a server through the shell', async () => {
+    mocked.connections.mockResolvedValue(CONNECTIONS);
+    mocked.removeConnection.mockResolvedValue({ servers: [], invalid: null });
+    await open(runningSnapshot());
+    fireEvent.click(screen.getByRole('button', { name: strings.status.openConnections }));
+    fireEvent.click(
+      await screen.findByRole('button', { name: strings.connections.removeServer('notes') }),
+    );
+    fireEvent.click(screen.getByRole('button', { name: strings.connections.confirmRemoveYes }));
+
+    await waitFor(() => expect(screen.getByText(strings.connections.none)).toBeTruthy());
+    expect(mocked.removeConnection).toHaveBeenCalledWith('notes');
+  });
+
+  it('give way to the setup, which still saves', async () => {
+    mocked.connections.mockResolvedValue(CONNECTIONS);
+    mocked.saveSetup.mockResolvedValue(runningSnapshot());
+    await open(runningSnapshot());
+    fireEvent.click(screen.getByRole('button', { name: strings.status.openConnections }));
+    fireEvent.click(screen.getByRole('button', { name: strings.status.openSetup }));
+    expect(heading()).toBeNull();
+    expect(setupHeading()).toBeTruthy();
+
+    fireEvent.click(screen.getByRole('button', { name: strings.setup.save }));
+    await waitFor(() => expect(setupHeading()).toBeNull());
+    expect(mocked.saveSetup).toHaveBeenCalledWith({
+      principalChatId: '4242',
+      model: 'openai/gpt-4o-mini',
+      visionModel: 'openai/gpt-4o-mini',
+      providerKeys: {},
+    });
   });
 });
 

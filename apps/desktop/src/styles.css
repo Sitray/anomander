@@ -988,7 +988,8 @@ button {
   text-wrap: pretty;
 }
 
-.setup fieldset {
+.setup fieldset,
+.setup-group {
   display: grid;
   gap: var(--s3);
   min-width: 0;
@@ -1016,7 +1017,8 @@ button {
 }
 
 .field input,
-.field select {
+.field select,
+.field textarea {
   width: 100%;
   min-width: 0;
   height: 1.875rem;
@@ -1035,9 +1037,25 @@ button {
   opacity: 1;
 }
 
-.field input.code {
+.field input.code,
+.field textarea.code {
   font-family: var(--mono);
   font-size: var(--text-sm);
+}
+
+/* One item per line: tall enough for a few, and the principal's to stretch. */
+.field textarea {
+  display: block;
+  height: auto;
+  min-height: 3.75rem;
+  padding: var(--s1) var(--s2);
+  line-height: 1.5;
+  resize: vertical;
+}
+
+/* A choice in words, not an identifier. */
+.field select.plain {
+  font: inherit;
 }
 
 .field select {
@@ -1059,7 +1077,8 @@ button {
 }
 
 .field input:focus-visible,
-.field select:focus-visible {
+.field select:focus-visible,
+.field textarea:focus-visible {
   outline: none;
   box-shadow: inset 0 0 0 2px var(--accent-ink);
 }
@@ -1139,6 +1158,32 @@ button {
 
 .key-add-note {
   margin-top: calc(var(--s2) * -1);
+}
+
+/* ---------- Connections ---------- */
+
+.servers {
+  margin-top: var(--s5);
+}
+
+/* A command with its arguments, or a URL: as long as the principal wrote it. */
+.server-target {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-family: var(--mono);
+  white-space: normal;
+  -webkit-user-select: text;
+  user-select: text;
+}
+
+/* The question takes the row under the server it is about. */
+.server-confirm {
+  flex-basis: 100%;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--s1) var(--s3);
+  font-size: var(--text-sm);
 }
 
 .setup-footer {

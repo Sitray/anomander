@@ -1,7 +1,8 @@
-// The window: the daemon's status on top, and under it the chat or the setup screen. The
-// container: it reads the shell and decides which of the two is on screen.
+// The window: the daemon's status on top, and under it the chat, the setup screen or the
+// connections screen. The container: it reads the shell and decides which one is on screen.
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ChatScreen } from './chat/ChatScreen.tsx';
+import { ConnectionsScreen } from './connections/ConnectionsScreen.tsx';
 import { SetupScreen } from './setup/SetupScreen.tsx';
 import type { SetupInput } from './shell.ts';
 import { ErrorBlock, StatusBar } from './status/StatusBar.tsx';
@@ -11,14 +12,15 @@ import { strings } from './strings.ts';
 export function App() {
   const shell = useShell();
   const { snapshot } = shell;
-  const [setupOpen, setSetupOpen] = useState(false);
+  /** The screen over the chat, when there is one. */
+  const [open, setOpen] = useState<'setup' | 'connections' | null>(null);
   const main = useRef<HTMLElement>(null);
 
   // DK-5 AC1: nothing works until the setup is complete, so it opens by itself, once each time
   // the daemon turns out not to be configured. Closing it is the principal's choice.
   const notConfigured = snapshot?.daemon.reason === 'not_configured';
   useEffect(() => {
-    if (notConfigured) setSetupOpen(true);
+    if (notConfigured) setOpen('setup');
   }, [notConfigured]);
 
   // A file dropped outside the chat would otherwise replace the window with that file.
@@ -32,8 +34,8 @@ export function App() {
     };
   }, []);
 
-  const closeSetup = useCallback(() => {
-    setSetupOpen(false);
+  const close = useCallback(() => {
+    setOpen(null);
     // Back to where the principal writes; the chat was only hidden, so it is as they left it.
     requestAnimationFrame(() => main.current?.querySelector('textarea')?.focus());
   }, []);
@@ -43,10 +45,10 @@ export function App() {
     async (input: SetupInput) => {
       const { setup } = await saveSetup(input);
       // Saved and able to start: back to the chat. Otherwise the screen says what is missing.
-      if (setup.hasTelegramBotToken && setup.principalChatId !== null) closeSetup();
+      if (setup.hasTelegramBotToken && setup.principalChatId !== null) close();
       return setup;
     },
-    [saveSetup, closeSetup],
+    [saveSetup, close],
   );
 
   return (
@@ -55,10 +57,12 @@ export function App() {
         daemon={snapshot?.daemon ?? null}
         busy={shell.busy}
         commandError={shell.commandError}
-        setupOpen={setupOpen}
+        setupOpen={open === 'setup'}
+        connectionsOpen={open === 'connections'}
         onStart={shell.start}
         onStop={shell.stop}
-        onToggleSetup={setupOpen ? closeSetup : () => setSetupOpen(true)}
+        onToggleSetup={open === 'setup' ? close : () => setOpen('setup')}
+        onToggleConnections={open === 'connections' ? close : () => setOpen('connections')}
         onDismissError={shell.dismissError}
       />
       <main className="main" ref={main}>
@@ -75,7 +79,7 @@ export function App() {
         ) : (
           <>
             {/* Hidden, not unmounted: the conversation lives in memory only (DK-4). */}
-            <div className="view" hidden={setupOpen}>
+            <div className="view" hidden={open !== null}>
               <ChatScreen
                 daemon={snapshot.daemon}
                 channel={snapshot.channel}
@@ -88,9 +92,19 @@ export function App() {
                 subscribeStop={shell.onStopTask}
               />
             </div>
-            {setupOpen && (
+            {open === 'setup' && (
               <div className="view">
-                <SetupScreen setup={snapshot.setup} onSave={save} onClose={closeSetup} />
+                <SetupScreen setup={snapshot.setup} onSave={save} onClose={close} />
+              </div>
+            )}
+            {open === 'connections' && (
+              <div className="view">
+                <ConnectionsScreen
+                  load={shell.connections}
+                  onSave={shell.saveConnection}
+                  onRemove={shell.removeConnection}
+                  onClose={close}
+                />
               </div>
             )}
           </>

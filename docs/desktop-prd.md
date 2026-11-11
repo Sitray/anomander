@@ -180,9 +180,21 @@ and keep its secrets in the operating system instead of a text file.
     while another runs is refused, and a press made while its task runs answers nothing. A task
     asked while another waits for "Permitir" ends that one. How the task ended is a recent
     turn, added when it ends. In Telegram an answer is cut to 4 096 characters.
+  - AC9: the app has a "Conexiones" screen, opened from the status bar, that lists the servers
+    of `mcp.json` and lets the principal add, edit and remove one: its name, a command with its
+    arguments or a URL, the names of its `env` or `headers`, and the tools marked read-only.
+    `mcp.json` stays the source of truth and its format does not change: the shell validates a
+    server exactly as the daemon reads it, rewrites only the server that changed, in its place,
+    and leaves the rest of the file as written. A file the daemon would refuse, or one that is
+    a link, is shown as such, with where it is wrong and never what it says, and cannot be
+    changed from the screen. A value typed in the screen goes to the Keychain and the file gets
+    `@keychain`; it is never written to the file, logged, put in an error or sent back to the
+    window, which only knows each name and whether a value is stored. A value left untouched is
+    kept, also when its server is renamed. Saving starts the daemon again, which reads the file
+    at its start; a daemon that is stopped stays stopped.
   - Open, for the principal: a value written in `mcp.json` is in the file until the next start
     of the daemon, and in whatever copied the file meanwhile (a backup, an editor);
-    there is no setup screen for it; no OAuth; "read-only" is the principal's word about a tool, which the code cannot
+    no OAuth; "read-only" is the principal's word about a tool, which the code cannot
     check.
 
 ## 6. Decisions

@@ -3,6 +3,7 @@
 use std::sync::{Mutex, MutexGuard, PoisonError};
 
 use crate::connection_secrets::sweep;
+use crate::connections::{self, Change, ConnectionsView, ServerInput};
 use crate::daemon::launch::{
     child_env, daemon_entry, find_node, free_port, search_path, DaemonInputs,
 };
@@ -131,6 +132,47 @@ impl Core {
             Err(error) => eprintln!("{error}"),
         }
         Ok(())
+    }
+
+    /// DK-11: the servers of `mcp.json` for the connections screen, without their values.
+    pub fn connections(&self) -> ConnectionsView {
+        // Not while a sweep or a save is halfway through the file.
+        let _setup = lock(&self.setup);
+        connections::view(&self.data, self.store.as_ref())
+    }
+
+    /// DK-11: adds a server to `mcp.json`, or replaces one. The daemon is not touched here.
+    pub fn save_connection(&self, input: &ServerInput) -> Result<(), String> {
+        let mut setup = lock(&self.setup);
+        let change = connections::save(&self.data, input)?;
+        self.change_connections(&mut setup, change)
+    }
+
+    /// DK-11: takes a server out of `mcp.json`. The daemon is not touched here.
+    pub fn remove_connection(&self, name: &str) -> Result<(), String> {
+        let mut setup = lock(&self.setup);
+        let change = connections::remove(&self.data, name)?;
+        self.change_connections(&mut setup, change)
+    }
+
+    /// Makes `change` under the setup lock, so it never interleaves with a sweep.
+    fn change_connections(&self, setup: &mut SetupCache, change: Change) -> Result<(), String> {
+        // Listed before they are stored: whatever a save that fails halfway leaves in the
+        // Keychain, the next sweep knows of and removes.
+        let mut accounts = setup.settings.connection_secrets.clone();
+        accounts.extend(change.accounts());
+        accounts.sort();
+        accounts.dedup();
+        if accounts != setup.settings.connection_secrets {
+            let settings = Settings {
+                connection_secrets: accounts,
+                ..setup.settings.clone()
+            };
+            save_settings(&self.data, &settings)
+                .map_err(|error| format!("could not save the settings: {error}"))?;
+            setup.settings = settings;
+        }
+        change.apply(&self.data, self.store.as_ref())
     }
 
     /// DK-11: moves the values of `mcp.json` to the Keychain and returns the ones the file refers
@@ -390,6 +432,83 @@ mod tests {
         assert!(again.env.iter().any(|(name, json)| {
             name == "ANOMANDER_MCP_SECRETS" && json.contains("tok-secret-1")
         }));
+        Ok(())
+    }
+
+    #[test]
+    fn a_connection_saved_from_the_screen_is_handed_over_and_one_removed_leaves_the_store(
+    ) -> Result<(), String> {
+        let (store, settings) = configured();
+        let f = fixture(store, settings);
+        let input: ServerInput = serde_json::from_value(json!({
+            "name": "notes", "kind": "process", "command": "npx",
+            "values": [{ "name": "TOKEN", "value": "tok-typed-1" }]
+        }))
+        .map_err(|e| e.to_string())?;
+        let settings_file =
+            || std::fs::read_to_string(f.root.join("settings.json")).map_err(|e| e.to_string());
+        let handed_over = |spec: &LaunchSpec| {
+            spec.env
+                .iter()
+                .find(|(name, _)| name == "ANOMANDER_MCP_SECRETS")
+                .map(|(_, json)| json.clone())
+        };
+
+        f.core.save_connection(&input)?;
+
+        // Only named in the settings, a marker in the file, and stored for the screen.
+        let saved = settings_file()?;
+        assert!(saved.contains("mcp/notes/env/TOKEN") && !saved.contains("tok-typed-1"));
+        let file = std::fs::read_to_string(f.root.join("mcp.json")).map_err(|e| e.to_string())?;
+        assert!(
+            file.contains("@keychain") && !file.contains("tok-typed-1"),
+            "{file}"
+        );
+        let shown = f.core.connections();
+        assert_eq!(shown.invalid, None);
+        assert!(shown.servers[0].values[0].stored);
+        let Prepared::Ready(spec) = f.core.prepare() else {
+            return Err("a configured setup was not ready".into());
+        };
+        assert!(handed_over(&spec).is_some_and(|json| json.contains("tok-typed-1")));
+        assert!(spec.secrets.iter().any(|secret| secret == "tok-typed-1"));
+
+        // The setup still saves, and keeps the list.
+        let setup: SetupInput = serde_json::from_value(json!({
+            "principalChatId": "7", "model": "", "visionModel": ""
+        }))
+        .map_err(|e| e.to_string())?;
+        f.core.save_setup(&setup)?;
+        assert_eq!(f.core.setup_state().principal_chat_id.as_deref(), Some("7"));
+        assert!(settings_file()?.contains("mcp/notes/env/TOKEN"));
+
+        f.core.remove_connection("notes")?;
+        let Prepared::Ready(spec) = f.core.prepare() else {
+            return Err("the start after the removal was not ready".into());
+        };
+        assert_eq!(handed_over(&spec), None);
+        assert!(!settings_file()?.contains("mcp/notes"));
+        assert!(f.core.connections().servers.is_empty());
+        assert!(f.core.remove_connection("notes").is_err());
+        Ok(())
+    }
+
+    #[test]
+    fn a_connection_the_store_refuses_is_removed_by_the_next_sweep() -> Result<(), String> {
+        let f = fixture(MemoryStore::failing(), configured().1);
+        let input: ServerInput = serde_json::from_value(json!({
+            "name": "notes", "kind": "process", "command": "npx",
+            "values": [{ "name": "TOKEN", "value": "tok-typed-1" }]
+        }))
+        .map_err(|e| e.to_string())?;
+
+        assert!(f.core.save_connection(&input).is_err());
+
+        // No file was written, and the account is known so that a sweep can remove it.
+        assert!(!f.root.join("mcp.json").exists());
+        let saved =
+            std::fs::read_to_string(f.root.join("settings.json")).map_err(|e| e.to_string())?;
+        assert!(saved.contains("mcp/notes/env/TOKEN"), "{saved}");
         Ok(())
     }
 

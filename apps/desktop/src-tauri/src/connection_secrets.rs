@@ -29,7 +29,7 @@ pub fn account(server: &str, field: &str, name: &str) -> String {
 
 /// A server name as the daemon accepts it: a letter or digit, then up to 39 of those, spaces,
 /// `.`, `_` and `-`. The daemon refuses a file with any other name, so that server is skipped.
-fn is_server_name(name: &str) -> bool {
+pub fn is_server_name(name: &str) -> bool {
     let mut chars = name.chars();
     name.len() <= 40
         && chars.next().is_some_and(|c| c.is_ascii_alphanumeric())

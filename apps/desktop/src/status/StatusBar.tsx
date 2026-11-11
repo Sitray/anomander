@@ -2,7 +2,7 @@
 import { useId, useState } from 'react';
 import type { DaemonStatus } from '../shell.ts';
 import { strings } from '../strings.ts';
-import { ChatIcon, CloseIcon, Mark, SlidersIcon } from '../ui/icons.tsx';
+import { ChatIcon, CloseIcon, Mark, PlugIcon, SlidersIcon } from '../ui/icons.tsx';
 import { describeStatus, type StatusView } from './describe.ts';
 
 export type Command = 'start' | 'stop';
@@ -20,9 +20,11 @@ export interface StatusBarProps {
   busy: Command | null;
   commandError: CommandError | null;
   setupOpen: boolean;
+  connectionsOpen: boolean;
   onStart: () => void;
   onStop: () => void;
   onToggleSetup: () => void;
+  onToggleConnections: () => void;
   onDismissError: () => void;
 }
 
@@ -66,7 +68,7 @@ export function ErrorBlock({ label, children }: { label: string; children: strin
 }
 
 export function StatusBar(props: StatusBarProps) {
-  const { daemon, busy, commandError, setupOpen } = props;
+  const { daemon, busy, commandError, setupOpen, connectionsOpen } = props;
   const { status } = strings;
   const view = daemon === null ? LOADING : describeStatus(daemon);
 
@@ -96,6 +98,16 @@ export function StatusBar(props: StatusBarProps) {
               {action.label}
             </button>
           )}
+          <button
+            type="button"
+            className="icon-button"
+            aria-label={connectionsOpen ? status.closeSetup : status.openConnections}
+            title={connectionsOpen ? status.closeSetup : status.openConnections}
+            disabled={daemon === null}
+            onClick={props.onToggleConnections}
+          >
+            {connectionsOpen ? <ChatIcon /> : <PlugIcon />}
+          </button>
           <button
             type="button"
             className="icon-button"
