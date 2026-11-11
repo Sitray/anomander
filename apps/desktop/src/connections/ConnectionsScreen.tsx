@@ -10,7 +10,7 @@ import type { ConnectionInput, ConnectionServer, ConnectionsView } from '../shel
 import { ErrorBlock } from '../status/StatusBar.tsx';
 import { strings } from '../strings.ts';
 import { messageOf } from '../ui/message-of.ts';
-import { isServerName, isServerUrl, lines } from './validation.ts';
+import { boxed, isServerName, isServerUrl, unboxed } from './validation.ts';
 
 export interface ConnectionsScreenProps {
   /** Reads the servers; rejects with the shell's own message. */
@@ -43,9 +43,9 @@ function ServerForm({ server, taken, onSave, onSaved, onCancel }: FormProps) {
   const [name, setName] = useState(server?.name ?? '');
   const [kind, setKind] = useState(server?.kind ?? 'process');
   const [command, setCommand] = useState(server?.kind === 'process' ? server.command : '');
-  const [args, setArgs] = useState(server?.kind === 'process' ? server.args.join('\n') : '');
+  const [args, setArgs] = useState(server?.kind === 'process' ? boxed(server.args) : '');
   const [url, setUrl] = useState(server?.kind === 'http' ? server.url : '');
-  const [readOnly, setReadOnly] = useState(server?.readOnly.join('\n') ?? '');
+  const [readOnly, setReadOnly] = useState(boxed(server?.readOnly ?? []));
   const [valueName, setValueName] = useState('');
   const [changes, setChanges] = useState<Record<string, ValueChange>>({});
   const [errors, setErrors] = useState<Errors>({});
@@ -99,7 +99,11 @@ function ServerForm({ server, taken, onSave, onSaved, onCancel }: FormProps) {
     const serverName = name.trim();
     const target =
       kind === 'process'
-        ? { kind, command: command.trim(), args: lines(args) }
+        ? {
+            kind,
+            command: command.trim(),
+            args: unboxed(args, server?.kind === 'process' ? server.args : undefined),
+          }
         : { kind, url: url.trim() };
     const wrong: Errors = {
       ...(!isServerName(serverName)
@@ -134,7 +138,7 @@ function ServerForm({ server, taken, onSave, onSaved, onCancel }: FormProps) {
           ? { name: valueName }
           : { name: valueName, value: typedValue };
       }),
-      readOnly: lines(readOnly),
+      readOnly: unboxed(readOnly, server?.readOnly),
     };
 
     setSaving(true);

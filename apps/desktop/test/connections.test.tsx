@@ -300,6 +300,44 @@ describe('editing a server', () => {
   });
 });
 
+describe('a server written by hand', () => {
+  const HAND: ConnectionsView = {
+    servers: [
+      {
+        name: 'script',
+        kind: 'process',
+        command: 'sh',
+        args: ['-c', 'echo a\necho b', '', '  --indented'],
+        values: [],
+        readOnly: [' search '],
+      },
+    ],
+    invalid: null,
+  };
+
+  it('keeps its arguments and its read-only tools as written when they are not touched', async () => {
+    const { onSave } = await renderScreen(HAND);
+
+    click(text.editServer('script'));
+    click(text.save);
+
+    expect(await saved(onSave)).toMatchObject({
+      args: ['-c', 'echo a\necho b', '', '  --indented'],
+      readOnly: [' search '],
+    });
+  });
+
+  it('reads the arguments one per line once they are edited', async () => {
+    const { onSave } = await renderScreen(HAND);
+
+    click(text.editServer('script'));
+    fill(text.args, '-c\n  echo c  \n');
+    click(text.save);
+
+    expect(await saved(onSave)).toMatchObject({ args: ['-c', 'echo c'], readOnly: [' search '] });
+  });
+});
+
 describe('removing a server', () => {
   it('asks first, and does nothing when the answer is no', async () => {
     const { onRemove } = await renderScreen();

@@ -21,3 +21,13 @@ export const lines = (value: string): string[] =>
     .split('\n')
     .map((line) => line.trim())
     .filter((line) => line !== '');
+
+/** How a list of the file is shown in a text box. */
+export const boxed = (items: readonly string[]): string => items.join('\n');
+
+/**
+ * What a text box holds. A box left as it was shown gives back the list of the file itself:
+ * written by hand, an item may be empty, padded or of several lines, which `lines` would change.
+ */
+export const unboxed = (value: string, shown: readonly string[] | undefined): string[] =>
+  shown !== undefined && value === boxed(shown) ? [...shown] : lines(value);
