@@ -124,7 +124,12 @@ pub fn sweep(data: &DataDir, store: &dyn SecretStore, known: &[String]) -> Swept
             }
         }
     }
-    if moved {
+    // The principal may have saved the file since it was read: theirs stays, and the next start
+    // sweeps it.
+    let same = std::fs::read(&path).is_ok_and(|now| now == bytes);
+    if moved && !same {
+        eprintln!("{FILE_NAME} changed while its values were moved: it is left as it is");
+    } else if moved {
         // After the Keychain has every value: a failure here leaves them in both places.
         let written = serde_json::to_vec_pretty(&file)
             .map_err(std::io::Error::other)
@@ -387,6 +392,51 @@ mod tests {
             assert_eq!(store.get(TOKEN), Ok(Some("tok-1".into())), "edit {index}");
             assert_eq!(second.accounts, first.accounts, "edit {index}");
         }
+        Ok(())
+    }
+
+    /// A store that, at its first `set`, writes `edit` over the file: the principal saving the
+    /// file while it is being swept.
+    struct EditedMeanwhile {
+        inner: MemoryStore,
+        path: std::path::PathBuf,
+        edit: String,
+    }
+
+    impl SecretStore for EditedMeanwhile {
+        fn get(&self, name: &str) -> Result<Option<String>, crate::secure_store::StoreError> {
+            self.inner.get(name)
+        }
+        fn set(&self, name: &str, value: &str) -> Result<(), crate::secure_store::StoreError> {
+            let _ = std::fs::write(&self.path, &self.edit);
+            self.inner.set(name, value)
+        }
+        fn delete(&self, name: &str) -> Result<(), crate::secure_store::StoreError> {
+            self.inner.delete(name)
+        }
+    }
+
+    #[test]
+    fn a_file_saved_while_it_is_swept_is_not_written_over() -> Outcome {
+        let f = Fixture::new()?;
+        f.write(&written())?;
+        let edit = json!({
+            "mcpServers": { "zeta": { "command": "npx", "env": { "TOKEN": "tok-newer" } } }
+        })
+        .to_string();
+        let store = EditedMeanwhile {
+            inner: MemoryStore::default(),
+            path: f.path(),
+            edit: edit.clone(),
+        };
+
+        let first = sweep(&f.data, &store, &[]);
+        assert_eq!(f.text()?, edit);
+
+        // The next start sweeps what the principal saved.
+        let second = sweep(&f.data, &store, &first.accounts);
+        assert_eq!(second.secrets, pairs(&[(TOKEN, "tok-newer")]));
+        assert!(!f.text()?.contains("tok-newer"));
         Ok(())
     }
 

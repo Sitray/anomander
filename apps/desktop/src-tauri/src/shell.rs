@@ -14,9 +14,37 @@ use crate::setup::{
 };
 use crate::snapshot::{SetupState, Snapshot};
 
-/// A value of `mcp.json` this short may be no secret (`DEBUG=1`), and hiding it would blank the
-/// daemon's output wherever those characters appear.
-const SHORTEST_REDACTED: usize = 8;
+/// What the name of a secret usually holds. Every value of `mcp.json` is kept as one, and the
+/// code cannot tell which are: a value under such a name, or any header, is hidden in the
+/// daemon's output from `SHORTEST_NAMED` characters; any other only from `SHORTEST_UNNAMED`, so
+/// a `NODE_ENV=production` does not blank that word wherever the daemon writes it.
+const SECRET_NAMES: [&str; 8] = [
+    "token",
+    "key",
+    "secret",
+    "password",
+    "passwd",
+    "auth",
+    "credential",
+    "cookie",
+];
+const SHORTEST_NAMED: usize = 4;
+const SHORTEST_UNNAMED: usize = 16;
+
+/// Whether the value kept under `account` (`mcp/<server>/<env|headers>/<name>`) is hidden in the
+/// daemon's output.
+fn hidden(account: &str, value: &str) -> bool {
+    let mut parts = account.splitn(4, '/').skip(2);
+    let field = parts.next().unwrap_or_default();
+    let name = parts.next().unwrap_or_default().to_lowercase();
+    let named = field == "headers" || SECRET_NAMES.iter().any(|hint| name.contains(hint));
+    let shortest = if named {
+        SHORTEST_NAMED
+    } else {
+        SHORTEST_UNNAMED
+    };
+    value.chars().count() >= shortest
+}
 
 /// Reads a variable of the app's own environment; injected so tests never depend on the real one.
 pub type Environment = Box<dyn Fn(&str) -> Option<String> + Send + Sync>;
@@ -185,8 +213,8 @@ impl Core {
         redacted.extend(
             connection_secrets
                 .into_iter()
-                .map(|(_, secret)| secret)
-                .filter(|secret| secret.chars().count() >= SHORTEST_REDACTED),
+                .filter(|(account, secret)| hidden(account, secret))
+                .map(|(_, secret)| secret),
         );
         Prepared::Ready(LaunchSpec {
             program: node,
@@ -359,6 +387,28 @@ mod tests {
             name == "ANOMANDER_MCP_SECRETS" && json.contains("tok-secret-1")
         }));
         Ok(())
+    }
+
+    #[test]
+    fn a_value_of_a_connection_is_hidden_by_its_name_and_its_length() {
+        for (account, value) in [
+            ("mcp/s/env/API_KEY", "abcd"),
+            ("mcp/s/env/GITHUB_TOKEN", "ñ-12"),
+            ("mcp/s/env/db_password", "hunter2"),
+            ("mcp/s/headers/X-Custom", "abcd"),
+            // Under any name, once it is long enough to be one.
+            ("mcp/s/env/DSN", "postgres://u:p@h/db"),
+        ] {
+            assert!(hidden(account, value), "{account}");
+        }
+        for (account, value) in [
+            ("mcp/s/env/API_KEY", "abc"),
+            ("mcp/s/env/DEBUG", "1"),
+            ("mcp/s/env/NODE_ENV", "production"),
+            ("mcp/s/env/LANGUAGE", "ññññññññññ"),
+        ] {
+            assert!(!hidden(account, value), "{account}");
+        }
     }
 
     #[test]

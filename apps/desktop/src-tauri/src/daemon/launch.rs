@@ -7,6 +7,33 @@ use std::path::{Path, PathBuf};
 /// principal's shell (such as a stray `OPENAI_API_KEY` or `NODE_OPTIONS`) reaches it.
 const INHERITED: [&str; 4] = ["PATH", "HOME", "TMPDIR", "LANG"];
 
+/// Where macOS keeps the system clock's zone: a link into a `zoneinfo` folder.
+const LOCALTIME: &str = "/etc/localtime";
+
+/// The IANA zone a `zoneinfo` link points to, such as `Europe/Madrid`.
+pub fn zone_of_link(target: &str) -> Option<String> {
+    let (_, zone) = target.split_once("/zoneinfo/")?;
+    is_time_zone(zone).then(|| zone.to_owned())
+}
+
+/// The zone of this machine's clock, for the daemon's `TZ`: its dates are the principal's.
+pub fn system_time_zone() -> Option<String> {
+    let target = std::fs::read_link(LOCALTIME).ok()?;
+    zone_of_link(&target.to_string_lossy())
+}
+
+/// The shape of an IANA zone name. The daemon refuses to start with a `TZ` that is not one.
+fn is_time_zone(zone: &str) -> bool {
+    !zone.is_empty()
+        && zone.len() <= 64
+        && zone.split('/').all(|part| {
+            !part.is_empty()
+                && part
+                    .chars()
+                    .all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | '+'))
+        })
+}
+
 /// A GUI app gets a minimal `PATH`; Homebrew's `node` lives in one of these.
 const EXTRA_PATH: [&str; 2] = ["/opt/homebrew/bin", "/usr/local/bin"];
 const DEFAULT_PATH: &str = "/usr/bin:/bin:/usr/sbin:/sbin";
@@ -54,6 +81,10 @@ pub fn child_env(
         .filter_map(|name| parent(name).map(|value| ((*name).to_owned(), value)))
         .collect();
     env.push(("PATH".into(), search_path(parent("PATH").as_deref())));
+    // Without it the daemon takes its default zone, whatever this machine's is.
+    if let Some(zone) = parent("TZ").filter(|zone| is_time_zone(zone)) {
+        env.push(("TZ".into(), zone));
+    }
     let mut set = |name: &str, value: &str| env.push((name.to_owned(), value.to_owned()));
     set("TELEGRAM_BOT_TOKEN", inputs.telegram_bot_token);
     set("ANOMANDER_PRINCIPAL_CHAT_ID", inputs.principal_chat_id);
@@ -272,6 +303,59 @@ mod tests {
             .and_then(|json| serde_json::from_str(json).ok())
             .unwrap_or_default();
         assert_eq!(sent, secrets.into_iter().collect());
+    }
+
+    #[test]
+    fn the_daemon_gets_the_time_zone_of_this_machine_when_it_is_one() {
+        let paths = paths();
+        let env_with = |zone: Option<&'static str>| -> BTreeMap<String, String> {
+            let parent = move |name: &str| match name {
+                "TZ" => zone.map(str::to_owned),
+                _ => None,
+            };
+            let inputs = DaemonInputs {
+                telegram_bot_token: "bot:1",
+                principal_chat_id: "42",
+                model: None,
+                vision_model: None,
+                provider_keys: &[],
+                connection_secrets: &[],
+                paths: &paths,
+                local_token: "t",
+                local_port: 1,
+            };
+            child_env(&parent, &inputs).into_iter().collect()
+        };
+        assert_eq!(
+            env_with(Some("America/Argentina/Buenos_Aires"))
+                .get("TZ")
+                .map(String::as_str),
+            Some("America/Argentina/Buenos_Aires")
+        );
+        // Anything else would stop the daemon at its start: it keeps its default.
+        for zone in [
+            None,
+            Some(""),
+            Some(":/etc/localtime"),
+            Some("../x"),
+            Some("Europe/Ma drid"),
+        ] {
+            assert!(!env_with(zone).contains_key("TZ"), "{zone:?}");
+        }
+    }
+
+    #[test]
+    fn the_zone_is_read_from_where_the_system_clock_points() {
+        assert_eq!(
+            zone_of_link("/var/db/timezone/zoneinfo/Europe/Madrid").as_deref(),
+            Some("Europe/Madrid")
+        );
+        assert_eq!(
+            zone_of_link("/usr/share/zoneinfo/America/Argentina/Buenos_Aires").as_deref(),
+            Some("America/Argentina/Buenos_Aires")
+        );
+        assert_eq!(zone_of_link("/etc/somewhere/else"), None);
+        assert_eq!(zone_of_link("/usr/share/zoneinfo/"), None);
     }
 
     #[test]
