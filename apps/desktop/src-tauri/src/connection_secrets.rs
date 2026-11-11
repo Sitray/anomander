@@ -85,19 +85,31 @@ pub fn sweep(data: &DataDir, store: &dyn SecretStore, known: &[String]) -> Swept
 
     let mut used = Vec::new();
     let mut moved = false;
+    // Set by anything here the daemon would not read: a marker may hide behind it.
+    let mut refused = false;
     for (server, entry) in servers.iter_mut() {
-        if !is_server_name(server) {
+        if !is_server_name(server) || !entry.is_object() {
+            refused = true;
             continue;
         }
         for field in FIELDS {
-            let Some(values) = entry.get_mut(field).and_then(Value::as_object_mut) else {
-                continue;
+            let values = match entry.get_mut(field) {
+                None => continue,
+                Some(Value::Object(values)) => values,
+                Some(_) => {
+                    refused = true;
+                    continue;
+                }
             };
             for (name, value) in values.iter_mut() {
-                // An empty value is no secret, and anything but a text the daemon refuses.
-                let Some(text) = value.as_str().filter(|text| !text.is_empty()) else {
+                let Some(text) = value.as_str() else {
+                    refused = true;
                     continue;
                 };
+                // An empty value is no secret.
+                if text.is_empty() {
+                    continue;
+                }
                 let account = account(server, field, name);
                 if text != MARKER {
                     // The value stays in the file while the Keychain does not have it.
@@ -128,7 +140,7 @@ pub fn sweep(data: &DataDir, store: &dyn SecretStore, known: &[String]) -> Swept
     used.sort();
     let mut secrets = Vec::new();
     let mut found = Vec::new();
-    let mut waiting = false;
+    let mut waiting = refused;
     for account in &used {
         match store.get(account) {
             Ok(Some(secret)) => {
@@ -144,7 +156,8 @@ pub fn sweep(data: &DataDir, store: &dyn SecretStore, known: &[String]) -> Swept
         }
     }
     // A marker without its value is most likely a renamed server or variable, whose value is
-    // still stored under the old name: nothing is removed until every marker has one.
+    // still stored under the old name: nothing is removed until every marker has one and the
+    // daemon would read every server.
     let mut accounts = if waiting {
         known.to_vec()
     } else {
@@ -344,6 +357,35 @@ mod tests {
             assert_eq!(store.get(TOKEN), Ok(None), "{from}");
             assert_eq!(store.names().len(), 2, "{from}");
             assert_eq!(third.secrets.len(), 2, "{from}");
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn a_server_the_daemon_refuses_removes_nothing() -> Outcome {
+        let renamed = |to: &'static str| move |text: String| text.replace("\"zeta\"", to);
+        let edits: [Box<dyn Fn(String) -> String>; 4] = [
+            Box::new(renamed("\"_zeta\"")),
+            Box::new(renamed("\"github/zeta\"")),
+            // An entry, a field and a value that are not what the daemon reads.
+            Box::new(|text| text.replace("\"TOKEN\": \"@keychain\"", "\"TOKEN\": 7")),
+            Box::new(|text| {
+                let mut file: Value = serde_json::from_str(&text).unwrap_or_default();
+                file["mcpServers"]["zeta"] = json!("disabled for now");
+                file.to_string()
+            }),
+        ];
+        for (index, edit) in edits.iter().enumerate() {
+            let f = Fixture::new()?;
+            f.write(&written())?;
+            let store = MemoryStore::default();
+            let first = sweep(&f.data, &store, &[]);
+            std::fs::write(f.path(), edit(f.text()?)).map_err(|e| e.to_string())?;
+
+            let second = sweep(&f.data, &store, &first.accounts);
+
+            assert_eq!(store.get(TOKEN), Ok(Some("tok-1".into())), "edit {index}");
+            assert_eq!(second.accounts, first.accounts, "edit {index}");
         }
         Ok(())
     }
