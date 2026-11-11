@@ -15,9 +15,11 @@ const renderStatus = (daemon: DaemonStatus, overrides: Partial<StatusBarProps> =
     busy: null,
     commandError: null,
     setupOpen: false,
+    connectionsOpen: false,
     onStart: vi.fn(),
     onStop: vi.fn(),
     onToggleSetup: vi.fn(),
+    onToggleConnections: vi.fn(),
     onDismissError: vi.fn(),
     ...overrides,
   };
@@ -105,6 +107,18 @@ describe('wording and action', () => {
 
     renderStatus(RUNNING, { setupOpen: true });
     expect(screen.getByRole('button', { name: status.closeSetup })).toBeTruthy();
+  });
+
+  it('always offers the connections, and the way back from them', () => {
+    const props = renderStatus(RUNNING);
+    fireEvent.click(screen.getByRole('button', { name: status.openConnections }));
+    expect(props.onToggleConnections).toHaveBeenCalledOnce();
+    expect(props.onToggleSetup).not.toHaveBeenCalled();
+    cleanup();
+
+    renderStatus(RUNNING, { connectionsOpen: true });
+    expect(screen.getByRole('button', { name: status.closeSetup })).toBeTruthy();
+    expect(screen.getByRole('button', { name: status.openSetup })).toBeTruthy();
   });
 
   it('shows a command in progress and takes no second one', () => {

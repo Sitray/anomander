@@ -4,6 +4,7 @@
 // of every command and event is `apps/desktop/src/shell.ts`.
 pub mod computer;
 pub mod connection_secrets;
+pub mod connections;
 pub mod daemon;
 pub mod data_dir;
 pub mod notification;
@@ -20,6 +21,7 @@ use std::time::Duration;
 use tauri::{AppHandle, Emitter, Manager, RunEvent, WindowEvent};
 use tauri_plugin_notification::NotificationExt;
 
+use crate::connections::{ConnectionsView, ServerInput};
 use crate::daemon::launch::launch_token;
 use crate::daemon::supervisor::{Options, Supervisor, Update};
 use crate::data_dir::{DataDir, FOLDER_NAME};
@@ -42,6 +44,16 @@ struct Shell {
 impl Shell {
     fn snapshot(&self) -> Snapshot {
         self.core.snapshot(self.supervisor.current())
+    }
+
+    /// The daemon reads `mcp.json` only when it starts: starts it again, as a saved setup does,
+    /// unless it is stopped, which the principal may have chosen; then its next start reads the
+    /// file. Answers with the servers as that start left them.
+    fn reread_connections(&self) -> ConnectionsView {
+        if self.supervisor.current().status.state != DaemonState::Stopped {
+            self.supervisor.restart();
+        }
+        self.core.connections()
     }
 }
 
@@ -118,6 +130,32 @@ async fn save_setup(app: AppHandle, setup: SetupInput) -> Result<Snapshot, Strin
         shell.core.save_setup(&setup)?;
         shell.supervisor.restart();
         Ok(shell.snapshot())
+    })
+    .await
+}
+
+/// DK-11: the servers of `mcp.json` for the connections screen, without their values.
+#[tauri::command]
+async fn get_connections(app: AppHandle) -> Result<ConnectionsView, String> {
+    blocking(app, |shell| Ok(shell.core.connections())).await
+}
+
+/// DK-11: saves one server of `mcp.json` and has the daemon read the file again.
+#[tauri::command]
+async fn save_connection(app: AppHandle, server: ServerInput) -> Result<ConnectionsView, String> {
+    blocking(app, move |shell| {
+        shell.core.save_connection(&server)?;
+        Ok(shell.reread_connections())
+    })
+    .await
+}
+
+/// DK-11: takes one server out of `mcp.json` and has the daemon read the file again.
+#[tauri::command]
+async fn remove_connection(app: AppHandle, name: String) -> Result<ConnectionsView, String> {
+    blocking(app, move |shell| {
+        shell.core.remove_connection(&name)?;
+        Ok(shell.reread_connections())
     })
     .await
 }
@@ -347,6 +385,9 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             get_snapshot,
             save_setup,
+            get_connections,
+            save_connection,
+            remove_connection,
             start_daemon,
             stop_daemon,
             set_thinking,

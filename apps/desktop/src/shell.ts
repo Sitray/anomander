@@ -68,6 +68,48 @@ export interface SetupInput {
   providerKeys: Record<string, string | null>;
 }
 
+/** DK-11: a value of a server (a variable of its environment or a header): its name, never the value. */
+export interface ConnectionValue {
+  name: string;
+  /** Whether a value is kept for it, in the Keychain or still in the file until the next start. */
+  stored: boolean;
+}
+
+/** How a server of `mcp.json` is reached: a program of this machine, or a URL. */
+export type ConnectionTarget =
+  | { kind: 'process'; command: string; args: string[] }
+  | { kind: 'http'; url: string };
+
+/** One server of `mcp.json`, by the name the principal gave it. */
+export type ConnectionServer = ConnectionTarget & {
+  name: string;
+  /** Its `env` when it is a program, its `headers` when it is a URL. */
+  values: ConnectionValue[];
+  /** The tools that run without asking. */
+  readOnly: string[];
+};
+
+/** What the connections screen shows. */
+export interface ConnectionsView {
+  /** In the order of the file. */
+  servers: ConnectionServer[];
+  /**
+   * Why nothing can be changed from the screen: where the file is not as the daemon reads it, in
+   * the shell's own words. Then no server is listed.
+   */
+  invalid: string | null;
+}
+
+/** What the connections screen saves: one server, whole. */
+export type ConnectionInput = ConnectionTarget & {
+  /** The name it has in the file; omitted adds a server. */
+  original?: string;
+  name: string;
+  /** A `value` goes to the Keychain; without one, what the server has under that name is kept. */
+  values: { name: string; value?: string }[];
+  readOnly: string[];
+};
+
 /** The event the shell emits with a new `Snapshot` whenever any part of it changes. */
 export const SNAPSHOT_EVENT = 'shell://snapshot';
 
@@ -78,6 +120,18 @@ export const shell = {
   snapshot: (): Promise<Snapshot> => invoke('get_snapshot'),
   /** Saves the setup and starts the daemon again with it. */
   saveSetup: (setup: SetupInput): Promise<Snapshot> => invoke('save_setup', { setup }),
+  /** DK-11: the servers of `mcp.json`. */
+  connections: (): Promise<ConnectionsView> => invoke('get_connections'),
+  /**
+   * Adds or replaces one server and answers with the servers as they are now. The daemon starts
+   * again to read the file, unless it is stopped. Rejects, with nothing changed, when the daemon
+   * would not read the server or the file.
+   */
+  saveConnection: (server: ConnectionInput): Promise<ConnectionsView> =>
+    invoke('save_connection', { server }),
+  /** Takes one server out of the file; otherwise as `saveConnection`. */
+  removeConnection: (name: string): Promise<ConnectionsView> =>
+    invoke('remove_connection', { name }),
   startDaemon: (): Promise<void> => invoke('start_daemon'),
   stopDaemon: (): Promise<void> => invoke('stop_daemon'),
   /** Whether the chat waits for an answer, which the menu bar shows (DK-6). */

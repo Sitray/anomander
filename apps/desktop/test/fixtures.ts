@@ -1,5 +1,11 @@
 import type { ChatReply } from '@anomander/protocol';
-import type { DaemonStatus, LocalChannel, SetupState, Snapshot } from '../src/shell.ts';
+import type {
+  ConnectionsView,
+  DaemonStatus,
+  LocalChannel,
+  SetupState,
+  Snapshot,
+} from '../src/shell.ts';
 
 // What the shell and the daemon would say, shared by the tests and the preview harness.
 export const TOKEN = 'window-test-token-0123456789abcdefghij';
@@ -61,3 +67,30 @@ export const replyTo = (inReplyTo: string, overrides: Partial<ChatReply> = {}): 
     ...overrides,
   };
 };
+
+/** DK-11: `mcp.json` as the shell shows it: names, and whether each value is stored. */
+export const CONNECTIONS: ConnectionsView = {
+  servers: [
+    {
+      name: 'notes',
+      kind: 'process',
+      command: 'npx',
+      args: ['-y', 'notes-mcp'],
+      values: [
+        { name: 'API_KEY', stored: true },
+        { name: 'DEBUG', stored: false },
+      ],
+      readOnly: ['search'],
+    },
+    {
+      name: 'remote',
+      kind: 'http',
+      url: 'https://example.com/mcp',
+      values: [{ name: 'Authorization', stored: true }],
+      readOnly: [],
+    },
+  ],
+  invalid: null,
+};
+
+export const NO_CONNECTIONS: ConnectionsView = { servers: [], invalid: null };

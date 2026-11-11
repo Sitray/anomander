@@ -8,6 +8,7 @@
 //   &setup=empty|filled                                   (default: by the daemon's state)
 //   &error=long                                           a 300-character last error
 //   &fail=start|stop|save                                 that command is refused
+//   &connections=none|invalid                             (default: two servers)
 //
 // The scripted daemon answers by what is typed: "mercadona" asks a Sí/No question, "rechaza" is
 // rejected, "corta" loses the connection, "lento" never answers, "largo" answers at length,
@@ -16,6 +17,8 @@ import type { ChatButton, ChatRequest } from '@anomander/protocol';
 import { emit } from '@tauri-apps/api/event';
 import { mockIPC } from '@tauri-apps/api/mocks';
 import {
+  type ConnectionInput,
+  type ConnectionsView,
   type DaemonStatus,
   type SetupInput,
   type SetupState,
@@ -24,7 +27,15 @@ import {
   type StopReason,
 } from '../../src/shell.ts';
 import { FakeWebSocket } from '../fake-web-socket.ts';
-import { CHANNEL, EMPTY_SETUP, FILLED_SETUP, RUNNING, STARTING, stopped } from '../fixtures.ts';
+import {
+  CHANNEL,
+  CONNECTIONS,
+  EMPTY_SETUP,
+  FILLED_SETUP,
+  RUNNING,
+  STARTING,
+  stopped,
+} from '../fixtures.ts';
 
 const params = new URLSearchParams(location.search);
 const scene = params.get('daemon') ?? 'running';
@@ -104,6 +115,33 @@ const saveSetup = (input: SetupInput): Snapshot => {
   return snapshot;
 };
 
+/** `mcp.json` as the shell would show it. */
+let connections: ConnectionsView =
+  params.get('connections') === 'none'
+    ? { servers: [], invalid: null }
+    : params.get('connections') === 'invalid'
+      ? { servers: [], invalid: 'mcp.json is not as the daemon reads it: mcpServers.notes.type' }
+      : CONNECTIONS;
+
+/** The shell's side of `save_connection`: a typed value is only ever remembered as stored. */
+const saveConnection = ({ original, values, ...server }: ConnectionInput): ConnectionsView => {
+  if (refused === 'save') throw 'could not store mcp/notes/env/API_KEY in the Keychain';
+  const before = connections.servers.find((known) => known.name === original);
+  const saved = {
+    ...server,
+    values: values.map(({ name, value }) => ({
+      name,
+      stored:
+        value !== undefined ||
+        before?.values.some((kept) => kept.name === name && kept.stored) === true,
+    })),
+  };
+  const servers = connections.servers.map((known) => (known.name === original ? saved : known));
+  connections = { servers: before === undefined ? [...servers, saved] : servers, invalid: null };
+  comeUp();
+  return connections;
+};
+
 mockIPC(
   (command, payload) => {
     switch (command) {
@@ -120,6 +158,19 @@ mockIPC(
         return undefined;
       case 'save_setup':
         return saveSetup((payload as { setup: SetupInput }).setup);
+      case 'get_connections':
+        return connections;
+      case 'save_connection':
+        return saveConnection((payload as { server: ConnectionInput }).server);
+      case 'remove_connection': {
+        const { name } = payload as { name: string };
+        connections = {
+          servers: connections.servers.filter((known) => known.name !== name),
+          invalid: null,
+        };
+        comeUp();
+        return connections;
+      }
       default:
         throw `unknown command: ${command}`;
     }

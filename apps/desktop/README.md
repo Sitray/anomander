@@ -2,7 +2,8 @@
 
 The desktop app of milestone M6 (`docs/desktop-prd.md`): a Tauri 2 shell in Rust (`src-tauri/`)
 that starts and supervises the daemon, keeps its secrets in the macOS Keychain and lives in the
-menu bar, and a React window (`src/`) with a chat, a setup screen and the daemon's status.
+menu bar, and a React window (`src/`) with a chat, a setup screen, a connections screen and the
+daemon's status.
 
 This file covers the window. The two halves meet in `src/shell.ts`: every command and event they
 exchange, mirrored by the Rust side. Change both together.
@@ -44,6 +45,7 @@ local channel is a scripted socket. It is never part of a build. The URL picks t
 | `setup` | `empty`, `filled` |
 | `error` | `long`: a 300-character last error |
 | `fail` | `start`, `stop`, `save`: the shell refuses that command |
+| `connections` | `none`, `invalid` (an `mcp.json` the daemon would not read); by default two servers |
 
 The scripted daemon answers by what is typed: `mercadona` asks a Sí/No question, `rechaza` is
 rejected, `corta` loses the connection, `lento` never answers, `largo` answers at length and
@@ -56,7 +58,7 @@ receipt.
 src/
   shell.ts            the contract with the Rust shell
   strings.ts          every string the principal reads (es-ES), in one place
-  App.tsx             the container: status on top, chat or setup under it
+  App.tsx             the container: status on top; chat, setup or connections under it
   styles.css          the one stylesheet: tokens, then each part
   chat/
     chat-client.ts    the local channel: socket, request ids, in-flight requests, reconnection
@@ -71,6 +73,9 @@ src/
   setup/
     validation.ts     the shell's checks, made before saving
     SetupScreen.tsx   presentational
+  connections/
+    validation.ts     the shell's checks, made before saving
+    ConnectionsScreen.tsx   presentational: the list of servers, and the form of one
 ```
 
 Presentational components take props and call back; hooks own the side effects; `chat-client.ts`
@@ -115,7 +120,8 @@ is framework-free, so it is tested against a fake `WebSocket` (`test/fake-web-so
 - **A task with connections** (DK-11) starts from the composer's plug button and goes as a
   `connect` request. The daemon runs it; a call that needs permission arrives as a reply with
   "Permitir" and "Detener" buttons, pressed like any other. The servers are the ones of
-  `mcp.json` in the data folder, which the principal writes:
+  `mcp.json` in the data folder, which the principal writes by hand or from the connections
+  screen:
 
   ```json
   {
@@ -136,11 +142,26 @@ is framework-free, so it is tested against a fake `WebSocket` (`test/fake-web-so
   is removed. A missing file, or one that is a link, is
   left alone with what is stored. The rewrite keeps the order of the servers and normalises the
   spacing; a file saved while it is being swept is left for the next start.
+- **The connections screen** (DK-11, the plug button of the status bar) lists the servers of
+  `mcp.json` and adds, edits or removes one at a time: its name, a command with its arguments or
+  a URL, its `env` or `headers`, and its `readOnly` tools. The file stays the source of truth
+  and its format does not change: the shell (`src-tauri/src/connections.rs`) reads it as the
+  daemon does, rewrites only the server that was changed, in its place, and leaves the others as
+  written. A file the daemon would refuse (another key, as the `"type"` other clients write; a
+  URL that is not `https` or `http` to this machine), or one that is a link, is shown as such
+  with where it is wrong, and is never rewritten: it is fixed by hand. A value typed in the
+  screen goes to the Keychain under `mcp/<server>/<env|headers>/<name>` and the file gets
+  `@keychain`; the window is told the names and whether each has a value, never a value. A value
+  left untouched is kept, also through a rename of its server, whose stored values are copied
+  to the new name; what the file no longer names leaves the Keychain at the next sweep, as
+  above. A save starts the daemon again, which reads the file at its start, and so ends a task
+  that was running; a daemon that is stopped stays stopped and reads the file when it is next
+  started.
 - **Link buttons** (`{label, url}`) are named, not offered: this WebView cannot open links, and
   `/login` stays in Telegram (DK-4 AC7).
-- **Secrets** typed in the setup screen stay in uncontrolled fields and a ref, never in React
-  state or a DOM attribute, and are dropped once saved. Stored secrets are never sent to the
-  window: it only knows whether each one is stored.
+- **Secrets** typed in the setup screen, or as a value in the connections screen, stay in
+  uncontrolled fields and a ref, never in React state or a DOM attribute, and are dropped once
+  saved. Stored secrets are never sent to the window: it only knows whether each one is stored.
 - **Snapshots** carry no sequence number, so an event that arrived while a command was on its
   way wins over that command's answer.
 

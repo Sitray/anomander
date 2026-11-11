@@ -32,7 +32,7 @@ interface FieldProps {
 }
 
 /** A label, its control, and under it the help or, instead, what is wrong. */
-function Field({ label, help, error, children }: FieldProps) {
+export function Field({ label, help, error, children }: FieldProps) {
   const id = useId();
   const noteId = `${id}-note`;
   return (
