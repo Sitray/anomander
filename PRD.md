@@ -342,6 +342,7 @@ Every incoming message has exactly one destination, decided by code in this orde
 - AC5: Any other text goes to the processor, which classifies it as an expense (R-2), a policy (R-13), a new category (R-18), a capability call (R-24) or conversation (R-16).
 - AC6: A decision `awaiting_text` for 15 minutes without receiving text returns to `open`; its buttons still work.
 - AC7: The commands `/login` and `/logout`, their buttons, and the text a running login waits for (R-27) are handled by code before AC1 to AC5 and never reach the processor.
+- AC7b: Right after AC7, `/mcp <tarea>` is a task with connections (`docs/desktop-prd.md` DK-11 AC2) and `/mcp` alone answers how to ask one; neither is classified by AC5. While setup is incomplete it gets the setup guide (R-28), as every other message.
 - AC8: After AC7 and before AC1 to AC5, `/start` and, while setup is incomplete, every message are handled by code (R-28) and never reach the processor.
 
 ### R-18 Categories
@@ -935,7 +936,7 @@ Checks every feature document should run:
 | M5e Setup guide | `/start` and a guide to what `.env` still needs | R-17 AC8, R-28 |
 | M5f Opt-in weekly summary | The weekly summary sent only after the principal asks for it, the third capability | R-10 AC5-AC8 |
 | M5b Ledger read access | Read access to the ledger from other applications or the AI assistant (API or MCP) | To be specified |
-| M6 Desktop | Tauri 2 app with Rust, talking to the same daemon | `docs/desktop-prd.md` (DK-1 to DK-8), in progress |
+| M6 Desktop | Tauri 2 app with Rust, talking to the same daemon | `docs/desktop-prd.md` (DK-1 to DK-12), built; a first run against a real bot is still open |
 
 ## 18. Suggested ODD feature documents
 
