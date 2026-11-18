@@ -1,3 +1,4 @@
+import type { OAuthClientProvider } from '@modelcontextprotocol/sdk/client/auth.js';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
@@ -6,6 +7,7 @@ import { ErrorCode, McpError } from '@modelcontextprotocol/sdk/types.js';
 import type { Logger } from '../processor/text-interpreter.ts';
 import type { ConnectionsConfig, ServerConfig } from './config.ts';
 import type { Connection, ToolInfo } from './connection.ts';
+import { type OAuthKeeper, originScopedFetch } from './oauth.ts';
 
 // DK-11: the MCP client. It connects to the servers of `mcp.json`, lists their tools and calls
 // one when `task.ts` decided that call runs. It decides nothing itself.
@@ -82,8 +84,11 @@ export const connectTo = async (
   };
 };
 
-/** How a configured server is reached. */
-export const transportFor = (server: ServerConfig): Transport =>
+/** How a configured server is reached; `authProvider` for one connected with OAuth. */
+export const transportFor = (
+  server: ServerConfig,
+  authProvider?: OAuthClientProvider,
+): Transport =>
   server.kind === 'process'
     ? new StdioClientTransport({
         command: server.command,
@@ -96,7 +101,10 @@ export const transportFor = (server: ServerConfig): Transport =>
       })
     : new StreamableHTTPClientTransport(new URL(server.url), {
         // A redirect would carry the headers, and the task, to an address nobody configured.
-        requestInit: { headers: server.headers, redirect: 'error' },
+        requestInit: { redirect: 'error' },
+        // Not in `requestInit`: the SDK sends those with its OAuth requests too.
+        fetch: originScopedFetch(server.url, server.headers),
+        ...(authProvider === undefined ? {} : { authProvider }),
       });
 
 export interface Connections {
@@ -113,6 +121,8 @@ export interface ConnectionsDeps {
   logger: Logger;
   /** How a server is reached; tests join one in memory. */
   open?: (name: string, server: ServerConfig) => Promise<Transport>;
+  /** The servers connected with OAuth in the app. */
+  oauth?: OAuthKeeper;
   now?: () => number;
   /** How long closing waits for a server that is being connected. */
   closeWaitMs?: number;
@@ -134,7 +144,8 @@ export const createConnections = (deps: ConnectionsDeps): Connections => {
   const {
     config,
     logger,
-    open = async (_, server) => transportFor(server),
+    open = async (name, server) =>
+      transportFor(server, server.kind === 'http' ? deps.oauth?.providerFor(name) : undefined),
     now = Date.now,
     closeWaitMs = CLOSE_WAIT_MS,
   } = deps;

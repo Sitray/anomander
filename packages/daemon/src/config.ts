@@ -65,6 +65,11 @@ export interface Config {
    * back to the app; while unset, it uses the file at `authPath`.
    */
   authJson: string | undefined;
+  /**
+   * `ANOMANDER_MCP_OAUTH`: the clients and tokens of the servers the principal connected with
+   * OAuth in the desktop app, as a JSON object by server name (DK-11). Read by `oauthKeeperFrom`.
+   */
+  mcpOAuth: string | undefined;
 }
 
 const modelId = z.string().transform((value, ctx) => {
@@ -137,6 +142,7 @@ const envSchema = z.object({
   ANOMANDER_MCP_CONFIG: z.string().min(1).optional(),
   ANOMANDER_MCP_SECRETS: z.string().min(1).optional(),
   ANOMANDER_AUTH_JSON: z.string().min(1).optional(),
+  ANOMANDER_MCP_OAUTH: z.string().min(1).optional(),
 });
 
 type EnvKey = keyof typeof envSchema.shape;
@@ -197,5 +203,6 @@ export const loadConfig = (env: Record<string, string | undefined>): Config => {
     mcpConfigPath: values.ANOMANDER_MCP_CONFIG,
     mcpSecrets: values.ANOMANDER_MCP_SECRETS,
     authJson: values.ANOMANDER_AUTH_JSON,
+    mcpOAuth: values.ANOMANDER_MCP_OAUTH,
   };
 };

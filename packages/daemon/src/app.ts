@@ -20,6 +20,7 @@ import type { Config } from './config.ts';
 import { readConnections } from './connections/config.ts';
 import type { Connection } from './connections/connection.ts';
 import { createConnections } from './connections/mcp-client.ts';
+import { type OAuthSet, oauthKeeperFrom, printOAuthForShell } from './connections/oauth.ts';
 import {
   type ConnectionProblems,
   createConnectionTasks,
@@ -119,6 +120,8 @@ export interface AnomanderDeps<M> {
   connections?: () => Promise<readonly Connection[]>;
   /** What is known about the servers that are not connected; goes with `connections`. */
   connectionProblems?: () => ConnectionProblems;
+  /** Hands the OAuth tokens a refresh changed to the shell; tests catch them. */
+  printOAuth?: (entries: OAuthSet) => void;
   logger?: TelegramLogger;
   now?: () => Date;
 }
@@ -499,7 +502,13 @@ export const startAnomander = <M>(config: Config, deps: AnomanderDeps<M>): Anoma
       ? readConnections(config.mcpConfigPath, logger, config.mcpSecrets)
       : undefined;
   const servers =
-    read === undefined ? undefined : createConnections({ config: read.config, logger });
+    read === undefined
+      ? undefined
+      : createConnections({
+          config: read.config,
+          logger,
+          oauth: oauthKeeperFrom(config.mcpOAuth, deps.printOAuth ?? printOAuthForShell(), logger),
+        });
   const connectionTasks = createConnectionTasks({
     complete: ai,
     model,
