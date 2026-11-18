@@ -493,13 +493,21 @@ export function ConnectionsScreen({
     if (onConnectOAuth === undefined || busy) return;
     setRejection(null);
     setOAuth({ kind: 'authorizing' });
+    let outcome: OAuthConnect['outcome'];
     try {
-      const { outcome } = await onConnectOAuth(name);
-      // The shell kept the tokens: the list says so once read again.
-      if (outcome === 'connected') setView(await load());
-      setOAuth({ kind: 'outcome', outcome });
+      ({ outcome } = await onConnectOAuth(name));
     } catch (error) {
       setOAuth({ kind: 'failed', what: 'connect', message: messageOf(error) });
+      return;
+    }
+    setOAuth({ kind: 'outcome', outcome });
+    // The shell kept the tokens: the list says so once read again, or at the next opening.
+    if (outcome === 'connected') {
+      try {
+        setView(await load());
+      } catch {
+        // The connection stands; the list shows it once it can be read.
+      }
     }
   };
 

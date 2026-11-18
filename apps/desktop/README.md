@@ -165,7 +165,8 @@ is framework-free, so it is tested against a fake `WebSocket` (`test/fake-web-so
   "Olvidar OAuth", run under `Supervisor::while_stopped`, so a token the daemon refreshes
   meanwhile cannot overwrite them; the daemon starts again after if it ran. At each start the
   tokens of a server no longer in `mcp.json` at that URL are dropped, the rest go in
-  `ANOMANDER_MCP_OAUTH` (none while `mcp.json` is a link or cannot be read), only their tokens
+  `ANOMANDER_MCP_OAUTH` (none while `mcp.json` is a link or cannot be read, or while the
+  Keychain cannot give them: the daemon starts without them), only their tokens
   and client secrets are hidden from the daemon's output, and each `anomander mcp-oauth` line
   the daemon prints is stored and never forwarded. One connection runs at a time
   (`Core::oauth_turn`); the screen can be closed while the browser waits.

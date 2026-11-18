@@ -179,7 +179,15 @@ pub fn run(
         }
     }
     let said = stderr_reader.join().unwrap_or_default();
-    let status = child.lock().map_err(|_| "poisoned".to_string())?.wait();
+    // Polled, not waited on with the lock held: the watchdog must still be able to end it.
+    let status = loop {
+        let polled = child.lock().map_err(|_| "poisoned".to_string())?.try_wait();
+        match polled {
+            Ok(Some(status)) => break Ok(status),
+            Ok(None) => std::thread::sleep(Duration::from_millis(20)),
+            Err(error) => break Err(error),
+        }
+    };
     if let Ok(mut done) = done.lock() {
         *done = true;
     }
@@ -399,6 +407,23 @@ echo connected"#,
     fn a_run_that_hangs_is_ended() {
         let dir = tempfile::tempdir().unwrap_or_else(|e| panic!("no temp dir: {e}"));
         let node = fake_node(dir.path(), "exec sleep 30");
+        let started = Instant::now();
+        let ran = run(
+            &node,
+            Path::new("/x/mcp-oauth.ts"),
+            "https://notes.example/mcp",
+            "/usr/bin:/bin",
+            &|_| Ok(()),
+            Duration::from_millis(300),
+        );
+        assert!(ran.is_err());
+        assert!(started.elapsed() < Duration::from_secs(10));
+    }
+
+    #[test]
+    fn a_run_that_hangs_after_closing_its_output_is_ended() {
+        let dir = tempfile::tempdir().unwrap_or_else(|e| panic!("no temp dir: {e}"));
+        let node = fake_node(dir.path(), "exec >&- 2>&-\nexec sleep 30");
         let started = Instant::now();
         let ran = run(
             &node,

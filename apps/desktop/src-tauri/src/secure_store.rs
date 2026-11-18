@@ -82,6 +82,8 @@ pub struct MemoryStore {
     secrets: std::sync::Mutex<std::collections::BTreeMap<String, String>>,
     /// When set, every write fails, to test that nothing else changes.
     pub fail_writes: bool,
+    /// The item every read of fails, as a locked Keychain would.
+    pub unreadable: Option<&'static str>,
 }
 
 #[cfg(test)]
@@ -104,6 +106,9 @@ impl MemoryStore {
 #[cfg(test)]
 impl SecretStore for MemoryStore {
     fn get(&self, name: &str) -> Result<Option<String>, StoreError> {
+        if self.unreadable == Some(name) {
+            return Err(StoreError(format!("could not read {name}")));
+        }
         let secrets = self
             .secrets
             .lock()

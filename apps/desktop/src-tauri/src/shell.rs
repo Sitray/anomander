@@ -459,10 +459,11 @@ impl Core {
             Ok(login) => login,
             Err(message) => return Prepared::Failed(message),
         };
-        let mcp_oauth = match self.mcp_oauth() {
-            Ok(set) => set,
-            Err(message) => return Prepared::Failed(message),
-        };
+        // A Keychain that cannot give the OAuth tokens leaves those servers out, not the daemon.
+        let mcp_oauth = self.mcp_oauth().unwrap_or_else(|message| {
+            eprintln!("{message}; no server is connected with OAuth");
+            OAuthSet::new()
+        });
         let path = search_path((self.environment)("PATH").as_deref());
         let Some(node) = find_node((self.environment)("ANOMANDER_NODE").as_deref(), &path) else {
             return Prepared::Failed(format!(
@@ -861,6 +862,15 @@ mod tests {
             f.core.connect_oauth("nobody", &never).err(),
             Some("there is no server named nobody".into())
         );
+    }
+
+    #[test]
+    fn the_daemon_starts_without_oauth_when_its_tokens_cannot_be_read() {
+        let (mut store, settings) = configured();
+        store.unreadable = Some("mcp-oauth");
+        let f = fixture(store, settings);
+        with_servers(&f);
+        assert_eq!(oauth_env(&ready(&f.core)), Some(json!({})));
     }
 
     #[test]

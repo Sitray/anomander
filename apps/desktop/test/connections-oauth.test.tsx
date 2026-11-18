@@ -115,6 +115,17 @@ describe('connecting a server with OAuth', () => {
     expect(alert.textContent).toContain('ECONNREFUSED');
   });
 
+  it('says it is connected even when the list cannot be read again', async () => {
+    const { load } = await renderScreen(async () => ({ outcome: 'connected' }));
+    load.mockRejectedValueOnce(new Error('mcp.json could not be read'));
+    fireEvent.click(screen.getByRole('button', { name: text.connectOAuthFor('remote') }));
+
+    await waitFor(() =>
+      expect(screen.getByRole('status').textContent).toBe(text.oauthOutcome.connected),
+    );
+    expect(screen.queryByRole('alert')).toBeNull();
+  });
+
   it('can be left while the browser waits', async () => {
     const { onClose } = await renderScreen(() => new Promise(() => {}));
     fireEvent.click(screen.getByRole('button', { name: text.connectOAuthFor('remote') }));
