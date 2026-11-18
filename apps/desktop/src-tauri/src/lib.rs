@@ -7,6 +7,7 @@ pub mod connection_secrets;
 pub mod connections;
 pub mod daemon;
 pub mod data_dir;
+pub mod ledger_import;
 pub mod notification;
 pub mod screen;
 pub mod secure_store;
@@ -25,6 +26,7 @@ use crate::connections::{ConnectionsView, ServerInput};
 use crate::daemon::launch::launch_token;
 use crate::daemon::supervisor::{Options, Supervisor, Update};
 use crate::data_dir::{DataDir, FOLDER_NAME};
+use crate::ledger_import::LedgerImport;
 use crate::setup::{load_settings, Settings, SetupInput};
 use crate::shell::Core;
 use crate::snapshot::{DaemonState, Snapshot};
@@ -156,6 +158,18 @@ async fn remove_connection(app: AppHandle, name: String) -> Result<ConnectionsVi
     blocking(app, move |shell| {
         shell.core.remove_connection(&name)?;
         Ok(shell.reread_connections())
+    })
+    .await
+}
+
+/// DK-12: imports a ledger brought from a Docker install. The daemon is stopped meanwhile, and
+/// started again after if it ran.
+#[tauri::command]
+async fn import_ledger(app: AppHandle, path: String) -> Result<LedgerImport, String> {
+    blocking(app, move |shell| {
+        shell
+            .supervisor
+            .while_stopped(|| shell.core.import_ledger(&path))
     })
     .await
 }
@@ -388,6 +402,7 @@ pub fn run() {
             get_connections,
             save_connection,
             remove_connection,
+            import_ledger,
             start_daemon,
             stop_daemon,
             set_thinking,

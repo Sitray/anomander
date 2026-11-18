@@ -165,6 +165,13 @@ is framework-free, so it is tested against a fake `WebSocket` (`test/fake-web-so
 - **Snapshots** carry no sequence number, so an event that arrived while a command was on its
   way wins over that command's answer.
 
+- **A ledger from Docker** (DK-12) is imported from the setup screen's link: the principal
+  pastes the full path of a file they copied out of the volume. The shell runs
+  `packages/daemon/scripts/import-ledger.ts` with the daemon stopped (`Supervisor::while_stopped`:
+  no start runs meanwhile) and shows the one word it printed. Only an empty ledger is replaced,
+  and it is moved aside, never deleted; the source is only read. There is no file dialog: it
+  would be a new plugin and capability.
+
 ## Design
 
 The window borrows the app icon's three colours and nothing else: bone paper in light, ink in

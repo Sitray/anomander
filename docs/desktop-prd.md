@@ -196,6 +196,24 @@ and keep its secrets in the operating system instead of a text file.
     of the daemon, and in whatever copied the file meanwhile (a backup, an editor);
     no OAuth; "read-only" is the principal's word about a tool, which the code cannot
     check.
+- DK-12 A ledger from Docker (asked by the principal on 2026-11-11, "haz esos puntos", to
+  "Copiar el ledger de Docker a la app").
+  - AC1: the principal brings the ledger out of the Docker volume themselves (`docker compose
+    stop`, then `docker compose cp daemon:/app/data/anomander.db <path>`): the app cannot reach
+    the volume. In the setup screen, "¿Vienes de una instalación con Docker? Trae tu ledger"
+    opens a screen where they type or paste its full path (or one from `~/`); there is no file
+    dialog.
+  - AC2: the import runs only into an app whose ledger holds no expense, and only a file that is
+    an ANOMANDER ledger this build can migrate (every version in `schema_migrations` is known to
+    it) and whose integrity check passes. Each refusal is said in its own sentence, and nothing
+    changes.
+  - AC3: the source is never written: its bytes, and its `-wal` when there is one, are copied
+    first and only the copy is read. The copy gets mode 600. The app's own ledger, with its
+    journal files, is moved aside as `anomander.db.before-import-<UTC date and time>`, never
+    deleted, and the copy takes its place. A failure leaves the app's own ledger where it was.
+  - AC4: the daemon is stopped during the import, and nothing starts it meanwhile; it starts
+    again after if it ran. Only the ledger comes: the setup of a Docker install is imported once
+    with `ANOMANDER_IMPORT_ENV` (DK-5 AC3), and its receipts' images stay behind.
 
 ## 6. Decisions
 
@@ -252,6 +270,6 @@ Built in `apps/desktop` (see its README): a React window (`src/`) and a Tauri 2 
 | Secrets of the connections (DK-11 AC1) | Keychain items named `mcp/<server>/<env or headers>/<name>`, listed in `settings.json`. The daemon gets them in `ANOMANDER_MCP_SECRETS`, a JSON object by that name. Every value is moved, secret or not: the code cannot tell. In the daemon's output a value is hidden from 4 characters when its name holds a word a secret's name usually does or it is a header, and from 8 otherwise. A file saved while its values are moved is left for the next start |
 | The time zone | The daemon's `TZ` is the zone this machine's clock points to (`/etc/localtime`), so its dates are the principal's. When it cannot be read, the daemon's default |
 | The subscription login (DK-5 AC1) | Not in the Keychain yet: pi-ai keeps it in `auth.json` in the data folder, mode `600` |
-| The ledger | A new one in the app's data folder. A Docker install's ledger stays in its volume: nothing is moved or copied |
+| The ledger | A new one in the app's data folder. A Docker install's ledger is brought by the principal and imported into an empty one (DK-12); nothing reaches into the volume |
 | The window's strings | Spanish, all in `apps/desktop/src/strings.ts`, not yet in `PRD.md` §12 |
 

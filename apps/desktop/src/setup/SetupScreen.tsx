@@ -14,6 +14,8 @@ export interface SetupScreenProps {
   /** Saves and resolves with the setup now stored; rejects with the shell's own message. */
   onSave: (input: SetupInput) => Promise<SetupState>;
   onClose: () => void;
+  /** DK-12: opens the import of a ledger brought from a Docker install. */
+  onOpenLedger?: () => void;
 }
 
 const { setup: text } = strings;
@@ -55,7 +57,7 @@ interface FormProps extends SetupScreenProps {
   onSaved: (setup: SetupState) => void;
 }
 
-function SetupForm({ setup, incomplete, onSave, onSaved, onClose }: FormProps) {
+function SetupForm({ setup, incomplete, onSave, onSaved, onClose, onOpenLedger }: FormProps) {
   const [chatId, setChatId] = useState(setup.principalChatId ?? '');
   const [model, setModel] = useState(setup.model ?? '');
   const [visionModel, setVisionModel] = useState(setup.visionModel ?? '');
@@ -166,6 +168,11 @@ function SetupForm({ setup, incomplete, onSave, onSaved, onClose }: FormProps) {
             {text.title}
           </h2>
           <p>{text.intro}</p>
+          {onOpenLedger !== undefined && (
+            <button type="button" className="link" onClick={onOpenLedger}>
+              {strings.ledger.open}
+            </button>
+          )}
         </div>
 
         <fieldset>
@@ -367,7 +374,7 @@ function SetupForm({ setup, incomplete, onSave, onSaved, onClose }: FormProps) {
   );
 }
 
-export function SetupScreen({ setup, onSave, onClose }: SetupScreenProps) {
+export function SetupScreen({ setup, onSave, onClose, onOpenLedger }: SetupScreenProps) {
   // After a save the form starts over from what was stored, with every secret field empty.
   const [stored, setStored] = useState({ setup, saves: 0 });
   return (
@@ -377,6 +384,7 @@ export function SetupScreen({ setup, onSave, onClose }: SetupScreenProps) {
       incomplete={stored.saves > 0 && !isComplete(stored.setup)}
       onSave={onSave}
       onClose={onClose}
+      {...(onOpenLedger === undefined ? {} : { onOpenLedger })}
       onSaved={(saved) => setStored({ setup: saved, saves: stored.saves + 1 })}
     />
   );

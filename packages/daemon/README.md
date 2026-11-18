@@ -442,6 +442,23 @@ whoever started it why (`exitCodes` in `packages/protocol`):
 | `3` | Another daemon runs on the same database |
 | `4` | Another process uses the Telegram bot |
 
+## Importing a ledger (DK-12)
+
+`importLedger` (`src/store/import-ledger.ts`), run by the desktop app as
+`node scripts/import-ledger.ts <source> <own>`, makes a ledger brought from a Docker install the
+app's own. It prints one word and ends with 0: `imported`, or why nothing changed (`missing`,
+`same_file`, `daemon_running`, `own_has_expenses`, `not_a_ledger`, `newer_ledger`, `damaged`). An
+error ends with 1 and prints only its code.
+
+- The source is never opened by SQLite: its bytes, and its `-wal`, are copied beside `<own>` and
+  only the copy is checked (`schema_migrations` with versions all known to this build,
+  `integrity_check`) and has its journal folded in.
+- It takes the daemon's lock (DK-2) on `<own>` for the whole import, and refuses while a daemon
+  holds it.
+- `<own>` is replaced only while it holds no expense. It is moved aside, with its journal files,
+  as `<own>.before-import-<yyyymmdd-hhmmss>` (UTC), never deleted, and the copy (mode 600) takes
+  its place. The daemon migrates it at its next start.
+
 ## The local channel (DK-3, DK-4)
 
 The desktop app talks to the daemon over a WebSocket (`src/local-channel/`). It starts only

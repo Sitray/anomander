@@ -9,6 +9,7 @@ use crate::daemon::launch::{
 };
 use crate::daemon::supervisor::{LaunchSpec, Prepared, Update};
 use crate::data_dir::DataDir;
+use crate::ledger_import::{self, LedgerImport};
 use crate::secure_store::SecretStore;
 use crate::setup::{
     apply_setup, load_secrets, save_settings, setup_state, Settings, SetupInput, TELEGRAM_BOT_TOKEN,
@@ -212,6 +213,25 @@ impl Core {
         swept.secrets
     }
 
+    /// DK-12: imports the ledger the principal named into the data folder. Called with the
+    /// daemon stopped (`Supervisor::while_stopped`): the script replaces the file it reads.
+    pub fn import_ledger(&self, typed: &str) -> Result<LedgerImport, String> {
+        let home = (self.environment)("HOME");
+        let Some(source) = ledger_import::source_path(typed, home.as_deref()) else {
+            return Ok(ledger_import::not_a_path());
+        };
+        let path = search_path((self.environment)("PATH").as_deref());
+        let node =
+            find_node((self.environment)("ANOMANDER_NODE").as_deref(), &path).ok_or_else(|| {
+                format!("node was not found on {path}; set ANOMANDER_NODE to its path")
+            })?;
+        let entry = daemon_entry((self.environment)("ANOMANDER_DAEMON_ENTRY").as_deref());
+        let script = ledger_import::script_of(&entry)
+            .filter(|script| script.is_file())
+            .ok_or_else(|| format!("the import is not next to {}", entry.display()))?;
+        ledger_import::run(&node, &script, &source, &self.data.daemon_paths().db, &path)
+    }
+
     /// One start of the daemon (DK-1 AC1): `node <repo>/packages/daemon/src/main.ts`, with the
     /// setup and its secrets in the environment (DK-5 AC2) and a fresh port.
     pub fn prepare(&self) -> Prepared {
@@ -333,6 +353,29 @@ mod tests {
             connection_secrets: Vec::new(),
         };
         (store, settings)
+    }
+
+    #[test]
+    fn an_import_from_what_is_not_a_full_path_runs_nothing() {
+        let f = fixture(MemoryStore::default(), Settings::default());
+        assert_eq!(
+            f.core.import_ledger("Downloads/anomander.db"),
+            Ok(ledger_import::not_a_path())
+        );
+    }
+
+    #[test]
+    fn an_import_runs_node_of_the_setup_on_the_daemons_script() {
+        let f = fixture(MemoryStore::default(), Settings::default());
+        // The fixture's `ANOMANDER_NODE` is not there: the error names it.
+        let answer = f.core.import_ledger("~/anomander.db");
+        assert!(
+            answer
+                .as_ref()
+                .is_err_and(|error| error.contains("/opt/node/bin/node")),
+            "{answer:?}"
+        );
+        assert!(!f.root.join("anomander.db").exists());
     }
 
     #[test]

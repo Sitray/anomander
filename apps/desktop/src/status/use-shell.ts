@@ -24,6 +24,8 @@ export interface Shell {
   connections: typeof shell.connections;
   saveConnection: typeof shell.saveConnection;
   removeConnection: typeof shell.removeConnection;
+  /** `shell.importLedger`, as it is: the screen says why one failed. */
+  importLedger: typeof shell.importLedger;
   /** Tells the menu bar whether the chat waits for an answer; a failure only loses that sign. */
   setThinking(thinking: boolean): void;
   /** Hands an answer to the shell to notify it; a failure only loses the notification. */
@@ -153,6 +155,7 @@ export const useShell = (): Shell => {
     connections: shell.connections,
     saveConnection: shell.saveConnection,
     removeConnection: shell.removeConnection,
+    importLedger: shell.importLedger,
     setThinking,
     notifyReply,
     captureScreen: shell.captureScreen,
