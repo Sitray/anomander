@@ -1,8 +1,12 @@
 # Desktop app (M6): draft PRD
 
 Status: approved by the principal (2026-11-10) and built: the daemon side (§8) and the app in
-`apps/desktop` (§9). Still open: a first run against a real bot. Its requirements move into `PRD.md` under milestone M6 once the
-principal has tried the app, and this file is then removed.
+`apps/desktop` (§9), with the points asked on 2026-11-11 ("haz esos puntos"): the connections
+screen and OAuth (DK-11 AC9, AC10), tasks with connections from Telegram (DK-11 AC2), a task that
+does not hold the chat (DK-11), the ledger from Docker (DK-12) and the subscription login in the
+Keychain (DK-5 AC1). Still open: a first run against a real bot, against a real server that asks
+for OAuth, and of a subscription login in the app. Its requirements move into `PRD.md` under
+milestone M6 once the principal has tried the app, and this file is then removed.
 
 ## 1. Problem
 
