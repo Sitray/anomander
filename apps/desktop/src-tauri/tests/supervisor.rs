@@ -280,3 +280,125 @@ fn a_restart_replaces_the_running_daemon() {
     fixture.wait_for_state(DaemonState::Running);
     assert_eq!(fixture.launches(), 2);
 }
+
+#[test]
+fn work_done_while_stopped_runs_with_no_daemon_and_the_daemon_comes_back() {
+    let fixture = Fixture::new(&format!("{LISTEN}\nread -r _"), fast());
+    fixture.supervisor.start();
+    fixture.wait_for_state(DaemonState::Running);
+    let first = wait_for_pid(&fixture);
+    let seen = fixture
+        .supervisor
+        .while_stopped(|| (is_gone(first), fixture.supervisor.pid()));
+    assert_eq!(seen, (true, None));
+    fixture.wait_for_state(DaemonState::Running);
+    assert_eq!(fixture.launches(), 2);
+}
+
+#[test]
+fn nothing_starts_the_daemon_while_the_work_runs() {
+    let fixture = Arc::new(Fixture::new(&format!("{LISTEN}\nread -r _"), fast()));
+    let starter = Arc::clone(&fixture);
+    let launches = fixture.supervisor.while_stopped(|| {
+        // A start asked meanwhile, as from the menu bar, waits for the work to end.
+        let start = std::thread::spawn(move || starter.supervisor.start());
+        std::thread::sleep(Duration::from_millis(300));
+        let launches = fixture.launches();
+        (launches, start)
+    });
+    assert_eq!(launches.0, 0);
+    launches
+        .1
+        .join()
+        .unwrap_or_else(|_| panic!("the start panicked"));
+    fixture.wait_for_state(DaemonState::Running);
+    assert_eq!(fixture.launches(), 1);
+}
+
+#[test]
+fn a_daemon_stopped_before_the_work_stays_stopped() {
+    let fixture = Fixture::new(&format!("{LISTEN}\nread -r _"), fast());
+    assert_eq!(fixture.supervisor.while_stopped(|| 7), 7);
+    std::thread::sleep(Duration::from_millis(200));
+    assert_eq!(fixture.launches(), 0);
+    assert_eq!(
+        fixture.supervisor.current().status.state,
+        DaemonState::Stopped
+    );
+}
+
+#[test]
+fn a_pending_restart_is_dropped_and_one_daemon_comes_back() {
+    // The first launch exits at once, so a restart is due in 400 ms; later ones listen.
+    let body =
+        format!("if [ \"$(wc -l < \"$COUNT\")\" -lt 2 ]; then exit 1; fi\n{LISTEN}\nread -r _");
+    let options = Options {
+        restart_delay: Duration::from_millis(400),
+        stop_timeout: Duration::from_millis(300),
+    };
+    let fixture = Fixture::new(&body, options);
+    fixture.supervisor.start();
+    fixture.wait_for_state(DaemonState::Failing);
+    let during = fixture.supervisor.while_stopped(|| {
+        std::thread::sleep(Duration::from_millis(800));
+        (fixture.launches(), fixture.supervisor.pid())
+    });
+    assert_eq!(during, (1, None));
+    fixture.wait_for_state(DaemonState::Running);
+    std::thread::sleep(Duration::from_millis(600));
+    assert_eq!(fixture.launches(), 2);
+}
+
+#[test]
+fn a_start_asked_while_a_running_daemon_is_stopped_launches_it_once() {
+    let fixture = Arc::new(Fixture::new(&format!("{LISTEN}\nread -r _"), fast()));
+    fixture.supervisor.start();
+    fixture.wait_for_state(DaemonState::Running);
+    let starter = Arc::clone(&fixture);
+    let start = fixture.supervisor.while_stopped(|| {
+        let start = std::thread::spawn(move || starter.supervisor.start());
+        std::thread::sleep(Duration::from_millis(200));
+        assert_eq!(fixture.supervisor.pid(), None);
+        start
+    });
+    start.join().unwrap_or_else(|_| panic!("start panicked"));
+    fixture.wait_for_state(DaemonState::Running);
+    std::thread::sleep(Duration::from_millis(200));
+    assert_eq!(fixture.launches(), 2);
+}
+
+#[test]
+fn a_stop_asked_meanwhile_wins_after_the_work() {
+    let fixture = Arc::new(Fixture::new(&format!("{LISTEN}\nread -r _"), fast()));
+    fixture.supervisor.start();
+    fixture.wait_for_state(DaemonState::Running);
+    let stopper = Arc::clone(&fixture);
+    let stop = fixture.supervisor.while_stopped(|| {
+        let stop = std::thread::spawn(move || stopper.supervisor.stop());
+        std::thread::sleep(Duration::from_millis(200));
+        stop
+    });
+    stop.join().unwrap_or_else(|_| panic!("stop panicked"));
+    std::thread::sleep(Duration::from_millis(200));
+    assert_eq!(fixture.supervisor.pid(), None);
+    assert_eq!(
+        fixture.supervisor.current().status.state,
+        DaemonState::Stopped
+    );
+}
+
+#[test]
+fn quitting_meanwhile_leaves_no_daemon() {
+    let fixture = Arc::new(Fixture::new(&format!("{LISTEN}\nread -r _"), fast()));
+    fixture.supervisor.start();
+    fixture.wait_for_state(DaemonState::Running);
+    let quitter = Arc::clone(&fixture);
+    let quit = fixture.supervisor.while_stopped(|| {
+        let quit = std::thread::spawn(move || quitter.supervisor.shutdown());
+        std::thread::sleep(Duration::from_millis(200));
+        quit
+    });
+    quit.join().unwrap_or_else(|_| panic!("quit panicked"));
+    std::thread::sleep(Duration::from_millis(300));
+    assert_eq!(fixture.supervisor.pid(), None);
+}

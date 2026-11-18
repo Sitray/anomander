@@ -258,4 +258,36 @@ export const strings = {
     cancel: 'Cancelar',
     restartNote: 'Al guardar, ANOMANDER se reinicia para leer los cambios.',
   },
+
+  ledger: {
+    title: 'Traer el ledger de Docker',
+    /** In the setup screen: opens this one. */
+    open: '¿Vienes de una instalación con Docker? Trae tu ledger',
+    intro:
+      'Si usabas ANOMANDER con Docker, copia su ledger a este Mac y escribe aquí dónde lo has dejado. Solo se importa en un ANOMANDER sin gastos; el ledger que tiene ahora se guarda aparte, nunca se borra.',
+    how: 'Para copiarlo, en la carpeta del proyecto: docker compose stop y después docker compose cp daemon:/app/data/anomander.db ~/Downloads/anomander.db',
+    path: 'Archivo del ledger',
+    pathHelp: 'La ruta completa del archivo. Puedes pegarla.',
+    pathMissing: 'Escribe la ruta del archivo.',
+    pathNotFull: 'Escribe la ruta completa: empieza por / o por ~/.',
+    import: 'Importar',
+    importing: 'Importando… ANOMANDER se detiene mientras tanto.',
+    /** The import failed; the shell's own words follow. */
+    failed: 'No se ha podido importar el ledger. El de ANOMANDER sigue como estaba.',
+    outcome: {
+      imported:
+        'Ledger importado: ANOMANDER ya trabaja con él. Si había otro, está guardado aparte en la carpeta de datos.',
+      missing: 'No hay ningún archivo en esa ruta.',
+      same_file: 'Ese es el ledger que ANOMANDER ya usa.',
+      not_a_ledger: 'Ese archivo no es un ledger de ANOMANDER. No se ha importado nada.',
+      newer_ledger:
+        'Ese ledger es de una versión de ANOMANDER más nueva que esta app. Actualiza la app y vuelve a intentarlo.',
+      damaged: 'Ese ledger está dañado. No se ha importado nada.',
+      daemon_running:
+        'Otro ANOMANDER está usando el ledger de esta app. Detenlo y vuelve a intentarlo.',
+      own_has_expenses:
+        'Este ANOMANDER ya tiene gastos, así que no se importa nada para no perderlos.',
+      not_a_path: 'Escribe la ruta completa: empieza por / o por ~/.',
+    },
+  },
 } as const;

@@ -233,6 +233,40 @@ impl Supervisor {
         Inner::launch(&self.inner, generation, false);
     }
 
+    /// Stops the daemon, runs `work` with no daemon running, and starts it again if it ran
+    /// before. Nothing starts one meanwhile: a start asked during `work` waits for it to end.
+    pub fn while_stopped<T>(&self, work: impl FnOnce() -> T) -> T {
+        let _ops = lock(&self.inner.ops);
+        let (ran, child, update) = {
+            let mut state = lock(&self.inner.state);
+            let ran = state.status.state != DaemonState::Stopped || state.child.is_some();
+            // A pending restart of the old daemon is dropped.
+            state.generation += 1;
+            if ran {
+                state.status = DaemonStatus::stopped(StopReason::StoppedByPrincipal, None);
+                state.channel = None;
+            }
+            (ran, state.child.take(), ran.then(|| state.publish()))
+        };
+        if let Some(update) = update {
+            (self.inner.notify)(update);
+        }
+        if let Some(child) = child {
+            self.inner.terminate(&child);
+        }
+        let done = work();
+        if ran {
+            let generation = {
+                let mut state = lock(&self.inner.state);
+                state.generation += 1;
+                state.history.clear();
+                state.generation
+            };
+            Inner::launch(&self.inner, generation, false);
+        }
+        done
+    }
+
     /// Quitting the app (DK-1 AC1): stops the daemon, waits for it, and never starts it again.
     /// Nothing is notified: the app is going away.
     pub fn shutdown(&self) {

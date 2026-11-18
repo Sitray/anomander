@@ -110,6 +110,25 @@ export type ConnectionInput = ConnectionTarget & {
   readOnly: string[];
 };
 
+/**
+ * DK-12: how an import of a ledger ended: `imported`, or why nothing changed. `not_a_path` is the
+ * shell's: what was sent is not a full path.
+ */
+export type LedgerOutcome =
+  | 'imported'
+  | 'missing'
+  | 'same_file'
+  | 'not_a_ledger'
+  | 'newer_ledger'
+  | 'damaged'
+  | 'daemon_running'
+  | 'own_has_expenses'
+  | 'not_a_path';
+
+export interface LedgerImport {
+  outcome: LedgerOutcome;
+}
+
 /** The event the shell emits with a new `Snapshot` whenever any part of it changes. */
 export const SNAPSHOT_EVENT = 'shell://snapshot';
 
@@ -132,6 +151,11 @@ export const shell = {
   /** Takes one server out of the file; otherwise as `saveConnection`. */
   removeConnection: (name: string): Promise<ConnectionsView> =>
     invoke('remove_connection', { name }),
+  /**
+   * DK-12: imports the ledger at `path` (full, or from `~/`). The daemon is stopped meanwhile and
+   * started again after if it ran. Rejects, with the app's ledger as it was, when the import fails.
+   */
+  importLedger: (path: string): Promise<LedgerImport> => invoke('import_ledger', { path }),
   startDaemon: (): Promise<void> => invoke('start_daemon'),
   stopDaemon: (): Promise<void> => invoke('stop_daemon'),
   /** Whether the chat waits for an answer, which the menu bar shows (DK-6). */

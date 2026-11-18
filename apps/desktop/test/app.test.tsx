@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { App } from '../src/App.tsx';
 import { type Snapshot, shell } from '../src/shell.ts';
@@ -23,6 +23,7 @@ vi.mock('../src/shell.ts', () => ({
     connections: vi.fn(),
     saveConnection: vi.fn(),
     removeConnection: vi.fn(),
+    importLedger: vi.fn(),
     startDaemon: vi.fn(),
     stopDaemon: vi.fn(),
     onSnapshot: vi.fn(),
@@ -259,6 +260,29 @@ describe('the setup', () => {
     fireEvent.click(screen.getByRole('button', { name: strings.status.closeSetup }));
 
     expect(screen.getByText('23 € cena')).toBeTruthy();
+  });
+});
+
+describe('the ledger import', () => {
+  it('opens from the setup, imports through the shell, and goes back to the chat', async () => {
+    mocked.importLedger.mockResolvedValue({ outcome: 'imported' });
+    await open(runningSnapshot());
+    fireEvent.click(screen.getByRole('button', { name: strings.status.openSetup }));
+    fireEvent.click(screen.getByRole('button', { name: strings.ledger.open }));
+
+    expect(screen.getByRole('heading', { name: strings.ledger.title })).toBeTruthy();
+    expect(composer().closest('[hidden]')).toBeTruthy();
+    fireEvent.change(screen.getByLabelText(strings.ledger.path), {
+      target: { value: '/Users/p/anomander.db' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: strings.ledger.import }));
+    expect(await screen.findByText(strings.ledger.outcome.imported)).toBeTruthy();
+    expect(mocked.importLedger).toHaveBeenCalledWith('/Users/p/anomander.db');
+
+    const form = screen.getByRole('form', { name: strings.ledger.title });
+    fireEvent.click(within(form).getByRole('button', { name: strings.setup.close }));
+    expect(screen.queryByRole('heading', { name: strings.ledger.title })).toBeNull();
+    expect(composer().closest('[hidden]')).toBeNull();
   });
 });
 
