@@ -281,9 +281,13 @@ button {
   font-weight: 500;
 }
 
-.link:hover {
+.link:hover:not(:disabled) {
   text-decoration: underline;
   text-underline-offset: 2px;
+}
+
+.link:disabled {
+  color: var(--text-3);
 }
 
 /* ---------- The window ---------- */
@@ -1174,6 +1178,20 @@ button {
   white-space: normal;
   -webkit-user-select: text;
   user-select: text;
+}
+
+/* OAuth takes the row under the server it is about, as the question does. */
+.server-oauth {
+  flex-basis: 100%;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--s1) var(--s3);
+  font-size: var(--text-sm);
+}
+
+.server-oauth-state {
+  color: var(--text-2);
 }
 
 /* The question takes the row under the server it is about. */

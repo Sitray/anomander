@@ -26,6 +26,9 @@ export interface Shell {
   removeConnection: typeof shell.removeConnection;
   /** `shell.importLedger`, as it is: the screen says why one failed. */
   importLedger: typeof shell.importLedger;
+  /** `shell.connectOAuth` and `forgetOAuth`, as they are: the screen says why one failed. */
+  connectOAuth: typeof shell.connectOAuth;
+  forgetOAuth: typeof shell.forgetOAuth;
   /** Tells the menu bar whether the chat waits for an answer; a failure only loses that sign. */
   setThinking(thinking: boolean): void;
   /** Hands an answer to the shell to notify it; a failure only loses the notification. */
@@ -156,6 +159,8 @@ export const useShell = (): Shell => {
     saveConnection: shell.saveConnection,
     removeConnection: shell.removeConnection,
     importLedger: shell.importLedger,
+    connectOAuth: shell.connectOAuth,
+    forgetOAuth: shell.forgetOAuth,
     setThinking,
     notifyReply,
     captureScreen: shell.captureScreen,

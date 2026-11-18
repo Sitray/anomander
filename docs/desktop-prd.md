@@ -196,10 +196,25 @@ and keep its secrets in the operating system instead of a text file.
     window, which only knows each name and whether a value is stored. A value left untouched is
     kept, also when its server is renamed. Saving starts the daemon again, which reads the file
     at its start; a daemon that is stopped stays stopped.
+  - AC10 (asked on 2026-11-11, "Pantalla para configurar servidores MCP y OAuth."): a server
+    reached by its URL can be connected with OAuth from the screen ("Conectar con OAuth"). The
+    app registers itself with the server's authorization server (dynamic registration) and runs
+    the authorization code flow with PKCE; the shell opens the authorization address in the
+    browser, only when it is `https` (or `http` on this machine), and the redirect comes back to
+    a port on `127.0.0.1`, open only while it waits, up to 5 minutes, and taken only with the
+    `state` it sent. The client and its tokens are stored in the Keychain with the server's
+    name and URL; the window only learns that they are kept ("Conectado con OAuth") and can
+    forget them ("Olvidar OAuth"). They are handed to the daemon at its start and only for that
+    server at that URL: a server removed, renamed or moved to another URL loses them. The
+    daemon refreshes them itself and hands every refresh back, as the model login (DK-5 AC1);
+    it never opens a browser, so a server whose refresh is refused is left out until the
+    principal connects it again. A server's configured headers go only to its own origin,
+    never to its authorization server.
   - Open, for the principal: a value written in `mcp.json` is in the file until the next start
-    of the daemon, and in whatever copied the file meanwhile (a backup, an editor);
-    no OAuth; "read-only" is the principal's word about a tool, which the code cannot
-    check.
+    of the daemon, and in whatever copied the file meanwhile (a backup, an editor); a server
+    whose authorization server does not take dynamic registration, or a redirect to a port of
+    its choice, cannot be connected with OAuth; "read-only" is the principal's word about a
+    tool, which the code cannot check.
 - DK-12 A ledger from Docker (asked by the principal on 2026-11-11, "haz esos puntos", to
   "Copiar el ledger de Docker a la app").
   - AC1: the principal brings the ledger out of the Docker volume themselves (`docker compose
@@ -273,6 +288,7 @@ Built in `apps/desktop` (see its README): a React window (`src/`) and a Tauri 2 
 | Restarting (DK-1 AC2) | One second after an exit; exit codes 3 and 4 are never retried |
 | Secrets (DK-5) | Keychain items of service `ANOMANDER`, named as the daemon's variables. The rest in `settings.json` in the data folder, mode `600` |
 | Secrets of the connections (DK-11 AC1) | Keychain items named `mcp/<server>/<env or headers>/<name>`, listed in `settings.json`. The daemon gets them in `ANOMANDER_MCP_SECRETS`, a JSON object by that name. Every value is moved, secret or not: the code cannot tell. In the daemon's output a value is hidden from 4 characters when its name holds a word a secret's name usually does or it is a header, and from 8 otherwise. A file saved while its values are moved is left for the next start |
+| OAuth of the connections (DK-11 AC10) | The Keychain item `mcp-oauth`, one JSON object by server name with its client, tokens, redirect address and the server's URL. The shell runs `packages/daemon/scripts/mcp-oauth.ts`, which prints the address to open and then the tokens on one line; the daemon gets the set in `ANOMANDER_MCP_OAUTH` and prints it whole on a line starting `anomander mcp-oauth ` after a refresh. The shell stores what a connection gave, and forgets a server's tokens, with the daemon stopped, so a refresh it hands over meanwhile cannot overwrite them |
 | The time zone | The daemon's `TZ` is the zone this machine's clock points to (`/etc/localtime`), so its dates are the principal's. When it cannot be read, the daemon's default |
 | The subscription login (DK-5 AC1) | The Keychain item `model-login`, the shape of `auth.json`. The daemon prints it whole on a line starting `anomander credentials ` after every change, before pi-ai uses it; a daemon killed between a token refresh and that line loses the refreshed token, and the principal logs in again. `pnpm run login` reaches the app's daemon only through an `auth.json` merged at its next start. The device ID stays on disk: it is not a secret |
 | The ledger | A new one in the app's data folder. A Docker install's ledger is brought by the principal and imported into an empty one (DK-12); nothing reaches into the volume |

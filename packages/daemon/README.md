@@ -510,6 +510,23 @@ one, as before. In the app the `reply` to `connect` (or to the press) arrives wh
 over. In Telegram the handler returns at once and the reply is sent when the step is over, cut
 to 4 096 characters, the most one Telegram message holds.
 
+### Servers connected with OAuth (DK-11 AC10)
+
+`scripts/mcp-oauth.ts <url>` (run by the desktop app, never by the daemon) connects the app to a
+server that asks for OAuth: `src/connections/oauth-login.ts` has the SDK find its authorization
+server, register the app (a public client, `token_endpoint_auth_method: none`) and run the code
+flow with PKCE. It listens on a free port of `127.0.0.1` for the redirect, takes it only with the
+`state` it sent, and gives up after 5 minutes. It prints `anomander oauth-open <address>`, then
+`anomander oauth-done <json>` with the client and tokens, then `connected`, `denied` or
+`timed_out`; an error prints only its code.
+
+The daemon gets the set in `ANOMANDER_MCP_OAUTH` (`src/connections/oauth.ts`) and connects such a
+server through the SDK's `authProvider`. A token refresh prints the whole set on one line,
+`anomander mcp-oauth <json>`, for the app to store; a refused refresh drops the server's tokens,
+and the server is left out. The daemon never opens a browser or registers a client. A server's
+configured headers are sent only to its own origin (`originScopedFetch`): the SDK sends its OAuth
+requests through the same fetch.
+
 ## The read API (RA-2)
 
 Other applications, first the dashboard of the app of apps, read the ledger over HTTP
@@ -698,6 +715,7 @@ The error names every missing required variable.
 | `ANOMANDER_LOCAL_PORT` | `4312`, from 1 to 65535 |
 | `ANOMANDER_MCP_CONFIG` | unset: no connections (DK-11). The path of `mcp.json` |
 | `ANOMANDER_AUTH_JSON` | unset. Set by the desktop app: the model login it keeps in the Keychain, in the shape of `auth.json`; while set, `ANOMANDER_AUTH_PATH` is not used (DK-5 AC1) |
+| `ANOMANDER_MCP_OAUTH` | unset. Set by the desktop app: the clients and tokens of the servers connected with OAuth, a JSON object by server name (DK-11 AC10) |
 | `ANOMANDER_MCP_SECRETS` | unset. Set by the desktop app: a JSON object with the values it keeps in the Keychain for `mcp.json`, by `mcp/<server>/<env or headers>/<name>`; each fills an `@keychain` in the file |
 
 The read API's variables come from `docs/read-access-prd.md` §8 until it moves into PRD §14.4;

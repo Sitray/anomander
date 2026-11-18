@@ -87,6 +87,8 @@ export type ConnectionServer = ConnectionTarget & {
   values: ConnectionValue[];
   /** The tools that run without asking. */
   readOnly: string[];
+  /** OAuth tokens are kept for it at its address; never the tokens themselves. */
+  oauth: boolean;
 };
 
 /** What the connections screen shows. */
@@ -129,6 +131,11 @@ export interface LedgerImport {
   outcome: LedgerOutcome;
 }
 
+/** DK-11: how connecting a server with OAuth ended. */
+export interface OAuthConnect {
+  outcome: 'connected' | 'denied' | 'timed_out';
+}
+
 /** The event the shell emits with a new `Snapshot` whenever any part of it changes. */
 export const SNAPSHOT_EVENT = 'shell://snapshot';
 
@@ -156,6 +163,14 @@ export const shell = {
    * started again after if it ran. Rejects, with the app's ledger as it was, when the import fails.
    */
   importLedger: (path: string): Promise<LedgerImport> => invoke('import_ledger', { path }),
+  /**
+   * DK-11: connects the HTTP server `name` with OAuth: the shell opens the browser and waits, up
+   * to 5 minutes, for the principal to authorize the app. Then the daemon starts again with the
+   * tokens, unless it is stopped. Rejects, with nothing stored, when the connection fails.
+   */
+  connectOAuth: (name: string): Promise<OAuthConnect> => invoke('connect_oauth', { name }),
+  /** DK-11: forgets the OAuth tokens of `name` and answers with the servers as they are now. */
+  forgetOAuth: (name: string): Promise<ConnectionsView> => invoke('forget_oauth', { name }),
   startDaemon: (): Promise<void> => invoke('start_daemon'),
   stopDaemon: (): Promise<void> => invoke('stop_daemon'),
   /** Whether the chat waits for an answer, which the menu bar shows (DK-6). */

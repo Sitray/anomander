@@ -39,17 +39,34 @@ pub struct LaunchSpec {
     pub token: String,
     /// Every secret value, removed from the error line and the forwarded log.
     pub secrets: Vec<String>,
-    /// DK-5 AC1: gets the model login the daemon hands over on a `CREDENTIALS_LINE`, which is never
-    /// forwarded. Called from the output's own thread, one line after the other.
+    /// Gets what the daemon hands over on a line of `HANDED_LINES`, which is never forwarded.
+    /// Called from the output's own thread, one line after the other.
     pub on_credentials: Option<Credentials>,
 }
 
-/// What handles the model login the daemon hands over: the JSON after `CREDENTIALS_LINE`.
-pub type Credentials = Arc<dyn Fn(&str) + Send + Sync>;
+/// What the daemon hands over to be kept in the Keychain.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Handed {
+    /// DK-5 AC1: the model login.
+    ModelLogin,
+    /// DK-11: the OAuth tokens of the servers connected with OAuth.
+    McpOAuth,
+}
+
+/// What handles what the daemon hands over: which it is, and the JSON after its line's start.
+pub type Credentials = Arc<dyn Fn(Handed, &str) + Send + Sync>;
 
 /// The start of the line on which the daemon hands over its model login, as
 /// `packages/daemon/src/auth/shell-credential-store.ts` writes it.
 pub const CREDENTIALS_LINE: &str = "anomander credentials ";
+/// The start of the line on which it hands over OAuth tokens, as
+/// `packages/daemon/src/connections/oauth.ts` writes it.
+pub const MCP_OAUTH_LINE: &str = "anomander mcp-oauth ";
+
+const HANDED_LINES: [(&str, Handed); 2] = [
+    (CREDENTIALS_LINE, Handed::ModelLogin),
+    (MCP_OAUTH_LINE, Handed::McpOAuth),
+];
 
 pub enum Prepared {
     /// The setup lacks the bot token or the chat ID: nothing is spawned.
@@ -442,10 +459,13 @@ impl Inner {
                 );
                 watcher("anomander-daemon-stdout", move || {
                     for_each_line(stdout, |line| {
-                        // The model login: it goes to the Keychain, never to the log.
-                        if let Some(login) = line.strip_prefix(CREDENTIALS_LINE) {
+                        // A secret to keep: it goes to the Keychain, never to the log.
+                        let handed = HANDED_LINES.iter().find_map(|(start, handed)| {
+                            line.strip_prefix(start).map(|json| (*handed, json))
+                        });
+                        if let Some((handed, json)) = handed {
                             if let Some(store) = &on_credentials {
-                                store(login);
+                                store(handed, json);
                             }
                             return;
                         }

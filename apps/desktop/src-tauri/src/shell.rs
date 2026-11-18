@@ -3,13 +3,14 @@
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use crate::connection_secrets::sweep;
-use crate::connections::{self, Change, ConnectionsView, ServerInput};
+use crate::connections::{self, Change, ConnectionsView, ServerInput, ServerView, Target};
 use crate::daemon::launch::{
     child_env, daemon_entry, find_node, free_port, search_path, DaemonInputs,
 };
-use crate::daemon::supervisor::{Credentials, LaunchSpec, Prepared, Update};
+use crate::daemon::supervisor::{Credentials, Handed, LaunchSpec, Prepared, Update};
 use crate::data_dir::DataDir;
 use crate::ledger_import::{self, LedgerImport};
+use crate::oauth_connect::{self, OAuthSet};
 use crate::secure_store::SecretStore;
 use crate::setup::{
     apply_setup, load_secrets, save_settings, setup_state, Settings, SetupInput, TELEGRAM_BOT_TOKEN,
@@ -312,18 +313,109 @@ impl Core {
         Ok(merged)
     }
 
-    /// Stores each model login the daemon hands over (DK-5 AC1). What is not a JSON object is not.
+    /// Stores what the daemon hands over: the model login (DK-5 AC1) or the OAuth tokens of its
+    /// servers (DK-11), whole. What is not a JSON object is not stored.
     fn login_handler(&self) -> Credentials {
         let store = Arc::clone(&self.store);
-        Arc::new(move |login: &str| {
-            if login_of(login).is_none() {
-                eprintln!("the daemon handed over a model login that is not a JSON object");
+        Arc::new(move |handed: Handed, json: &str| {
+            let (item, what) = match handed {
+                Handed::ModelLogin => (MODEL_LOGIN, "model login"),
+                Handed::McpOAuth => (oauth_connect::ITEM, "set of OAuth tokens"),
+            };
+            if login_of(json).is_none() {
+                eprintln!("the daemon handed over a {what} that is not a JSON object");
                 return;
             }
-            if let Err(error) = store.set(MODEL_LOGIN, login) {
-                eprintln!("could not store the model login: {error}");
+            if let Err(error) = store.set(item, json) {
+                eprintln!("could not store the {what}: {error}");
             }
         })
+    }
+
+    /// DK-11: the OAuth tokens kept for the servers of `mcp.json`. Those of a server removed,
+    /// renamed or moved to another address are dropped, and the store is told. While the file is
+    /// not as the daemon reads it, nothing is dropped.
+    fn mcp_oauth(&self) -> Result<OAuthSet, String> {
+        let set = oauth_connect::stored(self.store.as_ref())?;
+        let view = self.connections();
+        if view.invalid.is_some() {
+            return Ok(set);
+        }
+        let servers: Vec<(String, String)> = view
+            .servers
+            .into_iter()
+            .filter_map(|server| match server.target {
+                Target::Http { url } => Some((server.name, url)),
+                Target::Process { .. } => None,
+            })
+            .collect();
+        let kept = oauth_connect::pruned(&set, &servers);
+        if kept.len() != set.len() {
+            if let Err(error) = oauth_connect::store_set(self.store.as_ref(), &kept) {
+                eprintln!("{error}");
+            }
+        }
+        Ok(kept)
+    }
+
+    /// DK-11: the address of the server `name`, which must be reached over HTTP.
+    fn http_url(&self, name: &str) -> Result<String, String> {
+        let view = self.connections();
+        if let Some(invalid) = view.invalid {
+            return Err(invalid);
+        }
+        match view.servers.into_iter().find(|server| server.name == name) {
+            Some(ServerView {
+                target: Target::Http { url },
+                ..
+            }) => Ok(url),
+            Some(_) => Err("only a server reached by its address connects with OAuth".into()),
+            None => Err(format!("there is no server named {name}")),
+        }
+    }
+
+    /// DK-11: connects the app to the server `name` with OAuth, `open` opening the address the
+    /// principal authorizes it on. Nothing is stored here: `keep_oauth` does, with the daemon
+    /// stopped. Returns the server's address with the outcome, the one the tokens are for.
+    pub fn connect_oauth(
+        &self,
+        name: &str,
+        open: &dyn Fn(&str) -> Result<(), String>,
+    ) -> Result<(oauth_connect::Ran, String), String> {
+        let url = self.http_url(name)?;
+        let path = search_path((self.environment)("PATH").as_deref());
+        let node =
+            find_node((self.environment)("ANOMANDER_NODE").as_deref(), &path).ok_or_else(|| {
+                format!("node was not found on {path}; set ANOMANDER_NODE to its path")
+            })?;
+        let entry = daemon_entry((self.environment)("ANOMANDER_DAEMON_ENTRY").as_deref());
+        let script = oauth_connect::script_of(&entry)
+            .filter(|script| script.is_file())
+            .ok_or_else(|| format!("the OAuth connection is not next to {}", entry.display()))?;
+        let ran = oauth_connect::run(&node, &script, &url, &path, open, oauth_connect::DEADLINE)?;
+        Ok((ran, url))
+    }
+
+    /// DK-11: keeps the tokens of a connection to `name` at `url`. Call it with the daemon
+    /// stopped, so no token it refreshes meanwhile overwrites them.
+    pub fn keep_oauth(
+        &self,
+        name: &str,
+        url: &str,
+        entry: serde_json::Map<String, serde_json::Value>,
+    ) -> Result<(), String> {
+        let mut set = oauth_connect::stored(self.store.as_ref())?;
+        set.insert(name.to_owned(), oauth_connect::kept_for(entry, url));
+        oauth_connect::store_set(self.store.as_ref(), &set)
+    }
+
+    /// DK-11: forgets the tokens of `name`. Call it with the daemon stopped, as `keep_oauth`.
+    pub fn forget_oauth(&self, name: &str) -> Result<(), String> {
+        let mut set = oauth_connect::stored(self.store.as_ref())?;
+        if set.remove(name).is_some() {
+            oauth_connect::store_set(self.store.as_ref(), &set)?;
+        }
+        Ok(())
     }
 
     /// One start of the daemon (DK-1 AC1): `node <repo>/packages/daemon/src/main.ts`, with the
@@ -342,6 +434,10 @@ impl Core {
         };
         let login = match self.model_login() {
             Ok(login) => login,
+            Err(message) => return Prepared::Failed(message),
+        };
+        let mcp_oauth = match self.mcp_oauth() {
+            Ok(set) => set,
             Err(message) => return Prepared::Failed(message),
         };
         let path = search_path((self.environment)("PATH").as_deref());
@@ -383,6 +479,7 @@ impl Core {
                 provider_keys: &secrets.provider_keys,
                 connection_secrets: &connection_secrets,
                 model_login: &serde_json::Value::Object(login.clone()).to_string(),
+                mcp_oauth: &serde_json::Value::Object(mcp_oauth.clone()).to_string(),
                 paths: &paths,
                 local_token: &self.token,
                 local_port: port,
@@ -390,6 +487,7 @@ impl Core {
         );
         let mut redacted = vec![bot_token, self.token.clone()];
         redacted.extend(tokens_of(&login));
+        redacted.extend(tokens_of(&mcp_oauth));
         redacted.extend(secrets.provider_keys.into_iter().map(|(_, key)| key));
         redacted.extend(
             connection_secrets
@@ -544,6 +642,148 @@ mod tests {
         Ok(())
     }
 
+    fn oauth_env(spec: &LaunchSpec) -> Option<serde_json::Value> {
+        spec.env
+            .iter()
+            .find(|(name, _)| name == "ANOMANDER_MCP_OAUTH")
+            .and_then(|(_, json)| serde_json::from_str(json).ok())
+    }
+
+    /// `mcp.json` with `notes` at its address and a process server.
+    fn with_servers(f: &Fixture) {
+        std::fs::write(
+            f.root.join("mcp.json"),
+            json!({ "mcpServers": {
+                "notes": { "url": "https://notes.example/mcp" },
+                "files": { "command": "files-mcp" }
+            }})
+            .to_string(),
+        )
+        .unwrap_or_else(|e| panic!("no mcp.json: {e}"));
+    }
+
+    fn entry() -> serde_json::Map<String, serde_json::Value> {
+        json!({ "client": { "client_id": "c-1" }, "tokens": { "access_token": "oauth-access-1" } })
+            .as_object()
+            .cloned()
+            .unwrap_or_default()
+    }
+
+    #[test]
+    fn oauth_tokens_kept_for_a_server_reach_the_daemon_and_are_hidden() -> Result<(), String> {
+        let (store, settings) = configured();
+        let f = fixture(store, settings);
+        with_servers(&f);
+        assert_eq!(oauth_env(&ready(&f.core)), Some(json!({})));
+
+        f.core
+            .keep_oauth("notes", "https://notes.example/mcp", entry())?;
+        let spec = ready(&f.core);
+
+        let mut kept = entry();
+        kept.insert("url".into(), "https://notes.example/mcp".into());
+        assert_eq!(oauth_env(&spec), Some(json!({ "notes": kept })));
+        assert!(spec.secrets.iter().any(|secret| secret == "oauth-access-1"));
+        let view = f.core.connections();
+        let flags: Vec<_> = view
+            .servers
+            .iter()
+            .map(|s| (s.name.as_str(), s.oauth))
+            .collect();
+        assert_eq!(flags, vec![("notes", true), ("files", false)]);
+        Ok(())
+    }
+
+    #[test]
+    fn tokens_of_a_server_removed_renamed_or_moved_are_dropped() -> Result<(), String> {
+        let (store, settings) = configured();
+        let f = fixture(store, settings);
+        with_servers(&f);
+        f.core
+            .keep_oauth("notes", "https://notes.example/mcp", entry())?;
+        f.core
+            .keep_oauth("gone", "https://gone.example/mcp", entry())?;
+        // The address changed since the tokens were given: they are not for this one.
+        std::fs::write(
+            f.root.join("mcp.json"),
+            json!({ "mcpServers": { "notes": { "url": "https://elsewhere.example/mcp" } } })
+                .to_string(),
+        )
+        .map_err(|e| e.to_string())?;
+
+        assert_eq!(oauth_env(&ready(&f.core)), Some(json!({})));
+        // Dropped from the store too, so moving the address back does not bring them back.
+        with_servers(&f);
+        assert_eq!(oauth_env(&ready(&f.core)), Some(json!({})));
+        Ok(())
+    }
+
+    #[test]
+    fn tokens_are_kept_while_the_file_cannot_be_read() -> Result<(), String> {
+        let (store, settings) = configured();
+        let f = fixture(store, settings);
+        with_servers(&f);
+        f.core
+            .keep_oauth("notes", "https://notes.example/mcp", entry())?;
+        std::fs::write(f.root.join("mcp.json"), "{ half written").map_err(|e| e.to_string())?;
+        let _ = ready(&f.core);
+        with_servers(&f);
+        assert!(f.core.connections().servers[0].oauth);
+        Ok(())
+    }
+
+    #[test]
+    fn forgetting_a_server_drops_its_tokens_and_no_other() -> Result<(), String> {
+        let (store, settings) = configured();
+        let f = fixture(store, settings);
+        with_servers(&f);
+        f.core
+            .keep_oauth("notes", "https://notes.example/mcp", entry())?;
+        f.core.forget_oauth("files")?;
+        assert!(f.core.connections().servers[0].oauth);
+        f.core.forget_oauth("notes")?;
+        assert!(!f.core.connections().servers[0].oauth);
+        assert_eq!(oauth_env(&ready(&f.core)), Some(json!({})));
+        Ok(())
+    }
+
+    #[test]
+    fn only_a_server_reached_by_its_address_connects_with_oauth() {
+        let (store, settings) = configured();
+        let f = fixture(store, settings);
+        with_servers(&f);
+        let never = |_: &str| -> Result<(), String> { panic!("nothing may be opened") };
+        assert_eq!(
+            f.core.connect_oauth("files", &never).err(),
+            Some("only a server reached by its address connects with OAuth".into())
+        );
+        assert_eq!(
+            f.core.connect_oauth("nobody", &never).err(),
+            Some("there is no server named nobody".into())
+        );
+    }
+
+    #[test]
+    fn tokens_the_daemon_hands_back_are_stored_for_the_next_start() {
+        let (store, settings) = configured();
+        let f = fixture(store, settings);
+        with_servers(&f);
+        let handed = ready(&f.core)
+            .on_credentials
+            .unwrap_or_else(|| panic!("no credentials handler"));
+        let refreshed = r#"{"notes":{"tokens":{"access_token":"oauth-access-2"},"url":"https://notes.example/mcp"}}"#;
+
+        handed(Handed::McpOAuth, refreshed);
+        handed(Handed::McpOAuth, "not json");
+
+        assert_eq!(
+            oauth_env(&ready(&f.core)),
+            serde_json::from_str(refreshed).ok()
+        );
+        // The model login is another item.
+        assert_eq!(login_env(&ready(&f.core)).as_deref(), Some("{}"));
+    }
+
     #[test]
     fn a_login_the_daemon_hands_back_is_stored_for_the_next_start() {
         let (store, settings) = configured();
@@ -554,11 +794,11 @@ mod tests {
             .clone()
             .unwrap_or_else(|| panic!("no credentials handler"));
 
-        handed(LOGIN);
+        handed(Handed::ModelLogin, LOGIN);
         assert_eq!(login_env(&ready(&f.core)).as_deref(), Some(LOGIN));
         // What is not a set of credentials is never stored.
-        handed("[1]");
-        handed("not json");
+        handed(Handed::ModelLogin, "[1]");
+        handed(Handed::ModelLogin, "not json");
         assert_eq!(login_env(&ready(&f.core)).as_deref(), Some(LOGIN));
     }
 

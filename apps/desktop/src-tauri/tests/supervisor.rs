@@ -5,7 +5,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use anomander_desktop_lib::daemon::supervisor::{
-    LaunchSpec, Options, Prepared, Supervisor, Update,
+    Credentials, Handed, LaunchSpec, Options, Prepared, Supervisor, Update,
 };
 use anomander_desktop_lib::snapshot::{DaemonState, StopReason};
 
@@ -35,9 +35,9 @@ impl Fixture {
         let cwd = dir.path().to_path_buf();
         let credentials = Arc::new(Mutex::new(Vec::new()));
         let handed = Arc::clone(&credentials);
-        let on_credentials: Arc<dyn Fn(&str) + Send + Sync> = Arc::new(move |line: &str| {
+        let on_credentials: Credentials = Arc::new(move |kind: Handed, line: &str| {
             if let Ok(mut handed) = handed.lock() {
-                handed.push(line.to_owned());
+                handed.push(format!("{kind:?} {line}"));
             }
         });
         let prepare = move || {
@@ -417,7 +417,7 @@ fn quitting_meanwhile_leaves_no_daemon() {
 #[test]
 fn the_login_the_daemon_hands_over_reaches_the_shell_and_only_the_shell() {
     let body = format!(
-        "echo 'anomander credentials {{\"openai\":{{\"type\":\"api_key\",\"key\":\"sk-9\"}}}}'\n{LISTEN}\nread -r _"
+        "echo 'anomander credentials {{\"openai\":{{\"type\":\"api_key\",\"key\":\"sk-9\"}}}}'\necho 'anomander mcp-oauth {{\"notes\":{{}}}}'\n{LISTEN}\nread -r _"
     );
     let fixture = Fixture::new(&body, fast());
     fixture.supervisor.start();
@@ -429,7 +429,10 @@ fn the_login_the_daemon_hands_over_reaches_the_shell_and_only_the_shell() {
         .unwrap_or_default();
     assert_eq!(
         handed,
-        vec![r#"{"openai":{"type":"api_key","key":"sk-9"}}"#.to_owned()]
+        vec![
+            r#"ModelLogin {"openai":{"type":"api_key","key":"sk-9"}}"#.to_owned(),
+            r#"McpOAuth {"notes":{}}"#.to_owned(),
+        ]
     );
 }
 
@@ -446,9 +449,9 @@ fn a_restart_hands_over_the_login_the_stopping_daemon_handed_back() -> Result<()
     .map_err(|e| e.to_string())?;
     let stored = Arc::new(Mutex::new(String::from("none")));
     let seen = Arc::new(Mutex::new(Vec::<String>::new()));
-    let on_credentials: Arc<dyn Fn(&str) + Send + Sync> = {
+    let on_credentials: Credentials = {
         let stored = Arc::clone(&stored);
-        Arc::new(move |line: &str| {
+        Arc::new(move |_: Handed, line: &str| {
             std::thread::sleep(Duration::from_millis(150));
             if let Ok(mut stored) = stored.lock() {
                 line.clone_into(&mut stored);

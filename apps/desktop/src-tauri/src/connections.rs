@@ -8,6 +8,7 @@ use serde_json::{json, Map, Value};
 
 use crate::connection_secrets::{account, is_server_name, FILE_NAME, MARKER};
 use crate::data_dir::DataDir;
+use crate::oauth_connect;
 use crate::secure_store::{SecretStore, StoreError};
 
 const SERVERS: &str = "mcpServers";
@@ -54,6 +55,8 @@ pub struct ServerView {
     pub target: Target,
     pub values: Vec<ValueView>,
     pub read_only: Vec<String>,
+    /// DK-11: OAuth tokens are kept for this server at its address.
+    pub oauth: bool,
 }
 
 /// `ConnectionsView` of `shell.ts`.
@@ -332,6 +335,8 @@ pub fn view(data: &DataDir, store: &dyn SecretStore) -> ConnectionsView {
             }
         }
     };
+    // Unreadable tokens are no tokens: the screen offers to connect again.
+    let oauth = oauth_connect::stored(store).unwrap_or_default();
     let servers = document
         .servers
         .into_iter()
@@ -347,11 +352,16 @@ pub fn view(data: &DataDir, store: &dyn SecretStore) -> ConnectionsView {
                     name: value_name,
                 })
                 .collect();
+            let oauth = match &server.target {
+                Target::Http { url } => oauth_connect::connected(&oauth, &name, url),
+                Target::Process { .. } => false,
+            };
             ServerView {
                 name,
                 target: server.target,
                 values,
                 read_only: server.read_only,
+                oauth,
             }
         })
         .collect();
@@ -573,6 +583,13 @@ mod tests {
         f.write(&file.to_string())?;
         let store = MemoryStore::default();
         store.set(ALPHA_HEADER, "Bearer b-2").map_err(|e| e.0)?;
+        // OAuth tokens for alpha at its address: the screen only learns that they are kept.
+        store
+            .set(
+                oauth_connect::ITEM,
+                r#"{"alpha":{"tokens":{"access_token":"o-secret"},"url":"https://example.com/mcp"}}"#,
+            )
+            .map_err(|e| e.0)?;
 
         let view = serde_json::to_value(view(&f.data, &store)).map_err(|e| e.to_string())?;
 
@@ -591,14 +608,16 @@ mod tests {
                             { "name": "TOKEN", "stored": true },
                             { "name": "EMPTY", "stored": false }
                         ],
-                        "readOnly": ["search"]
+                        "readOnly": ["search"],
+                        "oauth": false
                     },
                     {
                         "name": "alpha",
                         "kind": "http",
                         "url": "https://example.com/mcp",
                         "values": [{ "name": "Authorization", "stored": true }],
-                        "readOnly": []
+                        "readOnly": [],
+                        "oauth": true
                     },
                     {
                         "name": "beta",
@@ -606,14 +625,18 @@ mod tests {
                         "command": "beta",
                         "args": [],
                         "values": [{ "name": "LOST", "stored": false }],
-                        "readOnly": []
+                        "readOnly": [],
+                        "oauth": false
                     }
                 ],
                 "invalid": null
             })
         );
         let sent = view.to_string();
-        assert!(!sent.contains("tok-1") && !sent.contains("b-2"), "{sent}");
+        assert!(
+            !sent.contains("tok-1") && !sent.contains("b-2") && !sent.contains("o-secret"),
+            "{sent}"
+        );
         Ok(())
     }
 
