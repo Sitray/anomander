@@ -432,3 +432,78 @@ fn the_login_the_daemon_hands_over_reaches_the_shell_and_only_the_shell() {
         vec![r#"{"openai":{"type":"api_key","key":"sk-9"}}"#.to_owned()]
     );
 }
+
+/// DK-5 AC1: what a daemon hands over as it stops is stored before the next one is prepared, even
+/// when storing it is slow (a Keychain write). Otherwise the next daemon starts with the old login.
+#[test]
+fn a_restart_hands_over_the_login_the_stopping_daemon_handed_back() -> Result<(), String> {
+    let dir = tempfile::tempdir().map_err(|e| e.to_string())?;
+    let script = dir.path().join("daemon.sh");
+    std::fs::write(
+        &script,
+        format!("trap 'echo \"anomander credentials {{\\\"gen\\\":\\\"$GEN\\\"}}\"; exit 0' TERM\n{LISTEN}\nwhile :; do sleep 0.01; done\n"),
+    )
+    .map_err(|e| e.to_string())?;
+    let stored = Arc::new(Mutex::new(String::from("none")));
+    let seen = Arc::new(Mutex::new(Vec::<String>::new()));
+    let on_credentials: Arc<dyn Fn(&str) + Send + Sync> = {
+        let stored = Arc::clone(&stored);
+        Arc::new(move |line: &str| {
+            std::thread::sleep(Duration::from_millis(150));
+            if let Ok(mut stored) = stored.lock() {
+                line.clone_into(&mut stored);
+            }
+        })
+    };
+    let (stored_now, seen_now) = (Arc::clone(&stored), Arc::clone(&seen));
+    let generation = Arc::new(Mutex::new(0u32));
+    let cwd = dir.path().to_path_buf();
+    let prepare = move || {
+        let now = stored_now.lock().map(|s| s.clone()).unwrap_or_default();
+        if let Ok(mut seen) = seen_now.lock() {
+            seen.push(now);
+        }
+        let generation = generation
+            .lock()
+            .map(|mut g| {
+                *g += 1;
+                *g
+            })
+            .unwrap_or_default();
+        Prepared::Ready(LaunchSpec {
+            program: PathBuf::from("/bin/sh"),
+            args: vec![script.clone().into_os_string()],
+            env: vec![
+                ("PATH".into(), "/usr/bin:/bin".into()),
+                ("GEN".into(), generation.to_string()),
+                ("ANOMANDER_LOCAL_PORT".into(), PORT.to_string()),
+            ],
+            cwd: cwd.clone(),
+            port: PORT,
+            token: TOKEN.into(),
+            secrets: vec![],
+            on_credentials: Some(Arc::clone(&on_credentials)),
+        })
+    };
+    let supervisor = Supervisor::new(Box::new(prepare), Box::new(|_| {}), fast());
+    let wait_running = |supervisor: &Supervisor| {
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while supervisor.current().status.state != DaemonState::Running {
+            assert!(Instant::now() < deadline, "the daemon never ran");
+            std::thread::sleep(Duration::from_millis(5));
+        }
+    };
+    supervisor.start();
+    wait_running(&supervisor);
+    supervisor.restart();
+    wait_running(&supervisor);
+    supervisor.while_stopped(|| ());
+    wait_running(&supervisor);
+    supervisor.stop();
+
+    let seen = seen.lock().map(|s| s.clone()).unwrap_or_default();
+    assert_eq!(seen, ["none", r#"{"gen":"1"}"#, r#"{"gen":"2"}"#]);
+    let stored = stored.lock().map(|s| s.clone()).unwrap_or_default();
+    assert_eq!(stored, r#"{"gen":"3"}"#);
+    Ok(())
+}

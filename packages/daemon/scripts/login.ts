@@ -1,6 +1,7 @@
 // Model login from a terminal on the server (R-27 AC7): the same flows as `/login` in Telegram,
 // stored in the same file, `ANOMANDER_AUTH_PATH`. The running daemon reads that file on every
-// request, so it uses the login without a restart.
+// request, so it uses the login without a restart. The desktop app's daemon does not read it: the
+// app takes a login left in its data folder into the Keychain at the daemon's next start (DK-5 AC1).
 //
 //   pnpm run login [openai | kimi-coding]
 //

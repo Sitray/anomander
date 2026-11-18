@@ -22,6 +22,9 @@ const POLL: Duration = Duration::from_millis(25);
 const KILL_GRACE: Duration = Duration::from_secs(2);
 /// After the exit, how long to wait for the last stderr line still in the pipe.
 const STDERR_GRACE: Duration = Duration::from_millis(500);
+/// After the exit, how long to wait for the stdout watcher, which may still be storing the model
+/// login the daemon handed over as it stopped (DK-5 AC1): a Keychain write can be slow.
+const STDOUT_GRACE: Duration = Duration::from_secs(5);
 
 /// One start of the daemon. Holds secrets: no `Debug`.
 pub struct LaunchSpec {
@@ -122,6 +125,8 @@ struct Running {
     stdin: Mutex<Option<ChildStdin>>,
     exited: Flag,
     stderr_done: Flag,
+    /// Raised when the stdout watcher ends: every line is read, and every login stored.
+    stdout_done: Flag,
     /// The last non-empty stderr line, already redacted.
     last_error: Mutex<Option<String>>,
 }
@@ -422,6 +427,7 @@ impl Inner {
             stdin: Mutex::new(stdin),
             exited: Flag::default(),
             stderr_done: Flag::default(),
+            stdout_done: Flag::default(),
             last_error: Mutex::new(None),
         });
         let secrets = Arc::new(spec.secrets);
@@ -453,6 +459,7 @@ impl Inner {
                             inner.listening(&running);
                         }
                     });
+                    running.stdout_done.raise();
                 })
             }),
             Some({
@@ -478,6 +485,8 @@ impl Inner {
                     running.exited.raise();
                     // The last error line may still be in the pipe.
                     running.stderr_done.wait(STDERR_GRACE);
+                    // A restart after a crash prepares with the login the daemon handed over last.
+                    running.stdout_done.wait(STDOUT_GRACE);
                     inner.exited(&running, code);
                 })
             }),
@@ -550,8 +559,14 @@ impl Inner {
     }
 
     /// DK-1 AC1: closes stdin and sends SIGTERM, then SIGKILL after `stop_timeout`; returns once
-    /// the process is gone.
+    /// the process is gone and what it printed is handled, so the next start reads the model login
+    /// it handed over as it stopped (DK-5 AC1).
     fn terminate(&self, running: &Running) {
+        self.end(running);
+        running.stdout_done.wait(STDOUT_GRACE);
+    }
+
+    fn end(&self, running: &Running) {
         drop(lock(&running.stdin).take());
         kill_group(running, libc::SIGTERM);
         if running.exited.wait(self.options.stop_timeout) {
