@@ -209,7 +209,8 @@ and keep its secrets in the operating system instead of a text file.
     changes.
   - AC3: the source is never written: its bytes, and its `-wal` when there is one, are copied
     first and only the copy is read. The copy gets mode 600. The app's own ledger, with its
-    journal files, is moved aside as `anomander.db.before-import-<UTC date and time>`, never
+    journal files (also ones left without it), is moved aside as
+    `anomander.db.before-import-<UTC date and time>`, never
     deleted, and the copy takes its place. A failure leaves the app's own ledger where it was.
   - AC4: the daemon is stopped during the import, and nothing starts it meanwhile; it starts
     again after if it ran. Only the ledger comes: the setup of a Docker install is imported once

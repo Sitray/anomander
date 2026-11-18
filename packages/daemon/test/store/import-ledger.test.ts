@@ -117,6 +117,28 @@ describe('importing a ledger', () => {
     expect(expensesIn(own)).toEqual([100, 101, 102]);
   });
 
+  it('keeps aside the journal files a missing ledger left, so none is read into the copy', async () => {
+    // A ledger deleted by hand, with its journal left: SQLite would read it into the new file.
+    ledger(own, 0);
+    const db = openDatabase(own);
+    db.pragma('wal_autocheckpoint = 0');
+    db.prepare(
+      `INSERT INTO expenses (occurred_on, total_cents, mode, status, created_at)
+       VALUES ('2026-09-03', 4242, 'declared', 'current', '2026-09-03T10:00:00.000Z')`,
+    ).run();
+    const wal = readFileSync(`${own}-wal`);
+    db.close();
+    rmSync(own);
+    writeFileSync(`${own}-wal`, wal);
+
+    expect(await importLedger(source, own, { now: () => NOW })).toEqual({ kind: 'imported' });
+
+    const aside = `anomander.db.before-import-${STAMP}`;
+    expect(files(data)).toEqual(['anomander.db', `${aside}-wal`]);
+    expect(readFileSync(join(data, `${aside}-wal`)).equals(wal)).toBe(true);
+    expect(expensesIn(own)).toEqual([100, 101, 102]);
+  });
+
   it('never writes over a ledger kept aside before', async () => {
     ledger(own, 0);
     writeFileSync(join(data, `anomander.db.before-import-${STAMP}`), 'older');

@@ -175,7 +175,9 @@ export const importLedger = (
     throw error;
   }
 
-  const aside = existsSync(own) ? asideName(own, now()) : null;
+  // Journal files without their ledger are kept aside too: SQLite would read them into the copy.
+  const left = ['', ...JOURNALS].some((suffix) => existsSync(`${own}${suffix}`));
+  const aside = left ? asideName(own, now()) : null;
   try {
     if (aside !== null) moveWithJournals(own, aside);
     renameSync(copy, own);
