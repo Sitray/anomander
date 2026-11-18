@@ -7,7 +7,7 @@ import { isBotInUse } from '@anomander/telegram';
 import { builtinModels } from '@earendil-works/pi-ai/providers/all';
 import { startAnomander, startSetupGuide } from './app.ts';
 import { createDeviceId } from './auth/device-id.ts';
-import { createFileCredentialStore } from './auth/file-credential-store.ts';
+import { credentialStoreFor } from './auth/shell-credential-store.ts';
 import { loadConfig } from './config.ts';
 import { createConnectionGaps, resolveModels } from './setup/setup-guide.ts';
 import { DaemonAlreadyRunningError } from './store/daemon-lock.ts';
@@ -31,7 +31,14 @@ const config = (() => {
   }
 })();
 
-const credentials = createFileCredentialStore(config.authPath);
+// DK-5 AC1: the login the desktop app keeps in the Keychain, or the file of a Docker install.
+const credentials = (() => {
+  try {
+    return credentialStoreFor(config);
+  } catch (error) {
+    return fail(reason(error));
+  }
+})();
 const models = builtinModels({ credentials });
 const resolved = resolveModels(config, (provider, id) => models.getModel(provider, id));
 const login = {

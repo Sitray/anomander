@@ -634,6 +634,13 @@ expired tokens itself. Sign in with ChatGPT also needs a stable installation ID,
 `<ANOMANDER_AUTH_PATH>.device-id`. Logs carry the provider ID and the outcome only, never a
 token, link or pasted text.
 
+Under the desktop app (DK-5 AC1) there is no such file: the app hands the login over in
+`ANOMANDER_AUTH_JSON` (the same shape), and `src/auth/shell-credential-store.ts` keeps it in
+memory. After every change it prints the whole set on one line,
+`anomander credentials <json>`, before the change answers; the app stores it in the Keychain and
+never forwards that line. `credentialStoreFor` picks the store: the app's when the variable is
+set, the file otherwise. The device ID file stays where it was.
+
 Each provider sets its own terms for using a subscription outside its own apps. Check them before
 connecting an account.
 

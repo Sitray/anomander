@@ -1,8 +1,7 @@
 # Desktop app (M6): draft PRD
 
 Status: approved by the principal (2026-11-10) and built: the daemon side (§8) and the app in
-`apps/desktop` (§9). Still open: the subscription login in the Keychain (DK-5 AC1) and a first
-run against a real bot. Its requirements move into `PRD.md` under milestone M6 once the
+`apps/desktop` (§9). Still open: a first run against a real bot. Its requirements move into `PRD.md` under milestone M6 once the
 principal has tried the app, and this file is then removed.
 
 ## 1. Problem
@@ -78,7 +77,12 @@ and keep its secrets in the operating system instead of a text file.
   - AC7: `/login` and `/logout` stay in Telegram (R-27): their messages go out through the bot.
 - DK-5 Secrets in the Keychain.
   - AC1: the Telegram bot token, the provider API keys and the subscription login are stored
-    in the macOS Keychain, entered once in the app's setup screen.
+    in the macOS Keychain, entered once in the app's setup screen. The login is made from
+    Telegram (`/login`, DK-4 AC7) and kept by the daemon in memory: the app hands it over at
+    each start in `ANOMANDER_AUTH_JSON`, and every change (a login, a logout, a token refresh)
+    comes back on one line of the daemon's output that the app stores as the Keychain item
+    `model-login` and never forwards. An `auth.json` found in the data folder at a start is
+    merged into it, provider by provider, and removed once the merged login reads back.
   - AC2: the app hands them to the daemon when it starts it, as the child process's
     environment; they are never written to a file and never logged.
   - AC3: `.env` keeps working for Docker installs; the app does not read it, except once, when
@@ -270,7 +274,7 @@ Built in `apps/desktop` (see its README): a React window (`src/`) and a Tauri 2 
 | Secrets (DK-5) | Keychain items of service `ANOMANDER`, named as the daemon's variables. The rest in `settings.json` in the data folder, mode `600` |
 | Secrets of the connections (DK-11 AC1) | Keychain items named `mcp/<server>/<env or headers>/<name>`, listed in `settings.json`. The daemon gets them in `ANOMANDER_MCP_SECRETS`, a JSON object by that name. Every value is moved, secret or not: the code cannot tell. In the daemon's output a value is hidden from 4 characters when its name holds a word a secret's name usually does or it is a header, and from 8 otherwise. A file saved while its values are moved is left for the next start |
 | The time zone | The daemon's `TZ` is the zone this machine's clock points to (`/etc/localtime`), so its dates are the principal's. When it cannot be read, the daemon's default |
-| The subscription login (DK-5 AC1) | Not in the Keychain yet: pi-ai keeps it in `auth.json` in the data folder, mode `600` |
+| The subscription login (DK-5 AC1) | The Keychain item `model-login`, the shape of `auth.json`. The daemon prints it whole on a line starting `anomander credentials ` after every change, before pi-ai uses it; a daemon killed between a token refresh and that line loses the refreshed token, and the principal logs in again. `pnpm run login` reaches the app's daemon only through an `auth.json` merged at its next start. The device ID stays on disk: it is not a secret |
 | The ledger | A new one in the app's data folder. A Docker install's ledger is brought by the principal and imported into an empty one (DK-12); nothing reaches into the volume |
 | The window's strings | Spanish, all in `apps/desktop/src/strings.ts`, not yet in `PRD.md` §12 |
 

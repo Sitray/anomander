@@ -65,6 +65,8 @@ pub struct DaemonInputs<'a> {
     pub provider_keys: &'a [(String, String)],
     /// The values of `mcp.json` kept in the Keychain, by account (`connection_secrets`).
     pub connection_secrets: &'a [(String, String)],
+    /// DK-5 AC1: the model login kept in the Keychain, as a JSON object; `{}` without one.
+    pub model_login: &'a str,
     pub paths: &'a DaemonPaths,
     pub local_token: &'a str,
     pub local_port: u16,
@@ -117,6 +119,8 @@ pub fn child_env(
             &serde_json::Value::Object(secrets).to_string(),
         );
     }
+    // With it the daemon keeps the login in memory and never writes `auth.json` (DK-5 AC1).
+    set("ANOMANDER_AUTH_JSON", inputs.model_login);
     set("ANOMANDER_LOCAL_TOKEN", inputs.local_token);
     set("ANOMANDER_LOCAL_PORT", &inputs.local_port.to_string());
     // DK-1 AC1: the daemon stops when its stdin closes, so a crashed app leaves no daemon.
@@ -219,6 +223,7 @@ mod tests {
             vision_model: Some("openai/gpt-4o"),
             provider_keys: &keys,
             connection_secrets: &[],
+            model_login: r#"{"openai":{"type":"api_key","key":"sk-2"}}"#,
             paths: &paths,
             local_token: "t".repeat(64).leak(),
             local_port: 50123,
@@ -238,6 +243,10 @@ mod tests {
             ("ANOMANDER_INBOX_DIR", "/data/inbox"),
             ("ANOMANDER_AUTH_PATH", "/data/auth.json"),
             ("ANOMANDER_MCP_CONFIG", "/data/mcp.json"),
+            (
+                "ANOMANDER_AUTH_JSON",
+                r#"{"openai":{"type":"api_key","key":"sk-2"}}"#,
+            ),
             ("ANOMANDER_LOCAL_TOKEN", &"t".repeat(64)),
             ("ANOMANDER_LOCAL_PORT", "50123"),
             ("ANOMANDER_STOP_WITH_PARENT", "1"),
@@ -258,6 +267,7 @@ mod tests {
             vision_model: None,
             provider_keys: &[],
             connection_secrets: &[],
+            model_login: "{}",
             paths: &paths,
             local_token: "t",
             local_port: 1,
@@ -293,6 +303,7 @@ mod tests {
             vision_model: None,
             provider_keys: &[],
             connection_secrets: &secrets,
+            model_login: "{}",
             paths: &paths,
             local_token: "t",
             local_port: 1,
@@ -320,6 +331,7 @@ mod tests {
                 vision_model: None,
                 provider_keys: &[],
                 connection_secrets: &[],
+                model_login: "{}",
                 paths: &paths,
                 local_token: "t",
                 local_port: 1,

@@ -36,7 +36,17 @@ pub struct LaunchSpec {
     pub token: String,
     /// Every secret value, removed from the error line and the forwarded log.
     pub secrets: Vec<String>,
+    /// DK-5 AC1: gets the model login the daemon hands over on a `CREDENTIALS_LINE`, which is never
+    /// forwarded. Called from the output's own thread, one line after the other.
+    pub on_credentials: Option<Credentials>,
 }
+
+/// What handles the model login the daemon hands over: the JSON after `CREDENTIALS_LINE`.
+pub type Credentials = Arc<dyn Fn(&str) + Send + Sync>;
+
+/// The start of the line on which the daemon hands over its model login, as
+/// `packages/daemon/src/auth/shell-credential-store.ts` writes it.
+pub const CREDENTIALS_LINE: &str = "anomander credentials ";
 
 pub enum Prepared {
     /// The setup lacks the bot token or the chat ID: nothing is spawned.
@@ -416,6 +426,7 @@ impl Inner {
         });
         let secrets = Arc::new(spec.secrets);
 
+        let on_credentials = spec.on_credentials;
         let watchers = [
             stdout.map(|stdout| {
                 let (inner, running, secrets) = (
@@ -425,6 +436,13 @@ impl Inner {
                 );
                 watcher("anomander-daemon-stdout", move || {
                     for_each_line(stdout, |line| {
+                        // The model login: it goes to the Keychain, never to the log.
+                        if let Some(login) = line.strip_prefix(CREDENTIALS_LINE) {
+                            if let Some(store) = &on_credentials {
+                                store(login);
+                            }
+                            return;
+                        }
                         // A closed output must not end this thread: the daemon would block on a full pipe.
                         let _ = writeln!(
                             std::io::stdout(),

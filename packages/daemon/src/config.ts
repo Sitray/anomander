@@ -59,6 +59,12 @@ export interface Config {
    * JSON object. Read by `loadConnectionsConfig`.
    */
   mcpSecrets: string | undefined;
+  /**
+   * `ANOMANDER_AUTH_JSON`: the model login the desktop app keeps in the Keychain, in the shape of
+   * `auth.json` (DK-5 AC1). While set, the daemon keeps the login in memory and hands every change
+   * back to the app; while unset, it uses the file at `authPath`.
+   */
+  authJson: string | undefined;
 }
 
 const modelId = z.string().transform((value, ctx) => {
@@ -130,6 +136,7 @@ const envSchema = z.object({
     .pipe(z.int().min(1, NOT_A_PORT).max(65535, NOT_A_PORT)),
   ANOMANDER_MCP_CONFIG: z.string().min(1).optional(),
   ANOMANDER_MCP_SECRETS: z.string().min(1).optional(),
+  ANOMANDER_AUTH_JSON: z.string().min(1).optional(),
 });
 
 type EnvKey = keyof typeof envSchema.shape;
@@ -189,5 +196,6 @@ export const loadConfig = (env: Record<string, string | undefined>): Config => {
     localPort: values.ANOMANDER_LOCAL_PORT,
     mcpConfigPath: values.ANOMANDER_MCP_CONFIG,
     mcpSecrets: values.ANOMANDER_MCP_SECRETS,
+    authJson: values.ANOMANDER_AUTH_JSON,
   };
 };

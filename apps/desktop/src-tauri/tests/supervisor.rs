@@ -19,6 +19,8 @@ const LISTEN: &str =
 struct Fixture {
     dir: tempfile::TempDir,
     states: Arc<Mutex<Vec<DaemonState>>>,
+    /// What the daemon handed over on its credentials lines (DK-5 AC1).
+    credentials: Arc<Mutex<Vec<String>>>,
     supervisor: Supervisor,
 }
 
@@ -31,6 +33,13 @@ impl Fixture {
         std::fs::write(&script, format!("echo x >> \"$COUNT\"\n{body}\n"))
             .unwrap_or_else(|e| panic!("could not write the fake daemon: {e}"));
         let cwd = dir.path().to_path_buf();
+        let credentials = Arc::new(Mutex::new(Vec::new()));
+        let handed = Arc::clone(&credentials);
+        let on_credentials: Arc<dyn Fn(&str) + Send + Sync> = Arc::new(move |line: &str| {
+            if let Ok(mut handed) = handed.lock() {
+                handed.push(line.to_owned());
+            }
+        });
         let prepare = move || {
             Prepared::Ready(LaunchSpec {
                 program: PathBuf::from("/bin/sh"),
@@ -45,6 +54,7 @@ impl Fixture {
                 port: PORT,
                 token: TOKEN.into(),
                 secrets: vec![SECRET.into(), TOKEN.into()],
+                on_credentials: Some(Arc::clone(&on_credentials)),
             })
         };
         let states = Arc::new(Mutex::new(Vec::new()));
@@ -58,6 +68,7 @@ impl Fixture {
         Fixture {
             dir,
             states,
+            credentials,
             supervisor,
         }
     }
@@ -401,4 +412,23 @@ fn quitting_meanwhile_leaves_no_daemon() {
     quit.join().unwrap_or_else(|_| panic!("quit panicked"));
     std::thread::sleep(Duration::from_millis(300));
     assert_eq!(fixture.supervisor.pid(), None);
+}
+
+#[test]
+fn the_login_the_daemon_hands_over_reaches_the_shell_and_only_the_shell() {
+    let body = format!(
+        "echo 'anomander credentials {{\"openai\":{{\"type\":\"api_key\",\"key\":\"sk-9\"}}}}'\n{LISTEN}\nread -r _"
+    );
+    let fixture = Fixture::new(&body, fast());
+    fixture.supervisor.start();
+    fixture.wait_for_state(DaemonState::Running);
+    let handed = fixture
+        .credentials
+        .lock()
+        .map(|handed| handed.clone())
+        .unwrap_or_default();
+    assert_eq!(
+        handed,
+        vec![r#"{"openai":{"type":"api_key","key":"sk-9"}}"#.to_owned()]
+    );
 }
