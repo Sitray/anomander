@@ -6,7 +6,7 @@
 // sends one back: of what is stored the screen only has the names.
 import { type FormEvent, useEffect, useId, useRef, useState } from 'react';
 import { Field } from '../setup/SetupScreen.tsx';
-import type { ConnectionInput, ConnectionServer, ConnectionsView } from '../shell.ts';
+import type { ConnectionInput, ConnectionServer, ConnectionsView, OAuthConnect } from '../shell.ts';
 import { ErrorBlock } from '../status/StatusBar.tsx';
 import { strings } from '../strings.ts';
 import { messageOf } from '../ui/message-of.ts';
@@ -19,8 +19,20 @@ export interface ConnectionsScreenProps {
   onSave: (server: ConnectionInput) => Promise<ConnectionsView>;
   /** Removes one server; otherwise as `onSave`. */
   onRemove: (name: string) => Promise<ConnectionsView>;
+  /** Connects an HTTP server with OAuth; rejects with the shell's own message. Without it, none. */
+  onConnectOAuth?: (name: string) => Promise<OAuthConnect>;
+  /** Forgets the OAuth tokens of a server; otherwise as `onRemove`. */
+  onForgetOAuth?: (name: string) => Promise<ConnectionsView>;
   onClose: () => void;
 }
+
+/** What the screen last said about OAuth, under the list. */
+type OAuthNote =
+  | { kind: 'authorizing' }
+  | { kind: 'forgetting' }
+  | { kind: 'outcome'; outcome: OAuthConnect['outcome'] }
+  | { kind: 'forgotten' }
+  | { kind: 'failed'; what: 'connect' | 'forget'; message: string };
 
 const { connections: text } = strings;
 
@@ -392,7 +404,14 @@ function ServerForm({ server, taken, onSave, onSaved, onCancel }: FormProps) {
   );
 }
 
-export function ConnectionsScreen({ load, onSave, onRemove, onClose }: ConnectionsScreenProps) {
+export function ConnectionsScreen({
+  load,
+  onSave,
+  onRemove,
+  onConnectOAuth,
+  onForgetOAuth,
+  onClose,
+}: ConnectionsScreenProps) {
   const [view, setView] = useState<ConnectionsView | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [attempt, setAttempt] = useState(0);
@@ -402,6 +421,7 @@ export function ConnectionsScreen({ load, onSave, onRemove, onClose }: Connectio
   const [asked, setAsked] = useState<string | null>(null);
   const [removing, setRemoving] = useState(false);
   const [rejection, setRejection] = useState<string | null>(null);
+  const [oauth, setOAuth] = useState<OAuthNote | null>(null);
   const heading = useRef<HTMLHeadingElement>(null);
   const question = useId();
 
@@ -461,13 +481,66 @@ export function ConnectionsScreen({ load, onSave, onRemove, onClose }: Connectio
   };
 
   const changeable = view !== null && view.invalid === null;
+  /** One OAuth connection or forgetting at a time, and nothing else meanwhile. */
+  const busy = removing || oauth?.kind === 'authorizing' || oauth?.kind === 'forgetting';
+  /**
+   * The screen can be left while the browser waits: the shell keeps what it brings. Not while
+   * a change of the file or the Keychain is halfway.
+   */
+  const held = removing || oauth?.kind === 'forgetting';
+
+  const connect = async (name: string) => {
+    if (onConnectOAuth === undefined || busy) return;
+    setRejection(null);
+    setOAuth({ kind: 'authorizing' });
+    let outcome: OAuthConnect['outcome'];
+    try {
+      ({ outcome } = await onConnectOAuth(name));
+    } catch (error) {
+      setOAuth({ kind: 'failed', what: 'connect', message: messageOf(error) });
+      return;
+    }
+    setOAuth({ kind: 'outcome', outcome });
+    // The shell kept the tokens: the list says so once read again, or at the next opening.
+    if (outcome === 'connected') {
+      try {
+        setView(await load());
+      } catch {
+        // The connection stands; the list shows it once it can be read.
+      }
+    }
+  };
+
+  const forget = async (name: string) => {
+    if (onForgetOAuth === undefined || busy) return;
+    setRejection(null);
+    setOAuth({ kind: 'forgetting' });
+    try {
+      setView(await onForgetOAuth(name));
+      setOAuth({ kind: 'forgotten' });
+    } catch (error) {
+      setOAuth({ kind: 'failed', what: 'forget', message: messageOf(error) });
+    }
+    heading.current?.focus();
+  };
+
+  const said =
+    oauth === null || oauth.kind === 'failed'
+      ? ''
+      : oauth.kind === 'authorizing'
+        ? text.authorizing
+        : oauth.kind === 'forgetting'
+          ? text.forgetting
+          : oauth.kind === 'forgotten'
+            ? text.oauthForgotten
+            : text.oauthOutcome[oauth.outcome];
 
   return (
     <section
       className="setup"
       aria-labelledby={`${question}-title`}
       onKeyDown={(event) => {
-        if (event.key === 'Escape' && !removing) onClose();
+        if (event.key === 'Escape' && !held) onClose();
       }}
     >
       <div className="setup-body">
@@ -545,6 +618,7 @@ export function ConnectionsScreen({ load, onSave, onRemove, onClose }: Connectio
                         type="button"
                         className="link"
                         aria-label={text.editServer(server.name)}
+                        disabled={busy}
                         onClick={() => setEditing(server)}
                       >
                         {text.edit}
@@ -553,6 +627,7 @@ export function ConnectionsScreen({ load, onSave, onRemove, onClose }: Connectio
                         type="button"
                         className="link"
                         aria-label={text.removeServer(server.name)}
+                        disabled={busy}
                         onClick={() => {
                           setRejection(null);
                           setAsked(server.name);
@@ -562,6 +637,37 @@ export function ConnectionsScreen({ load, onSave, onRemove, onClose }: Connectio
                       </button>
                     </>
                   )}
+                  {server.kind === 'http' && onConnectOAuth !== undefined && (
+                    <span className="server-oauth">
+                      {server.oauth && (
+                        <span className="server-oauth-state">{text.oauthConnected}</span>
+                      )}
+                      <button
+                        type="button"
+                        className="link"
+                        aria-label={
+                          server.oauth
+                            ? text.reconnectOAuthFor(server.name)
+                            : text.connectOAuthFor(server.name)
+                        }
+                        disabled={busy}
+                        onClick={() => connect(server.name)}
+                      >
+                        {server.oauth ? text.reconnectOAuth : text.connectOAuth}
+                      </button>
+                      {server.oauth && onForgetOAuth !== undefined && (
+                        <button
+                          type="button"
+                          className="link"
+                          aria-label={text.forgetOAuthFor(server.name)}
+                          disabled={busy}
+                          onClick={() => forget(server.name)}
+                        >
+                          {text.forgetOAuth}
+                        </button>
+                      )}
+                    </span>
+                  )}
                 </li>
               ))}
             </ul>
@@ -570,6 +676,23 @@ export function ConnectionsScreen({ load, onSave, onRemove, onClose }: Connectio
       </div>
 
       <footer className="setup-footer">
+        {oauth?.kind === 'failed' && (
+          <div className="setup-alert" role="alert">
+            <p>{oauth.what === 'connect' ? text.oauthFailed : text.forgetFailed}</p>
+            <ErrorBlock label={strings.status.errorDetail}>{oauth.message}</ErrorBlock>
+          </div>
+        )}
+        {onConnectOAuth !== undefined && (
+          <p
+            className="setup-message"
+            role="status"
+            data-kind={
+              oauth?.kind === 'outcome' && oauth.outcome !== 'connected' ? 'error' : 'note'
+            }
+          >
+            {said}
+          </p>
+        )}
         {rejection !== null && (
           <div className="setup-alert" role="alert">
             <p>{text.removeRejected}</p>
@@ -577,11 +700,16 @@ export function ConnectionsScreen({ load, onSave, onRemove, onClose }: Connectio
           </div>
         )}
         <div className="setup-actions">
-          <button type="button" className="button" onClick={onClose}>
+          <button type="button" className="button" disabled={held} onClick={onClose}>
             {text.close}
           </button>
           {changeable && (
-            <button type="button" className="button primary" onClick={() => setEditing(null)}>
+            <button
+              type="button"
+              className="button primary"
+              disabled={busy}
+              onClick={() => setEditing(null)}
+            >
               {text.add}
             </button>
           )}

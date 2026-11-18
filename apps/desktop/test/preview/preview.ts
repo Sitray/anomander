@@ -7,7 +7,7 @@
 //           stopped_by_principal|failed|unreachable      (default: running)
 //   &setup=empty|filled                                   (default: by the daemon's state)
 //   &error=long                                           a 300-character last error
-//   &fail=start|stop|save                                 that command is refused
+//   &fail=start|stop|save|oauth                           that command is refused
 //   &connections=none|invalid                             (default: two servers)
 //
 // The scripted daemon answers by what is typed: "mercadona" asks a Sí/No question, "rechaza" is
@@ -129,6 +129,7 @@ const saveConnection = ({ original, values, ...server }: ConnectionInput): Conne
   const before = connections.servers.find((known) => known.name === original);
   const saved = {
     ...server,
+    oauth: before?.oauth === true && before.kind === server.kind,
     values: values.map(({ name, value }) => ({
       name,
       stored:
@@ -170,6 +171,30 @@ mockIPC(
         };
         comeUp();
         return connections;
+      }
+      case 'connect_oauth':
+      case 'forget_oauth': {
+        // The principal takes a moment in the browser; `refused=oauth` shows a failure.
+        const { name } = payload as { name: string };
+        const connected = command === 'connect_oauth';
+        return new Promise((resolve, reject) =>
+          setTimeout(
+            () => {
+              if (refused === 'oauth') {
+                reject('could not connect with OAuth: ECONNREFUSED');
+                return;
+              }
+              connections = {
+                servers: connections.servers.map((known) =>
+                  known.name === name ? { ...known, oauth: connected } : known,
+                ),
+                invalid: null,
+              };
+              resolve(connected ? { outcome: 'connected' } : connections);
+            },
+            connected ? 1500 : 0,
+          ),
+        );
       }
       default:
         throw `unknown command: ${command}`;

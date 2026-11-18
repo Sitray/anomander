@@ -81,6 +81,7 @@ export const CONNECTIONS: ConnectionsView = {
         { name: 'DEBUG', stored: false },
       ],
       readOnly: ['search'],
+      oauth: false,
     },
     {
       name: 'remote',
@@ -88,6 +89,7 @@ export const CONNECTIONS: ConnectionsView = {
       url: 'https://example.com/mcp',
       values: [{ name: 'Authorization', stored: true }],
       readOnly: [],
+      oauth: false,
     },
   ],
   invalid: null,

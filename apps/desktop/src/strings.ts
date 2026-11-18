@@ -214,6 +214,26 @@ export const strings = {
     removeRejected: 'No se ha quitado. Esto dice la aplicación:',
     close: 'Cerrar',
 
+    oauthConnected: 'Conectado con OAuth',
+    connectOAuth: 'Conectar con OAuth',
+    connectOAuthFor: (name: string) => `Conectar ${name} con OAuth`,
+    reconnectOAuth: 'Volver a conectar',
+    reconnectOAuthFor: (name: string) => `Volver a conectar ${name} con OAuth`,
+    forgetOAuth: 'Olvidar OAuth',
+    forgetOAuthFor: (name: string) => `Olvidar el acceso OAuth de ${name}`,
+    authorizing:
+      'Se ha abierto tu navegador: da permiso a ANOMANDER en esa página. Tienes 5 minutos. Puedes cerrar esta pantalla mientras tanto.',
+    oauthOutcome: {
+      connected: 'Conectado con OAuth.',
+      denied: 'No se ha conectado: en el navegador no se dio permiso.',
+      timed_out: 'No se ha conectado: el navegador no volvió en 5 minutos.',
+    },
+    /** The shell's own message follows, verbatim. */
+    oauthFailed: 'No se ha podido conectar con OAuth. Esto dice la aplicación:',
+    forgetting: 'Olvidando…',
+    oauthForgotten: 'Se ha olvidado el acceso OAuth.',
+    forgetFailed: 'No se ha olvidado el acceso OAuth. Esto dice la aplicación:',
+
     newTitle: 'Añadir servidor',
     editTitle: (name: string) => `Editar «${name}»`,
     name: 'Nombre',

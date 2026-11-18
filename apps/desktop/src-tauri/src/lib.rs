@@ -9,6 +9,7 @@ pub mod daemon;
 pub mod data_dir;
 pub mod ledger_import;
 pub mod notification;
+pub mod oauth_connect;
 pub mod screen;
 pub mod secure_store;
 pub mod setup;
@@ -27,6 +28,7 @@ use crate::daemon::launch::launch_token;
 use crate::daemon::supervisor::{Options, Supervisor, Update};
 use crate::data_dir::{DataDir, FOLDER_NAME};
 use crate::ledger_import::LedgerImport;
+use crate::oauth_connect::{open_in_browser, OAuthConnect};
 use crate::setup::{load_settings, Settings, SetupInput};
 use crate::shell::Core;
 use crate::snapshot::{DaemonState, Snapshot};
@@ -158,6 +160,37 @@ async fn remove_connection(app: AppHandle, name: String) -> Result<ConnectionsVi
     blocking(app, move |shell| {
         shell.core.remove_connection(&name)?;
         Ok(shell.reread_connections())
+    })
+    .await
+}
+
+/// DK-11: connects the app to an HTTP server with OAuth. The principal authorizes it in the
+/// browser, which can take minutes: the daemon runs meanwhile. The tokens are stored with it
+/// stopped, so a refresh it hands over cannot overwrite them; it starts again if it ran.
+#[tauri::command]
+async fn connect_oauth(app: AppHandle, name: String) -> Result<OAuthConnect, String> {
+    blocking(app, move |shell| {
+        // Held until the tokens are stored.
+        let _turn = shell.core.oauth_turn()?;
+        let (ran, url) = shell.core.connect_oauth(&name, &open_in_browser)?;
+        if let Some(entry) = ran.entry {
+            shell
+                .supervisor
+                .while_stopped(|| shell.core.keep_oauth(&name, &url, entry))?;
+        }
+        Ok(ran.outcome)
+    })
+    .await
+}
+
+/// DK-11: forgets the OAuth tokens of a server, with the daemon stopped as `connect_oauth`.
+#[tauri::command]
+async fn forget_oauth(app: AppHandle, name: String) -> Result<ConnectionsView, String> {
+    blocking(app, move |shell| {
+        shell
+            .supervisor
+            .while_stopped(|| shell.core.forget_oauth(&name))?;
+        Ok(shell.core.connections())
     })
     .await
 }
@@ -403,6 +436,8 @@ pub fn run() {
             save_connection,
             remove_connection,
             import_ledger,
+            connect_oauth,
+            forget_oauth,
             start_daemon,
             stop_daemon,
             set_thinking,

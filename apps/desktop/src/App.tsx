@@ -114,6 +114,8 @@ export function App() {
                   load={shell.connections}
                   onSave={shell.saveConnection}
                   onRemove={shell.removeConnection}
+                  onConnectOAuth={shell.connectOAuth}
+                  onForgetOAuth={shell.forgetOAuth}
                   onClose={close}
                 />
               </div>

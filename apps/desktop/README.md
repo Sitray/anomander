@@ -157,6 +157,19 @@ is framework-free, so it is tested against a fake `WebSocket` (`test/fake-web-so
   above. A save starts the daemon again, which reads the file at its start, and so ends a task
   that was running; a daemon that is stopped stays stopped and reads the file when it is next
   started.
+- **OAuth** (DK-11 AC10): a server reached by its URL has "Conectar con OAuth". The shell
+  (`src-tauri/src/oauth_connect.rs`) runs `packages/daemon/scripts/mcp-oauth.ts` with Node,
+  opens the authorization address it prints with `/usr/bin/open` only when it is `https` (or
+  `http` on this machine), and keeps the client and tokens it prints in the Keychain item
+  `mcp-oauth`, with the server's URL, never sending them to the window. That store, and
+  "Olvidar OAuth", run under `Supervisor::while_stopped`, so a token the daemon refreshes
+  meanwhile cannot overwrite them; the daemon starts again after if it ran. At each start the
+  tokens of a server no longer in `mcp.json` at that URL are dropped, the rest go in
+  `ANOMANDER_MCP_OAUTH` (none while `mcp.json` is a link or cannot be read, or while the
+  Keychain cannot give them: the daemon starts without them), only their tokens
+  and client secrets are hidden from the daemon's output, and each `anomander mcp-oauth` line
+  the daemon prints is stored and never forwarded. One connection runs at a time
+  (`Core::oauth_turn`); the screen can be closed while the browser waits.
 - **Link buttons** (`{label, url}`) are named, not offered: this WebView cannot open links, and
   `/login` stays in Telegram (DK-4 AC7).
 - **Secrets** typed in the setup screen, or as a value in the connections screen, stay in

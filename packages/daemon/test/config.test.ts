@@ -53,6 +53,7 @@ describe('loadConfig', () => {
       mcpConfigPath: undefined,
       mcpSecrets: undefined,
       authJson: undefined,
+      mcpOAuth: undefined,
     });
   });
 
@@ -82,6 +83,16 @@ describe('loadConfig', () => {
         ANOMANDER_MCP_SECRETS: '{"mcp/notes/env/T":"abc"}',
       }).mcpSecrets,
     ).toBe('{"mcp/notes/env/T":"abc"}');
+  });
+
+  it('reads the OAuth tokens the app hands over (DK-11)', () => {
+    expect(
+      loadConfig({
+        TELEGRAM_BOT_TOKEN: '123:abc',
+        ANOMANDER_PRINCIPAL_CHAT_ID: '4242',
+        ANOMANDER_MCP_OAUTH: '{}',
+      }).mcpOAuth,
+    ).toBe('{}');
   });
 
   it('reads the model login the app hands over (DK-5 AC1)', () => {
