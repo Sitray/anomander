@@ -165,6 +165,11 @@ is framework-free, so it is tested against a fake `WebSocket` (`test/fake-web-so
 - **Snapshots** carry no sequence number, so an event that arrived while a command was on its
   way wins over that command's answer.
 
+- **The model login** (DK-5 AC1) lives in the Keychain item `model-login`. The shell hands it to
+  the daemon in `ANOMANDER_AUTH_JSON`, and the supervisor takes each line the daemon starts with
+  `anomander credentials ` out of its output and stores it (`Core::login_handler`); that line is
+  never forwarded. An `auth.json` left in the data folder is merged in at a start and removed
+  once stored.
 - **A ledger from Docker** (DK-12) is imported from the setup screen's link: the principal
   pastes the full path of a file they copied out of the volume. The shell runs
   `packages/daemon/scripts/import-ledger.ts` with the daemon stopped (`Supervisor::while_stopped`:

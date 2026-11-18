@@ -1,13 +1,13 @@
 // Daemon entry point: reads the configuration (PRD §14.4), resolves the model through pi-ai
 // (R-15 AC1) and starts the store, the Telegram front door and, while `ANOMANDER_API_TOKEN` is set,
 // the read API (RA-2), or the setup guide while `.env` names no usable model (R-28). pi-ai reads the stored logins from `ANOMANDER_AUTH_PATH` on every
-// request (R-15 AC3, R-27 AC5).
+// request (R-15 AC3, R-27 AC5), or, under the desktop app, from `ANOMANDER_AUTH_JSON` (DK-5 AC1).
 import { type ExitCode, exitCodes } from '@anomander/protocol';
 import { isBotInUse } from '@anomander/telegram';
 import { builtinModels } from '@earendil-works/pi-ai/providers/all';
 import { startAnomander, startSetupGuide } from './app.ts';
 import { createDeviceId } from './auth/device-id.ts';
-import { createFileCredentialStore } from './auth/file-credential-store.ts';
+import { credentialStoreFor } from './auth/shell-credential-store.ts';
 import { loadConfig } from './config.ts';
 import { createConnectionGaps, resolveModels } from './setup/setup-guide.ts';
 import { DaemonAlreadyRunningError } from './store/daemon-lock.ts';
@@ -31,7 +31,14 @@ const config = (() => {
   }
 })();
 
-const credentials = createFileCredentialStore(config.authPath);
+// DK-5 AC1: the login the desktop app keeps in the Keychain, or the file of a Docker install.
+const credentials = (() => {
+  try {
+    return credentialStoreFor(config);
+  } catch (error) {
+    return fail(reason(error));
+  }
+})();
 const models = builtinModels({ credentials });
 const resolved = resolveModels(config, (provider, id) => models.getModel(provider, id));
 const login = {

@@ -634,6 +634,13 @@ expired tokens itself. Sign in with ChatGPT also needs a stable installation ID,
 `<ANOMANDER_AUTH_PATH>.device-id`. Logs carry the provider ID and the outcome only, never a
 token, link or pasted text.
 
+Under the desktop app (DK-5 AC1) there is no such file: the app hands the login over in
+`ANOMANDER_AUTH_JSON` (the same shape), and `src/auth/shell-credential-store.ts` keeps it in
+memory. After every change it prints the whole set on one line,
+`anomander credentials <json>`, before the change answers; the app stores it in the Keychain and
+never forwards that line. `credentialStoreFor` picks the store: the app's when the variable is
+set, the file otherwise. The device ID file stays where it was.
+
 Each provider sets its own terms for using a subscription outside its own apps. Check them before
 connecting an account.
 
@@ -690,6 +697,7 @@ The error names every missing required variable.
 | `ANOMANDER_LOCAL_TOKEN` | unset: the local channel is off (DK-3). At least 32 characters |
 | `ANOMANDER_LOCAL_PORT` | `4312`, from 1 to 65535 |
 | `ANOMANDER_MCP_CONFIG` | unset: no connections (DK-11). The path of `mcp.json` |
+| `ANOMANDER_AUTH_JSON` | unset. Set by the desktop app: the model login it keeps in the Keychain, in the shape of `auth.json`; while set, `ANOMANDER_AUTH_PATH` is not used (DK-5 AC1) |
 | `ANOMANDER_MCP_SECRETS` | unset. Set by the desktop app: a JSON object with the values it keeps in the Keychain for `mcp.json`, by `mcp/<server>/<env or headers>/<name>`; each fills an `@keychain` in the file |
 
 The read API's variables come from `docs/read-access-prd.md` §8 until it moves into PRD §14.4;
