@@ -29,6 +29,7 @@ export interface ConnectionsScreenProps {
 /** What the screen last said about OAuth, under the list. */
 type OAuthNote =
   | { kind: 'authorizing' }
+  | { kind: 'forgetting' }
   | { kind: 'outcome'; outcome: OAuthConnect['outcome'] }
   | { kind: 'forgotten' }
   | { kind: 'failed'; what: 'connect' | 'forget'; message: string };
@@ -481,7 +482,12 @@ export function ConnectionsScreen({
 
   const changeable = view !== null && view.invalid === null;
   /** One OAuth connection or forgetting at a time, and nothing else meanwhile. */
-  const busy = removing || oauth?.kind === 'authorizing';
+  const busy = removing || oauth?.kind === 'authorizing' || oauth?.kind === 'forgetting';
+  /**
+   * The screen can be left while the browser waits: the shell keeps what it brings. Not while
+   * a change of the file or the Keychain is halfway.
+   */
+  const held = removing || oauth?.kind === 'forgetting';
 
   const connect = async (name: string) => {
     if (onConnectOAuth === undefined || busy) return;
@@ -500,7 +506,7 @@ export function ConnectionsScreen({
   const forget = async (name: string) => {
     if (onForgetOAuth === undefined || busy) return;
     setRejection(null);
-    setOAuth({ kind: 'authorizing' });
+    setOAuth({ kind: 'forgetting' });
     try {
       setView(await onForgetOAuth(name));
       setOAuth({ kind: 'forgotten' });
@@ -515,16 +521,18 @@ export function ConnectionsScreen({
       ? ''
       : oauth.kind === 'authorizing'
         ? text.authorizing
-        : oauth.kind === 'forgotten'
-          ? text.oauthForgotten
-          : text.oauthOutcome[oauth.outcome];
+        : oauth.kind === 'forgetting'
+          ? text.forgetting
+          : oauth.kind === 'forgotten'
+            ? text.oauthForgotten
+            : text.oauthOutcome[oauth.outcome];
 
   return (
     <section
       className="setup"
       aria-labelledby={`${question}-title`}
       onKeyDown={(event) => {
-        if (event.key === 'Escape' && !busy) onClose();
+        if (event.key === 'Escape' && !held) onClose();
       }}
     >
       <div className="setup-body">
@@ -684,7 +692,7 @@ export function ConnectionsScreen({
           </div>
         )}
         <div className="setup-actions">
-          <button type="button" className="button" disabled={busy} onClick={onClose}>
+          <button type="button" className="button" disabled={held} onClick={onClose}>
             {text.close}
           </button>
           {changeable && (

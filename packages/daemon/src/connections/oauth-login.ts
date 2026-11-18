@@ -52,7 +52,6 @@ const listenForRedirect = async (state: string) => {
     answered = resolve;
   });
   const server: Server = createServer((request, response) => {
-    const url = new URL(request.url ?? '/', 'http://127.0.0.1');
     const reply = (status: number, text: string) =>
       response
         .writeHead(status, {
@@ -61,6 +60,12 @@ const listenForRedirect = async (state: string) => {
           'Referrer-Policy': 'no-referrer',
         })
         .end(page(text));
+    // A request target that is not a URL must not end the wait.
+    const url = URL.parse(request.url ?? '/', 'http://127.0.0.1');
+    if (url === null) {
+      reply(400, PAGES.wrong);
+      return;
+    }
     if (request.method !== 'GET' || url.pathname !== '/callback') {
       reply(404, PAGES.wrong);
       return;

@@ -145,7 +145,10 @@ export const createConnections = (deps: ConnectionsDeps): Connections => {
     config,
     logger,
     open = async (name, server) =>
-      transportFor(server, server.kind === 'http' ? deps.oauth?.providerFor(name) : undefined),
+      transportFor(
+        server,
+        server.kind === 'http' ? deps.oauth?.providerFor(name, server.url) : undefined,
+      ),
     now = Date.now,
     closeWaitMs = CLOSE_WAIT_MS,
   } = deps;

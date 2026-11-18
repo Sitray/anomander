@@ -170,6 +170,8 @@ async fn remove_connection(app: AppHandle, name: String) -> Result<ConnectionsVi
 #[tauri::command]
 async fn connect_oauth(app: AppHandle, name: String) -> Result<OAuthConnect, String> {
     blocking(app, move |shell| {
+        // Held until the tokens are stored.
+        let _turn = shell.core.oauth_turn()?;
         let (ran, url) = shell.core.connect_oauth(&name, &open_in_browser)?;
         if let Some(entry) = ran.entry {
             shell

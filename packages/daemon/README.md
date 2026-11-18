@@ -523,7 +523,7 @@ flow with PKCE. It listens on a free port of `127.0.0.1` for the redirect, takes
 The daemon gets the set in `ANOMANDER_MCP_OAUTH` (`src/connections/oauth.ts`) and connects such a
 server through the SDK's `authProvider`. A token refresh prints the whole set on one line,
 `anomander mcp-oauth <json>`, for the app to store; a refused refresh drops the server's tokens,
-and the server is left out. The daemon never opens a browser or registers a client. A server's
+and the server is left out. Tokens go to a server only at the URL the app kept with them. The daemon never opens a browser or registers a client. A server's
 configured headers are sent only to its own origin (`originScopedFetch`): the SDK sends its OAuth
 requests through the same fetch.
 

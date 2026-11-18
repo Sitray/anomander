@@ -62,7 +62,7 @@ describe('connecting a server with OAuth', () => {
 
   it('asks to authorize in the browser meanwhile, then says it is connected', async () => {
     let answer: (value: OAuthConnect) => void = () => {};
-    const { onConnectOAuth, onClose } = await renderScreen(
+    const { onConnectOAuth } = await renderScreen(
       () =>
         new Promise((resolve) => {
           answer = resolve;
@@ -81,10 +81,6 @@ describe('connecting a server with OAuth', () => {
     for (const name of [text.editServer('remote'), text.removeServer('notes'), text.add]) {
       expect((screen.getByRole('button', { name }) as HTMLButtonElement).disabled).toBe(true);
     }
-    // The window does not close under a connection that waits for the browser.
-    fireEvent.keyDown(screen.getByRole('heading', { name: text.title }), { key: 'Escape' });
-    expect(onClose).not.toHaveBeenCalled();
-
     answer({ outcome: 'connected' });
 
     await waitFor(() =>
@@ -117,6 +113,16 @@ describe('connecting a server with OAuth', () => {
     const alert = await screen.findByRole('alert');
     expect(alert.textContent).toContain(text.oauthFailed);
     expect(alert.textContent).toContain('ECONNREFUSED');
+  });
+
+  it('can be left while the browser waits', async () => {
+    const { onClose } = await renderScreen(() => new Promise(() => {}));
+    fireEvent.click(screen.getByRole('button', { name: text.connectOAuthFor('remote') }));
+
+    fireEvent.keyDown(screen.getByRole('heading', { name: text.title }), { key: 'Escape' });
+    fireEvent.click(screen.getByRole('button', { name: text.close }));
+
+    expect(onClose).toHaveBeenCalledTimes(2);
   });
 });
 

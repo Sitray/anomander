@@ -1,5 +1,6 @@
 // What the shell knows besides the daemon's status: the data folder (DK-8), the setup and its
 // secrets (DK-5) and this launch's token (DK-3 AC2), and how they become one start of the daemon.
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use crate::connection_secrets::sweep;
@@ -115,6 +116,17 @@ pub struct Core {
     /// DK-3 AC2: generated at each app launch, kept only in memory.
     token: String,
     setup: Mutex<SetupCache>,
+    /// DK-11: an OAuth connection runs, from the browser to its tokens stored.
+    connecting: AtomicBool,
+}
+
+/// The one OAuth connection running; the next may start once this is dropped.
+pub struct OAuthTurn<'a>(&'a AtomicBool);
+
+impl Drop for OAuthTurn<'_> {
+    fn drop(&mut self) {
+        self.0.store(false, Ordering::SeqCst);
+    }
 }
 
 /// The setup as last saved. Whether the bot token exists is cached, so a snapshot never reads
@@ -152,6 +164,7 @@ impl Core {
                 settings,
                 has_telegram_bot_token,
             }),
+            connecting: AtomicBool::new(false),
         }
     }
 
@@ -332,14 +345,15 @@ impl Core {
         })
     }
 
-    /// DK-11: the OAuth tokens kept for the servers of `mcp.json`. Those of a server removed,
-    /// renamed or moved to another address are dropped, and the store is told. While the file is
-    /// not as the daemon reads it, nothing is dropped.
+    /// DK-11: the OAuth tokens to hand the daemon, those of the servers of `mcp.json` at the
+    /// address they were given for. Those of a server removed, renamed or moved are dropped, and
+    /// the store is told. While the shell cannot read the file (a link, which the daemon follows,
+    /// or one half written) none is handed over and none is dropped: the principal may fix it.
     fn mcp_oauth(&self) -> Result<OAuthSet, String> {
         let set = oauth_connect::stored(self.store.as_ref())?;
         let view = self.connections();
         if view.invalid.is_some() {
-            return Ok(set);
+            return Ok(OAuthSet::new());
         }
         let servers: Vec<(String, String)> = view
             .servers
@@ -372,6 +386,15 @@ impl Core {
             Some(_) => Err("only a server reached by its address connects with OAuth".into()),
             None => Err(format!("there is no server named {name}")),
         }
+    }
+
+    /// DK-11: the turn of an OAuth connection. One at a time: the window can be closed and opened
+    /// again while the browser waits, and two connections would race to store their tokens.
+    pub fn oauth_turn(&self) -> Result<OAuthTurn<'_>, String> {
+        if self.connecting.swap(true, Ordering::SeqCst) {
+            return Err("another OAuth connection is waiting for the browser".into());
+        }
+        Ok(OAuthTurn(&self.connecting))
     }
 
     /// DK-11: connects the app to the server `name` with OAuth, `open` opening the address the
@@ -487,7 +510,7 @@ impl Core {
         );
         let mut redacted = vec![bot_token, self.token.clone()];
         redacted.extend(tokens_of(&login));
-        redacted.extend(tokens_of(&mcp_oauth));
+        redacted.extend(oauth_connect::secrets_of(&mcp_oauth));
         redacted.extend(secrets.provider_keys.into_iter().map(|(_, key)| key));
         redacted.extend(
             connection_secrets
@@ -695,6 +718,83 @@ mod tests {
     }
 
     #[test]
+    fn tokens_are_not_handed_over_while_the_file_is_not_as_the_shell_reads_it() -> Result<(), String>
+    {
+        let (store, settings) = configured();
+        let f = fixture(store, settings);
+        with_servers(&f);
+        f.core
+            .keep_oauth("notes", "https://notes.example/mcp", entry())?;
+        // A link the daemon follows but the shell does not read, naming another address.
+        let linked = f.root.parent().ok_or("no parent")?.join("linked-mcp.json");
+        std::fs::write(
+            &linked,
+            json!({"mcpServers":{"notes":{"url":"https://evil.example/mcp"}}}).to_string(),
+        )
+        .map_err(|e| e.to_string())?;
+        std::fs::remove_file(f.root.join("mcp.json")).map_err(|e| e.to_string())?;
+        std::os::unix::fs::symlink(&linked, f.root.join("mcp.json")).map_err(|e| e.to_string())?;
+
+        assert_eq!(oauth_env(&ready(&f.core)), Some(json!({})));
+        // Kept, not dropped: the principal may fix the file.
+        std::fs::remove_file(f.root.join("mcp.json")).map_err(|e| e.to_string())?;
+        with_servers(&f);
+        assert!(f.core.connections().servers[0].oauth);
+        Ok(())
+    }
+
+    #[test]
+    fn only_the_secrets_of_an_oauth_entry_are_hidden_from_the_daemons_output() -> Result<(), String>
+    {
+        let (store, settings) = configured();
+        let f = fixture(store, settings);
+        with_servers(&f);
+        let mut kept = entry();
+        kept.insert(
+            "client".into(),
+            json!({"client_id":"c-1","client_name":"ANOMANDER","client_secret":"oauth-client-secret",
+                "grant_types":["authorization_code","refresh_token"],
+                "redirect_uris":["http://127.0.0.1:54177/callback"]}),
+        );
+        kept.insert(
+            "tokens".into(),
+            json!({"access_token":"oauth-access-1","refresh_token":"oauth-refresh-1",
+                "id_token":"oauth-id-1","token_type":"Bearer","scope":"read write"}),
+        );
+        f.core
+            .keep_oauth("notes", "https://notes.example/mcp", kept)?;
+        let spec = ready(&f.core);
+        let mut hidden: Vec<_> = spec
+            .secrets
+            .iter()
+            .filter(|secret| secret.starts_with("oauth-"))
+            .cloned()
+            .collect();
+        hidden.sort();
+        assert_eq!(
+            hidden,
+            [
+                "oauth-access-1",
+                "oauth-client-secret",
+                "oauth-id-1",
+                "oauth-refresh-1"
+            ]
+        );
+        for plain in [
+            "ANOMANDER",
+            "authorization_code",
+            "refresh_token",
+            "https://notes.example/mcp",
+        ] {
+            assert!(
+                !spec.secrets.iter().any(|secret| secret == plain),
+                "{plain}"
+            );
+        }
+        Ok(())
+    }
+
+    #[test]
     fn tokens_of_a_server_removed_renamed_or_moved_are_dropped() -> Result<(), String> {
         let (store, settings) = configured();
         let f = fixture(store, settings);
@@ -761,6 +861,20 @@ mod tests {
             f.core.connect_oauth("nobody", &never).err(),
             Some("there is no server named nobody".into())
         );
+    }
+
+    #[test]
+    fn one_oauth_connection_runs_at_a_time() {
+        let (store, settings) = configured();
+        let f = fixture(store, settings);
+        let turn = f.core.oauth_turn();
+        assert!(turn.is_ok());
+        assert_eq!(
+            f.core.oauth_turn().err(),
+            Some("another OAuth connection is waiting for the browser".into())
+        );
+        drop(turn);
+        assert!(f.core.oauth_turn().is_ok());
     }
 
     #[test]

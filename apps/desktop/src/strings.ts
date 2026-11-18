@@ -222,7 +222,7 @@ export const strings = {
     forgetOAuth: 'Olvidar OAuth',
     forgetOAuthFor: (name: string) => `Olvidar el acceso OAuth de ${name}`,
     authorizing:
-      'Se ha abierto tu navegador: da permiso a ANOMANDER en esa página. Tienes 5 minutos.',
+      'Se ha abierto tu navegador: da permiso a ANOMANDER en esa página. Tienes 5 minutos. Puedes cerrar esta pantalla mientras tanto.',
     oauthOutcome: {
       connected: 'Conectado con OAuth.',
       denied: 'No se ha conectado: en el navegador no se dio permiso.',
@@ -230,6 +230,7 @@ export const strings = {
     },
     /** The shell's own message follows, verbatim. */
     oauthFailed: 'No se ha podido conectar con OAuth. Esto dice la aplicación:',
+    forgetting: 'Olvidando…',
     oauthForgotten: 'Se ha olvidado el acceso OAuth.',
     forgetFailed: 'No se ha olvidado el acceso OAuth. Esto dice la aplicación:',
 

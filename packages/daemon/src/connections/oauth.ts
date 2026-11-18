@@ -25,6 +25,8 @@ export interface OAuthEntry {
   tokens: OAuthTokens;
   /** The address the client was registered with: its authorization server checks it. */
   redirectUrl: string;
+  /** The server's address the tokens were given for: the app sets it, and they go nowhere else. */
+  url?: string;
 }
 
 export type OAuthSet = Record<string, OAuthEntry>;
@@ -51,8 +53,11 @@ export const printOAuthForShell =
     write(`${MCP_OAUTH_LINE}${JSON.stringify(entries)}\n`);
 
 export interface OAuthKeeper {
-  /** The provider of a server connected with OAuth; `undefined` for any other. */
-  providerFor(server: string): OAuthClientProvider | undefined;
+  /**
+   * The provider of `server`, connected with OAuth at `url`; `undefined` for any other server,
+   * and for that one at another address.
+   */
+  providerFor(server: string, url: string): OAuthClientProvider | undefined;
 }
 
 export const createOAuthKeeper = (
@@ -66,9 +71,10 @@ export const createOAuthKeeper = (
   };
 
   return {
-    providerFor: (server) => {
+    providerFor: (server, url) => {
       const first = Object.hasOwn(entries, server) ? entries[server] : undefined;
-      if (first === undefined) return undefined;
+      // The app drops the tokens of a moved server; this holds even if it could not.
+      if (first === undefined || first.url !== url) return undefined;
       // Kept after the tokens are dropped: the SDK must never register a new client here.
       const { client, redirectUrl } = first;
       // What else the app keeps in the entry (the server's address) stays as it was.

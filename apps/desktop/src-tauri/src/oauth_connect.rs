@@ -118,7 +118,9 @@ pub fn run(
         .spawn()
         .map_err(|error| format!("could not start {}: {error}", node.display()))?;
     let stdout = child.stdout.take();
+    // Read meanwhile: a full error pipe would hold the script, and so the reading below.
     let stderr = child.stderr.take();
+    let stderr_reader = std::thread::spawn(move || stderr.map(read_all).unwrap_or_default());
     let child = Arc::new(Mutex::new(child));
     let done = Arc::new(Mutex::new(false));
 
@@ -176,7 +178,7 @@ pub fn run(
             }
         }
     }
-    let said = stderr.map(read_all).unwrap_or_default();
+    let said = stderr_reader.join().unwrap_or_default();
     let status = child.lock().map_err(|_| "poisoned".to_string())?.wait();
     if let Ok(mut done) = done.lock() {
         *done = true;
@@ -201,7 +203,7 @@ pub fn run(
     // Its error output holds only an error code, never an address or a token.
     let reason = said.lines().rev().find(|line| !line.trim().is_empty());
     Err(match reason {
-        Some(reason) => reason.trim().to_string(),
+        Some(reason) => reason.trim().chars().take(300).collect(),
         None => format!("the connection ended without an answer ({status})"),
     })
 }
@@ -231,6 +233,29 @@ pub fn store_set(store: &dyn SecretStore, set: &OAuthSet) -> Result<(), String> 
     store
         .set(ITEM, &Value::Object(set.clone()).to_string())
         .map_err(|error| error.to_string())
+}
+
+/// The secrets of `set`, to hide in the daemon's output: its tokens and client secrets. The rest
+/// of an entry (the app's name, grant types, addresses) is no secret and stays readable.
+pub fn secrets_of(set: &OAuthSet) -> Vec<String> {
+    const SECRET: [(&str, &str); 4] = [
+        ("tokens", "access_token"),
+        ("tokens", "refresh_token"),
+        ("tokens", "id_token"),
+        ("client", "client_secret"),
+    ];
+    set.values()
+        .flat_map(|entry| {
+            SECRET.iter().filter_map(move |(part, field)| {
+                entry
+                    .get(part)?
+                    .get(field)?
+                    .as_str()
+                    .filter(|text| !text.is_empty())
+            })
+        })
+        .map(str::to_owned)
+        .collect()
 }
 
 /// Whether `set` holds tokens of `server` given for `url`.
@@ -355,6 +380,19 @@ echo connected"#,
         // Connected, but no tokens printed.
         assert!(run_fake("echo connected", &opened).is_err());
         assert!(run_fake("echo 'anomander oauth-done [1]'\necho connected", &opened).is_err());
+    }
+
+    #[test]
+    fn a_long_error_output_does_not_hold_the_run() {
+        let opened = Mutex::new(Vec::new());
+        let started = Instant::now();
+        let ran = run_fake(
+            "head -c 200000 /dev/zero | tr '\\0' x >&2\necho >&2\nhead -c 900 /dev/zero | tr '\\0' y >&2\nexit 1",
+            &opened,
+        );
+        assert!(started.elapsed() < Duration::from_secs(4));
+        // The last line, cut: a script could write anything there.
+        assert_eq!(ran.err(), Some("y".repeat(300)));
     }
 
     #[test]

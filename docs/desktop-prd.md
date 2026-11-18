@@ -204,12 +204,16 @@ and keep its secrets in the operating system instead of a text file.
     a port on `127.0.0.1`, open only while it waits, up to 5 minutes, and taken only with the
     `state` it sent. The client and its tokens are stored in the Keychain with the server's
     name and URL; the window only learns that they are kept ("Conectado con OAuth") and can
-    forget them ("Olvidar OAuth"). They are handed to the daemon at its start and only for that
-    server at that URL: a server removed, renamed or moved to another URL loses them. The
+    forget them ("Olvidar OAuth"). The screen can be closed while the browser waits; one
+    connection runs at a time. They are handed to the daemon at its start and only for that
+    server at that URL: a server removed, renamed or moved to another URL loses them, and none
+    is handed over while the shell cannot read `mcp.json` (a link, or a file half written); only
+    the tokens and client secrets are hidden from the daemon's output. The
     daemon refreshes them itself and hands every refresh back, as the model login (DK-5 AC1);
     it never opens a browser, so a server whose refresh is refused is left out until the
-    principal connects it again. A server's configured headers go only to its own origin,
-    never to its authorization server.
+    principal connects it again. A server's configured headers go only to its own origin: an
+    authorization server on another origin never gets them, one on the same origin does, and on
+    a request to the server the OAuth token replaces a configured `Authorization` header.
   - Open, for the principal: a value written in `mcp.json` is in the file until the next start
     of the daemon, and in whatever copied the file meanwhile (a backup, an editor); a server
     whose authorization server does not take dynamic registration, or a redirect to a port of

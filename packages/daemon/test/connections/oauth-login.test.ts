@@ -1,4 +1,5 @@
 import { spawn } from 'node:child_process';
+import { connect } from 'node:net';
 import { resolve } from 'node:path';
 import { createInterface } from 'node:readline';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -64,6 +65,33 @@ describe('connecting with OAuth', () => {
     });
 
     expect(pages).toEqual([400, 200]);
+    expect(outcome.kind).toBe('connected');
+  });
+
+  it('answers a request it cannot read, and keeps waiting for the redirect', async () => {
+    const answers: string[] = [];
+    const outcome = await connectWithOAuth({
+      url: fixture.mcpUrl,
+      open: async (address) => {
+        const port = Number(new URL(new URL(address).searchParams.get('redirect_uri') ?? '').port);
+        answers.push(
+          await new Promise<string>((done) => {
+            const socket = connect(port, '127.0.0.1', () => {
+              socket.write('GET //[ HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n');
+            });
+            let text = '';
+            socket.on('data', (chunk) => {
+              text += chunk;
+              socket.end();
+            });
+            socket.on('close', () => done(text.split('\r\n')[0] ?? ''));
+          }),
+        );
+        await authorize(address);
+      },
+    });
+
+    expect(answers).toEqual(['HTTP/1.1 400 Bad Request']);
     expect(outcome.kind).toBe('connected');
   });
 

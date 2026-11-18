@@ -18,7 +18,9 @@ const ENTRY: OAuthEntry = {
   client: { client_id: 'client-1', redirect_uris: ['http://127.0.0.1:50000/callback'] },
   tokens: { access_token: 'access-secret', token_type: 'Bearer', refresh_token: 'refresh-secret' },
   redirectUrl: 'http://127.0.0.1:50000/callback',
+  url: 'https://notes.example/mcp',
 };
+const NOTES = 'https://notes.example/mcp';
 
 const keeper = (initial: Record<string, OAuthEntry> = { notes: ENTRY }) => {
   const sent: unknown[] = [];
@@ -28,38 +30,47 @@ const keeper = (initial: Record<string, OAuthEntry> = { notes: ENTRY }) => {
 describe('the tokens the app keeps', () => {
   it('gives a provider only for a server that has tokens', async () => {
     const { keeper: kept } = keeper();
-    expect(kept.providerFor('other')).toBeUndefined();
-    const provider = kept.providerFor('notes');
+    expect(kept.providerFor('other', NOTES)).toBeUndefined();
+    const provider = kept.providerFor('notes', NOTES);
     expect(await provider?.tokens()).toEqual(ENTRY.tokens);
     expect(await provider?.clientInformation()).toEqual(ENTRY.client);
     expect(provider?.redirectUrl).toBe(ENTRY.redirectUrl);
     expect(provider?.clientMetadata.redirect_uris).toEqual([ENTRY.redirectUrl]);
   });
 
+  it('gives none for another address than the one the tokens were given for', () => {
+    const { keeper: kept } = keeper();
+    expect(kept.providerFor('notes', 'https://elsewhere.example/mcp')).toBeUndefined();
+    const { url: _url, ...without } = ENTRY;
+    expect(
+      createOAuthKeeper({ notes: without }, () => {}).providerFor('notes', NOTES),
+    ).toBeUndefined();
+  });
+
   it('hands the whole set back after a refresh, before it answers', async () => {
     const other = { ...ENTRY, tokens: { access_token: 'a-2', token_type: 'Bearer' } };
-    const notes = { ...ENTRY, url: 'https://notes.example/mcp' } as OAuthEntry;
+    const notes = { ...ENTRY, label: 'kept as it is' } as OAuthEntry;
     const { sent, keeper: kept } = keeper({ notes, other });
-    const provider = kept.providerFor('notes');
+    const provider = kept.providerFor('notes', NOTES);
     const rotated = { access_token: 'access-2', token_type: 'Bearer', refresh_token: 'refresh-2' };
 
     await provider?.saveTokens(rotated);
 
     // What the app keeps beside the tokens comes back as it was.
     expect(sent).toEqual([{ notes: { ...notes, tokens: rotated }, other }]);
-    expect(await kept.providerFor('notes')?.tokens()).toEqual(rotated);
+    expect(await kept.providerFor('notes', NOTES)?.tokens()).toEqual(rotated);
   });
 
   it('forgets a server whose tokens the authorization server refused', async () => {
     const { sent, keeper: kept } = keeper();
-    await kept.providerFor('notes')?.invalidateCredentials?.('tokens');
+    await kept.providerFor('notes', NOTES)?.invalidateCredentials?.('tokens');
     expect(sent).toEqual([{}]);
-    expect(kept.providerFor('notes')).toBeUndefined();
+    expect(kept.providerFor('notes', NOTES)).toBeUndefined();
   });
 
   it('never opens a browser, and hands nothing back for it', async () => {
     const { sent, keeper: kept } = keeper();
-    const provider = kept.providerFor('notes');
+    const provider = kept.providerFor('notes', NOTES);
     await expect(
       Promise.resolve().then(() => provider?.redirectToAuthorization(new URL('https://a.example'))),
     ).rejects.toThrow('connect the server with OAuth again in the app');
@@ -76,13 +87,18 @@ describe('the tokens the app keeps', () => {
   it('reads what the app handed over, and starts empty from what is not a set', () => {
     const logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn() };
     expect(
-      oauthKeeperFrom(JSON.stringify({ notes: ENTRY }), () => {}, logger).providerFor('notes'),
+      oauthKeeperFrom(JSON.stringify({ notes: ENTRY }), () => {}, logger).providerFor(
+        'notes',
+        NOTES,
+      ),
     ).toBeDefined();
     for (const handed of ['not json access-secret', '[1]', '{"notes":{"tokens":1}}']) {
-      expect(oauthKeeperFrom(handed, () => {}, logger).providerFor('notes')).toBeUndefined();
+      expect(oauthKeeperFrom(handed, () => {}, logger).providerFor('notes', NOTES)).toBeUndefined();
     }
     expect(JSON.stringify(logger.error.mock.calls)).not.toContain('access-secret');
-    expect(oauthKeeperFrom(undefined, () => {}, logger).providerFor('notes')).toBeUndefined();
+    expect(
+      oauthKeeperFrom(undefined, () => {}, logger).providerFor('notes', NOTES),
+    ).toBeUndefined();
   });
 });
 
@@ -119,10 +135,10 @@ describe('a server connected with OAuth', () => {
 
   it('is reached with its tokens', async () => {
     const { fixture, entry } = await connected();
-    const { keeper: kept } = keeper({ remote: entry });
+    const { keeper: kept } = keeper({ remote: { ...entry, url: fixture.mcpUrl } });
     const transport = transportFor(
       { kind: 'http', url: fixture.mcpUrl, headers: {}, readOnly: [] },
-      kept.providerFor('remote'),
+      kept.providerFor('remote', fixture.mcpUrl),
     );
 
     const { connection, close } = await connectTo('remote', [], transport);
@@ -135,12 +151,12 @@ describe('a server connected with OAuth', () => {
 
   it('refreshes an expired token and hands the new ones to the shell', async () => {
     const { fixture, entry } = await connected();
-    const { sent, keeper: kept } = keeper({ remote: entry });
+    const { sent, keeper: kept } = keeper({ remote: { ...entry, url: fixture.mcpUrl } });
     fixture.expireAccess();
 
     const transport = transportFor(
       { kind: 'http', url: fixture.mcpUrl, headers: {}, readOnly: [] },
-      kept.providerFor('remote'),
+      kept.providerFor('remote', fixture.mcpUrl),
     );
     const { close } = await connectTo('remote', [], transport);
     await close();
@@ -154,7 +170,7 @@ describe('a server connected with OAuth', () => {
 
   it('is left out, with no browser, once its refresh token is refused', async () => {
     const { fixture, entry } = await connected();
-    const { keeper: kept } = keeper({ remote: entry });
+    const { keeper: kept } = keeper({ remote: { ...entry, url: fixture.mcpUrl } });
     fixture.expireAccess();
     fixture.revokeRefresh();
     const logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn() };
@@ -171,15 +187,35 @@ describe('a server connected with OAuth', () => {
     await fixture.close();
   });
 
+  it('never sends its tokens to a server at another address', async () => {
+    const { fixture, entry } = await connected();
+    const { keeper: kept } = keeper({ remote: { ...entry, url: 'https://notes.example/mcp' } });
+    fixture.seen.length = 0;
+    const connections = createConnections({
+      config: { remote: { kind: 'http', url: fixture.mcpUrl, headers: {}, readOnly: [] } },
+      logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+      oauth: kept,
+    });
+
+    expect(await connections.get()).toEqual([]);
+    expect(
+      fixture.seen.some((request) =>
+        request.headers.authorization?.includes(entry.tokens.access_token),
+      ),
+    ).toBe(false);
+    await connections.close();
+    await fixture.close();
+  });
+
   it('sends the configured headers to the server, never to its authorization server', async () => {
     const { fixture, entry } = await connected(true);
-    const { keeper: kept } = keeper({ remote: entry });
+    const { keeper: kept } = keeper({ remote: { ...entry, url: fixture.mcpUrl } });
     fixture.expireAccess();
     fixture.seen.length = 0;
 
     const transport = transportFor(
       { kind: 'http', url: fixture.mcpUrl, headers: { 'X-Key': 'k-secret' }, readOnly: [] },
-      kept.providerFor('remote'),
+      kept.providerFor('remote', fixture.mcpUrl),
     );
     const { close } = await connectTo('remote', [], transport);
     await close();
