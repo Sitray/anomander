@@ -131,10 +131,10 @@ describe('DK-11: a task with connections', () => {
     expect(context?.tools?.map((tool) => tool.name)).toEqual(['notes__search', 'notes__create']);
     expect(context?.tools?.[0]?.parameters).toEqual({ type: 'object', properties: {} });
     expect(context?.messages).toHaveLength(1);
-    // DK-14 AC1: the task with what ANOMANDER remembers, here nothing.
+    // DK-14 AC1: the task alone, never what ANOMANDER remembers.
     expect(context?.messages[0]).toMatchObject({
       role: 'user',
-      content: JSON.stringify({ task: 'Busca mis notas de Lisboa', memories: [] }),
+      content: JSON.stringify({ task: 'Busca mis notas de Lisboa' }),
     });
   });
 
@@ -190,11 +190,7 @@ describe('DK-11: a task with connections', () => {
       call(['nowhere__tool', {}]),
       call(['notes__create', { title: 'Hotel Sol' }]),
     ];
-    const outcome = asked(
-      await start([notes()]).start('Apunta el hotel', [
-        { text: 'Se llama Eric', mode: 'declared' },
-      ]),
-    );
+    const outcome = asked(await start([notes()]).start('Apunta el hotel'));
     script = [call(['notes__create', { title: 'Otro' }])];
     const next = asked(await tasks.answer(outcome.id, true));
     await tasks.answer(next.id, false);
@@ -204,10 +200,6 @@ describe('DK-11: a task with connections', () => {
       { server: 'notes', tool: 'create', allowed: true },
       { server: 'notes', tool: 'create', allowed: false },
     ]);
-    expect(JSON.parse(String(contexts[0]?.messages[0]?.content))).toEqual({
-      task: 'Apunta el hotel',
-      memories: [{ text: 'Se llama Eric', mode: 'declared' }],
-    });
   });
 
   it('S3: a call allowed once is performed once, whatever is pressed after', async () => {

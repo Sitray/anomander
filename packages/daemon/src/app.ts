@@ -690,7 +690,7 @@ export const startAnomander = <M>(config: Config, deps: AnomanderDeps<M>): Anoma
     // DK-11 AC8: a task that waited for "Permitir" ends here.
     if (asked.waiting) keepTask(asked, 'replaced');
     asked = { task, door, calls: [], waiting: false };
-    return connectionStep(asked, () => connectionTasks.start(task, memoryNotesFor(db, task)));
+    return connectionStep(asked, () => connectionTasks.start(task));
   };
   /**
    * Called in a turn: the answer to a press on "Permitir" or "Detener"; `undefined` for any

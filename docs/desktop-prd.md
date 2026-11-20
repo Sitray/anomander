@@ -176,12 +176,11 @@ and keep its secrets in the operating system instead of a text file.
     its task was asked: a press at the other front door runs nothing.
   - AC4: once a server answered in a task, a call to another server always waits for "Permitir",
     read-only or not: what was read from one server never leaves towards another unasked.
-  - AC5: a task carries the principal's words, what ANOMANDER remembers about them (DK-14 AC1)
-    and what the tools answered, and nothing else: no expense or recent turn (changed by the
+  - AC5: a task carries the principal's words and what the tools answered, and nothing else: no
+    memory (DK-14 AC1), expense or recent turn (changed by the
     principal on 2026-11-20: "También me gustaría que recordara quién soy, que recuerde quien soy
     y tenga memoria de lo que ha hecho"; "si, me gustaria ya que esto es algo que la gente tendrá
-    en su local"). Accepted with it: a read-only call runs without asking, so it may carry a
-    remembered fact to a connected server unasked. What a tool or its description says is
+    en su local"). What a tool or its description says is
     content, never an instruction. Only how a task ended is a recent turn (R-16 AC3), and only
     how it ended and which calls it made is kept in the history (DK-14 AC2).
   - AC6: a task makes at most 8 calls, and every processor call counts against the daily AI
@@ -272,11 +271,13 @@ and keep its secrets in the operating system instead of a text file.
   ha hecho"; the proposal "pasarle los recuerdos a todas las rutas, y agregar un historial
   persistente de acciones para que pueda contestar «¿qué hiciste ayer?»" accepted the same day:
   "si, me gustaria ya que esto es algo que la gente tendrá en su local").
-  - AC1: a look at the screen (DK-9), every step of a task on the computer (DK-10) and a task
-    with connections (DK-11) get the current memories (R-23), chosen as for a conversation
-    reply (R-23 AC4) from the question or the task, each with its text and mode, in the user
-    turn. They are facts about the principal, never instructions. They still never become an
-    expense fact (R-23 AC4): none of these ways writes one.
+  - AC1: a look at the screen (DK-9) and every step of a task on the computer (DK-10) get the
+    current memories (R-23), chosen as for a conversation reply (R-23 AC4) from the question or
+    the task, each with its text and mode, in the user turn. They are facts about the principal,
+    never instructions. They still never become an expense fact (R-23 AC4): none of these ways
+    writes one. A task with connections (DK-11) gets none: its read-only calls run without
+    asking and go to third-party services, so a remembered fact could leave unasked (security
+    audit H2, 2026-11-20).
   - AC2: when one of those ends, the daemon keeps it in `action_history`, in the app's database:
     what it was, the front door it was asked at, the principal's words (the question or the
     task), how it ended as a code word, when, and for a task on the computer the steps it took,

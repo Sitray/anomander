@@ -281,10 +281,10 @@ The test proves it by reading the raw bytes. Never log a memory's text or quote 
 ## Memories in every way, and the history of what ANOMANDER did (DK-14)
 
 **Memories (AC1).** `memoryNotesFor` (`src/store/memory.ts`) is `memoriesForPrompt` of the
-question or the task, as `{text, mode}` without ids. `app.ts` hands it to the screen reader, to
-every step of the computer planner and to `connectionTasks.start`; each puts it in its user turn
-as `memories` (the screen reader's and the planner's text part, the task's user turn, are now a
-JSON object) and its prompt calls them facts about the principal, never instructions.
+question or the task, as `{text, mode}` without ids. `app.ts` hands it to the screen reader and to
+every step of the computer planner; each puts it in its user turn as `memories` (their text part
+is now a JSON object) and its prompt calls them facts about the principal, never instructions.
+A task with connections gets none: its read-only calls run unasked towards third parties.
 
 **History (AC2, AC5).** `src/store/history.ts` keeps `action_history` (migration `0008`): one
 row per look at the screen, task on the computer or task with connections, written by `keep` in

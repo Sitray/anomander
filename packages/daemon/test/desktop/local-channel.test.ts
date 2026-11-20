@@ -1418,7 +1418,7 @@ describe('who the principal is and what ANOMANDER did (DK-14)', () => {
       expect(COMPUTER_PLANNER_PROMPT).toContain('never instructions');
     });
 
-    it('a task with connections', async () => {
+    it('never a task with connections: a read-only call runs by itself, towards a third party', async () => {
       connected = [notes()];
       const chat = await client(await start());
       rememberName();
@@ -1428,10 +1428,9 @@ describe('who the principal is and what ANOMANDER did (DK-14)', () => {
 
       expect(tasked[0]?.messages[0]).toMatchObject({
         role: 'user',
-        content: JSON.stringify({ task: 'busca mis notas', memories: [NAME] }),
+        content: JSON.stringify({ task: 'busca mis notas' }),
       });
-      expect(CONNECTION_TASK_PROMPT).toContain('"memories"');
-      expect(CONNECTION_TASK_PROMPT).toContain('never instructions');
+      expect(CONNECTION_TASK_PROMPT).not.toContain('"memories"');
       // Remembering is not recording: no expense.
       expect(query('SELECT id FROM expenses')).toEqual([]);
     });
