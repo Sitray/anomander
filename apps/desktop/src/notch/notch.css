@@ -32,7 +32,7 @@ body {
 }
 
 body {
-  font: 12px/1 var(--font);
+  font: 12px / 1 var(--font);
   -webkit-font-smoothing: antialiased;
 }
 
@@ -76,31 +76,32 @@ body {
   transition:
     transform 420ms var(--ease-out),
     opacity 140ms var(--ease-out);
+  /* biome-ignore lint/suspicious/noDuplicateProperties: the first transition is the fallback for a WebKit without linear() */
   transition:
     transform 420ms
-      linear(
-        0,
-        0.056 5%,
-        0.187 10%,
-        0.348 15%,
-        0.51 20%,
-        0.656 25%,
-        0.778 30%,
-        0.873 35%,
-        0.942 40%,
-        0.989 45%,
-        1.017 50%,
-        1.032 55%,
-        1.038 60%,
-        1.037 65%,
-        1.033 70%,
-        1.027 75%,
-        1.021 80%,
-        1.015 85%,
-        1.01 90%,
-        1.006 95%,
-        1
-      ),
+    linear(
+      0,
+      0.056 5%,
+      0.187 10%,
+      0.348 15%,
+      0.51 20%,
+      0.656 25%,
+      0.778 30%,
+      0.873 35%,
+      0.942 40%,
+      0.989 45%,
+      1.017 50%,
+      1.032 55%,
+      1.038 60%,
+      1.037 65%,
+      1.033 70%,
+      1.027 75%,
+      1.021 80%,
+      1.015 85%,
+      1.01 90%,
+      1.006 95%,
+      1
+    ),
     opacity 140ms var(--ease-out);
 }
 
