@@ -125,6 +125,10 @@ describe('text expense handler', () => {
       memories: [],
       // R-25 AC1: the registered capabilities add their context.
       capabilities: { reminders: expect.objectContaining({ pending: [] }) },
+      // DK-13 AC1: no way to route a request unless the front door offers one.
+      routes: [],
+      // DK-14 AC3: nothing done yet.
+      history: [],
     });
     expect(reply.text).toBe('Apuntado: 23,00\u00a0€ (restaurantes).');
     const row = onlyExpense();

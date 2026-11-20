@@ -53,6 +53,19 @@ export interface ReplyButton {
   data: string;
 }
 
+/**
+ * DK-13: the ways a request may go besides an answer in words: a look at the screen, a task on
+ * the computer, a task with the servers the principal connected.
+ */
+export const ROUTE_KINDS = ['screen', 'computer', 'connect'] as const;
+export type RouteKind = (typeof ROUTE_KINDS)[number];
+
+/** DK-13 AC1: a request the processor sent one of those ways, with what was asked. */
+export interface Route {
+  to: RouteKind;
+  task: string;
+}
+
 export interface Reply {
   text: string;
   /** Shown under `text`, in one row (R-6 AC3). */
@@ -61,6 +74,11 @@ export interface Reply {
   computer?: ComputerAction;
   /** With `computer`: whether the principal must allow it first (DK-10 AC1). */
   confirm?: boolean;
+  /**
+   * DK-13 AC2: what `text` announces. The daemon runs `connect` itself; a look or a task on the
+   * computer only the app can start.
+   */
+  route?: Route;
   /** Called once the front door has sent `text`, to record the delivery. */
   onDelivered?: (delivery: Delivery) => void;
 }

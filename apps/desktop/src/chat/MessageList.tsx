@@ -10,6 +10,8 @@ export interface MessageListProps {
   /** The daemon owes an answer. */
   waiting: boolean;
   onRetry: (message: OwnMessage) => void;
+  /** DK-13: starts again the look or the task a message announced, which did not leave. */
+  onRestart: (message: BotMessage) => void;
   onPress: (message: BotMessage, data: string) => void;
   /** DK-10 AC1: the principal allows the action a message proposes, or stops there. */
   onAllow: (message: BotMessage) => void;
@@ -142,18 +144,55 @@ const ProposalCard = ({
   );
 };
 
+/**
+ * DK-13: what a reply that announced a look or a task started. A look shows the capture it sent;
+ * one that did not leave can start again, as what it is.
+ */
+const StartStatus = ({
+  message,
+  start,
+  onRestart,
+}: {
+  message: BotMessage;
+  start: NonNullable<BotMessage['start']>;
+  onRestart: MessageListProps['onRestart'];
+}) => (
+  <>
+    {start.captureUrl !== null && (
+      <ul className="thumbnails" data-count={1}>
+        <li className="thumbnail">
+          <img src={start.captureUrl} alt={strings.chat.screenCapture} />
+        </li>
+      </ul>
+    )}
+    {start.delivery === 'not_sent' && (
+      <div className="message-status">
+        <Problem>
+          {start.route.to === 'screen' ? strings.chat.lookNotSent : strings.chat.taskNotSent}
+        </Problem>
+        <button type="button" className="button small" onClick={() => onRestart(message)}>
+          {strings.chat.startAgain}
+        </button>
+      </div>
+    )}
+    {start.delivery === 'unknown' && <Problem>{strings.chat.startUnknown}</Problem>}
+  </>
+);
+
 const Bot = ({
   message,
+  onRestart,
   onPress,
   onAllow,
   onRefuse,
 }: {
   message: BotMessage;
+  onRestart: MessageListProps['onRestart'];
   onPress: MessageListProps['onPress'];
   onAllow: MessageListProps['onAllow'];
   onRefuse: MessageListProps['onRefuse'];
 }) => {
-  const { press, proposal } = message;
+  const { press, proposal, start } = message;
   const choices = message.buttons.filter((button) => 'data' in button);
   // DK-4 AC7: this WebView cannot open a link, so a link button is named, never offered.
   const links = message.buttons.filter((button) => 'url' in button);
@@ -178,6 +217,7 @@ const Bot = ({
           ))}
         </div>
       )}
+      {start !== null && <StartStatus message={message} start={start} onRestart={onRestart} />}
       {proposal !== null && (
         <ProposalCard message={message} proposal={proposal} onAllow={onAllow} onRefuse={onRefuse} />
       )}
@@ -197,7 +237,7 @@ const Bot = ({
 };
 
 export function MessageList(props: MessageListProps) {
-  const { messages, waiting, onRetry, onPress, onAllow, onRefuse } = props;
+  const { messages, waiting, onRetry, onRestart, onPress, onAllow, onRefuse } = props;
   const scroller = useRef<HTMLDivElement>(null);
   /** Whether the principal is reading the end; scrolling up to reread must not be undone. */
   const atEnd = useRef(true);
@@ -236,6 +276,7 @@ export function MessageList(props: MessageListProps) {
             <Bot
               key={message.id}
               message={message}
+              onRestart={onRestart}
               onPress={onPress}
               onAllow={onAllow}
               onRefuse={onRefuse}

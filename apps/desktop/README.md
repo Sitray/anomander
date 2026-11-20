@@ -49,8 +49,9 @@ local channel is a scripted socket. It is never part of a build. The URL picks t
 
 The scripted daemon answers by what is typed: `mercadona` asks a Sí/No question, `rechaza` is
 rejected, `corta` loses the connection, `lento` never answers, `largo` answers at length and
-`/login` answers with a link button. A PDF gets the daemon's PDF reply; images are read as a
-receipt.
+`/login` answers with a link button, `pantalla` is routed to a look (the capture is a plain
+image) and `ordenador` to a task on the computer that ends at its first step. A PDF gets the
+daemon's PDF reply; images are read as a receipt.
 
 ## How the window is built
 
@@ -96,12 +97,21 @@ is framework-free, so it is tested against a fake `WebSocket` (`test/fake-web-so
 - **Files** dropped, pasted or picked wait in the composer and go as one `receipt`, at most 10
   and at most 45 MB together (the daemon closes a connection whose frame is over 64 MB). A file
   that is not an image is sent as it is, so the daemon answers as it would in Telegram (DK-4 AC6).
-- **The screen** (DK-9) is captured only on a press of the composer's screen button, with the
-  window hidden for that moment. The capture is shown before it is sent, travels alone as a
-  `screen` request with a question (without words: "¿Qué ves en mi pantalla?"), and is never
-  mixed with receipts. The shell keeps its file only while reading it. It needs macOS's Screen
-  Recording permission, which belongs to the signed app.
-- **A task on the computer** (DK-10) starts from the composer's pointer button. Each step is a
+- **The chat decides the way** (DK-13). The composer has no modes: every message goes as it is,
+  and the daemon may answer a plain text with a `route` to a look at the screen or a task on the
+  computer, in its own words ("Miro tu pantalla.", "Me pongo con ello en tu ordenador."). The
+  window starts it at once (`launch` in `use-chat.ts`); a route in the answer to anything but a
+  plain text is ignored, and the client keeps one only as `{ to: 'screen' | 'computer', task }`.
+  What was started is shown under the reply that announced it; one that did not leave says so
+  and starts again as what it is, never as a plain text. Where the window cannot capture or act,
+  it says so. A task with connections asked in words is run by the daemon itself.
+- **The model** (`ANOMANDER_MODEL` of the setup) is named under the composer in small type, as
+  the setup holds it; nothing is shown when none is set.
+- **The screen** (DK-9) is captured when the daemon routes the principal's words to a look, with
+  the window hidden for that moment. The capture is shown in the conversation and sent at once
+  as a `screen` request with the principal's words. The shell keeps its file only while reading
+  it. It needs macOS's Screen Recording permission, which belongs to the signed app.
+- **A task on the computer** (DK-10) starts when the daemon routes the words to one. Each step is a
   `computer` request with a fresh capture; the daemon answers one proposed action and whether
   it is routine (`confirm: false`). A routine step is performed at once and shown as done.
   There is one task at a time (`run` in `use-chat.ts`): a new task or "Detener tarea" ends the
@@ -117,8 +127,8 @@ is framework-free, so it is tested against a fake `WebSocket` (`test/fake-web-so
   action again (`src-tauri/src/computer.rs`), hides the app so the input goes to the app the
   principal was using, and answers with the next capture. It needs macOS's Accessibility
   permission besides Screen Recording.
-- **A task with connections** (DK-11) starts from the composer's plug button and goes as a
-  `connect` request. The daemon runs it; a call that needs permission arrives as a reply with
+- **A task with connections** (DK-11) is asked in words, as a plain text the daemon routes
+  (DK-13). The daemon runs it; a call that needs permission arrives as a reply with
   "Permitir" and "Detener" buttons, pressed like any other. The servers are the ones of
   `mcp.json` in the data folder, which the principal writes by hand or from the connections
   screen:

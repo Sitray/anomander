@@ -183,6 +183,11 @@ export const strings = {
   connectionGone: () => 'Esa petición ya no está pendiente.',
   /** A task was asked while another one runs: there is one at a time. */
   connectionBusy: () => 'Todavía estoy con la tarea anterior. Pídeme otra cuando termine.',
+  // DK-13 AC2: what a routed request announces before it starts.
+  routedScreen: () => 'Miro tu pantalla.',
+  routedComputer: () => 'Me pongo con ello en tu ordenador.',
+  routedConnect: () => 'Lo miro en tus conexiones.',
+  routeInApp: () => 'Eso solo puedo hacerlo desde la app de ANOMANDER en tu Mac.',
   /** `/mcp` with no task after it, in Telegram. */
   connectionUsage: () => 'Dime qué quieres que haga con tus conexiones: /mcp y la tarea.',
   connectionNone: () =>
@@ -224,6 +229,12 @@ export const strings = {
   forgotten: () => 'Hecho, lo he olvidado.',
   notForgotten: () => 'Vale, no olvido nada.',
   nothingToForget: () => 'No encuentro nada así en lo que recuerdo.',
+  // DK-14 AC4: erasing the history of what ANOMANDER did, after "Sí".
+  confirmForgetHistory: (count: number) =>
+    `¿Borro el historial de lo que he hecho por ti? ${count === 1 ? 'Es 1 acción' : `Son ${count} acciones`} y no podré recuperarlas.`,
+  historyForgotten: () => 'Hecho, he borrado mi historial.',
+  historyNotForgotten: () => 'Vale, no borro nada.',
+  noHistory: () => 'No tengo nada en mi historial.',
   futureReceipt: (total: number, merchant: string, date: string) =>
     `${formatAmount(total)} en ${merchant}, con fecha ${formatDate(date)}, que aún no ha llegado. ¿Lo apunto así o corrijo la fecha?`,
   categoryNotCreated: () => 'Vale, no la creo.',

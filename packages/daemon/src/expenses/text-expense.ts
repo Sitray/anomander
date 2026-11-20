@@ -12,6 +12,8 @@ import {
   decisionButtons,
   formatAmount,
   formatDate,
+  type PrincipalText,
+  type RouteKind,
   strings,
   type TextHandler,
   UNCATEGORIZED,
@@ -27,7 +29,11 @@ import type { RecentTurn } from '../conversation/recent-turns.ts';
 import { type PatternOffers, thenOfferPattern } from '../patterns/pattern-offers.ts';
 import { checkedPhrasing, type ReplyPhraser } from '../processor/reply-phraser.ts';
 import type { Logger, MemoryFact, TextInterpreter } from '../processor/text-interpreter.ts';
-import { openCreateCategoryDecision, openForgetMemoryDecision } from '../store/decisions.ts';
+import {
+  openCreateCategoryDecision,
+  openForgetHistoryDecision,
+  openForgetMemoryDecision,
+} from '../store/decisions.ts';
 import {
   listActivePolicies,
   listCategories,
@@ -35,6 +41,7 @@ import {
   recordReplyDelivery,
   registerTextExpense,
 } from '../store/expenses.ts';
+import { countActions, historyForPrompt, lastActionId } from '../store/history.ts';
 import { listMemories, memoriesForPrompt, saveMemory } from '../store/memory.ts';
 import { hasActivePolicy, openCreatePolicyDecision } from '../store/policies.ts';
 import { recordDecisionMessage } from '../store/receipts.ts';
@@ -61,7 +68,16 @@ export interface TextExpenseDeps {
   patterns?: PatternOffers;
   /** The registered capabilities (R-24 AC1), the same the interpreter was given. */
   capabilities?: readonly Capability[];
+  /** The ways the message's front door can carry out a request (DK-13 AC1); none when absent. */
+  routes?: (message: PrincipalText) => readonly RouteKind[];
 }
+
+/** DK-13 AC2: what a routed request announces, in code. */
+const ROUTED: Record<RouteKind, () => string> = {
+  screen: strings.routedScreen,
+  computer: strings.routedComputer,
+  connect: strings.routedConnect,
+};
 
 const inferenceOf = (inferences: readonly ProcessorInference[], predicate: string) =>
   inferences.find((inference) => inference.predicate === predicate);
@@ -73,6 +89,7 @@ export const createTextExpenseHandler = (deps: TextExpenseDeps): TextHandler => 
   const { db, interpreter, timeZone, now, processorSource, phraser, logger } = deps;
   const recent = deps.recent ?? (() => []);
   const capabilities = deps.capabilities ?? CAPABILITIES;
+  const routes = deps.routes ?? (() => []);
   const env: CapabilityEnv = { db, timeZone, now, logger };
 
   return async (message) => {
@@ -113,6 +130,9 @@ export const createTextExpenseHandler = (deps: TextExpenseDeps): TextHandler => 
       recent: recent(),
       memories: memoriesForPrompt(db, message.text),
       capabilities: capabilityContext(capabilities, env),
+      routes: routes(message),
+      // DK-14 AC3: what ANOMANDER did lately, bounded by code.
+      history: historyForPrompt(db, timeZone, now()),
     });
 
     // R-23 AC1-AC3: the lasting facts of an interpreted message are remembered; a failure to
@@ -136,6 +156,13 @@ export const createTextExpenseHandler = (deps: TextExpenseDeps): TextHandler => 
       }
     };
 
+    // DK-13 AC2: code announces the way; the front door starts it.
+    if (interpretation.kind === 'route') {
+      const { to, task } = interpretation;
+      return { text: ROUTED[to](), route: { to, task } };
+    }
+    // DK-13 AC1: a look or a task on the computer asked where it cannot be done.
+    if (interpretation.kind === 'route_elsewhere') return { text: strings.routeInApp() };
     // R-24 AC3: a validated capability call is carried out by its capability's handler.
     if (interpretation.kind === 'capability') return interpretation.call.carryOut(message, env);
     // R-16: open conversation gets its reply; only its lasting facts are persisted.
@@ -165,6 +192,29 @@ export const createTextExpenseHandler = (deps: TextExpenseDeps): TextHandler => 
       });
       return {
         text: strings.confirmForget(matches.map(({ text }) => text)),
+        buttons: decisionButtons(decisionId, options),
+        onDelivered: (delivery) => {
+          if (!recordDecisionMessage(db, decisionId, delivery.channelRef)) {
+            logger.warn('decision message already recorded', { decisionId });
+          }
+        },
+      };
+    }
+    // DK-14 AC4: code asks before erasing the history, and names how much it holds; the question
+    // stored names no action.
+    if (interpretation.kind === 'forget_history') {
+      const upToId = lastActionId(db);
+      if (upToId === null) return { text: strings.noHistory() };
+      const options = [buttons.yes, buttons.no];
+      const question = strings.confirmForgetHistory(countActions(db));
+      const decisionId = openForgetHistoryDecision(db, {
+        upToId,
+        question,
+        options,
+        now: now().toISOString(),
+      });
+      return {
+        text: question,
         buttons: decisionButtons(decisionId, options),
         onDelivered: (delivery) => {
           if (!recordDecisionMessage(db, decisionId, delivery.channelRef)) {

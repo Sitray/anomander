@@ -4,7 +4,6 @@
 import {
   type ChatButtonPress,
   type ChatComputer,
-  type ChatConnect,
   type ChatEvent,
   type ChatReceipt,
   type ChatReply,
@@ -36,8 +35,7 @@ export type NewRequest =
   | Omit<ChatReceipt, 'id'>
   | Omit<ChatButtonPress, 'id'>
   | Omit<ChatScreen, 'id'>
-  | Omit<ChatComputer, 'id'>
-  | Omit<ChatConnect, 'id'>;
+  | Omit<ChatComputer, 'id'>;
 
 /** The part of `WebSocket` the client uses, so a test can hand it a fake. */
 export type ChatSocket = Pick<
@@ -65,13 +63,28 @@ const OPEN = 1;
 /** A daemon that just started may not listen yet: retry soon, then back off. */
 const RETRY_DELAYS_MS = [250, 500, 1000, 2000, 4000];
 
+/** DK-13 AC2: a look or a task the window starts, with what was asked; anything else is not one. */
+const routeOf = (route: unknown): ChatReply['route'] => {
+  if (typeof route !== 'object' || route === null) return undefined;
+  const { to, task } = route as Record<string, unknown>;
+  if (to !== 'screen' && to !== 'computer') return undefined;
+  return typeof task === 'string' && task.trim() !== '' ? { to, task } : undefined;
+};
+
+/** A reply keeps a route only as the window can start it. */
+const withRoute = (reply: ChatReply): ChatReply => {
+  if (!('route' in reply)) return reply;
+  const { route, ...rest } = reply;
+  const kept = routeOf(route);
+  return kept === undefined ? rest : { ...rest, route: kept };
+};
+
 const parseEvent = (data: unknown): ChatEvent | undefined => {
   if (typeof data !== 'string') return undefined;
   try {
     const event = JSON.parse(data) as Partial<ChatEvent> | null;
-    return event?.type === 'reply' || event?.type === 'done' || event?.type === 'rejected'
-      ? (event as ChatEvent)
-      : undefined;
+    if (event?.type === 'reply') return withRoute(event as ChatReply);
+    return event?.type === 'done' || event?.type === 'rejected' ? (event as ChatEvent) : undefined;
   } catch {
     return undefined;
   }

@@ -3,6 +3,9 @@ import {
   type ComputerRequest,
   MAX_COMPUTER_STEPS,
   type Notify,
+  type PrincipalText,
+  ROUTE_KINDS,
+  type RouteKind,
   type ScreenQuestion,
   strings,
 } from '@anomander/protocol';
@@ -24,6 +27,7 @@ import { type OAuthSet, oauthKeeperFrom, printOAuthForShell } from './connection
 import {
   type ConnectionProblems,
   createConnectionTasks,
+  type DecidedCall,
   MAX_CONNECTION_CALLS,
   type TaskOutcome,
 } from './connections/task.ts';
@@ -42,6 +46,7 @@ import { createCancelReminderAnswerHandler } from './decisions/cancel-reminder-d
 import { createExpenseCorrection } from './decisions/correction.ts';
 import { createCreateCategoryAnswerHandler } from './decisions/create-category-decision.ts';
 import { createCreatePolicyAnswerHandler } from './decisions/create-policy-decision.ts';
+import { createForgetHistoryAnswerHandler } from './decisions/forget-history-decision.ts';
 import { createForgetMemoryAnswerHandler } from './decisions/forget-memory-decision.ts';
 import { createGrantDigestAnswerHandler } from './decisions/grant-digest-decision.ts';
 import { createGrantWeeklySummaryAnswerHandler } from './decisions/grant-weekly-summary-decision.ts';
@@ -72,6 +77,8 @@ import { startScheduler } from './scheduler/scheduler.ts';
 import { describeGap, type SetupGap, setupGuide } from './setup/setup-guide.ts';
 import { acquireDaemonLock } from './store/daemon-lock.ts';
 import { applyMigrations, openDatabase } from './store/database.ts';
+import { type ActionRecord, recordAction } from './store/history.ts';
+import { memoryNotesFor } from './store/memory.ts';
 import { createWeeklySummary } from './summary/weekly-summary.ts';
 
 // The composition root: one process, one SQLite file, the Telegram front door in the same
@@ -86,6 +93,15 @@ const TELEGRAM_MAX_TEXT = 4096;
 
 /** The front door a task with connections was asked at; its calls are answered there. */
 type Door = 'app' | 'telegram';
+/** A task with connections, from when it is asked until it ends. */
+interface Asked {
+  task: string;
+  door: Door;
+  /** The calls code decided so far (DK-14 AC2). */
+  calls: DecidedCall[];
+  /** It waits for "Permitir": a task asked meanwhile ends it. */
+  waiting: boolean;
+}
 /** A reply that comes after the chat's turn: the turn does not wait for it. */
 interface Later {
   later: Promise<TelegramReply | null>;
@@ -189,6 +205,13 @@ const connectionCommand = (text: string): string | undefined => {
   const command = /^\/mcp(?:@\w+)?(?:\s+([\s\S]*))?$/.exec(text.trim());
   return command === null ? undefined : (command[1] ?? '').trim();
 };
+
+/** The front door a message came through: the local channel names its messages `desktop:…`. */
+const doorOf = (channelRef: string): Door =>
+  channelRef.startsWith('desktop:') ? 'app' : 'telegram';
+
+/** DK-13 AC1: a look and a task on the computer need the app; connections serve both doors. */
+const ROUTES: Record<Door, readonly RouteKind[]> = { app: ROUTE_KINDS, telegram: ['connect'] };
 
 /** What a handler answers once its turn is over: a `Later` is waited for outside the turn. */
 const settled = async (answer: TelegramReply | Later | null): Promise<TelegramReply | null> =>
@@ -377,6 +400,7 @@ export const startAnomander = <M>(config: Config, deps: AnomanderDeps<M>): Anoma
       logger,
       recent: turns.recent,
       patterns,
+      routes: (message) => ROUTES[doorOf(message.channelRef)],
     }),
     now,
   });
@@ -399,6 +423,8 @@ export const startAnomander = <M>(config: Config, deps: AnomanderDeps<M>): Anoma
       keep_receipt: createKeepReceiptAnswerHandler({ timeZone: config.timeZone }),
       // R-16 AC3: a confirmed forget empties the recent turns.
       forget_memory: createForgetMemoryAnswerHandler({ clearRecentTurns: turns.clear }),
+      // DK-14 AC4: "Sí" erases the history of what ANOMANDER did.
+      forget_history: createForgetHistoryAnswerHandler({ clearRecentTurns: turns.clear }),
       // R-18 AC1, AC3: "Sí" to S-15 creates the category.
       create_category: createCreateCategoryAnswerHandler({ logger }),
       // R-13 AC1, AC2: "Sí" to S-11 or S-12 stores the policy.
@@ -443,6 +469,19 @@ export const startAnomander = <M>(config: Config, deps: AnomanderDeps<M>): Anoma
     receipts.onReceipt,
   );
 
+  // DK-14 AC2: each action is kept once it ended. A failure to keep it never changes the reply,
+  // and is logged without the principal's words (AC5).
+  const keep = (record: Omit<ActionRecord, 'endedAt'>): void => {
+    try {
+      recordAction(db, { ...record, endedAt: now().toISOString() });
+    } catch (error) {
+      logger.error('action history not saved', {
+        kind: record.kind,
+        reason: (error as Error).message,
+      });
+    }
+  };
+
   // A look at the screen: the budgeted call, so it counts against the daily cap (R-12).
   const screenReader = createPiAiScreenReader({
     complete: ai,
@@ -453,7 +492,20 @@ export const startAnomander = <M>(config: Config, deps: AnomanderDeps<M>): Anoma
     turns,
     (question: ScreenQuestion) => screenTurn(question.text),
     async (question: ScreenQuestion) => {
-      const reading = await screenReader({ question: question.text, image: question.image });
+      const reading = await screenReader({
+        question: question.text,
+        image: question.image,
+        memories: memoryNotesFor(db, question.text),
+      });
+      // DK-14 AC2: the question only, never the capture or what was read in it.
+      keep({
+        kind: 'screen',
+        door: 'app',
+        task: question.text,
+        outcome: reading.kind,
+        steps: null,
+        calls: null,
+      });
       switch (reading.kind) {
         case 'answer':
           return { text: reading.text };
@@ -474,11 +526,27 @@ export const startAnomander = <M>(config: Config, deps: AnomanderDeps<M>): Anoma
     logger,
   });
   const planStep = async (request: ComputerRequest): Promise<TelegramReply> => {
+    // DK-14 AC2: how a task ended and how many steps it took, never what they typed or pressed.
+    const ended = (outcome: string) =>
+      keep({
+        kind: 'computer',
+        door: 'app',
+        task: request.task,
+        outcome,
+        steps: request.done.length,
+        calls: null,
+      });
     // AC4: a task that long is stopped here, whatever the app does.
     if (request.done.length >= MAX_COMPUTER_STEPS) {
+      ended('too_many_steps');
       return { text: strings.computerTooManySteps(MAX_COMPUTER_STEPS) };
     }
-    const plan = await computerPlanner(request);
+    const plan = await computerPlanner({
+      ...request,
+      memories: memoryNotesFor(db, request.task),
+    });
+    if (plan.kind === 'end') ended(plan.completed ? 'done' : 'cannot');
+    else if (plan.kind !== 'action') ended(plan.kind);
     switch (plan.kind) {
       case 'action':
         return { text: plan.text, computer: plan.action, confirm: plan.confirm };
@@ -520,6 +588,10 @@ export const startAnomander = <M>(config: Config, deps: AnomanderDeps<M>): Anoma
         unreachable: [...(read?.leftOut ?? []), ...(servers?.unreachable() ?? [])],
       })),
     logger,
+    // DK-14 AC2: which calls were sent or refused, never their arguments or results.
+    decided: (call) => {
+      asked.calls.push(call);
+    },
   });
   /** How a task was cut short, and that it had made calls by then: they are not undone. */
   const cutShort = (text: string, performed: number): string =>
@@ -569,16 +641,29 @@ export const startAnomander = <M>(config: Config, deps: AnomanderDeps<M>): Anoma
   // (its start, or one answered call) begins in a turn, runs outside it, and what it came to is
   // said in a turn again, where its end becomes a recent turn in order with the others.
   /** The last task asked, and where: a call is answered at the door that asked for the task. */
-  let asked: { task: string; door: Door } = { task: '', door: 'app' };
+  let asked: Asked = { task: '', door: 'app', calls: [], waiting: false };
+  /** DK-14 AC2: a task that ended, as it is kept. */
+  const keepTask = (task: Asked, outcome: string): void => {
+    task.waiting = false;
+    keep({
+      kind: 'connect',
+      door: task.door,
+      task: task.task,
+      outcome,
+      steps: null,
+      calls: task.calls,
+    });
+  };
   /** A step of that task runs: no other task starts and no press is taken until it is said. */
   let working = false;
-  const say = inTurn(async (said: { outcome: TaskOutcome; task: string }) =>
-    connectionReply(said.outcome, said.task),
-  );
-  const connectionStep = (
-    { task, door }: { task: string; door: Door },
-    step: () => Promise<TaskOutcome>,
-  ): Later | null => {
+  const say = inTurn(async ({ outcome, task }: { outcome: TaskOutcome; task: Asked }) => {
+    // A call that waits is not an end, nor is a press on one that no longer waits.
+    if (outcome.kind === 'ask') task.waiting = true;
+    else if (outcome.kind !== 'gone') keepTask(task, outcome.kind);
+    return connectionReply(outcome, task.task);
+  });
+  const connectionStep = (task: Asked, step: () => Promise<TaskOutcome>): Later | null => {
+    const { door } = task;
     working = true;
     const reply = step()
       .then((outcome) => say({ outcome, task }))
@@ -602,7 +687,9 @@ export const startAnomander = <M>(config: Config, deps: AnomanderDeps<M>): Anoma
   /** Called in a turn. One task at a time: a second one is refused while a step runs. */
   const runConnections = (task: string, door: Door): TelegramReply | Later | null => {
     if (working) return { text: strings.connectionBusy() };
-    asked = { task, door };
+    // DK-11 AC8: a task that waited for "Permitir" ends here.
+    if (asked.waiting) keepTask(asked, 'replaced');
+    asked = { task, door, calls: [], waiting: false };
     return connectionStep(asked, () => connectionTasks.start(task));
   };
   /**
@@ -637,13 +724,20 @@ export const startAnomander = <M>(config: Config, deps: AnomanderDeps<M>): Anoma
   };
   const connectFromApp = onConnectAt('app');
   const connectFromTelegram = onConnectAt('telegram');
+  const answered = inTurn(async (message: PrincipalText): Promise<TelegramReply | Later | null> => {
+    const gaps = await setupGaps();
+    if (gaps.length > 0) return { text: setupGuide(gaps) };
+    if (isStart(message.text)) return { text: strings.hello() };
+    const reply = await recordedText(message);
+    // DK-13 AC2: a task with connections asked in words runs as one asked with `connect`.
+    const { route } = reply;
+    if (route?.to !== 'connect') return reply;
+    // Telegram's answer goes out by itself when the task ends: the announcement goes now.
+    return runConnections(route.task, doorOf(message.channelRef)) ?? { text: reply.text };
+  });
 
   const chat: ChatHandlers = {
-    onText: inTurn(async (message) => {
-      const gaps = await setupGaps();
-      if (gaps.length > 0) return { text: setupGuide(gaps) };
-      return isStart(message.text) ? { text: strings.hello() } : recordedText(message);
-    }),
+    onText: async (message) => settled(await answered(message)),
     onReceipt: inTurn(async (receipt) => {
       const gaps = await setupGaps();
       return gaps.length > 0 ? { text: setupGuide(gaps) } : recordedReceipt(receipt);
