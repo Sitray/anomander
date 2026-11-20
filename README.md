@@ -37,7 +37,7 @@ The Mac app:
 Not built yet:
 
 - A signed app other people can download. Today you build it yourself from this repository.
-- The Mac app without Telegram: it needs a bot token to start.
+- Reminders and summaries in the Mac app without Telegram: they wait until a bot is set up.
 - Web search. A question about the web may be sent to the computer instead.
 - One-click connectors (Google Calendar, Drive and others). Today a server is added by hand.
 
