@@ -669,7 +669,7 @@ describe('a task on the computer (DK-10, DK-13)', () => {
   const task = 'Envía el correo que tengo abierto';
 
   const openWithComputer = (
-    perform: (action: unknown) => Promise<ArrayBuffer> = async () => jpeg(),
+    perform: (action: unknown, ...rest: unknown[]) => Promise<ArrayBuffer> = async () => jpeg(),
     capture: () => Promise<ArrayBuffer> = async () => jpeg(),
   ) => {
     const onCaptureScreen = vi.fn(capture);
@@ -770,7 +770,7 @@ describe('a task on the computer (DK-10, DK-13)', () => {
       done: [PROPOSAL],
     });
     expect(onPerformAction).toHaveBeenCalledTimes(1);
-    expect(onPerformAction).toHaveBeenCalledWith(CLICK, true);
+    expect(onPerformAction).toHaveBeenCalledWith(CLICK, true, true);
     expect(allow().disabled).toBe(true);
     expect(refuse().disabled).toBe(true);
   });
@@ -941,7 +941,7 @@ describe('a task on the computer (DK-10, DK-13)', () => {
 
       expect(await sentRequest(socket, 3)).toMatchObject({ type: 'computer', done: [PROPOSAL] });
       expect(onPerformAction).toHaveBeenCalledTimes(1);
-      expect(onPerformAction).toHaveBeenCalledWith(CLICK, true);
+      expect(onPerformAction).toHaveBeenCalledWith(CLICK, true, false);
       expect(screen.getByText(PROPOSAL)).toBeTruthy();
       expect(screen.getByText(strings.chat.computerAuto)).toBeTruthy();
       expect(screen.queryByRole('button', { name: strings.chat.computerAllow })).toBeNull();
@@ -1040,6 +1040,85 @@ describe('a task on the computer (DK-10, DK-13)', () => {
       expect(onPerformAction).toHaveBeenCalledTimes(2);
     });
 
+    it('asks for permission when the shell sees a step of care on the screen', async () => {
+      // T1b: the daemon called it routine; the shell read a Send button under the point.
+      let permitted = false;
+      const { socket, onPerformAction, onReveal } = openWithComputer(async (...args) => {
+        permitted = args[2] === true;
+        if (!permitted) throw 'computer_careful';
+        return jpeg();
+      });
+      await routine(socket);
+
+      await waitFor(() => expect(allow().disabled).toBe(false));
+      expect(onPerformAction).toHaveBeenCalledWith(CLICK, true, false);
+      expect(socket.requests).toHaveLength(2);
+      expect(stop()).toBeNull();
+      expect(onReveal).toHaveBeenCalled();
+      expect(screen.queryByText(strings.chat.computerAuto)).toBeNull();
+      expect(screen.queryByRole('status')).toBeNull();
+
+      fireEvent.click(allow());
+      expect(await sentRequest(socket, 3)).toMatchObject({ type: 'computer', done: [PROPOSAL] });
+      expect(onPerformAction).toHaveBeenLastCalledWith(CLICK, true, true);
+      expect(permitted).toBe(true);
+    });
+
+    it('shows what the shell read on the screen instead of what the daemon said is there', async () => {
+      // The daemon called the control "Enviar"; the shell read a button named "Pagar ahora".
+      const { socket } = openWithComputer(async (...args) => {
+        if (args[2] !== true) throw 'computer_careful:AXButton:Pagar ahora';
+        return jpeg();
+      });
+      await routine(socket);
+
+      await waitFor(() => expect(allow().disabled).toBe(false));
+      expect(screen.getByText('Quiero hacer clic en «Pagar ahora».')).toBeTruthy();
+      expect(screen.queryByText(PROPOSAL)).toBeNull();
+    });
+
+    it('says which field Enter would act on when the shell asks for it', async () => {
+      const { socket } = openWithComputer(async (...args) => {
+        if (args[2] !== true) throw 'computer_careful:AXTextArea:Escribe un mensaje';
+        return jpeg();
+      });
+      const request = await started(socket);
+      const enter = { kind: 'key', key: 'enter', modifiers: [] };
+      act(() =>
+        socket.receive(
+          replyTo(request.id, {
+            text: 'Quiero pulsar Intro.',
+            computer: enter,
+            confirm: false,
+          } as never),
+        ),
+      );
+
+      await waitFor(() => expect(allow().disabled).toBe(false));
+      expect(screen.getByText('Quiero pulsar Intro.')).toBeTruthy();
+      expect(
+        screen.getByText(strings.chat.computerSeen('campo', 'Escribe un mensaje')),
+      ).toBeTruthy();
+    });
+
+    it('stops the task when the step targets an app ANOMANDER never acts on', async () => {
+      const { socket, onPerformAction } = openWithComputer(async () => {
+        throw 'computer_blocked:Ajustes del Sistema';
+      });
+      await routine(socket);
+
+      await waitFor(() =>
+        expect(screen.getByRole('status').textContent).toBe(
+          strings.chat.computerBlocked('Ajustes del Sistema'),
+        ),
+      );
+      expect(onPerformAction).toHaveBeenCalledTimes(1);
+      expect(screen.getByText(strings.chat.computerRefused)).toBeTruthy();
+      expect(screen.queryByRole('button', { name: strings.chat.computerAllow })).toBeNull();
+      expect(socket.requests).toHaveLength(2);
+      expect(stop()).toBeNull();
+    });
+
     it('a stopped task stays stopped when another one starts', async () => {
       const { socket, onPerformAction } = openWithComputer();
       const first = await started(socket);
@@ -1096,7 +1175,7 @@ describe('a task on the computer (DK-10, DK-13)', () => {
       const second = await sentRequest(socket, 3);
 
       expect(onCaptureScreen).toHaveBeenCalledWith(true);
-      expect(onPerformAction).toHaveBeenCalledWith(CLICK, true);
+      expect(onPerformAction).toHaveBeenCalledWith(CLICK, true, false);
       expect(onReveal).not.toHaveBeenCalled();
 
       act(() => socket.receive(replyTo(second.id, { text: 'Hecho.' })));

@@ -141,6 +141,7 @@ const ProposalCard = ({
           <span className="target-mark" style={point} />
         </div>
       )}
+      {proposal.seen !== null && <p className="message-note">{proposal.seen}</p>}
       {!proposal.confirm && <p className="message-note">{strings.chat.computerAuto}</p>}
       {proposal.confirm && (
         <div className="choices">

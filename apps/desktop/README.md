@@ -134,6 +134,29 @@ is framework-free, so it is tested against a fake `WebSocket` (`test/fake-web-so
   action again (`src-tauri/src/computer.rs`), hides the app so the input goes to the app the
   principal was using, and answers with the next capture. It needs macOS's Accessibility
   permission besides Screen Recording.
+- **The shell reads the screen before it acts** (T1b, after gentle-dot's `computer/risk.rs` and
+  `blocklist.rs`). Right before the input it reads, through the Accessibility API
+  (`computer/ax.rs`), the element under the point and its ancestors for a click, and the focused
+  element with its window's default button for keys and text. `perform_action` takes
+  `permitted`, which the window sets only after "Permitir". A step nobody permitted is performed
+  only when the screen shows a routine one (`computer/risk.rs`): a click on a control whose name
+  is of care (or says nothing), Enter or Space anywhere but in a search or address field (its
+  subrole `AXSearchField`, or a name or hint with search, buscar, búsqueda, dirección, address or
+  URL, and not a mail address), text typed anywhere but into a field, and anything whose element
+  or app cannot be read answer `computer_careful:<role>:<name>` (or just `computer_careful`).
+  The chat then shows the step with "Permitir", as if the daemon had asked, and says what the
+  screen showed: a click is said again with the control's own name, other steps get a note
+  ("En pantalla: campo «Escribe un mensaje»."). Before reading, the shell asks the app with the
+  focus to expose its page (`AXManualAccessibility`, for Electron apps); it reads at most 512
+  characters of an attribute and never a field's typed value. The words of care are one list,
+  `packages/protocol/src/careful-words.json`, read by the daemon and embedded in the shell; both
+  compare them in lower case after NFKD, without marks or invisible characters, and test the
+  same examples. No action reaches an app of the blocklist (`computer/blocklist.rs`), permitted
+  or not: ANOMANDER itself, System Settings, SecurityAgent, loginwindow, the system's permission
+  and authentication prompts, Keychain Access, Passwords, 1Password, Bitwarden, Dashlane,
+  LastPass, KeePassXC, Enpass, Proton Pass, NordPass and Keeper; the shell answers
+  `computer_blocked:<app>` and the chat ends the task with "No actúo sobre <app>: es una app
+  protegida. He detenido la tarea."
 - **A task with connections** (DK-11) is asked in words, as a plain text the daemon routes
   (DK-13). The daemon runs it; a call that needs permission arrives as a reply with
   "Permitir" and "Detener" buttons, pressed like any other. The servers are the ones of

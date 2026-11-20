@@ -3,10 +3,27 @@
 // once the principal allowed that very action. This side trusts neither: every action is
 // validated again here, and nothing else can be asked of it (no command, no file, no drag).
 // macOS decides whether the app may send input at all (Privacy & Security > Accessibility).
+// T1b: before the input, the shell reads the screen itself (`guard`): no action reaches an app of
+// the blocklist, and a step the principal did not allow that the screen shows is of care is not
+// performed, whatever the daemon or the window said about it.
 use serde::Deserialize;
+
+#[cfg(target_os = "macos")]
+mod ax;
+pub mod blocklist;
+pub mod risk;
+
+use blocklist::AppIdentity;
+use risk::{AxElement, Focus, Seen};
 
 /// The error the window knows as "macOS does not let the app use the computer" (`shell.ts`).
 pub const NO_PERMISSION: &str = "computer_permission";
+/// The step was not allowed and the screen shows it is of care: nothing was done, and it waits
+/// for the principal. Followed by `:<role>:<name>` of what the screen showed, when it was read.
+pub const CAREFUL: &str = "computer_careful";
+/// The step targets an app of the blocklist: nothing was done, and the task ends. Followed by
+/// `:` and the app's name.
+pub const BLOCKED: &str = "computer_blocked";
 
 /// The longest text one action types, as the daemon's planner.
 const MAX_TEXT_CHARS: usize = 500;
@@ -184,12 +201,24 @@ fn on_screen(x: u16, y: u16, size: (f64, f64)) -> Result<(f64, f64), String> {
     Ok((along(x, size.0), along(y, size.1)))
 }
 
-/// Performs `action` on a screen of `size` points, or nothing at all when it is not valid.
-pub fn perform(action: &Action, size: (f64, f64), input: &mut dyn Input) -> Result<(), String> {
-    match action {
+/// An action checked and placed on the screen, ready to be sent.
+enum Step<'a> {
+    Click { x: f64, y: f64, double: bool },
+    Text(&'a str),
+    Key { key: &'a str, code: u16, flags: u64 },
+    Scroll { x: f64, y: f64, lines: i32 },
+}
+
+/// `action` on a screen of `size` points, or why it is not valid.
+fn prepare(action: &Action, size: (f64, f64)) -> Result<Step<'_>, String> {
+    Ok(match action {
         Action::Click { x, y, double, .. } => {
-            let (px, py) = on_screen(*x, *y, size)?;
-            input.click(px, py, *double);
+            let (x, y) = on_screen(*x, *y, size)?;
+            Step::Click {
+                x,
+                y,
+                double: *double,
+            }
         }
         Action::Type { text } => {
             let length = text.chars().count();
@@ -205,24 +234,111 @@ pub fn perform(action: &Action, size: (f64, f64), input: &mut dyn Input) -> Resu
             if text.trim().is_empty() {
                 return Err("the text to type is blank".into());
             }
-            input.text(text);
+            Step::Text(text)
         }
-        Action::Key { key, modifiers } => {
-            let code = key_code(key).ok_or("the key is not one an action may press")?;
-            let flags = modifiers
+        Action::Key { key, modifiers } => Step::Key {
+            key,
+            code: key_code(key).ok_or("the key is not one an action may press")?,
+            flags: modifiers
                 .iter()
-                .fold(0, |flags, modifier| flags | modifier.flag());
-            input.key(code, flags);
-        }
+                .fold(0, |flags, modifier| flags | modifier.flag()),
+        },
         Action::Scroll { x, y, direction } => {
-            let (px, py) = on_screen(*x, *y, size)?;
+            let (x, y) = on_screen(*x, *y, size)?;
             let lines = match direction {
                 Direction::Up => SCROLL_LINES,
                 Direction::Down => -SCROLL_LINES,
             };
-            input.scroll(px, py, lines);
+            Step::Scroll { x, y, lines }
         }
+    })
+}
+
+fn send(step: &Step, input: &mut dyn Input) {
+    match *step {
+        Step::Click { x, y, double } => input.click(x, y, double),
+        Step::Text(text) => input.text(text),
+        Step::Key { code, flags, .. } => input.key(code, flags),
+        Step::Scroll { x, y, lines } => input.scroll(x, y, lines),
     }
+}
+
+/// Performs `action` on a screen of `size` points, or nothing at all when it is not valid.
+pub fn perform(action: &Action, size: (f64, f64), input: &mut dyn Input) -> Result<(), String> {
+    send(&prepare(action, size)?, input);
+    Ok(())
+}
+
+/// What the shell reads on the screen before an action (the Accessibility API), or a test's
+/// version of it. Points are in screen points; `None` is what could not be read.
+pub trait Screen {
+    /// The element under the point, then its ancestors.
+    fn elements_at(&self, x: f64, y: f64) -> Option<Vec<AxElement>>;
+    /// The app that owns the element under the point.
+    fn app_at(&self, x: f64, y: f64) -> Option<AppIdentity>;
+    /// The element with the focus, where keys and text go.
+    fn focus(&self) -> Option<Focus>;
+    /// The app with the focus.
+    fn focused_app(&self) -> Option<AppIdentity>;
+}
+
+/// Whether `step` may be sent: never to an app of the blocklist, and, unless the principal
+/// `permitted` it, only when the screen shows it is routine.
+fn guard(step: &Step, permitted: bool, screen: &dyn Screen, own_pid: i32) -> Result<(), String> {
+    let app = match *step {
+        Step::Click { x, y, .. } | Step::Scroll { x, y, .. } => screen.app_at(x, y),
+        Step::Text(_) | Step::Key { .. } => screen.focused_app(),
+    };
+    if let Some(label) = app
+        .as_ref()
+        .and_then(|app| blocklist::blocked(app, own_pid))
+    {
+        return Err(format!("{BLOCKED}:{label}"));
+    }
+    if permitted {
+        return Ok(());
+    }
+    // What cannot be read is of care: the app, the element under the point, the focus. A step of
+    // care says what the screen showed (`computer_careful:<role>:<name>`), when it showed one.
+    let careful = |seen: Option<Seen>| {
+        Err(match seen {
+            Some(Seen { role, label }) => format!("{CAREFUL}:{role}:{label}"),
+            None => CAREFUL.to_string(),
+        })
+    };
+    if app.is_none() {
+        return careful(None);
+    }
+    let on_focus = |judge: fn(&Focus) -> bool| match screen.focus() {
+        None => careful(None),
+        Some(focus) if judge(&focus) => careful(Some(Seen::of(&focus.element))),
+        Some(_) => Ok(()),
+    };
+    match *step {
+        Step::Click { x, y, .. } => match screen.elements_at(x, y) {
+            Some(chain) if !risk::careful_click(&chain) => Ok(()),
+            chain => careful(chain.as_deref().and_then(risk::seen_at_click)),
+        },
+        // Whatever is held with them: Shift+Enter still submits a form.
+        Step::Key { key: "enter", .. } => on_focus(risk::careful_return),
+        Step::Key { key: "space", .. } => on_focus(risk::careful_space),
+        Step::Text(_) => on_focus(risk::careful_typing),
+        Step::Key { .. } | Step::Scroll { .. } => Ok(()),
+    }
+}
+
+/// Performs `action` as `perform` does, once `guard` let it through. `own_pid` is ANOMANDER's.
+pub fn perform_guarded(
+    action: &Action,
+    size: (f64, f64),
+    permitted: bool,
+    screen: &dyn Screen,
+    own_pid: i32,
+    input: &mut dyn Input,
+) -> Result<(), String> {
+    let step = prepare(action, size)?;
+    guard(&step, permitted, screen, own_pid)?;
+    send(&step, input);
     Ok(())
 }
 
@@ -440,6 +556,8 @@ mod system {
 }
 
 #[cfg(target_os = "macos")]
+pub use ax::SystemScreen;
+#[cfg(target_os = "macos")]
 pub use system::{allowed, screen_size, SystemInput};
 
 #[cfg(test)]
@@ -574,5 +692,208 @@ mod tests {
         ] {
             assert!(action(json).is_err(), "{json}");
         }
+    }
+
+    /// What a test's screen shows: one element and its app under every point, and one focus.
+    #[derive(Clone)]
+    struct Shown {
+        under: Option<Vec<AxElement>>,
+        app: Option<AppIdentity>,
+        focus: Option<Focus>,
+    }
+
+    impl Screen for Shown {
+        fn elements_at(&self, _: f64, _: f64) -> Option<Vec<AxElement>> {
+            self.under.clone()
+        }
+        fn app_at(&self, _: f64, _: f64) -> Option<AppIdentity> {
+            self.app.clone()
+        }
+        fn focus(&self) -> Option<Focus> {
+            self.focus.clone()
+        }
+        fn focused_app(&self) -> Option<AppIdentity> {
+            self.app.clone()
+        }
+    }
+
+    const OWN_PID: i32 = 4242;
+
+    fn safari() -> AppIdentity {
+        AppIdentity {
+            pid: 100,
+            bundle_id: Some("com.apple.Safari".into()),
+            name: "Safari".into(),
+        }
+    }
+
+    fn element(role: &str, title: &str) -> AxElement {
+        AxElement {
+            role: role.into(),
+            title: Some(title.into()),
+            ..AxElement::default()
+        }
+    }
+
+    /// A screen with `under` under every point and the focus on `focused`, in Safari.
+    fn shown(under: AxElement, focused: AxElement) -> Shown {
+        Shown {
+            under: Some(vec![under]),
+            app: Some(safari()),
+            focus: Some(Focus {
+                element: focused,
+                ..Focus::default()
+            }),
+        }
+    }
+
+    fn guarded(json: &str, permitted: bool, screen: &Shown) -> Result<Vec<String>, String> {
+        let mut input = Recorded::default();
+        perform_guarded(
+            &action(json).unwrap(),
+            SCREEN,
+            permitted,
+            screen,
+            OWN_PID,
+            &mut input,
+        )
+        .map(|()| input.0)
+    }
+
+    const CLICK_ON_SEARCH: &str =
+        r#"{"kind":"click","x":500,"y":100,"double":false,"target":"Buscar"}"#;
+    const ENTER: &str = r#"{"kind":"key","key":"enter","modifiers":[]}"#;
+    const SPACE: &str = r#"{"kind":"key","key":"space","modifiers":[]}"#;
+
+    #[test]
+    fn a_click_is_judged_on_the_element_under_the_point_not_on_the_target() {
+        // The processor calls it "Buscar"; the screen shows a Send button there, and says so.
+        let send = shown(element("AXButton", "Enviar"), element("AXGroup", ""));
+        assert_eq!(
+            guarded(CLICK_ON_SEARCH, false, &send),
+            Err(format!("{CAREFUL}:AXButton:Enviar"))
+        );
+        // Allowed by the principal, it is performed.
+        assert_eq!(
+            guarded(CLICK_ON_SEARCH, true, &send).unwrap(),
+            ["click 720 90 false"]
+        );
+        // And a routine element is clicked without asking, whatever the target says.
+        let field = shown(
+            element("AXTextField", "Barra de direcciones"),
+            element("AXGroup", ""),
+        );
+        let named_send = r#"{"kind":"click","x":500,"y":100,"double":false,"target":"Enviar"}"#;
+        assert_eq!(
+            guarded(named_send, false, &field).unwrap(),
+            ["click 720 90 false"]
+        );
+    }
+
+    #[test]
+    fn return_and_space_go_without_asking_only_in_a_search_or_address_field() {
+        let address = shown(
+            element("AXGroup", ""),
+            element("AXTextField", "Barra de direcciones"),
+        );
+        assert_eq!(guarded(ENTER, false, &address).unwrap(), ["key 36 0x0"]);
+        assert_eq!(guarded(SPACE, false, &address).unwrap(), ["key 49 0x0"]);
+
+        // A web form's field, a terminal, an Electron page that reads as a group.
+        for (focused, said) in [
+            (element("AXTextField", "Importe"), "AXTextField:Importe"),
+            (element("AXTextArea", ""), "AXTextArea:"),
+            (element("AXGroup", ""), "AXGroup:"),
+        ] {
+            let screen = shown(element("AXGroup", ""), focused);
+            let careful = Err(format!("{CAREFUL}:{said}"));
+            assert_eq!(guarded(ENTER, false, &screen), careful, "{said}");
+            assert_eq!(guarded(SPACE, false, &screen), careful, "{said}");
+            let shift_enter = r#"{"kind":"key","key":"enter","modifiers":["shift"]}"#;
+            assert_eq!(guarded(shift_enter, false, &screen), careful, "{said}");
+            assert_eq!(guarded(ENTER, true, &screen).unwrap(), ["key 36 0x0"]);
+        }
+    }
+
+    #[test]
+    fn text_is_typed_without_asking_only_into_a_field() {
+        let field = shown(element("AXGroup", ""), element("AXTextField", "Importe"));
+        let spaced = r#"{"kind":"type","text":"hola mundo"}"#;
+        assert_eq!(guarded(spaced, false, &field).unwrap(), ["text hola mundo"]);
+        // On a button a space presses it; on a page that is not read, letters can be shortcuts.
+        for (focused, said) in [
+            (element("AXButton", "Abrir"), "AXButton:Abrir"),
+            (element("AXWebArea", "Slack"), "AXWebArea:Slack"),
+        ] {
+            let screen = shown(element("AXGroup", ""), focused);
+            for json in [spaced, r#"{"kind":"type","text":"e"}"#] {
+                assert_eq!(
+                    guarded(json, false, &screen),
+                    Err(format!("{CAREFUL}:{said}")),
+                    "{json}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn what_cannot_be_read_is_asked_for() {
+        let unread = Shown {
+            under: None,
+            app: Some(safari()),
+            focus: None,
+        };
+        assert_eq!(
+            guarded(CLICK_ON_SEARCH, false, &unread),
+            Err(CAREFUL.into())
+        );
+        assert_eq!(guarded(ENTER, false, &unread), Err(CAREFUL.into()));
+        assert_eq!(guarded(SPACE, false, &unread), Err(CAREFUL.into()));
+        // Keys that press nothing need no element.
+        let tab = r#"{"kind":"key","key":"tab","modifiers":[]}"#;
+        assert_eq!(guarded(tab, false, &unread).unwrap(), ["key 48 0x0"]);
+        // Without knowing the app, nothing goes without asking.
+        let nowhere = Shown {
+            app: None,
+            ..unread
+        };
+        assert_eq!(guarded(tab, false, &nowhere), Err(CAREFUL.into()));
+        assert_eq!(guarded(tab, true, &nowhere).unwrap(), ["key 48 0x0"]);
+    }
+
+    #[test]
+    fn an_app_of_the_blocklist_is_never_acted_on_even_when_allowed() {
+        let mut settings = shown(element("AXButton", "Abrir"), element("AXGroup", ""));
+        settings.app = Some(AppIdentity {
+            pid: 200,
+            bundle_id: Some("com.apple.systempreferences".into()),
+            name: "System Settings".into(),
+        });
+        let refused = Err(format!("{BLOCKED}:Ajustes del Sistema"));
+        let scroll = r#"{"kind":"scroll","x":500,"y":500,"direction":"down"}"#;
+        for json in [CLICK_ON_SEARCH, ENTER, scroll] {
+            assert_eq!(guarded(json, false, &settings), refused, "{json}");
+            assert_eq!(guarded(json, true, &settings), refused, "{json}");
+        }
+        let mut own = settings.clone();
+        own.app = Some(AppIdentity {
+            pid: OWN_PID,
+            bundle_id: None,
+            name: "anomander-desktop".into(),
+        });
+        assert_eq!(
+            guarded(CLICK_ON_SEARCH, true, &own),
+            Err(format!("{BLOCKED}:ANOMANDER"))
+        );
+    }
+
+    #[test]
+    fn an_action_that_is_not_valid_is_refused_before_the_screen_is_judged() {
+        let send = shown(element("AXButton", "Enviar"), element("AXGroup", ""));
+        let outside = r#"{"kind":"click","x":1001,"y":10,"double":false,"target":"x"}"#;
+        assert_eq!(
+            guarded(outside, false, &send),
+            Err("the action points outside the screen".into())
+        );
     }
 }

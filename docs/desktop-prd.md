@@ -157,10 +157,20 @@ and keep its secrets in the operating system instead of a text file.
     processor says: a click on a control named as sending, sharing, paying, deleting, saving,
     accepting, continuing, installing, downloading, signing in or out or a password, or a
     shortcut outside the harmless ones (reloading and pasting are not harmless), Enter or Space,
-    with or without Shift (they press whatever has the focus, which the code cannot see),
-    Spotlight or the app switcher (Cmd+Space, Cmd+Tab: they change which app the next keys go
-    to), and every fifth step of a task, however routine it looks (corrected on 2026-11-20 after
-    the security audit, following how gentle-dot's `computer/risk.rs` treats Return and Space).
+    with or without Shift (they press whatever has the focus), Spotlight or the app switcher
+    (Cmd+Space, Cmd+Tab: they change which app the next keys go to), and every fifth step of a
+    task, however routine it looks (corrected on 2026-11-20 after the security audit, following
+    gentle-dot's `computer/risk.rs`). The app does not trust the processor's words either:
+    right before a step nobody allowed, it reads the screen itself (the Accessibility element
+    under the point, or the one with the focus and its window's default button) and asks for it
+    instead when what is there is of care: a click on a control named with the same words, or
+    one that says nothing; Enter or Space anywhere but in a search or address field (a web form,
+    a terminal or a message box sends on Enter); text typed anywhere but into a field; and any
+    step whose element or app cannot be read, such as an Electron app's page that reads as a
+    group (T1b, made stricter on 2026-11-20 after its verifier). Then the chat shows what the
+    screen showed, not what the processor said. No step, allowed or not, acts on ANOMANDER
+    itself, System Settings, the login and authorization prompts, Keychain Access or a password
+    manager: the app refuses it, says so and ends the task.
     There is one task at a time: starting another ends the one before. While a task runs by
     itself the app stays out of the way (asked by the principal on 2026-11-10: "arregla lo de que se cierre y
     abra la app") and comes back when a step needs permission or the task ends; the chat and the

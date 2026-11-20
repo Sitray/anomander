@@ -49,6 +49,8 @@ export interface Proposal {
   captureUrl: string;
   /** Whether the principal must allow it; `false` for a routine step, performed without asking. */
   confirm: boolean;
+  /** T1b: what the shell read on the screen where the step would act, when it asked for it. */
+  seen: string | null;
 }
 
 /** The last press on one of a reply's buttons (DK-4 AC3). */
@@ -107,8 +109,11 @@ export type ConversationAction =
   | { type: 'performed'; id: string; requestId: string | null }
   /** The allowed action was performed and the task ended meanwhile: nothing follows it. */
   | { type: 'performed_last'; id: string }
-  /** The allowed action was not performed at all: it can be allowed again. */
-  | { type: 'not_performed'; id: string }
+  /**
+   * The allowed action was not performed at all: it can be allowed again. `seen` is what the
+   * shell read on the screen, and `text` says the action again with it (T1b).
+   */
+  | { type: 'not_performed'; id: string; seen?: string; text?: string }
   /** The principal stopped at the proposal of the reply `id`. */
   | { type: 'refused'; id: string };
 
@@ -251,8 +256,16 @@ export const reduceConversation = (
         message.kind === 'bot' && message.id === action.id
           ? {
               ...message,
+              text: action.text ?? message.text,
               press: null,
-              proposal: message.proposal === null ? null : { ...message.proposal, confirm: true },
+              proposal:
+                message.proposal === null
+                  ? null
+                  : {
+                      ...message.proposal,
+                      confirm: true,
+                      seen: action.seen ?? message.proposal.seen,
+                    },
             }
           : message,
       );
