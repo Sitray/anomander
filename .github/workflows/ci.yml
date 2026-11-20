@@ -18,7 +18,7 @@ jobs:
   # One job, because the Rust tests run the real daemon scripts with `node` and the installed
   # workspace (`ledger_import.rs`, `oauth_connect.rs`), so they come after `pnpm install`.
   check:
-    runs-on: macos-14
+    runs-on: macos-15
     timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4
@@ -60,7 +60,7 @@ jobs:
   # so it proves the frontend build and the bundled shell compile, not that the app is
   # distributable.
   tauri-build:
-    runs-on: macos-14
+    runs-on: macos-15
     timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4
