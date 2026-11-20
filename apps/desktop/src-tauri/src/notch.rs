@@ -1,8 +1,9 @@
-// The notice that drops from the notch while ANOMANDER works: a second window, borderless and
+// The notice that drops from the notch when ANOMANDER's work ends: a second window, borderless and
 // transparent, over the top centre of the main screen, drawn by `notch.html` (`src/notch/`). It
-// takes the signals the menu bar icon takes (DK-6, DK-10): the chat waiting for an answer, and a
-// task on the computer going by itself, when the main window is hidden and this is what shows the
-// work. On a screen without a notch the pill hangs from under the menu bar instead.
+// follows the signals the menu bar icon takes (DK-6, DK-10): the chat waiting for an answer, and a
+// task on the computer going by itself. While the work goes on only the menu bar's wave shows it;
+// when it ends the pill drops to say so, holds, and retracts. On a screen without a notch the pill
+// hangs from under the menu bar instead.
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Mutex, PoisonError};
 use std::time::Duration;
@@ -29,20 +30,29 @@ pub const WIDTH: f64 = PILL_WIDTH + 2.0 * MARGIN;
 const NOTCHED_BAR: f64 = 30.0;
 /// How long the page takes to retract the pill, before the window hides.
 const RETRACT: Duration = Duration::from_millis(400);
+/// How long the pill stays down saying the work has ended.
+const HOLD: Duration = Duration::from_millis(2400);
 
-/// What the notice says: nothing, an answer owed, or a task going by itself.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "snake_case")]
-pub enum Work {
+/// What ANOMANDER is doing: nothing, an answer owed, or a task going by itself.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Work {
     Idle,
     Thinking,
     Task,
 }
 
+/// What the notice says: nothing, or that the work has ended.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Say {
+    Nothing,
+    Done,
+}
+
 /// What the page is told at each change.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize)]
 pub struct State {
-    pub work: Work,
+    pub say: Say,
     /// The menu bar's height, in points, when the pill covers it from the notch down; 0 when the
     /// pill hangs from under the bar.
     pub bar: f64,
@@ -68,8 +78,51 @@ impl Signals {
     }
 }
 
+/// What a change of the signals does to the notice.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Turn {
+    /// The work goes on, or nothing was going on.
+    Nothing,
+    /// Work starts: a pill still down from the last end goes back up.
+    Starts,
+    /// The work ended: the pill drops when `announce`.
+    Ends { announce: bool },
+}
+
+/// One spell of work, from the first signal to the last.
+#[derive(Debug, Default)]
+struct Spell {
+    signals: Signals,
+    /// A task on the computer ran in this spell.
+    task_seen: bool,
+}
+
+impl Spell {
+    /// Applies `update`. The end is announced after a task on the computer, which the principal
+    /// left to run by itself, and after an answer only when the chat is not in front: there the
+    /// principal is already looking (as `notify_reply` decides).
+    fn change(&mut self, update: impl FnOnce(&mut Signals), chat_in_front: bool) -> Turn {
+        let before = self.signals.work();
+        update(&mut self.signals);
+        let after = self.signals.work();
+        if after == Work::Task {
+            self.task_seen = true;
+        }
+        match (before, after) {
+            (Work::Idle, Work::Idle) => Turn::Nothing,
+            (Work::Idle, _) => Turn::Starts,
+            (_, Work::Idle) => {
+                let announce = self.task_seen || !chat_in_front;
+                self.task_seen = false;
+                Turn::Ends { announce }
+            }
+            _ => Turn::Nothing,
+        }
+    }
+}
+
 struct Notice {
-    signals: Mutex<Signals>,
+    spell: Mutex<Spell>,
     bar: f64,
     /// Counts the changes, so a hide ordered at one change does not take down later work.
     changes: AtomicU64,
@@ -137,7 +190,7 @@ pub fn build(app: &App) -> tauri::Result<()> {
         .build()?;
     raise_over_the_menu_bar(&window);
     app.manage(Notice {
-        signals: Mutex::new(Signals::default()),
+        spell: Mutex::new(Spell::default()),
         bar: place.bar,
         changes: AtomicU64::new(0),
     });
@@ -173,53 +226,75 @@ fn raise_over_the_menu_bar(window: &WebviewWindow) {
 #[cfg(not(target_os = "macos"))]
 fn raise_over_the_menu_bar(_window: &WebviewWindow) {}
 
-/// Shows whether the chat waits for an answer. Runs on the main thread.
-pub fn show_thinking(app: &AppHandle, thinking: bool) {
-    change(app, |signals| signals.thinking = thinking);
+/// Follows whether the chat waits for an answer; `chat_in_front` is whether the chat window has
+/// the focus. Runs on the main thread.
+pub fn show_thinking(app: &AppHandle, thinking: bool, chat_in_front: bool) {
+    change(app, |signals| signals.thinking = thinking, chat_in_front);
 }
 
-/// Shows whether a task on the computer goes by itself. Runs on the main thread.
-pub fn show_task(app: &AppHandle, running: bool) {
-    change(app, |signals| signals.task = running);
+/// Follows whether a task on the computer goes by itself. Runs on the main thread.
+pub fn show_task(app: &AppHandle, running: bool, chat_in_front: bool) {
+    change(app, |signals| signals.task = running, chat_in_front);
 }
 
-fn change(app: &AppHandle, update: impl FnOnce(&mut Signals)) {
+fn change(app: &AppHandle, update: impl FnOnce(&mut Signals), chat_in_front: bool) {
     let Some(notice) = app.try_state::<Notice>() else {
         return;
     };
-    let (before, after) = {
-        let mut signals = notice
-            .signals
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner);
-        let before = signals.work();
-        update(&mut signals);
-        (before, signals.work())
+    let turn = notice
+        .spell
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .change(update, chat_in_front);
+    let change = match turn {
+        Turn::Nothing | Turn::Ends { announce: false } => return,
+        Turn::Starts | Turn::Ends { announce: true } => {
+            notice.changes.fetch_add(1, Ordering::Relaxed) + 1
+        }
     };
-    if before == after {
+    if turn == Turn::Starts {
+        // New work: a pill still down from the last end goes back up; the wave in the menu bar
+        // takes over. When none is down this hides a hidden window.
+        say(app, &notice, Say::Nothing);
+        hide_after_retract(app.clone(), change);
         return;
     }
-    let change = notice.changes.fetch_add(1, Ordering::Relaxed) + 1;
-    let Some(window) = app.get_webview_window(WINDOW) else {
-        return;
-    };
-    // The window shows first, so the page plays its drop on screen; the page retracts the pill
-    // itself, and the window hides once it has.
-    if before == Work::Idle {
+    // The window shows first, so the page plays its drop on screen.
+    if let Some(window) = app.get_webview_window(WINDOW) {
         if let Err(error) = window.show() {
             eprintln!("could not show the notice from the notch: {error}");
         }
     }
+    say(app, &notice, Say::Done);
+    retract_after_hold(app.clone(), change);
+}
+
+fn say(app: &AppHandle, notice: &Notice, say: Say) {
     let state = State {
-        work: after,
+        say,
         bar: notice.bar,
     };
     if let Err(error) = app.emit_to(WINDOW, STATE_EVENT, state) {
         eprintln!("could not tell the notice from the notch: {error}");
     }
-    if after == Work::Idle {
-        hide_after_retract(app.clone(), change);
-    }
+}
+
+/// Retracts the pill once it has said its words, unless something changed in the meantime.
+fn retract_after_hold(app: AppHandle, change: u64) {
+    std::thread::spawn(move || {
+        std::thread::sleep(HOLD);
+        let handle = app.clone();
+        let _ = app.run_on_main_thread(move || {
+            let Some(notice) = handle.try_state::<Notice>() else {
+                return;
+            };
+            if notice.changes.load(Ordering::Relaxed) != change {
+                return;
+            }
+            say(&handle, &notice, Say::Nothing);
+            hide_after_retract(handle.clone(), change);
+        });
+    });
 }
 
 /// Hides the window once the pill has retracted, unless work came back in the meantime.
@@ -265,6 +340,56 @@ mod tests {
         assert_eq!(Signals::default().work(), Work::Idle);
     }
 
+    fn think(on: bool) -> impl FnOnce(&mut Signals) {
+        move |signals| signals.thinking = on
+    }
+
+    fn task(on: bool) -> impl FnOnce(&mut Signals) {
+        move |signals| signals.task = on
+    }
+
+    #[test]
+    fn an_answer_is_announced_only_when_the_chat_is_not_in_front() {
+        let mut spell = Spell::default();
+        assert_eq!(spell.change(think(true), true), Turn::Starts);
+        assert_eq!(
+            spell.change(think(false), true),
+            Turn::Ends { announce: false }
+        );
+        assert_eq!(spell.change(think(true), false), Turn::Starts);
+        assert_eq!(
+            spell.change(think(false), false),
+            Turn::Ends { announce: true }
+        );
+    }
+
+    #[test]
+    fn the_end_of_a_task_is_always_announced_and_only_once_the_work_is_over() {
+        let mut spell = Spell::default();
+        assert_eq!(spell.change(task(true), false), Turn::Starts);
+        // The chat waits for each step while the task runs: still work, nothing to say.
+        assert_eq!(spell.change(think(true), false), Turn::Nothing);
+        assert_eq!(spell.change(task(false), true), Turn::Nothing);
+        // The app came back to the front when the task ended: announced all the same.
+        assert_eq!(
+            spell.change(think(false), true),
+            Turn::Ends { announce: true }
+        );
+        // The next spell starts afresh.
+        assert_eq!(spell.change(think(true), true), Turn::Starts);
+        assert_eq!(
+            spell.change(think(false), true),
+            Turn::Ends { announce: false }
+        );
+    }
+
+    #[test]
+    fn a_signal_that_changes_nothing_does_nothing() {
+        let mut spell = Spell::default();
+        assert_eq!(spell.change(think(false), false), Turn::Nothing);
+        assert_eq!(spell.change(task(false), false), Turn::Nothing);
+    }
+
     #[test]
     fn on_a_notched_screen_the_window_covers_the_notch_and_hangs_below_the_bar() {
         // A 14-inch MacBook Pro: 1512 points wide, a 37-point menu bar.
@@ -285,14 +410,16 @@ mod tests {
     }
 
     #[test]
-    fn the_page_is_told_the_work_in_snake_case() {
+    fn the_page_is_told_what_to_say_in_snake_case() {
         let json = serde_json::to_string(&State {
-            work: Work::Thinking,
+            say: Say::Done,
             bar: 37.0,
         })
         .unwrap();
-        assert_eq!(json, r#"{"work":"thinking","bar":37.0}"#);
-        assert_eq!(serde_json::to_string(&Work::Task).unwrap(), r#""task""#);
-        assert_eq!(serde_json::to_string(&Work::Idle).unwrap(), r#""idle""#);
+        assert_eq!(json, r#"{"say":"done","bar":37.0}"#);
+        assert_eq!(
+            serde_json::to_string(&Say::Nothing).unwrap(),
+            r#""nothing""#
+        );
     }
 }

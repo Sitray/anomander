@@ -99,6 +99,12 @@ and keep its secrets in the operating system instead of a text file.
 - DK-6 Menu bar.
   - AC1: an icon shows whether ANOMANDER is running, stopped or failing.
   - AC2: its menu opens the chat, starts or stops ANOMANDER, and quits.
+  - AC3: while ANOMANDER works (an answer owed, a task on the computer going by itself) the icon
+    shows a wave. When the work ends a drop grows out of the notch saying "Ha terminado", holds
+    and retracts; on a screen without a notch it hangs from under the menu bar. It shows after
+    every task on the computer, and after an answer only when the chat window is not in front
+    (asked by the principal on 2026-11-20: "solo debería salir con un aviso de que ha acabado, no
+    el Pensando entero, para eso tenemos la animacion de la barra"). A click on it opens the chat.
 - DK-7 While the app is closed.
   - AC1: nothing runs. At launch, what was missed follows the rules already in force: a late
     reminder gets S-43 (R-25 AC7), and the morning digest is sent if it is still before 12:00

@@ -1,7 +1,7 @@
 /*
- * The notice from the notch. The window is transparent; everything drawn is the pill: the notch's
- * own black, so over the notch it is the notch, and under the menu bar it is the notch grown
- * down. Only `transform` and `opacity` move, so the drop composites without a layout or a paint.
+ * The notice from the notch, shown when ANOMANDER's work ends. The window is transparent;
+ * everything drawn is the pill: the notch's own black, so over the notch it is the notch, and
+ * under the menu bar it is the notch grown down. Only `transform` and `opacity` move, so the drop composites without a layout or a paint.
  */
 
 :root {
@@ -67,6 +67,15 @@ body {
     opacity 160ms var(--ease-out) 40ms;
 }
 
+/* Where the drop starts: narrow and short at the notch, unseen, so it grows out like a drop.
+ * No transition: the page paints it once and then lets the pill go up. */
+.pill[data-up="start"] {
+  opacity: 0;
+  transform: scale(0.5, 0.6);
+  pointer-events: none;
+  transition: none;
+}
+
 /* Up: a spring with a little give, as something that dropped and settled. The second
  * `transition` is the spring itself (a damping ratio of 0.72 over 420 ms); a WebKit without
  * `linear()` keeps the first. */
@@ -117,7 +126,8 @@ body {
 }
 
 /* The words arrive a beat after the pill, from just above where they land. */
-.pill[data-up="false"] .pill-body {
+.pill[data-up="false"] .pill-body,
+.pill[data-up="start"] .pill-body {
   opacity: 0;
   transform: translateY(-4px);
   transition:
@@ -137,60 +147,19 @@ body {
   white-space: nowrap;
 }
 
-/* The same wave as the menu bar icon: each dot in turn lifts and brightens along a hump that
- * takes half the turn, the next starting 0.17 of a turn behind, and the row rests between turns. */
-.wave {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  height: 10px;
-}
-
-.wave i {
-  width: 5px;
-  height: 5px;
-  border-radius: 50%;
-  background: var(--bone);
-  opacity: 0.5;
-  animation: wave 1.44s ease-in-out infinite;
-}
-
-.wave i:nth-child(2) {
-  animation-delay: 0.245s;
-}
-
-.wave i:nth-child(3) {
-  animation-delay: 0.49s;
-}
-
-@keyframes wave {
-  0%,
-  50%,
-  100% {
-    transform: none;
-    opacity: 0.5;
-  }
-  25% {
-    transform: translateY(-4px);
-    opacity: 1;
-  }
-}
-
-/* Reduced motion: the pill fades in place and the dots rest; the words still say the work. */
+/* Reduced motion: the pill fades in place; the words still say the work has ended. */
 @media (prefers-reduced-motion: reduce) {
   .pill[data-up="false"],
+  .pill[data-up="start"],
   .pill[data-up="true"] {
     transform: none;
     transition: opacity 200ms var(--ease-out);
   }
 
   .pill-body,
-  .pill[data-up="false"] .pill-body {
+  .pill[data-up="false"] .pill-body,
+  .pill[data-up="start"] .pill-body {
     transform: none;
     transition: opacity 200ms var(--ease-out);
-  }
-
-  .wave i {
-    animation: none;
   }
 }

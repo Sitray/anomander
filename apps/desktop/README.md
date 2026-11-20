@@ -3,7 +3,10 @@
 The desktop app of milestone M6 (`docs/desktop-prd.md`): a Tauri 2 shell in Rust (`src-tauri/`)
 that starts and supervises the daemon, keeps its secrets in the macOS Keychain and lives in the
 menu bar, and a React window (`src/`) with a chat, a setup screen, a connections screen and the
-daemon's status.
+daemon's status. While ANOMANDER works the menu bar icon shows a wave (`tray.rs`); when the work
+ends a pill drops from the notch saying "Ha terminado", holds and retracts (`src-tauri/src/notch.rs`
+and the page in `src/notch/`). It drops after every task on the computer, and after an answer only
+when the chat is not in front.
 
 This file covers the window. The two halves meet in `src/shell.ts`: every command and event they
 exchange, mirrored by the Rust side. Change both together.

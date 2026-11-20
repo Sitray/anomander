@@ -327,13 +327,20 @@ async fn stop_daemon(app: AppHandle) -> Result<(), String> {
     .await
 }
 
-/// The chat waits for an answer, or no longer does: the menu bar and the notch show it.
+/// Whether the principal is looking at the chat: its window has the focus.
+fn chat_in_front(app: &AppHandle) -> bool {
+    app.get_webview_window(MAIN_WINDOW)
+        .is_some_and(|window| window.is_focused().unwrap_or(false))
+}
+
+/// The chat waits for an answer, or no longer does: the menu bar shows it, and the notch says
+/// when it is over.
 #[tauri::command]
 fn set_thinking(app: AppHandle, thinking: bool) -> Result<(), String> {
     let handle = app.clone();
     app.run_on_main_thread(move || {
         tray::show_thinking(&handle, thinking);
-        notch::show_thinking(&handle, thinking);
+        notch::show_thinking(&handle, thinking, chat_in_front(&handle));
     })
     .map_err(|error| error.to_string())
 }
@@ -341,10 +348,7 @@ fn set_thinking(app: AppHandle, thinking: bool) -> Result<(), String> {
 /// An answer arrived in the chat: notifies it, unless the principal is looking at the window.
 #[tauri::command]
 fn notify_reply(app: AppHandle, text: String) -> Result<(), String> {
-    let in_front = app
-        .get_webview_window(MAIN_WINDOW)
-        .is_some_and(|window| window.is_focused().unwrap_or(false));
-    if in_front {
+    if chat_in_front(&app) {
         return Ok(());
     }
     app.notification()
@@ -380,14 +384,14 @@ fn reveal(app: AppHandle) {
     come_back(&app);
 }
 
-/// A task goes by itself, or no longer does: the menu bar offers to stop it, and with the notch
-/// shows the work.
+/// A task goes by itself, or no longer does: the menu bar offers to stop it and shows the work,
+/// and the notch says when it is over.
 #[tauri::command]
 fn set_task_running(app: AppHandle, running: bool) -> Result<(), String> {
     let handle = app.clone();
     app.run_on_main_thread(move || {
         tray::show_task(&handle, running);
-        notch::show_task(&handle, running);
+        notch::show_task(&handle, running, chat_in_front(&handle));
     })
     .map_err(|error| error.to_string())
 }
