@@ -205,7 +205,9 @@ and keep its secrets in the operating system instead of a text file.
     of the daemon's environment. Servers are connected when a task first needs them.
     The values of `env` and `headers` are secrets (DK-5): before each start of the daemon the app
     moves them to the Keychain and leaves `@keychain` in the file; a server whose secret is
-    missing is not connected.
+    missing is not connected. A server started by `command` is a child of the app, so macOS
+    gives it the app's Screen Recording and Accessibility permissions: the app does not prevent
+    it, the README tells the principal to connect only servers they trust (security M2).
   - AC2: a task with connections is asked in words, in the app's chat or in Telegram, and the
     text interpreter routes it (DK-13); a `connect` request from the app and `/mcp <tarea>` in
     Telegram still ask for one directly, and `/mcp` alone answers how to ask. Only the principal's chat is

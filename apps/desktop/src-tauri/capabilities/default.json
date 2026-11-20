@@ -1,7 +1,31 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "The chat window: core defaults and listening to the shell's events, nothing else.",
+  "description": "The chat window: core defaults, listening to the shell's events, and the app's commands its script calls (`src/shell.ts`).",
   "windows": ["main"],
-  "permissions": ["core:default", "core:event:allow-listen", "core:event:allow-unlisten"]
+  "permissions": [
+    "core:default",
+    "core:event:allow-listen",
+    "core:event:allow-unlisten",
+    "allow-get-snapshot",
+    "allow-save-setup",
+    "allow-get-connections",
+    "allow-save-connection",
+    "allow-remove-connection",
+    "allow-import-ledger",
+    "allow-connect-oauth",
+    "allow-forget-oauth",
+    "allow-get-subscriptions",
+    "allow-connect-subscription",
+    "allow-answer-login",
+    "allow-disconnect-subscription",
+    "allow-start-daemon",
+    "allow-stop-daemon",
+    "allow-set-thinking",
+    "allow-notify-reply",
+    "allow-capture-screen",
+    "allow-perform-action",
+    "allow-reveal",
+    "allow-set-task-running"
+  ]
 }
