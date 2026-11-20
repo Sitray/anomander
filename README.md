@@ -2,9 +2,42 @@
 
 A personal assistant that understands your world, knows what is true, knows what it may do, and carries a matter to a verifiable result.
 
-> Status: in development. Milestones M0 to M5 and M5c to M5f of the [PRD](PRD.md) roadmap (§17) are built: text and receipt expenses over Telegram, decisions, corrections, conversation memory, the weekly summary and the morning digest (both off until you ask for them), policies, categories, reminders and tasks, model login and the setup guide. The design is in [`docs/`](docs).
+> Status: in development, not released. Milestones M0 to M6 of the [PRD](PRD.md) roadmap (§17) are built: see [What works today](#what-works-today). The design is in [`docs/`](docs).
 
-To run your own, see [Getting started](#getting-started).
+The Mac app's interface is in Spanish only, and the app runs on macOS only. Telegram replies are in Spanish too (PRD §12).
+
+To run your own, see [Getting started](#getting-started) (Docker and Telegram) or [Run the Mac app](#run-the-mac-app).
+
+<!-- screenshot: TODO -->
+
+## What works today
+
+| Where | What works | Spec |
+| --- | --- | --- |
+| Telegram | Text and receipt expenses, decisions with buttons, corrections, conversation memory, the weekly summary and the morning digest (both off until you ask for them), policies, categories, reminders and tasks, model login (`/login`), the setup guide (`/start`) and tasks with connections | [PRD](PRD.md) M0 to M5f; DK-11 for connections |
+| Read API | A token-guarded, GET-only HTTP API over the views `gastos`, `lineas_de_compra` and `pendientes_de_confirmar`, off unless `ANOMANDER_API_TOKEN` is set | [`docs/read-access-prd.md`](docs/read-access-prd.md) (M5b) |
+| Mac app | Everything below, with the same daemon, rules and ledger as Telegram | [`docs/desktop-prd.md`](docs/desktop-prd.md) (M6) |
+
+The Mac app:
+
+| Part | What it does | Spec |
+| --- | --- | --- |
+| Chat and setup | Talk to ANOMANDER in a window; the setup screen keeps the bot token and the model keys in the macOS Keychain | DK-1 to DK-5 |
+| Menu bar and notch | The menu bar icon shows a wave while ANOMANDER works. When the work ends, a drop grows out of the notch saying "Ha terminado" and retracts | DK-6 |
+| No mode buttons | You just write. From your words the daemon decides whether to look at the screen, act on the computer or use your connections, and says which | DK-13 |
+| A look at the screen | Captures the screen and answers about it. The capture is never stored | DK-9 |
+| Tasks on the computer | One step at a time, at most 12. A routine step runs; a step of care (Enter, Space, Spotlight, the app switcher, a click on a send, pay or delete control, every fifth step) waits for "Permitir" | DK-10 |
+| Connections | MCP servers from `mcp.json` or the Conexiones screen, with OAuth for servers reached by URL. A tool marked read-only runs; any other call waits for "Permitir" | DK-11 |
+| Memories and history | Looks and computer tasks know what you told it about yourself. A local history of what it did answers "¿qué hiciste ayer?" and is erased on request | DK-14 |
+| Subscription login | Connect ChatGPT or Kimi Code from the Suscripciones screen | DK-15 |
+| A ledger from Docker | Imports a ledger copied out of a Docker install into the app's empty one | DK-12 |
+
+Not built yet:
+
+- A signed app other people can download. Today you build it yourself from this repository.
+- The Mac app without Telegram: it needs a bot token to start.
+- Web search. A question about the web may be sent to the computer instead.
+- One-click connectors (Google Calendar, Drive and others). Today a server is added by hand.
 
 ## Vision
 
@@ -30,7 +63,7 @@ Design order, never reversed:
 
 1. World and ontology: what things exist.
 2. Truth and authority: who may assert what, and who may authorize what.
-3. Capabilities and operations: what the system must be able to do.gentle
+3. Capabilities and operations: what the system must be able to do.
 4. Providers: which stores, models, databases and apps implement those capabilities.
 
 ## How it fits together
@@ -59,7 +92,7 @@ flowchart LR
     DASH["App-of-apps<br/>supermarket dashboard"]
 
     TG <-->|messages and buttons| CYCLE
-    DESK -.->|later| CYCLE
+    DESK <-->|local channel| CYCLE
     SCHED --> CYCLE
     CYCLE -->|context| PROC
     PROC <--> MODELS
@@ -94,6 +127,8 @@ ANOMANDER is an open-source project in a public repository, released under the [
 
 ## Getting started
 
+This runs the daemon with Docker, reached over Telegram. For the Mac app, see [Run the Mac app](#run-the-mac-app).
+
 You need Docker, a Telegram account and a model: an API key, or a ChatGPT or Kimi Code subscription.
 
 1. **Create the bot.** In Telegram, send `/newbot` to [@BotFather](https://t.me/BotFather) and pick a name. It answers with a token such as `123456:ABC…`.
@@ -127,12 +162,47 @@ Good to know:
 | Something does not answer | `docker compose logs --tail 30 daemon`. Logs never contain your messages, tokens or keys. |
 | You want to look at your data | The database lives in the Docker volume `anomander-data`. Copy it into the git-ignored `data/` folder with `docker compose cp daemon:/app/data/anomander.db ./data/anomander-copy.db`, so the copy can never be committed. |
 
+## Run the Mac app
+
+There is no download yet: you build the app from this repository, on your Mac. It starts the same daemon as Docker, so stop a Docker install first: two daemons on one bot fail (DK-2 AC2).
+
+You need:
+
+| What | Why |
+| --- | --- |
+| macOS | The app uses the Keychain, the menu bar and the notch. There is no Windows or Linux app |
+| Node 24 and pnpm | The app runs the daemon with the first `node` on `PATH` (plus `/opt/homebrew/bin` and `/usr/local/bin`) |
+| Rust 1.85 or later and the Xcode Command Line Tools | To build the Tauri shell |
+| A code-signing identity | macOS ties each Keychain entry to the app's signature. An unsigned build gets a new one each time, so after every rebuild macOS asks for your login keychain password |
+| A Telegram bot and your user ID | The app does not start without them today ([Getting started](#getting-started), steps 1 and 2) |
+| A model | An API key, or a ChatGPT or Kimi Code subscription |
+
+Steps:
+
+1. **Install.** From the repository root: `pnpm install`.
+2. **Pick an identity.** `security find-identity -v -p codesigning` lists them.
+3. **Build.**
+   ```bash
+   APPLE_SIGNING_IDENTITY="<identity name or hash>" pnpm --dir apps/desktop tauri build --debug
+   ```
+   The app is `apps/desktop/src-tauri/target/debug/bundle/macos/ANOMANDER.app`.
+4. **Set it up.** Open the app and fill in the setup screen: the bot token, your Telegram ID, the models and a key, or connect a subscription from Suscripciones.
+5. **Allow it.** In System Settings › Privacy & Security, turn ANOMANDER on under Screen Recording (for a look at the screen) and Accessibility (for tasks on the computer). Until then the app says how and does nothing.
+
+Good to know:
+
+| Situation | What to do |
+| --- | --- |
+| You moved or deleted this checkout | Build again. The app runs the daemon from `packages/daemon/src/main.ts` of the checkout it was built in |
+| You want to work on the window | `pnpm --dir apps/desktop tauri dev`, or the window alone in a browser. See [`apps/desktop/README.md`](apps/desktop/README.md) |
+| macOS asks for the keychain password once | Entries stored by an unsigned build ask once. [`apps/desktop/README.md`](apps/desktop/README.md#signing-the-build) says how to clear them |
+
 ## Connecting a model
 
 ANOMANDER reaches its model through [pi-ai](https://github.com/earendil-works/pi), either way:
 
 - **An API key** in `.env`, in the provider's own variable (for example `ANTHROPIC_API_KEY` or `OPENAI_API_KEY`). This is the only way for providers without a subscription login, such as opencode, Gemini or DeepSeek.
-- **Your subscription**: ChatGPT or Kimi Code. Send `/login` to the bot and follow the link, or run `pnpm run login` in a terminal on the server. `/logout` or `pnpm run logout <provider>` disconnects it. A login takes precedence over that provider's API key.
+- **Your subscription**: ChatGPT or Kimi Code. Send `/login` to the bot and follow the link, or run `pnpm run login` in a terminal on the server. `/logout` or `pnpm run logout <provider>` disconnects it. A login takes precedence over that provider's API key. In the Mac app, connect it from the Suscripciones screen instead: the app keeps it in the Keychain (DK-15).
 
 Logins are stored in the file at `ANOMANDER_AUTH_PATH` (default `./data/auth.json`), readable only by its owner and never committed. See [`packages/daemon/README.md`](packages/daemon/README.md#model-login-r-27).
 
@@ -140,11 +210,11 @@ Each provider sets its own terms for using a subscription outside its own apps. 
 
 ## Documentation
 
-The documentation lives in a `docs/` folder:
+The documentation lives in `docs/`, beside each package's README:
 
 | File | Contents |
 | --- | --- |
-| `README.md` (this file) | Vision, scope, principles and open source |
+| `README.md` (this file) | Status, vision, scope, principles, open source and how to run it |
 | [`PRD.md`](PRD.md) | Product requirements, ready to use with Gentle AI and its ODD workflow |
 | [`docs/ontology.md`](docs/ontology.md) | The classes, who owns each truth, provenance and lifecycle |
 | [`docs/authority.md`](docs/authority.md) | Authority levels, capabilities and operations |
@@ -152,3 +222,8 @@ The documentation lives in a `docs/` folder:
 | [`docs/data-model.md`](docs/data-model.md) | The SQLite schema and the views readers use |
 | [`docs/stack.md`](docs/stack.md) | Stack, repository layout, tests, Docker and providers |
 | [`docs/decisions.md`](docs/decisions.md) | What is out of scope, the size of the ontology and the decisions taken |
+| [`docs/capabilities.md`](docs/capabilities.md) | How a capability is added, and what the Mac app can do on its own routes |
+| [`docs/desktop-prd.md`](docs/desktop-prd.md) | The Mac app (M6): requirements DK-1 to DK-15 |
+| [`docs/read-access-prd.md`](docs/read-access-prd.md) | The read API for other applications (M5b) |
+| [`apps/desktop/README.md`](apps/desktop/README.md) | How the Mac app is built and what it guarantees |
+| [`packages/daemon/README.md`](packages/daemon/README.md) | How the daemon is built and configured |

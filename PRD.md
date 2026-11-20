@@ -7,7 +7,7 @@
 | Version | 0.2.0-draft |
 | Author | Eric Marès |
 | Date | 2026-10-30 |
-| Status | Draft, in implementation (M0 to M3b built, §17) |
+| Status | Draft, in implementation (M0 to M6 built, §17) |
 | License | MIT |
 | Repository | Public monorepo, `Sitray/anomander` |
 
@@ -48,7 +48,7 @@ The first version delegates **one matter end to end: keeping track of my expense
 
 ## 3. Target users
 
-- **Primary:** the principal, the single person an ANOMANDER installation serves. Telegram is the first channel; desktop comes last.
+- **Primary:** the principal, the single person an ANOMANDER installation serves. Telegram is the first channel; the Mac app (M6, `docs/desktop-prd.md`) is the second.
 - **Secondary:** developers who self-host their own ANOMANDER from the open-source repository. One installation serves exactly one principal.
 
 ## 4. Goals and non-goals
@@ -67,10 +67,10 @@ The first version delegates **one matter end to end: keeping track of my expense
 
 - Multi-user installations.
 - Moving money: payments, transfers or any banking write access. These operations do not exist.
-- Price tracking, subscriptions, budgets, bank connections, web dashboard, desktop app, voice and computer control (later matters, §17).
+- Price tracking, subscriptions, budgets, bank connections, web dashboard and voice (later matters). The Mac app, a look at the screen and acting on the computer one allowed step at a time came after v1, in M6 (`docs/desktop-prd.md` DK-9, DK-10).
 - Storing receipt images beyond what R-8 allows.
 - Reading PDFs, voice notes or any input other than text and images (R-20).
-- External read access to the ledger from other applications (an API or an MCP server for the AI assistant). It comes after the Telegram bot; until then the `supermarket_purchases` view is the only contract.
+- External read access to the ledger from other applications. It came after the Telegram bot, as the read API of M5b (`docs/read-access-prd.md`); an MCP server for AI assistants is still later.
 
 ## 5. Design principles
 
@@ -387,7 +387,7 @@ The principal always gets an answer.
 - AC3: A processor call that fails with a transient provider error (overloaded or rate limited, as pi-ai classifies it) is retried twice, after 1 and then 2 seconds, before it counts as failed. Each retry is one more call against the daily AI budget (R-12), and none is made once the budget is spent.
 
 ### R-23 Conversation memory
-ANOMANDER remembers lasting facts about the principal, such as "soy vegetariano", and uses them to converse (G7) and, since 2026-11-20, in a look at the screen, a task on the computer and a task with connections (desktop PRD DK-14 AC1: "También me gustaría que recordara quién soy"). They never become an expense fact (AC4).
+ANOMANDER remembers lasting facts about the principal, such as "soy vegetariano", and uses them to converse (G7) and, since 2026-11-20, in a look at the screen and a task on the computer, never in a task with connections (desktop PRD DK-14 AC1: "También me gustaría que recordara quién soy"). They never become an expense fact (AC4).
 - AC1: In the same processor call that interprets a principal text (R-2, R-16), the processor may return lasting facts about the principal, each with its text, the words of the message it rests on, and whether the principal said it. No extra processor call is made.
 - AC2: Code stores each fact as an assertion about the principal with predicate `memory`: mode `declared` and actor `principal` only when the processor says the principal said it and its quote appears in the message; otherwise mode `inferred` and actor `processor`. The source is the Telegram message. The fact's text and quote are stored in `memory_texts`, not in the assertion.
 - AC3: A fact that replaces a current memory ("ya no soy vegetariano") stores the new memory with `supersedes_id`, sets the old one to `refuted` and erases its text as AC6 and AC7 do, so no outdated text is kept.
@@ -807,7 +807,7 @@ Migrations are versioned SQL files applied at startup. Seed data: the principal 
 | Tests | Vitest, fast-check |
 | Lint and format | Biome |
 | Containers | Docker and Docker Compose |
-| Desktop (last milestone) | Tauri 2 with Rust, as in gentle-dot |
+| Desktop (M6) | Tauri 2 with Rust, as in gentle-dot; macOS only |
 
 ### 14.2 Repository layout
 
@@ -916,7 +916,7 @@ Checks every feature document should run:
 - Nothing personal in the repository: expenses, categories, policies and permissions live in the local database; tokens and keys live in `.env`.
 - Providers are chosen at install time; the core assumes none.
 - Receipt images leave the server only while being read by the configured vision model, and are deleted afterwards (R-8).
-- The history of what ANOMANDER did (desktop PRD DK-14) lives only in the local database: the words of each task and how it ended, never a capture, a typed text, a tool's arguments or its results. Remembered facts may reach a connected server inside a read-only call, which runs without asking (desktop PRD DK-11 AC5, accepted by the principal on 2026-11-20).
+- The history of what ANOMANDER did (desktop PRD DK-14) lives only in the local database: the words of each task and how it ended, never a capture, a typed text, a tool's arguments or its results. A task with connections gets no remembered fact, since its read-only calls run without asking and go to third-party services (desktop PRD DK-14 AC1, DK-11 AC5; security audit of 2026-11-20).
 - The data folder, the database and the receipt images are readable by their owner only: the daemon creates folders with mode `700` and files with mode `600`. A folder or database that already exists keeps its mode.
 - The ontology in `docs/` is the public specification: contributions must respect it, and any app can be built on it.
 - `SECURITY.md` explains how to report vulnerabilities. `CONTRIBUTING.md` points to the ODD workflow.
@@ -936,8 +936,8 @@ Checks every feature document should run:
 | M5d Model login | Connecting the model with a subscription login, from Telegram or a terminal | R-15 AC3, R-27 |
 | M5e Setup guide | `/start` and a guide to what `.env` still needs | R-17 AC8, R-28 |
 | M5f Opt-in weekly summary | The weekly summary sent only after the principal asks for it, the third capability | R-10 AC5-AC8 |
-| M5b Ledger read access | Read access to the ledger from other applications or the AI assistant (API or MCP) | To be specified |
-| M6 Desktop | Tauri 2 app with Rust, talking to the same daemon | `docs/desktop-prd.md` (DK-1 to DK-12), built; a first run against a real bot is still open |
+| M5b Ledger read access | Read-only views and a token-guarded, GET-only HTTP API for other applications; an MCP server comes later | `docs/read-access-prd.md` (RA-1, RA-2), built |
+| M6 Desktop | Tauri 2 Mac app with Rust, talking to the same daemon: chat, setup, menu bar and notch, a look at the screen, tasks on the computer, connections with OAuth, routing from the chat, memories and history, subscription login | `docs/desktop-prd.md` (DK-1 to DK-15), built; its status says what is still to try against real services. Not yet: a signed app others can download, the app without Telegram |
 
 ## 18. Suggested ODD feature documents
 
