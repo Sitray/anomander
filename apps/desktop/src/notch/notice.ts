@@ -1,21 +1,24 @@
-// The notice from the notch: a black pill that grows out of the notch while ANOMANDER works and
-// retracts into it when the work ends. The shell owns the window and tells this page what to show
-// (`src-tauri/src/notch.rs`); the page owns the motion (`notch.css`). One element, no React.
+// The notice from the notch: a black pill that drops out of the notch when ANOMANDER's work ends,
+// says so, and retracts into it. While the work goes on only the menu bar icon shows it. The shell
+// owns the window and tells this page what to show (`src-tauri/src/notch.rs`); the page owns the
+// motion (`notch.css`). One element, no React.
 
-/** `Work` of `notch.rs`. */
-export type Work = 'idle' | 'thinking' | 'task';
+/** `Say` of `notch.rs`. */
+export type Say = 'nothing' | 'done';
 
 /** `State` of `notch.rs`: `bar` is the menu bar's height the pill covers, 0 when it hangs under it. */
 export interface NoticeState {
-  work: Work;
+  say: Say;
   bar: number;
 }
 
-/** The notice's words (es-ES). The mark says who; the label says what. */
+/**
+ * The notice's words (es-ES). The mark says who; the label says what. "ANOMANDER ha terminado"
+ * is wider than the pill, so the mark stands for the name.
+ */
 export const noticeText = {
   brand: 'ANOMANDER',
-  thinking: 'Pensando…',
-  task: 'Haciendo una tarea…',
+  done: 'Ha terminado',
   open: 'Abrir el chat de ANOMANDER',
 } as const;
 
@@ -33,10 +36,9 @@ const MARK = `<svg class="mark" viewBox="0 0 16 16" width="14" height="14" role=
  * takes no focus, so a click is the only input it ever gets.
  */
 export function mountNotice(root: HTMLElement, onOpen: () => void): Notice {
-  root.innerHTML = `<button class="pill" type="button" data-up="false" data-work="idle" aria-label="${noticeText.open}" style="--bar: 0px">
+  root.innerHTML = `<button class="pill" type="button" data-up="false" aria-label="${noticeText.open}" style="--bar: 0px">
   <span class="pill-body">
     ${MARK}
-    <span class="wave" aria-hidden="true"><i></i><i></i><i></i></span>
     <span class="label" role="status" aria-live="polite"></span>
   </span>
 </button>`;
@@ -46,19 +48,19 @@ export function mountNotice(root: HTMLElement, onOpen: () => void): Notice {
   pill.addEventListener('click', onOpen);
 
   return {
-    show({ work, bar }) {
+    show({ say, bar }) {
       pill.style.setProperty('--bar', `${bar}px`);
-      if (work === 'idle') {
-        // The words stay while the pill retracts: it leaves saying what it was doing.
-        pill.dataset['up'] = 'false';
+      if (say === 'nothing') {
+        // The words stay while the pill retracts: it leaves saying what it said.
+        pill.dataset.up = 'false';
         return;
       }
-      label.textContent = noticeText[work];
-      pill.dataset['work'] = work;
-      if (pill.dataset['up'] !== 'true') {
-        // Painted once at rest, then up: so the drop is a transition, not a jump.
+      label.textContent = noticeText[say];
+      if (pill.dataset.up !== 'true') {
+        // Painted once as a narrow drop at the notch, then up: so it grows, not jumps.
+        pill.dataset.up = 'start';
         void pill.offsetWidth;
-        pill.dataset['up'] = 'true';
+        pill.dataset.up = 'true';
       }
     },
   };
