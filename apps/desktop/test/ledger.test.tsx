@@ -23,9 +23,16 @@ const importIt = () => fireEvent.click(screen.getByRole('button', { name: text.i
 const status = () => screen.getByRole('status');
 
 describe('the ledger import', () => {
-  it('says how to bring the file out of Docker', () => {
+  it('says how to bring the file out of Docker, with the commands as a block to copy (S5)', () => {
     renderScreen(async () => ({ outcome: 'imported' }));
-    expect(screen.getByText(text.how)).toBeTruthy();
+    expect(screen.getByText(text.howIntro)).toBeTruthy();
+    const block = screen.getByText(text.howCommands, { normalizer: (value) => value });
+    expect(block.tagName).toBe('PRE');
+    expect(block.classList.contains('code-block')).toBe(true);
+    expect(text.howCommands.split('\n')).toEqual([
+      'docker compose stop',
+      'docker compose cp daemon:/app/data/anomander.db ~/Downloads/anomander.db',
+    ]);
   });
 
   it('sends the path as typed and says it was imported', async () => {

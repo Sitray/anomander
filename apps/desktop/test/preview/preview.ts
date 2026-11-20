@@ -7,8 +7,9 @@
 //           stopped_by_principal|failed|unreachable      (default: running)
 //   &setup=empty|filled                                   (default: by the daemon's state)
 //   &error=long                                           a 300-character last error
-//   &fail=start|stop|save|oauth                           that command is refused
+//   &fail=start|stop|save|oauth|login                     that command is refused
 //   &connections=none|invalid                             (default: two servers)
+//   &subscriptions=none|connected                         (default: none; connected: ChatGPT and Claude)
 //
 // The scripted daemon answers by what is typed: "mercadona" asks a Sí/No question, "rechaza" is
 // rejected, "corta" loses the connection, "lento" never answers, "largo" answers at length,
@@ -21,11 +22,14 @@ import {
   type ConnectionInput,
   type ConnectionsView,
   type DaemonStatus,
+  LOGIN_EVENT,
+  type LoginStep,
   type SetupInput,
   type SetupState,
   SNAPSHOT_EVENT,
   type Snapshot,
   type StopReason,
+  type SubscriptionsView,
 } from '../../src/shell.ts';
 import { FakeWebSocket } from '../fake-web-socket.ts';
 import {
@@ -117,6 +121,18 @@ const saveSetup = (input: SetupInput): Snapshot => {
 };
 
 /** `mcp.json` as the shell would show it. */
+const SUBSCRIBED = params.get('subscriptions') === 'connected';
+let subscriptions: SubscriptionsView = {
+  accounts: [
+    { providerId: 'openai', connected: SUBSCRIBED, login: true },
+    { providerId: 'kimi-coding', connected: false, login: true },
+    { providerId: 'anthropic', connected: SUBSCRIBED, login: false },
+    { providerId: 'github-copilot', connected: false, login: false },
+  ],
+};
+/** Ends the ChatGPT login that waits for a pasted address. */
+let answerLogin: () => void = () => {};
+
 let connections: ConnectionsView =
   params.get('connections') === 'none'
     ? { servers: [], invalid: null }
@@ -178,6 +194,53 @@ mockIPC(
       case 'reveal':
       case 'set_task_running':
         return undefined;
+      // DK-15: the subscription logins. ChatGPT opens the browser and waits for a pasted address
+      // (or 6 seconds); Kimi Code shows a device code. `fail=login` shows a failure.
+      case 'get_subscriptions':
+        return subscriptions;
+      case 'connect_subscription': {
+        const { providerId } = payload as { providerId: string };
+        const step = (next: LoginStep) => emit(LOGIN_EVENT, next);
+        return new Promise((resolve, reject) => {
+          setTimeout(() => {
+            if (refused === 'login') {
+              reject('login failed: TypeError');
+              return;
+            }
+            if (providerId === 'kimi-coding') step({ kind: 'device_code', code: 'HWKT-9F2Q' });
+            else {
+              step({ kind: 'opened' });
+              step({ kind: 'prompt' });
+            }
+            const finish = () => {
+              subscriptions = {
+                accounts: subscriptions.accounts.map((account) =>
+                  account.providerId === providerId ? { ...account, connected: true } : account,
+                ),
+              };
+              resolve({ outcome: 'connected' });
+            };
+            const timer = setTimeout(finish, 6000);
+            answerLogin = () => {
+              clearTimeout(timer);
+              setTimeout(finish, 800);
+            };
+          }, 700);
+        });
+      }
+      case 'answer_login':
+        answerLogin();
+        return undefined;
+      case 'disconnect_subscription': {
+        const { providerId } = payload as { providerId: string };
+        subscriptions = {
+          accounts: subscriptions.accounts.map((account) =>
+            account.providerId === providerId ? { ...account, connected: false } : account,
+          ),
+        };
+        comeUp();
+        return subscriptions;
+      }
       case 'connect_oauth':
       case 'forget_oauth': {
         // The principal takes a moment in the browser; `refused=oauth` shows a failure.

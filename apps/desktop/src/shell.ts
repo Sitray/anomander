@@ -136,8 +136,39 @@ export interface OAuthConnect {
   outcome: 'connected' | 'denied' | 'timed_out';
 }
 
+/** DK-15: one account a subscription login is made with (R-27 AC1), by pi-ai provider ID. */
+export interface SubscriptionAccount {
+  providerId: string;
+  /** Whether a login is stored for it; never the login itself. */
+  connected: boolean;
+  /** Whether it is offered for login; otherwise it is listed only while connected (R-27 AC6). */
+  login: boolean;
+}
+
+export interface SubscriptionsView {
+  accounts: SubscriptionAccount[];
+}
+
+/**
+ * DK-15: a step of a running login, as the shell tells the window: the browser was opened on the
+ * login page, a device code to type on it, or the flow waits for the address the browser ended
+ * on, pasted in the window. No address and no token travel here.
+ */
+export type LoginStep =
+  | { kind: 'opened' }
+  | { kind: 'device_code'; code: string }
+  | { kind: 'prompt' };
+
+/** DK-15: how a login ended. */
+export interface LoginOutcome {
+  outcome: 'connected' | 'timed_out' | 'cancelled';
+}
+
 /** The event the shell emits with a new `Snapshot` whenever any part of it changes. */
 export const SNAPSHOT_EVENT = 'shell://snapshot';
+
+/** DK-15: the event the shell emits with each `LoginStep` while a subscription login runs. */
+export const LOGIN_EVENT = 'shell://login';
 
 /** The event the shell emits when the menu bar's "Detener tarea" is chosen. */
 export const STOP_TASK_EVENT = 'shell://stop-task';
@@ -171,6 +202,24 @@ export const shell = {
   connectOAuth: (name: string): Promise<OAuthConnect> => invoke('connect_oauth', { name }),
   /** DK-11: forgets the OAuth tokens of `name` and answers with the servers as they are now. */
   forgetOAuth: (name: string): Promise<ConnectionsView> => invoke('forget_oauth', { name }),
+  /** DK-15: the accounts a subscription login is made with, and which are connected. */
+  subscriptions: (): Promise<SubscriptionsView> => invoke('get_subscriptions'),
+  /**
+   * DK-15: logs in to `providerId` with the principal's subscription: the shell opens the
+   * browser and waits, up to 10 minutes, telling each step on `onLoginStep`. Then the daemon
+   * starts again with the login, unless it is stopped. Rejects, with nothing stored, when the
+   * login fails or another one is running.
+   */
+  connectSubscription: (providerId: string): Promise<LoginOutcome> =>
+    invoke('connect_subscription', { providerId }),
+  /** DK-15: the address the browser ended on, for the login that waits for it (`prompt`). */
+  answerLogin: (text: string): Promise<void> => invoke('answer_login', { text }),
+  /** DK-15: forgets the login of `providerId` and answers with the accounts as they are now. */
+  disconnectSubscription: (providerId: string): Promise<SubscriptionsView> =>
+    invoke('disconnect_subscription', { providerId }),
+  /** DK-15: each step of the login that runs. */
+  onLoginStep: (handler: (step: LoginStep) => void): Promise<UnlistenFn> =>
+    listen<LoginStep>(LOGIN_EVENT, (event) => handler(event.payload)),
   startDaemon: (): Promise<void> => invoke('start_daemon'),
   stopDaemon: (): Promise<void> => invoke('stop_daemon'),
   /** Whether the chat waits for an answer, which the menu bar shows (DK-6). */

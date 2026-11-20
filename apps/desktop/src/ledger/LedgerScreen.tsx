@@ -65,7 +65,8 @@ export function LedgerScreen({ onImport, onClose }: LedgerScreenProps) {
             {text.title}
           </h2>
           <p>{text.intro}</p>
-          <p>{text.how}</p>
+          <p>{text.howIntro}</p>
+          <pre className="code-block">{text.howCommands}</pre>
         </div>
 
         <div className="setup-group">

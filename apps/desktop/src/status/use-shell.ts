@@ -2,7 +2,7 @@
 // carry no sequence number, so the answer of a command may be older than an event that arrived
 // while it was on its way: an event always wins.
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { type SetupInput, type Snapshot, shell } from '../shell.ts';
+import { type LoginStep, type SetupInput, type Snapshot, shell } from '../shell.ts';
 import { messageOf } from '../ui/message-of.ts';
 import type { Command, CommandError } from './StatusBar.tsx';
 
@@ -29,6 +29,13 @@ export interface Shell {
   /** `shell.connectOAuth` and `forgetOAuth`, as they are: the screen says why one failed. */
   connectOAuth: typeof shell.connectOAuth;
   forgetOAuth: typeof shell.forgetOAuth;
+  /** DK-15: `shell.subscriptions`, `connectSubscription`, `answerLogin` and `disconnectSubscription`, as they are. */
+  subscriptions: typeof shell.subscriptions;
+  connectSubscription: typeof shell.connectSubscription;
+  answerLogin: typeof shell.answerLogin;
+  disconnectSubscription: typeof shell.disconnectSubscription;
+  /** Subscribes `handler` to the steps of a running login; answers how to unsubscribe. */
+  onLoginStep(handler: (step: LoginStep) => void): () => void;
   /** Tells the menu bar whether the chat waits for an answer; a failure only loses that sign. */
   setThinking(thinking: boolean): void;
   /** Hands an answer to the shell to notify it; a failure only loses the notification. */
@@ -145,6 +152,23 @@ export const useShell = (): Shell => {
     };
   }, []);
 
+  const onLoginStep = useCallback((handler: (step: LoginStep) => void) => {
+    let gone = false;
+    let unlisten: (() => void) | undefined;
+    shell.onLoginStep(handler).then(
+      (off) => {
+        // The screen went away before the subscription was ready.
+        if (gone) off();
+        else unlisten = off;
+      },
+      () => {},
+    );
+    return () => {
+      gone = true;
+      unlisten?.();
+    };
+  }, []);
+
   return {
     snapshot,
     loadError,
@@ -161,6 +185,11 @@ export const useShell = (): Shell => {
     importLedger: shell.importLedger,
     connectOAuth: shell.connectOAuth,
     forgetOAuth: shell.forgetOAuth,
+    subscriptions: shell.subscriptions,
+    connectSubscription: shell.connectSubscription,
+    answerLogin: shell.answerLogin,
+    disconnectSubscription: shell.disconnectSubscription,
+    onLoginStep,
     setThinking,
     notifyReply,
     captureScreen: shell.captureScreen,

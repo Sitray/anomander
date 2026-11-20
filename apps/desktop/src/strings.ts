@@ -39,6 +39,7 @@ export const strings = {
     stopBusy: 'Parando…',
     openSetup: 'Configuración',
     openConnections: 'Conexiones',
+    openSubscriptions: 'Suscripciones',
     closeSetup: 'Volver al chat',
 
     lastError: 'Último error',
@@ -62,6 +63,26 @@ export const strings = {
     emptyTitle: 'Cuéntame un gasto',
     emptyBody:
       'Escríbelo como te salga, por ejemplo «23\u00a0€\u00a0cena», o suelta aquí la foto de un ticket.',
+
+    /** The empty chat while there is no daemon to talk to: it says what to do, not what to type. */
+    emptyStopped: {
+      title: 'ANOMANDER está parado',
+      body: 'Arráncalo para empezar a contarme gastos.',
+      /** Not the status bar's "Arrancar": the two are on screen together. */
+      action: 'Arrancar ANOMANDER',
+    },
+    emptyNotConfigured: {
+      title: 'Falta configurarlo',
+      body: 'Termina la configuración y podrás escribirme aquí.',
+    },
+    emptyStarting: {
+      title: 'Arrancando…',
+      body: 'En un momento puedes escribirme.',
+    },
+    emptyFailing: {
+      title: 'Se está reiniciando',
+      body: 'ANOMANDER se ha cerrado solo y vuelve a arrancar. Espera un momento.',
+    },
 
     placeholder: 'Escribe algo…',
     message: 'Mensaje',
@@ -132,6 +153,8 @@ export const strings = {
       failing: 'ANOMANDER se está reiniciando. Espera un momento.',
       connecting: 'Conectando…',
     },
+    /** S5: Enter while nothing can be sent; the message stays in the composer. */
+    heldBack: (reason: string): string => `Aún no se puede enviar. ${reason}`,
   },
 
   setup: {
@@ -141,17 +164,24 @@ export const strings = {
     sectionModels: 'Modelos',
     intro: 'Las claves se guardan en el llavero de macOS, nunca en un archivo.',
 
+    /** Beside the label of a field the daemon cannot start without, while it is not stored. */
+    required: 'Obligatorio',
+
     botToken: 'Token del bot de Telegram',
     botTokenHelp: 'Te lo da @BotFather en Telegram cuando creas el bot.',
     botTokenStored: 'Guardado. Déjalo en blanco para mantenerlo.',
+    botTokenMissing: 'Falta el token del bot. Sin él ANOMANDER no puede arrancar.',
 
     chatId: 'Tu ID de chat',
     chatIdHelp: 'Escribe a @userinfobot en Telegram y te lo dice.',
     chatIdInvalid: 'Tiene que ser un número, como 4242.',
+    chatIdMissing: 'Falta tu ID de chat. Sin él ANOMANDER no sabe a quién responder.',
 
     model: 'Modelo',
     modelHelp: 'Entiende lo que escribes. Va con su proveedor delante.',
     modelExample: 'openai/gpt-4o-mini',
+    /** As a placeholder it must read as an example, not as a value already set. */
+    modelPlaceholder: 'p. ej. openai/gpt-4o-mini',
     visionModel: 'Modelo para fotos',
     visionModelHelp: 'Lee las fotos de los tickets. Mismo formato que el anterior.',
     modelInvalid: 'Escríbelo con el proveedor delante, como openai/gpt-4o-mini.',
@@ -276,13 +306,62 @@ export const strings = {
     restartNote: 'Al guardar, ANOMANDER se reinicia para leer los cambios.',
   },
 
+  /** DK-15: the subscription logins (R-27), connected and disconnected from the app. */
+  subscriptions: {
+    title: 'Suscripciones',
+    intro:
+      'Conecta tu suscripción de ChatGPT o de Kimi Code y ANOMANDER usará sus modelos con ella, sin clave de API. La cuenta se guarda en el llavero de macOS.',
+    /** In the setup screen: opens this one. */
+    open: '¿Tienes una suscripción de ChatGPT o de Kimi Code? Conéctala',
+    loading: 'Leyendo…',
+    loadFailed: 'No se han podido leer las cuentas.',
+    accounts: 'Cuentas',
+    connected: 'Conectada',
+    notConnected: 'No conectada',
+    connect: 'Conectar',
+    connectFor: (account: string) => `Conectar ${account}`,
+    disconnect: 'Desconectar',
+    disconnectFor: (account: string) => `Desconectar ${account}`,
+    disconnecting: 'Desconectando…',
+    disconnected: (account: string) => `Desconectado de ${account}.`,
+    disconnectFailed: 'No se ha desconectado. Esto dice la aplicación:',
+
+    /** The shell is starting the login; the browser is about to open. */
+    starting: 'Abriendo tu navegador…',
+    opened: (account: string) =>
+      `Se ha abierto tu navegador: entra con tu cuenta de ${account} en esa página. Tienes 10 minutos, y puedes cerrar esta pantalla mientras tanto.`,
+    deviceCode: (account: string) =>
+      `Se ha abierto tu navegador: escribe este código en esa página para entrar con tu cuenta de ${account}. Tienes 10 minutos.`,
+    /** The code to type, read aloud. */
+    deviceCodeLabel: 'Código',
+    /** ChatGPT: when its redirect to this Mac fails, the address of the error page says it all. */
+    pasteLabel: 'Dirección a la que te ha llevado el navegador',
+    pasteHelp:
+      'Normalmente no hace falta: la página termina sola. Si el navegador acaba en una página de error, copia su dirección completa y pégala aquí.',
+    pasteMissing: 'Pega la dirección completa.',
+    pasteSend: 'Enviar',
+    pasteFailed: 'No se ha podido enviar la dirección. Esto dice la aplicación:',
+    outcome: {
+      connected: (account: string) => `Conectado con tu cuenta de ${account}.`,
+      timed_out: 'No se ha conectado: el navegador no volvió en 10 minutos.',
+      cancelled: 'No se ha conectado: se canceló el inicio de sesión.',
+    },
+    /** The shell's own message follows, verbatim. */
+    failed: 'No se ha podido conectar. Esto dice la aplicación:',
+    restartNote: 'Al conectar o desconectar una cuenta, ANOMANDER se reinicia para usarla.',
+    close: 'Cerrar',
+  },
+
   ledger: {
     title: 'Traer el ledger de Docker',
     /** In the setup screen: opens this one. */
     open: '¿Vienes de una instalación con Docker? Trae tu ledger',
     intro:
       'Si usabas ANOMANDER con Docker, copia su ledger a este Mac y escribe aquí dónde lo has dejado. Solo se importa en un ANOMANDER sin gastos; el ledger que tiene ahora se guarda aparte, nunca se borra.',
-    how: 'Para copiarlo, en la carpeta del proyecto: docker compose stop y después docker compose cp daemon:/app/data/anomander.db ~/Downloads/anomander.db',
+    howIntro: 'Para copiarlo, en la carpeta del proyecto, primero una orden y luego la otra:',
+    /** Shown as a block the principal can select and copy. */
+    howCommands:
+      'docker compose stop\ndocker compose cp daemon:/app/data/anomander.db ~/Downloads/anomander.db',
     path: 'Archivo del ledger',
     pathHelp: 'La ruta completa del archivo. Puedes pegarla.',
     pathMissing: 'Escribe la ruta del archivo.',

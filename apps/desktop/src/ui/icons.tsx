@@ -65,6 +65,14 @@ export const PlugIcon = () => (
   </Icon>
 );
 
+/** DK-15: a key, for the subscriptions. */
+export const KeyIcon = () => (
+  <Icon>
+    <circle cx="5.25" cy="10.75" r="2.75" />
+    <path d="M7.2 8.8 13 3M10.5 5.5l1.75 1.75M12.25 3.75 13.75 5.25" />
+  </Icon>
+);
+
 export const FileIcon = () => (
   <Icon>
     <path d="M9 2.25H5A1.25 1.25 0 0 0 3.75 3.5v9A1.25 1.25 0 0 0 5 13.75h6a1.25 1.25 0 0 0 1.25-1.25v-7zM9 2.25V5.5h3.25" />

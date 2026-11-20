@@ -2,7 +2,7 @@
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { App } from '../src/App.tsx';
-import { type Snapshot, shell } from '../src/shell.ts';
+import { type LoginOutcome, type LoginStep, type Snapshot, shell } from '../src/shell.ts';
 import { strings } from '../src/strings.ts';
 import { FakeWebSocket } from './fake-web-socket.ts';
 import {
@@ -24,6 +24,11 @@ vi.mock('../src/shell.ts', () => ({
     saveConnection: vi.fn(),
     removeConnection: vi.fn(),
     importLedger: vi.fn(),
+    subscriptions: vi.fn(),
+    connectSubscription: vi.fn(),
+    answerLogin: vi.fn(),
+    disconnectSubscription: vi.fn(),
+    onLoginStep: vi.fn(),
     startDaemon: vi.fn(),
     stopDaemon: vi.fn(),
     onSnapshot: vi.fn(),
@@ -60,6 +65,7 @@ beforeEach(() => {
   mocked.reveal.mockResolvedValue(undefined);
   mocked.setTaskRunning.mockResolvedValue(undefined);
   mocked.onStopTask.mockResolvedValue(() => {});
+  mocked.onLoginStep.mockResolvedValue(() => {});
 });
 
 afterEach(() => {
@@ -341,6 +347,71 @@ describe('the connections', () => {
       visionModel: 'openai/gpt-4o-mini',
       providerKeys: {},
     });
+  });
+});
+
+// DK-15: the subscription logins, connected and disconnected through the shell.
+describe('the subscriptions', () => {
+  const heading = () => screen.queryByRole('heading', { name: strings.subscriptions.title });
+  const CHAT_GPT = { providerId: 'openai', connected: false, login: true };
+  const KIMI = { providerId: 'kimi-coding', connected: false, login: true };
+  const NONE = { accounts: [CHAT_GPT, KIMI] };
+
+  it('open from the status area with the accounts of the shell, and close back to the chat', async () => {
+    mocked.subscriptions.mockResolvedValue(NONE);
+    await open(runningSnapshot());
+    fireEvent.click(screen.getByRole('button', { name: strings.status.openSubscriptions }));
+
+    expect(heading()).toBeTruthy();
+    expect(await screen.findByRole('list', { name: strings.subscriptions.accounts })).toBeTruthy();
+    expect(composer().closest('[hidden]')).toBeTruthy();
+
+    fireEvent.click(screen.getByRole('button', { name: strings.status.closeSetup }));
+    expect(heading()).toBeNull();
+    expect(composer().closest('[hidden]')).toBeNull();
+  });
+
+  it('open from the setup, connect through the shell and follow its steps', async () => {
+    mocked.subscriptions.mockResolvedValueOnce(NONE).mockResolvedValue({
+      accounts: [{ ...CHAT_GPT, connected: true }, KIMI],
+    });
+    let step: (step: LoginStep) => void = () => {};
+    mocked.onLoginStep.mockImplementation(async (handler) => {
+      step = (next) => act(() => handler(next));
+      return () => {};
+    });
+    let answer: (outcome: LoginOutcome) => void = () => {};
+    mocked.connectSubscription.mockReturnValue(
+      new Promise((resolve) => {
+        answer = resolve;
+      }),
+    );
+    mocked.answerLogin.mockResolvedValue(undefined);
+    await open(runningSnapshot());
+    fireEvent.click(screen.getByRole('button', { name: strings.status.openSetup }));
+    fireEvent.click(screen.getByRole('button', { name: strings.subscriptions.open }));
+    expect(heading()).toBeTruthy();
+
+    fireEvent.click(
+      await screen.findByRole('button', { name: strings.subscriptions.connectFor('ChatGPT') }),
+    );
+    expect(mocked.connectSubscription).toHaveBeenCalledWith('openai');
+    step({ kind: 'opened' });
+    step({ kind: 'prompt' });
+    const field = screen.getByLabelText(strings.subscriptions.pasteLabel);
+    fireEvent.change(field, { target: { value: 'http://localhost:1455/auth/callback?code=c' } });
+    fireEvent.submit(field.closest('form') as HTMLFormElement);
+    await waitFor(() =>
+      expect(mocked.answerLogin).toHaveBeenCalledWith('http://localhost:1455/auth/callback?code=c'),
+    );
+
+    answer({ outcome: 'connected' });
+    await waitFor(() =>
+      expect(screen.getAllByRole('status').at(-1)?.textContent).toBe(
+        strings.subscriptions.outcome.connected('ChatGPT'),
+      ),
+    );
+    expect(screen.getByText(strings.subscriptions.connected)).toBeTruthy();
   });
 });
 

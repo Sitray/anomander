@@ -12,6 +12,12 @@ afterEach(cleanup);
 const { setup: text } = strings;
 const BOT_TOKEN = '123456:secret-bot-token';
 const API_KEY = 'sk-secret-provider-key';
+/** S5: past the first run, so a save needs no token or chat ID; nothing else stored. */
+const CONFIGURED: SetupState = {
+  ...EMPTY_SETUP,
+  hasTelegramBotToken: true,
+  principalChatId: '4242',
+};
 
 const renderSetup = (
   setup: SetupState,
@@ -139,6 +145,7 @@ describe('saving', () => {
       Promise.reject('could not store TELEGRAM_BOT_TOKEN'),
     );
     fill(text.botToken, BOT_TOKEN);
+    fill(text.chatId, '4242');
     save();
     await saved(onSave);
 
@@ -152,6 +159,7 @@ describe('saving', () => {
   it('forgets every typed secret once saved', async () => {
     const { onSave } = renderSetup(EMPTY_SETUP, async () => EMPTY_SETUP);
     fill(text.botToken, BOT_TOKEN);
+    fill(text.chatId, '4242');
     fill(text.keyValue, API_KEY);
     fireEvent.click(screen.getByRole('button', { name: text.addKey }));
     save();
@@ -164,10 +172,47 @@ describe('saving', () => {
 
   it('says what is still missing when the saved setup cannot start the daemon', async () => {
     renderSetup(EMPTY_SETUP, async () => EMPTY_SETUP);
-    fill(text.model, 'openai/gpt-4o-mini');
+    fill(text.botToken, BOT_TOKEN);
+    fill(text.chatId, '4242');
     save();
 
     expect(await screen.findByText(text.savedIncomplete)).toBeTruthy();
+  });
+
+  it('on a first run asks for the bot token and the chat ID before saving (S5)', () => {
+    const { onSave } = renderSetup(EMPTY_SETUP);
+    expect(screen.getAllByText(text.required)).toHaveLength(2);
+    fill(text.model, 'openai/gpt-4o-mini');
+    save();
+
+    expect(onSave).not.toHaveBeenCalled();
+    expect(screen.getByText(text.botTokenMissing)).toBeTruthy();
+    expect(screen.getByText(text.chatIdMissing)).toBeTruthy();
+    expect(field(text.botToken).getAttribute('aria-invalid')).toBe('true');
+    expect(field(text.chatId).getAttribute('aria-invalid')).toBe('true');
+    expect(screen.getByText(text.fixFields)).toBeTruthy();
+    expect(screen.queryByText(text.savedIncomplete)).toBeNull();
+  });
+
+  it('asks only for what is not stored yet (S5)', async () => {
+    const { onSave } = renderSetup({ ...EMPTY_SETUP, hasTelegramBotToken: true });
+    expect(screen.getAllByText(text.required)).toHaveLength(1);
+    save();
+    expect(onSave).not.toHaveBeenCalled();
+    expect(screen.queryByText(text.botTokenMissing)).toBeNull();
+    expect(screen.getByText(text.chatIdMissing)).toBeTruthy();
+
+    fill(text.chatId, '4242');
+    save();
+    expect(await saved(onSave)).toMatchObject({ principalChatId: '4242' });
+  });
+
+  it('shows the model as an example, not as a value (S5)', () => {
+    renderSetup(EMPTY_SETUP);
+    expect(field(text.model).placeholder).toBe(text.modelPlaceholder);
+    expect(field(text.visionModel).placeholder).toBe(text.modelPlaceholder);
+    expect(text.modelPlaceholder).not.toBe('openai/gpt-4o-mini');
+    expect(field(text.model).value).toBe('');
   });
 
   it('takes no second save while one is in progress', async () => {
@@ -215,7 +260,7 @@ describe('provider keys', () => {
   });
 
   it('stores an added key, never showing its value', async () => {
-    const { onSave } = renderSetup(EMPTY_SETUP);
+    const { onSave } = renderSetup(CONFIGURED);
     fireEvent.change(field(text.provider), { target: { value: 'ANTHROPIC_API_KEY' } });
     fill(text.keyValue, API_KEY);
     expect(field(text.keyValue).type).toBe('password');
@@ -231,7 +276,7 @@ describe('provider keys', () => {
   });
 
   it('stores a key typed but not added, so it is not lost', async () => {
-    const { onSave } = renderSetup(EMPTY_SETUP);
+    const { onSave } = renderSetup(CONFIGURED);
     fill(text.keyValue, API_KEY);
     save();
 
@@ -239,7 +284,7 @@ describe('provider keys', () => {
   });
 
   it('takes another provider by the name of its variable', async () => {
-    const { onSave } = renderSetup(EMPTY_SETUP);
+    const { onSave } = renderSetup(CONFIGURED);
     fireEvent.change(field(text.provider), { target: { value: 'other' } });
     fill(text.keyName, 'mistral_api_key');
     fill(text.keyValue, API_KEY);
@@ -297,7 +342,7 @@ describe('provider keys', () => {
   });
 
   it('drops a key added by mistake', async () => {
-    const { onSave } = renderSetup(EMPTY_SETUP);
+    const { onSave } = renderSetup(CONFIGURED);
     fill(text.keyValue, API_KEY);
     fireEvent.click(screen.getByRole('button', { name: text.addKey }));
     fireEvent.click(screen.getByRole('button', { name: text.removeKey('OPENAI_API_KEY') }));

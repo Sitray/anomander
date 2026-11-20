@@ -396,6 +396,56 @@ describe('without a channel', () => {
     expect(screen.getByText(strings.chat.disabled.connecting)).toBeTruthy();
   });
 
+  it('says why Enter did nothing while the connection is not open yet (S5)', () => {
+    renderChat();
+    say('23 € cena');
+
+    // The reason was already on screen; now it is announced, so the message was not dropped silently.
+    expect(screen.getByRole('status').textContent).toBe(
+      strings.chat.heldBack(strings.chat.disabled.connecting),
+    );
+    expect(composer().value).toBe('23 € cena');
+  });
+
+  it('keys the empty chat to the daemon: stopped offers to start it (S5)', () => {
+    const onStart = vi.fn();
+    render(
+      <ChatScreen daemon={stopped('stopped_by_principal')} channel={null} onStart={onStart} />,
+    );
+
+    expect(screen.queryByText(strings.chat.emptyTitle)).toBeNull();
+    expect(screen.getByText(strings.chat.emptyStopped.title)).toBeTruthy();
+    expect(screen.getByText(strings.chat.emptyStopped.body)).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: strings.chat.emptyStopped.action }));
+    expect(onStart).toHaveBeenCalledOnce();
+  });
+
+  it('keys the empty chat to the daemon: without a start action, stopped only says so (S5)', () => {
+    renderChat(stopped(null, 'spawn node ENOENT'), null);
+
+    expect(screen.getByText(strings.chat.emptyStopped.title)).toBeTruthy();
+    expect(screen.queryByRole('button', { name: strings.chat.emptyStopped.action })).toBeNull();
+  });
+
+  it.each([
+    [stopped('not_configured'), strings.chat.emptyNotConfigured],
+    [STARTING, strings.chat.emptyStarting],
+    [{ state: 'failing', reason: null, lastError: 'boom' } as const, strings.chat.emptyFailing],
+  ])('keys the empty chat to the daemon: %j', (daemon, empty) => {
+    renderChat(daemon, null);
+
+    expect(screen.getByText(empty.title)).toBeTruthy();
+    expect(screen.getByText(empty.body)).toBeTruthy();
+    expect(screen.queryByText(strings.chat.emptyTitle)).toBeNull();
+    expect(screen.queryByRole('button', { name: strings.chat.emptyStopped.action })).toBeNull();
+  });
+
+  it('shows the usual empty chat once the channel is there', () => {
+    renderChat();
+    expect(screen.getByText(strings.chat.emptyTitle)).toBeTruthy();
+    expect(screen.queryByText(strings.chat.emptyStopped.title)).toBeNull();
+  });
+
   it('connects again when a restarted daemon has a new port', () => {
     const { rerender } = renderChat();
     act(() => FakeWebSocket.last.open());

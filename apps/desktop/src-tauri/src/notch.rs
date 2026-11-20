@@ -188,7 +188,10 @@ fn change(app: &AppHandle, update: impl FnOnce(&mut Signals)) {
         return;
     };
     let (before, after) = {
-        let mut signals = notice.signals.lock().unwrap_or_else(PoisonError::into_inner);
+        let mut signals = notice
+            .signals
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
         let before = signals.work();
         update(&mut signals);
         (before, signals.work())
