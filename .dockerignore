@@ -7,3 +7,14 @@ coverage
 odd
 docs
 *.md
+# Local builds, caches and tool state: heavy, and never part of the image.
+apps/desktop/src-tauri/target
+apps/desktop/src-tauri/gen
+apps/desktop/dist
+.codegraph
+**/.codegraph
+.playwright-mcp
+.atl
+**/.DS_Store
+.env.*
+!.env.example

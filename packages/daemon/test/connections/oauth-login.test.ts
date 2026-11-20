@@ -2,7 +2,7 @@ import { spawn } from 'node:child_process';
 import { connect } from 'node:net';
 import { resolve } from 'node:path';
 import { createInterface } from 'node:readline';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { connectWithOAuth } from '../../src/connections/oauth-login.ts';
 import { authorize, type OAuthFixture, startOAuthServer } from '../fixtures/oauth-server.ts';
 
@@ -16,8 +16,73 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
+  vi.restoreAllMocks();
   await fixture.close();
 });
+
+/** Adds `iss` to the redirect back, as an RFC 9207 authorization server does. */
+const withIss = (iss: string) => (back: URL) => {
+  back.searchParams.set('iss', iss);
+  return back;
+};
+
+/** The authorization server's metadata from now on says it sends `iss` back (RFC 9207). */
+const advertiseIss = () => {
+  const real = globalThis.fetch;
+  vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+    const response = await real(input, init);
+    const url = new URL(input instanceof Request ? input.url : String(input));
+    if (url.pathname !== '/.well-known/oauth-authorization-server' || !response.ok) {
+      return response;
+    }
+    const metadata = await response.json();
+    return Response.json({ ...metadata, authorization_response_iss_parameter_supported: true });
+  });
+};
+
+/**
+ * The authorization server publishes its metadata only by OpenID discovery from now on, and says
+ * there it sends `iss` back.
+ */
+const openIdOnly = () => {
+  const real = globalThis.fetch;
+  vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+    const url = new URL(input instanceof Request ? input.url : String(input));
+    if (url.pathname === '/.well-known/oauth-authorization-server') {
+      return new Response(null, { status: 404 });
+    }
+    if (url.pathname !== '/.well-known/openid-configuration') return real(input, init);
+    const metadata = await (
+      await real(new URL('/.well-known/oauth-authorization-server', url.origin), init)
+    ).json();
+    return Response.json({
+      ...metadata,
+      jwks_uri: `${url.origin}/jwks`,
+      subject_types_supported: ['public'],
+      id_token_signing_alg_values_supported: ['RS256'],
+      authorization_response_iss_parameter_supported: true,
+    });
+  });
+};
+
+/**
+ * The authorization server's metadata from now on moves, by a same-origin redirect the SDK
+ * follows, to an address that is not a well-known one, and says there it sends `iss` back.
+ */
+const metadataMoved = () => {
+  const real = globalThis.fetch;
+  vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+    const url = new URL(input instanceof Request ? input.url : String(input));
+    if (url.pathname === '/.well-known/oauth-authorization-server') {
+      return new Response(null, { status: 302, headers: { location: '/as/config' } });
+    }
+    if (url.pathname !== '/as/config') return real(input, init);
+    const metadata = await (
+      await real(new URL('/.well-known/oauth-authorization-server', url.origin), init)
+    ).json();
+    return Response.json({ ...metadata, authorization_response_iss_parameter_supported: true });
+  });
+};
 
 describe('connecting with OAuth', () => {
   it('registers the app, opens the address, and gets the tokens with the code and PKCE', async () => {
@@ -123,6 +188,109 @@ describe('connecting with OAuth', () => {
 
     expect(outcome).toEqual({ kind: 'timed_out' });
     await expect(fetch(callback)).rejects.toThrow();
+  });
+
+  it('takes a redirect that names the authorization server as its issuer', async () => {
+    const outcome = await connectWithOAuth({
+      url: fixture.mcpUrl,
+      open: async (address) => {
+        await authorize(address, withIss(fixture.authBase));
+      },
+    });
+
+    expect(outcome.kind).toBe('connected');
+  });
+
+  it('fails when the redirect names another issuer, and gets no tokens', async () => {
+    let page: { status: number; text: string } | undefined;
+    await expect(
+      connectWithOAuth({
+        url: fixture.mcpUrl,
+        open: async (address) => {
+          page = await authorize(address, withIss('https://attacker.example'));
+        },
+      }),
+    ).rejects.toThrow();
+
+    expect(page).toEqual({ status: 400, text: expect.stringContaining('no se ha conectado') });
+    expect(fixture.seen.some((request) => request.path === '/token')).toBe(false);
+  });
+
+  it('fails when the server says it sends its issuer back and the redirect has none', async () => {
+    advertiseIss();
+    let page: { status: number; text: string } | undefined;
+    await expect(
+      connectWithOAuth({
+        url: fixture.mcpUrl,
+        open: async (address) => {
+          page = await authorize(address);
+        },
+      }),
+    ).rejects.toThrow();
+
+    expect(page?.status).toBe(400);
+    expect(fixture.seen.some((request) => request.path === '/token')).toBe(false);
+  });
+
+  it('fails when a server found by OpenID discovery says it sends its issuer back and the redirect has none', async () => {
+    openIdOnly();
+    let page: { status: number; text: string } | undefined;
+    await expect(
+      connectWithOAuth({
+        url: fixture.mcpUrl,
+        open: async (address) => {
+          page = await authorize(address);
+        },
+      }),
+    ).rejects.toThrow();
+
+    expect(page?.status).toBe(400);
+    expect(fixture.seen.some((request) => request.path === '/token')).toBe(false);
+  });
+
+  it('fails when metadata reached by a redirect says it sends its issuer back and the redirect has none', async () => {
+    metadataMoved();
+    let page: { status: number; text: string } | undefined;
+    await expect(
+      connectWithOAuth({
+        url: fixture.mcpUrl,
+        open: async (address) => {
+          page = await authorize(address);
+        },
+      }),
+    ).rejects.toThrow();
+
+    expect(page?.status).toBe(400);
+    expect(fixture.seen.some((request) => request.path === '/token')).toBe(false);
+  });
+
+  it('fails, rather than saying the principal refused, when a refusal names another issuer', async () => {
+    await expect(
+      connectWithOAuth({
+        url: fixture.mcpUrl,
+        open: async (address) => {
+          await authorize(address, (back) => {
+            const refused = new URL(back.origin + back.pathname);
+            refused.searchParams.set('error', 'access_denied');
+            refused.searchParams.set('state', back.searchParams.get('state') ?? '');
+            refused.searchParams.set('iss', 'https://attacker.example');
+            return refused;
+          });
+        },
+      }),
+    ).rejects.toThrow();
+  });
+
+  it('connects when the server says it sends its issuer back and the redirect has it', async () => {
+    advertiseIss();
+    const outcome = await connectWithOAuth({
+      url: fixture.mcpUrl,
+      open: async (address) => {
+        await authorize(address, withIss(fixture.authBase));
+      },
+    });
+
+    expect(outcome.kind).toBe('connected');
   });
 
   it('fails without quoting the server when it offers no OAuth', async () => {

@@ -1,7 +1,11 @@
 import { randomBytes } from 'node:crypto';
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
-import { auth, type OAuthClientProvider } from '@modelcontextprotocol/sdk/client/auth.js';
+import {
+  auth,
+  type OAuthClientProvider,
+  type OAuthDiscoveryState,
+} from '@modelcontextprotocol/sdk/client/auth.js';
 import type {
   OAuthClientInformationMixed,
   OAuthTokens,
@@ -16,6 +20,11 @@ import { clientMetadataFor, type OAuthEntry } from './oauth.ts';
 //
 // Requests go through a plain fetch: the server's configured headers never reach its
 // authorization server.
+//
+// RFC 9207: the redirect names the authorization server that sent it (`iss`), so a code from
+// another server is never sent to this one's token endpoint (mix-up). When the server's metadata
+// says it sends `iss`, the redirect must carry it; when the redirect carries one, it must be the
+// metadata's `issuer`. Otherwise the login fails.
 
 export type OAuthOutcome =
   | { kind: 'connected'; entry: OAuthEntry }
@@ -40,13 +49,75 @@ const PAGES = {
   wrong: 'Esta dirección no es para ANOMANDER.',
 } as const;
 
-type Answer = { code: string } | { error: string };
+type Answer = { code: string } | { error: string } | { wrongIssuer: true };
+
+/** The authorization server's metadata as it was served. */
+type RawMetadata = Record<string, unknown>;
+
+/**
+ * Whether the redirect's `iss` (RFC 9207 §2.4) is the authorization server's own. `discovered`
+ * says the SDK found metadata: if the document as served was not kept, whether the server sends
+ * `iss` is unknown, and a redirect without one fails.
+ */
+const issuerAccepted = (
+  metadata: RawMetadata | undefined,
+  discovered: boolean,
+  iss: string | null,
+): boolean => {
+  if (iss === null) {
+    if (metadata === undefined) return !discovered;
+    return metadata.authorization_response_iss_parameter_supported !== true;
+  }
+  return typeof metadata?.issuer === 'string' && iss === metadata.issuer;
+};
+
+const METADATA_PATHS = [
+  '/.well-known/oauth-authorization-server',
+  '/.well-known/openid-configuration',
+] as const;
+
+/**
+ * A plain fetch that keeps the first authorization server metadata it gets, the one the SDK
+ * takes. The SDK drops the fields it does not know from OpenID discovery metadata, RFC 9207's
+ * among them, so the check reads the document as served. The SDK follows a same-origin redirect
+ * itself, through this fetch again, so the address a metadata address redirects to counts too.
+ */
+const keepingMetadata = (keep: (metadata: RawMetadata) => void) => {
+  const redirectedTo = new Set<string>();
+  return async (input: string | URL, init?: RequestInit): Promise<Response> => {
+    const response = await fetch(input, init);
+    const address = new URL(input);
+    const isMetadata =
+      redirectedTo.has(address.href) ||
+      METADATA_PATHS.some(
+        (path) => address.pathname.startsWith(path) || address.pathname.endsWith(path),
+      );
+    const location = response.headers.get('location');
+    if (isMetadata && response.status >= 300 && response.status < 400 && location !== null) {
+      redirectedTo.add(new URL(location, address).href);
+    }
+    if (response.ok && isMetadata) {
+      try {
+        const metadata: unknown = await response.clone().json();
+        if (typeof metadata === 'object' && metadata !== null && !Array.isArray(metadata)) {
+          keep(metadata as RawMetadata);
+        }
+      } catch {
+        // Not JSON: the SDK refuses it on its own.
+      }
+    }
+    return response;
+  };
+};
 
 const page = (text: string) =>
   `<!doctype html><html lang="es"><meta charset="utf-8"><title>ANOMANDER</title><p>${text}</p></html>`;
 
-/** Listens on a free port of `127.0.0.1` for the one redirect that carries `state`. */
-const listenForRedirect = async (state: string) => {
+/**
+ * Listens on a free port of `127.0.0.1` for the one redirect that carries `state`; `accepts`
+ * judges its `iss`.
+ */
+const listenForRedirect = async (state: string, accepts: (iss: string | null) => boolean) => {
   let answered: (answer: Answer) => void = () => {};
   const answer = new Promise<Answer>((resolve) => {
     answered = resolve;
@@ -73,6 +144,12 @@ const listenForRedirect = async (state: string) => {
     // Any other page could send the browser here: only the right state counts.
     if (url.searchParams.get('state') !== state) {
       reply(400, PAGES.wrong);
+      return;
+    }
+    // The right state from the wrong server: the login is over, and its code is never used.
+    if (!accepts(url.searchParams.get('iss'))) {
+      reply(400, PAGES.refused);
+      answered({ wrongIssuer: true });
       return;
     }
     const code = url.searchParams.get('code');
@@ -102,7 +179,15 @@ const listenForRedirect = async (state: string) => {
 export const connectWithOAuth = async (options: OAuthLoginOptions): Promise<OAuthOutcome> => {
   const { url, open, timeoutMs = OAUTH_TIMEOUT_MS } = options;
   const state = randomBytes(32).toString('base64url');
-  const redirect = await listenForRedirect(state);
+  // What the SDK discovered, kept so the code goes back to the server whose `iss` was checked.
+  let discovery: OAuthDiscoveryState | undefined;
+  let metadata: RawMetadata | undefined;
+  const fetchFn = keepingMetadata((served) => {
+    metadata ??= served;
+  });
+  const redirect = await listenForRedirect(state, (iss) =>
+    issuerAccepted(metadata, discovery?.authorizationServerMetadata !== undefined, iss),
+  );
   try {
     let client: OAuthClientInformationMixed | undefined;
     let tokens: OAuthTokens | undefined;
@@ -134,9 +219,13 @@ export const connectWithOAuth = async (options: OAuthLoginOptions): Promise<OAut
         if (verifier === undefined) throw new Error('no code verifier');
         return verifier;
       },
+      saveDiscoveryState: (saved) => {
+        discovery = saved;
+      },
+      discoveryState: () => discovery,
     };
 
-    const started = await auth(provider, { serverUrl: url, fetchFn: fetch });
+    const started = await auth(provider, { serverUrl: url, fetchFn });
     if (started === 'REDIRECT') {
       if (address === undefined) throw new Error('the server gave no authorization address');
       let timer: NodeJS.Timeout | undefined;
@@ -149,8 +238,11 @@ export const connectWithOAuth = async (options: OAuthLoginOptions): Promise<OAut
       const answer = await waited;
       clearTimeout(timer);
       if (answer === 'late') return { kind: 'timed_out' };
+      if ('wrongIssuer' in answer) {
+        throw new Error('the redirect came from another authorization server');
+      }
       if ('error' in answer) return { kind: 'denied' };
-      await auth(provider, { serverUrl: url, authorizationCode: answer.code, fetchFn: fetch });
+      await auth(provider, { serverUrl: url, authorizationCode: answer.code, fetchFn });
     }
     if (client === undefined || tokens === undefined) {
       throw new Error('the server gave no tokens');
