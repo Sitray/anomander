@@ -11,6 +11,12 @@ when the chat is not in front.
 This file covers the window. The two halves meet in `src/shell.ts`: every command and event they
 exchange, mirrored by the Rust side. Change both together.
 
+Each window may call only the commands granted to it. A new command goes in `generate_handler!`
+(`src-tauri/src/lib.rs`), in `COMMANDS` (`src-tauri/build.rs`) and, as `allow-<name>` with
+dashes, in the capability of the window that calls it (`src-tauri/capabilities/`): the chat
+(`default.json`) or the notch (`notch.json`, which only opens the chat with `reveal`).
+`test/capabilities.test.ts` and `src-tauri/tests/capabilities.rs` fail when they disagree.
+
 ## Running it
 
 | What | Command |
@@ -166,11 +172,22 @@ is framework-free, so it is tested against a fake `WebSocket` (`test/fake-web-so
   ```json
   {
     "mcpServers": {
-      "notes": { "command": "npx", "args": ["-y", "some-notes-mcp"], "readOnly": ["search"] },
+      "notes": { "command": "npx", "args": ["-y", "some-notes-mcp@1.4.2"], "readOnly": ["search"] },
       "remote": { "url": "https://example.com/mcp", "headers": { "Authorization": "Bearer …" } }
     }
   }
   ```
+
+  Name an exact version (`some-notes-mcp@1.4.2`): `npx -y` with a bare name runs whatever the
+  registry serves that day, without asking.
+
+  **Connect only servers you trust.** A server started by `command` runs as a child of the
+  daemon, which is a child of the app, and macOS charges a child's privacy permissions to the app
+  that started it (its "responsible process"): such a server can expect to record the screen and
+  type or click (Screen Recording, Accessibility) without a prompt, counted as ANOMANDER. This
+  follows from how macOS works; it has not been tried with a real server. `readOnly` and "Permitir"
+  decide which tool calls the daemon makes, not what the server's process does on its own. A
+  `url` server runs elsewhere and gets none of this.
 
   Only the tools listed in `readOnly` run without asking. The daemon reads the file when it
   starts. Just before, the shell moves every value of `env` and `headers` to the Keychain
