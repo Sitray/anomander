@@ -272,6 +272,7 @@ button {
 }
 
 .link {
+  position: relative;
   padding: 0;
   border: 0;
   border-radius: 2px;
@@ -279,6 +280,16 @@ button {
   color: var(--accent-ink);
   font-size: var(--text-sm);
   font-weight: 500;
+}
+
+/* S5: a target of at least 24px (WCAG 2.5.8) without moving the text the link sits in. */
+.link::before {
+  content: "";
+  position: absolute;
+  inset: 50% 0 auto;
+  height: 1.5rem;
+  min-width: 100%;
+  transform: translateY(-50%);
 }
 
 .link:hover:not(:disabled) {
@@ -1034,6 +1045,36 @@ button {
   color: var(--text);
 }
 
+/* S5: beside the label of what a first run cannot do without. */
+.field-head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s2);
+}
+
+.field-required {
+  color: var(--text-2);
+  font-size: var(--text-xs);
+  font-weight: 400;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+/* S5: commands to copy; the window keeps everything else unselectable. */
+.code-block {
+  margin: 0;
+  padding: var(--s2) var(--s3);
+  border-radius: var(--radius-s);
+  background: var(--fill);
+  color: var(--text);
+  font: var(--text-sm) / 1.6 var(--mono);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  user-select: text;
+  -webkit-user-select: text;
+  cursor: text;
+}
+
 .field input,
 .field select,
 .field textarea {
@@ -1208,6 +1249,47 @@ button {
   color: var(--text-2);
 }
 
+/* ---------- Subscriptions (DK-15) ---------- */
+
+.accounts {
+  margin-top: var(--s5);
+}
+
+/* An account's name is a name, not a variable: the body face, a step heavier. */
+.account-name {
+  min-width: 0;
+  font-weight: 500;
+}
+
+/* A step of the login takes the row under the account it is for, as OAuth does. */
+.login-step {
+  flex-basis: 100%;
+  display: grid;
+  gap: var(--s3);
+  padding-top: var(--s1);
+}
+
+/* The device code: read from the window and typed in the browser, so it selects and stands out. */
+.login-code {
+  justify-self: start;
+  padding: var(--s1) var(--s3);
+  border-radius: var(--radius-s);
+  background: var(--fill);
+  font: 500 var(--text-xl) / 1.3 var(--mono);
+  letter-spacing: 0.08em;
+  -webkit-user-select: text;
+  user-select: text;
+}
+
+.login-answer {
+  min-width: 0;
+}
+
+.login-answer .field input {
+  flex: 1;
+  min-width: 0;
+}
+
 /* The question takes the row under the server it is about. */
 .server-confirm {
   flex-basis: 100%;
@@ -1334,11 +1416,11 @@ button {
 .target-preview {
   position: relative;
   width: 100%;
-  max-width: 320px;
+  max-width: 20rem;
   aspect-ratio: 16 / 9;
-  margin-top: 8px;
-  border: 1px solid var(--line, rgba(128, 128, 128, 0.35));
-  border-radius: 8px;
+  margin-top: var(--s2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-m);
   background-repeat: no-repeat;
   background-size: 300%;
   overflow: hidden;
@@ -1346,12 +1428,12 @@ button {
 
 .target-mark {
   position: absolute;
-  width: 22px;
-  height: 22px;
-  margin: -11px 0 0 -11px;
-  border: 2px solid #e5484d;
+  width: var(--s5);
+  height: var(--s5);
+  margin: calc(var(--s5) / -2) 0 0 calc(var(--s5) / -2);
+  border: 2px solid var(--danger);
   border-radius: 50%;
-  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.85);
+  box-shadow: 0 0 0 2px var(--surface);
   pointer-events: none;
 }
 
@@ -1359,8 +1441,8 @@ button {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
-  padding: 8px 16px;
-  font-size: 12px;
+  gap: var(--s3);
+  padding: var(--s2) var(--s4);
+  font-size: var(--text-sm);
   border-top: 1px solid var(--line);
 }

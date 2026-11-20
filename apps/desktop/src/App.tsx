@@ -1,9 +1,11 @@
 // The window: the daemon's status on top, and under it the chat, the setup screen, the
-// connections screen or the import of a ledger. The container: it reads the shell and decides which one is on screen.
+// connections screen, the subscriptions screen or the import of a ledger. The container: it
+// reads the shell and decides which one is on screen.
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ChatScreen } from './chat/ChatScreen.tsx';
 import { ConnectionsScreen } from './connections/ConnectionsScreen.tsx';
 import { LedgerScreen } from './ledger/LedgerScreen.tsx';
+import { SubscriptionsScreen } from './login/SubscriptionsScreen.tsx';
 import { SetupScreen } from './setup/SetupScreen.tsx';
 import type { SetupInput } from './shell.ts';
 import { ErrorBlock, StatusBar } from './status/StatusBar.tsx';
@@ -14,7 +16,9 @@ export function App() {
   const shell = useShell();
   const { snapshot } = shell;
   /** The screen over the chat, when there is one. */
-  const [open, setOpen] = useState<'setup' | 'connections' | 'ledger' | null>(null);
+  const [open, setOpen] = useState<'setup' | 'connections' | 'subscriptions' | 'ledger' | null>(
+    null,
+  );
   const main = useRef<HTMLElement>(null);
 
   // DK-5 AC1: nothing works until the setup is complete, so it opens by itself, once each time
@@ -60,10 +64,12 @@ export function App() {
         commandError={shell.commandError}
         setupOpen={open === 'setup' || open === 'ledger'}
         connectionsOpen={open === 'connections'}
+        subscriptionsOpen={open === 'subscriptions'}
         onStart={shell.start}
         onStop={shell.stop}
         onToggleSetup={open === 'setup' || open === 'ledger' ? close : () => setOpen('setup')}
         onToggleConnections={open === 'connections' ? close : () => setOpen('connections')}
+        onToggleSubscriptions={open === 'subscriptions' ? close : () => setOpen('subscriptions')}
         onDismissError={shell.dismissError}
       />
       <main className="main" ref={main}>
@@ -92,6 +98,7 @@ export function App() {
                 onTaskRunning={shell.setTaskRunning}
                 subscribeStop={shell.onStopTask}
                 model={snapshot.setup.model}
+                onStart={shell.start}
               />
             </div>
             {open === 'setup' && (
@@ -101,6 +108,19 @@ export function App() {
                   onSave={save}
                   onClose={close}
                   onOpenLedger={() => setOpen('ledger')}
+                  onOpenSubscriptions={() => setOpen('subscriptions')}
+                />
+              </div>
+            )}
+            {open === 'subscriptions' && (
+              <div className="view">
+                <SubscriptionsScreen
+                  load={shell.subscriptions}
+                  onConnect={shell.connectSubscription}
+                  onAnswer={shell.answerLogin}
+                  onDisconnect={shell.disconnectSubscription}
+                  subscribeSteps={shell.onLoginStep}
+                  onClose={close}
                 />
               </div>
             )}

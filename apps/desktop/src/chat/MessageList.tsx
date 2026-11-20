@@ -1,14 +1,42 @@
 // DK-4: the conversation. Presentational: messages in, a retry or a press out.
 import { useLayoutEffect, useRef } from 'react';
+import type { DaemonStatus } from '../shell.ts';
 import { strings } from '../strings.ts';
 import { AlertIcon, FileIcon, Mark } from '../ui/icons.tsx';
 import type { Attachment } from './attachments.ts';
 import type { BotMessage, Message, OwnMessage } from './conversation.ts';
 
+/** What the empty conversation says, and what it offers. */
+export interface EmptyState {
+  title: string;
+  body: string;
+  action?: { label: string; run: () => void };
+}
+
+/**
+ * S5: the empty chat keyed to the daemon, so it never asks for an expense the composer cannot
+ * send. `daemon` is `null` while there is a channel: then the chat says what can be done here.
+ */
+export const emptyStateFor = (daemon: DaemonStatus | null, onStart?: () => void): EmptyState => {
+  const { chat } = strings;
+  if (daemon === null) return { title: chat.emptyTitle, body: chat.emptyBody };
+  if (daemon.state === 'failing') return chat.emptyFailing;
+  if (daemon.state === 'stopped') {
+    if (daemon.reason === 'not_configured') return chat.emptyNotConfigured;
+    const { title, body, action } = chat.emptyStopped;
+    return onStart === undefined
+      ? { title, body }
+      : { title, body, action: { label: action, run: onStart } };
+  }
+  return chat.emptyStarting;
+};
+
 export interface MessageListProps {
   messages: Message[];
   /** The daemon owes an answer. */
   waiting: boolean;
+  /** What the empty conversation says; by default, what can be done here. */
+  empty?: EmptyState;
   onRetry: (message: OwnMessage) => void;
   /** DK-13: starts again the look or the task a message announced, which did not leave. */
   onRestart: (message: BotMessage) => void;
@@ -238,6 +266,7 @@ const Bot = ({
 
 export function MessageList(props: MessageListProps) {
   const { messages, waiting, onRetry, onRestart, onPress, onAllow, onRefuse } = props;
+  const empty = props.empty ?? emptyStateFor(null);
   const scroller = useRef<HTMLDivElement>(null);
   /** Whether the principal is reading the end; scrolling up to reread must not be undone. */
   const atEnd = useRef(true);
@@ -264,8 +293,13 @@ export function MessageList(props: MessageListProps) {
       {messages.length === 0 && (
         <div className="empty">
           <Mark size={40} />
-          <h2 className="empty-title">{strings.chat.emptyTitle}</h2>
-          <p className="empty-body">{strings.chat.emptyBody}</p>
+          <h2 className="empty-title">{empty.title}</h2>
+          <p className="empty-body">{empty.body}</p>
+          {empty.action !== undefined && (
+            <button type="button" className="button primary" onClick={empty.action.run}>
+              {empty.action.label}
+            </button>
+          )}
         </div>
       )}
       <ol className="messages" role="log" aria-live="polite" aria-label={strings.chat.conversation}>

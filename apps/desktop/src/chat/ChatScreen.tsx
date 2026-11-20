@@ -6,7 +6,7 @@ import type { DaemonStatus, LocalChannel } from '../shell.ts';
 import { strings } from '../strings.ts';
 import { Composer } from './Composer.tsx';
 import { isWaiting } from './conversation.ts';
-import { MessageList } from './MessageList.tsx';
+import { emptyStateFor, MessageList } from './MessageList.tsx';
 import { useChat } from './use-chat.ts';
 import { useDraft } from './use-draft.ts';
 
@@ -33,6 +33,8 @@ export interface ChatScreenProps {
   subscribeStop?: (stop: () => void) => () => void;
   /** The model the daemon answers with (S2); `null` or absent when none is set. */
   model?: string | null;
+  /** S5: starts the daemon, offered by the empty chat while it is stopped. */
+  onStart?: () => void;
 }
 
 /** Why there is no channel, in the principal's words. */
@@ -92,7 +94,13 @@ export function ChatScreen(props: ChatScreenProps) {
   // DK-13: every message goes as it is; the daemon decides whether it is a look or a task.
   const submit = () => {
     const typed = draft.text.trim();
-    if (blocked !== null || (typed === '' && draft.attachments.length === 0)) return;
+    if (typed === '' && draft.attachments.length === 0) return;
+    // S5: Enter with no way to send is not dropped in silence: the reason is announced, and
+    // the message waits in the composer; nothing is queued.
+    if (blocked !== null) {
+      draft.warn(strings.chat.heldBack(blocked));
+      return;
+    }
     chat.say(typed, draft.attachments);
     draft.clear();
   };
@@ -132,6 +140,7 @@ export function ChatScreen(props: ChatScreenProps) {
       <MessageList
         messages={chat.conversation.messages}
         waiting={waiting}
+        empty={emptyStateFor(disabled ? daemon : null, props.onStart)}
         onRetry={chat.retry}
         onRestart={chat.restart}
         onPress={chat.press}

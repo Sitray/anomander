@@ -8,6 +8,7 @@ pub mod connections;
 pub mod daemon;
 pub mod data_dir;
 pub mod ledger_import;
+pub mod login;
 pub mod notch;
 pub mod notification;
 pub mod oauth_connect;
@@ -18,6 +19,7 @@ pub mod shell;
 pub mod snapshot;
 pub mod tray;
 
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
@@ -25,11 +27,13 @@ use tauri::{AppHandle, Emitter, Manager, RunEvent, WindowEvent};
 use tauri_plugin_notification::NotificationExt;
 
 use crate::connections::{ConnectionsView, ServerInput};
-use crate::daemon::launch::launch_token;
+use crate::daemon::launch::{daemon_entry, find_node, launch_token, search_path};
 use crate::daemon::supervisor::{Options, Supervisor, Update};
 use crate::data_dir::{DataDir, FOLDER_NAME};
 use crate::ledger_import::LedgerImport;
+use crate::login::{LoginOutcome, SubscriptionsView};
 use crate::oauth_connect::{open_in_browser, OAuthConnect};
+use crate::secure_store::SecretStore;
 use crate::setup::{load_settings, Settings, SetupInput};
 use crate::shell::Core;
 use crate::snapshot::{DaemonState, Snapshot};
@@ -38,12 +42,55 @@ use crate::snapshot::{DaemonState, Snapshot};
 pub const SNAPSHOT_EVENT: &str = "shell://snapshot";
 /// `STOP_TASK_EVENT` of `shell.ts`.
 pub const STOP_TASK_EVENT: &str = "shell://stop-task";
+/// `LOGIN_EVENT` of `shell.ts`: a `login::Step` while a subscription login runs (DK-15).
+pub const LOGIN_EVENT: &str = "shell://login";
 const MAIN_WINDOW: &str = "main";
+
+/// DK-15: the subscription logins, kept in the same Keychain item the daemon gets (`model-login`).
+struct Logins {
+    store: Arc<dyn SecretStore>,
+    /// `auth.json` of the data folder: the script places the device ID next to it, nothing else.
+    auth_path: PathBuf,
+    session: login::Session,
+}
+
+impl Logins {
+    /// Runs the login of `provider_id` with the daemon package's script, as `Core::connect_oauth`
+    /// runs its own: the daemon runs meanwhile, and nothing is stored here.
+    fn run(
+        &self,
+        provider_id: &str,
+        open: &dyn Fn(&str) -> Result<(), String>,
+        notify: &dyn Fn(login::Step),
+    ) -> Result<login::Ran, String> {
+        let path = search_path(std::env::var("PATH").ok().as_deref());
+        let node =
+            find_node(std::env::var("ANOMANDER_NODE").ok().as_deref(), &path).ok_or_else(|| {
+                format!("node was not found on {path}; set ANOMANDER_NODE to its path")
+            })?;
+        let entry = daemon_entry(std::env::var("ANOMANDER_DAEMON_ENTRY").ok().as_deref());
+        let script = login::script_of(&entry)
+            .filter(|script| script.is_file())
+            .ok_or_else(|| format!("the login is not next to {}", entry.display()))?;
+        login::run(
+            &node,
+            &script,
+            provider_id,
+            &self.auth_path,
+            &path,
+            &self.session,
+            open,
+            notify,
+            login::DEADLINE,
+        )
+    }
+}
 
 /// The app's managed state.
 struct Shell {
     core: Arc<Core>,
     supervisor: Supervisor,
+    logins: Logins,
 }
 
 impl Shell {
@@ -192,6 +239,60 @@ async fn forget_oauth(app: AppHandle, name: String) -> Result<ConnectionsView, S
             .supervisor
             .while_stopped(|| shell.core.forget_oauth(&name))?;
         Ok(shell.core.connections())
+    })
+    .await
+}
+
+/// DK-15: the accounts of the Suscripciones screen, and which are connected; never a token.
+#[tauri::command]
+async fn get_subscriptions(app: AppHandle) -> Result<SubscriptionsView, String> {
+    blocking(app, |shell| login::view(shell.logins.store.as_ref())).await
+}
+
+/// DK-15: connects a subscription. The principal logs in in the browser, which can take minutes:
+/// the daemon runs meanwhile, and the window is told each step on `LOGIN_EVENT`. The credential
+/// is stored with the daemon stopped, so a refresh it hands over cannot overwrite it; it starts
+/// again if it ran, and gets the login at that start.
+#[tauri::command]
+async fn connect_subscription(app: AppHandle, provider_id: String) -> Result<LoginOutcome, String> {
+    let window = app.clone();
+    blocking(app, move |shell| {
+        // Held until the credential is stored.
+        let _turn = shell.logins.session.turn()?;
+        let notify = |step: login::Step| {
+            // Only the chat window: a step names no secret, but it is the window's business.
+            if let Err(error) = window.emit_to(MAIN_WINDOW, LOGIN_EVENT, &step) {
+                eprintln!("could not tell the window about the login: {error}");
+            }
+        };
+        let ran = shell.logins.run(&provider_id, &open_in_browser, &notify)?;
+        if let Some(credential) = ran.credential {
+            shell
+                .supervisor
+                .while_stopped(|| login::keep(shell.logins.store.as_ref(), &credential))?;
+        }
+        Ok(ran.outcome)
+    })
+    .await
+}
+
+/// DK-15: the address the browser ended on, pasted in the window for the login that waits.
+#[tauri::command]
+fn answer_login(app: AppHandle, text: String) -> Result<(), String> {
+    app.state::<Shell>().logins.session.answer(&text)
+}
+
+/// DK-15: forgets the login of an account, with the daemon stopped as `connect_subscription`.
+#[tauri::command]
+async fn disconnect_subscription(
+    app: AppHandle,
+    provider_id: String,
+) -> Result<SubscriptionsView, String> {
+    blocking(app, move |shell| {
+        shell
+            .supervisor
+            .while_stopped(|| login::forget(shell.logins.store.as_ref(), &provider_id))?;
+        login::view(shell.logins.store.as_ref())
     })
     .await
 }
@@ -377,6 +478,11 @@ fn set_up(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         Settings::default()
     });
     let token = launch_token()?;
+    let logins = Logins {
+        store: Arc::new(secure_store::Keychain),
+        auth_path: data.daemon_paths().auth,
+        session: login::Session::default(),
+    };
     // `TZ` is the zone of this machine's clock, never the app's own variable: the daemon
     // refuses one that is not an IANA name.
     let environment: shell::Environment = Box::new(|name| match name {
@@ -405,7 +511,11 @@ fn set_up(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     );
     tray::build(app, &supervisor.current().status, on_menu)?;
     notch::build(app)?;
-    app.manage(Shell { core, supervisor });
+    app.manage(Shell {
+        core,
+        supervisor,
+        logins,
+    });
 
     // DK-1 AC1: opening the app starts the daemon.
     in_background(app.handle(), |shell| shell.supervisor.start());
@@ -447,6 +557,10 @@ pub fn run() {
             import_ledger,
             connect_oauth,
             forget_oauth,
+            get_subscriptions,
+            connect_subscription,
+            answer_login,
+            disconnect_subscription,
             start_daemon,
             stop_daemon,
             set_thinking,

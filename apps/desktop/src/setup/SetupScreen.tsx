@@ -16,12 +16,14 @@ export interface SetupScreenProps {
   onClose: () => void;
   /** DK-12: opens the import of a ledger brought from a Docker install. */
   onOpenLedger?: () => void;
+  /** DK-15: opens the subscriptions screen, from the models section. */
+  onOpenSubscriptions?: () => void;
 }
 
 const { setup: text } = strings;
 const OTHER = 'other';
 
-type FieldName = 'chatId' | 'model' | 'visionModel' | 'keyName' | 'keyValue';
+type FieldName = 'botToken' | 'chatId' | 'model' | 'visionModel' | 'keyName' | 'keyValue';
 type Errors = Partial<Record<FieldName, string>>;
 /** What saving will do to a provider key. */
 type KeyChange = 'store' | 'remove';
@@ -30,17 +32,34 @@ interface FieldProps {
   label: string;
   help: string;
   error?: string | undefined;
+  /** S5: said beside the label, for a field the daemon cannot start without. */
+  required?: boolean;
   children: (ids: { id: string; describedBy: string; invalid: boolean }) => ReactNode;
 }
 
 /** A label, its control, and under it the help or, instead, what is wrong. */
-export function Field({ label, help, error, children }: FieldProps) {
+export function Field({ label, help, error, required, children }: FieldProps) {
   const id = useId();
   const noteId = `${id}-note`;
+  const requiredId = `${id}-required`;
   return (
     <div className="field" data-invalid={error === undefined ? undefined : ''}>
-      <label htmlFor={id}>{label}</label>
-      {children({ id, describedBy: noteId, invalid: error !== undefined })}
+      {required === true ? (
+        <div className="field-head">
+          <label htmlFor={id}>{label}</label>
+          {/* Beside the label, not in it, so the label stays the field's name; described instead. */}
+          <span className="field-required" id={requiredId}>
+            {text.required}
+          </span>
+        </div>
+      ) : (
+        <label htmlFor={id}>{label}</label>
+      )}
+      {children({
+        id,
+        describedBy: required === true ? `${noteId} ${requiredId}` : noteId,
+        invalid: error !== undefined,
+      })}
       <p className="field-note" id={noteId}>
         {error ?? help}
       </p>
@@ -57,7 +76,8 @@ interface FormProps extends SetupScreenProps {
   onSaved: (setup: SetupState) => void;
 }
 
-function SetupForm({ setup, incomplete, onSave, onSaved, onClose, onOpenLedger }: FormProps) {
+function SetupForm(props: FormProps) {
+  const { setup, incomplete, onSave, onSaved, onClose, onOpenLedger, onOpenSubscriptions } = props;
   const [chatId, setChatId] = useState(setup.principalChatId ?? '');
   const [model, setModel] = useState(setup.model ?? '');
   const [visionModel, setVisionModel] = useState(setup.visionModel ?? '');
@@ -76,6 +96,11 @@ function SetupForm({ setup, incomplete, onSave, onSaved, onClose, onOpenLedger }
 
   // The screen replaces the chat: start reading it from its title.
   useEffect(() => heading.current?.focus(), []);
+
+  // S5: on a first run the daemon cannot start without these two; once stored, the token may
+  // stay blank to keep it, and an empty chat ID means "unset", as the shell takes it.
+  const tokenRequired = !setup.hasTelegramBotToken;
+  const chatIdRequired = setup.principalChatId === null;
 
   const change = (name: string, to: KeyChange | undefined) => {
     setChanges(({ [name]: _dropped, ...rest }) =>
@@ -116,8 +141,16 @@ function SetupForm({ setup, incomplete, onSave, onSaved, onClose, onOpenLedger }
       visionModel: visionModel.trim(),
       providerKeys: {},
     };
+    // Omitted keeps the stored token.
+    const token = botToken.current?.value.trim() ?? '';
     const wrong: Errors = {
-      ...(isChatId(input.principalChatId) ? {} : { chatId: text.chatIdInvalid }),
+      // S5: what the daemon cannot start without is asked for while it is not stored.
+      ...(tokenRequired && token === '' ? { botToken: text.botTokenMissing } : {}),
+      ...(chatIdRequired && input.principalChatId === ''
+        ? { chatId: text.chatIdMissing }
+        : isChatId(input.principalChatId)
+          ? {}
+          : { chatId: text.chatIdInvalid }),
       ...(isModelId(input.model) ? {} : { model: text.modelInvalid }),
       ...(isModelId(input.visionModel) ? {} : { visionModel: text.modelInvalid }),
       // A key typed but not added is still meant to be saved.
@@ -132,8 +165,6 @@ function SetupForm({ setup, incomplete, onSave, onSaved, onClose, onOpenLedger }
       if (to === 'remove') input.providerKeys[name] = null;
     }
     for (const [name, value] of typedKeys.current) input.providerKeys[name] = value;
-    // Omitted keeps the stored token.
-    const token = botToken.current?.value.trim() ?? '';
     if (token !== '') input.telegramBotToken = token;
 
     setSaving(true);
@@ -177,8 +208,13 @@ function SetupForm({ setup, incomplete, onSave, onSaved, onClose, onOpenLedger }
 
         <fieldset>
           <legend>{text.sectionTelegram}</legend>
-          <Field label={text.botToken} help={text.botTokenHelp}>
-            {({ id, describedBy }) => (
+          <Field
+            label={text.botToken}
+            help={text.botTokenHelp}
+            error={errors.botToken}
+            required={tokenRequired}
+          >
+            {({ id, describedBy, invalid }) => (
               <input
                 ref={botToken}
                 id={id}
@@ -187,10 +223,16 @@ function SetupForm({ setup, incomplete, onSave, onSaved, onClose, onOpenLedger }
                 spellCheck={false}
                 placeholder={setup.hasTelegramBotToken ? text.botTokenStored : ''}
                 aria-describedby={describedBy}
+                aria-invalid={invalid}
               />
             )}
           </Field>
-          <Field label={text.chatId} help={text.chatIdHelp} error={errors.chatId}>
+          <Field
+            label={text.chatId}
+            help={text.chatIdHelp}
+            error={errors.chatId}
+            required={chatIdRequired}
+          >
             {({ id, describedBy, invalid }) => (
               <input
                 id={id}
@@ -200,6 +242,7 @@ function SetupForm({ setup, incomplete, onSave, onSaved, onClose, onOpenLedger }
                 value={chatId}
                 aria-describedby={describedBy}
                 aria-invalid={invalid}
+                aria-required={chatIdRequired}
                 onChange={(event) => setChatId(event.target.value)}
               />
             )}
@@ -213,7 +256,7 @@ function SetupForm({ setup, incomplete, onSave, onSaved, onClose, onOpenLedger }
               <input
                 id={id}
                 className="code"
-                placeholder={text.modelExample}
+                placeholder={text.modelPlaceholder}
                 autoComplete="off"
                 autoCapitalize="off"
                 spellCheck={false}
@@ -229,7 +272,7 @@ function SetupForm({ setup, incomplete, onSave, onSaved, onClose, onOpenLedger }
               <input
                 id={id}
                 className="code"
-                placeholder={text.modelExample}
+                placeholder={text.modelPlaceholder}
                 autoComplete="off"
                 autoCapitalize="off"
                 spellCheck={false}
@@ -240,6 +283,13 @@ function SetupForm({ setup, incomplete, onSave, onSaved, onClose, onOpenLedger }
               />
             )}
           </Field>
+          {onOpenSubscriptions !== undefined && (
+            <p className="fieldset-note">
+              <button type="button" className="link" onClick={onOpenSubscriptions}>
+                {strings.subscriptions.open}
+              </button>
+            </p>
+          )}
         </fieldset>
 
         <fieldset>
@@ -374,7 +424,8 @@ function SetupForm({ setup, incomplete, onSave, onSaved, onClose, onOpenLedger }
   );
 }
 
-export function SetupScreen({ setup, onSave, onClose, onOpenLedger }: SetupScreenProps) {
+export function SetupScreen(props: SetupScreenProps) {
+  const { setup, onSave, onClose, onOpenLedger, onOpenSubscriptions } = props;
   // After a save the form starts over from what was stored, with every secret field empty.
   const [stored, setStored] = useState({ setup, saves: 0 });
   return (
@@ -385,6 +436,7 @@ export function SetupScreen({ setup, onSave, onClose, onOpenLedger }: SetupScree
       onSave={onSave}
       onClose={onClose}
       {...(onOpenLedger === undefined ? {} : { onOpenLedger })}
+      {...(onOpenSubscriptions === undefined ? {} : { onOpenSubscriptions })}
       onSaved={(saved) => setStored({ setup: saved, saves: stored.saves + 1 })}
     />
   );

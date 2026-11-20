@@ -4,8 +4,9 @@ Status: approved by the principal (2026-11-10) and built: the daemon side (§8) 
 `apps/desktop` (§9), with the points asked on 2026-11-11 ("haz esos puntos"): the connections
 screen and OAuth (DK-11 AC9, AC10), tasks with connections from Telegram (DK-11 AC2), a task that
 does not hold the chat (DK-11), the ledger from Docker (DK-12) and the subscription login in the
-Keychain (DK-5 AC1). Still open: a first run against a real bot, against a real server that asks
-for OAuth, and of a subscription login in the app. Its requirements move into `PRD.md` under
+Keychain (DK-5 AC1), and the subscription login from the app (DK-15, asked on 2026-11-20). Still
+open: a first run against a real bot, against a real server that asks for OAuth, and of a
+subscription login in the app. Its requirements move into `PRD.md` under
 milestone M6 once the principal has tried the app, and this file is then removed.
 
 ## 1. Problem
@@ -79,10 +80,13 @@ and keep its secrets in the operating system instead of a text file.
   - AC6: an input R-20 does not support gets the same reply as in Telegram: S-18 for a PDF,
     S-20 for an image over 20 MB.
   - AC7: `/login` and `/logout` stay in Telegram (R-27): their messages go out through the bot.
+    The app has its own place for the same logins, the Suscripciones screen (DK-15); the chat
+    does not offer them.
 - DK-5 Secrets in the Keychain.
   - AC1: the Telegram bot token, the provider API keys and the subscription login are stored
     in the macOS Keychain, entered once in the app's setup screen. The login is made from
-    Telegram (`/login`, DK-4 AC7) and kept by the daemon in memory: the app hands it over at
+    Telegram (`/login`, DK-4 AC7) or from the app's Suscripciones screen (DK-15) and kept by
+    the daemon in memory: the app hands it over at
     each start in `ANOMANDER_AUTH_JSON`, and every change (a login, a logout, a token refresh)
     comes back on one line of the daemon's output that the app stores as the Keychain item
     `model-login` and never forwards. An `auth.json` found in the data folder at a start is
@@ -302,6 +306,34 @@ and keep its secrets in the operating system instead of a text file.
     failure to keep an action is logged without its words) and never leaves the machine except
     in the history the text interpreter receives. Unlike the recent turns (R-16 AC3), it
     survives a restart.
+- DK-15 Subscription login in the app (asked by the principal on 2026-11-20: "ah, tambien
+  necesitariamos una parte de conectarte con una suscripcion, openai, kimi, etc").
+  - AC1: the app has a "Suscripciones" screen, opened from the status bar and from the models
+    section of the setup screen, with one row per account a login is made with (R-27 AC1: ChatGPT
+    `openai`, Kimi Code `kimi-coding`), its state ("Conectada" or "No conectada") and one button:
+    "Conectar" while it is not connected, "Desconectar" while it is. An account no longer offered
+    for login (Claude, GitHub Copilot) is listed only while a login of it is stored, with
+    "Desconectar" (R-27 AC6). Only the accounts pi-ai's login flows support are offered; the list
+    is the daemon's `LOGIN_ACCOUNTS`, mirrored by the shell.
+  - AC2: "Conectar" runs the same flow as `/login` (R-27 AC2), through
+    `packages/daemon/scripts/login.ts --shell <account>` run by the shell with Node, as the MCP
+    OAuth connection runs its script (DK-11 AC10). The shell opens the login page in the browser,
+    only when it is `https` (or `http` on this machine). For ChatGPT the redirect comes back to
+    pi-ai's own port on this machine; when the browser ends on an error page instead, the
+    principal pastes its address in the screen's field and the shell hands it to the flow as one
+    line, once. For Kimi Code the screen shows the device code to type on the page the browser was
+    opened on. A login not completed in 10 minutes is abandoned (R-27 AC4); one runs at a time, and
+    the screen can be closed while the browser waits.
+  - AC3: the credential the flow produces never touches a file and never reaches the window: the
+    script holds it in memory and prints it once, on one line of its output, which the shell
+    stores in the Keychain item `model-login` (DK-5 AC1) with the daemon stopped, so a refresh the
+    daemon hands over meanwhile cannot overwrite it; the daemon starts again after if it ran, and
+    gets the login at that start. "Desconectar" takes the account out of the same item the same
+    way. The window learns only which accounts are connected, a device code and the steps of the
+    flow; the shell's logs carry the kind of a failure, never a token or an address.
+  - Open, for the principal: the pasted address holds a one-time authorization code, which goes
+    from the window to the shell and to the script and nowhere else; `pnpm run login` on a
+    terminal still reaches the app's daemon only through an `auth.json` merged at its next start.
 
 ## 6. Decisions
 
@@ -359,6 +391,7 @@ Built in `apps/desktop` (see its README): a React window (`src/`) and a Tauri 2 
 | OAuth of the connections (DK-11 AC10) | The Keychain item `mcp-oauth`, one JSON object by server name with its client, tokens, redirect address and the server's URL. The shell runs `packages/daemon/scripts/mcp-oauth.ts`, which prints the address to open and then the tokens on one line; the daemon gets the set in `ANOMANDER_MCP_OAUTH` and prints it whole on a line starting `anomander mcp-oauth ` after a refresh. The shell stores what a connection gave, and forgets a server's tokens, with the daemon stopped, so a refresh it hands over meanwhile cannot overwrite them |
 | The time zone | The daemon's `TZ` is the zone this machine's clock points to (`/etc/localtime`), so its dates are the principal's. When it cannot be read, the daemon's default |
 | The subscription login (DK-5 AC1) | The Keychain item `model-login`, the shape of `auth.json`. The daemon prints it whole on a line starting `anomander credentials ` after every change, before pi-ai uses it; a daemon killed between a token refresh and that line loses the refreshed token, and the principal logs in again. `pnpm run login` reaches the app's daemon only through an `auth.json` merged at its next start. The device ID stays on disk: it is not a secret |
+| The subscription login from the app (DK-15) | The shell (`src-tauri/src/login.rs`) runs `packages/daemon/scripts/login.ts --shell <account>` with a cleared environment plus `PATH` and `ANOMANDER_AUTH_PATH` (for the device ID only). The script prints `anomander login-open <address>` for the shell to open, `anomander login-code <code> <address>` for a device code, `anomander login-prompt` when it waits for the pasted address on its stdin, then `anomander login-done <json>` with the credential by provider and one word: `connected`, `timed_out` or `cancelled`. The shell tells the window each step on the event `shell://login` (opened, device code, prompt), merges the credential into `model-login` under `Supervisor::while_stopped`, and refuses any account but `openai` and `kimi-coding` before starting Node |
 | The ledger | A new one in the app's data folder. A Docker install's ledger is brought by the principal and imported into an empty one (DK-12); nothing reaches into the volume |
 | The window's strings | Spanish, all in `apps/desktop/src/strings.ts`, not yet in `PRD.md` §12 |
 

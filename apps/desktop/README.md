@@ -44,8 +44,9 @@ local channel is a scripted socket. It is never part of a build. The URL picks t
 | `daemon` | `running` (default), `starting`, `failing`, `not_configured`, `already_running`, `bot_in_use`, `gave_up`, `stopped_by_principal`, `failed` (stopped with no reason, only an error), `unreachable` (the shell does not answer) |
 | `setup` | `empty`, `filled` |
 | `error` | `long`: a 300-character last error |
-| `fail` | `start`, `stop`, `save`: the shell refuses that command |
+| `fail` | `start`, `stop`, `save`, `oauth`, `login`: the shell refuses that command |
 | `connections` | `none`, `invalid` (an `mcp.json` the daemon would not read); by default two servers |
+| `subscriptions` | `connected`: ChatGPT and Claude are connected; by default none |
 
 The scripted daemon answers by what is typed: `mercadona` asks a Sí/No question, `rechaza` is
 rejected, `corta` loses the connection, `lento` never answers, `largo` answers at length and
@@ -59,7 +60,7 @@ daemon's PDF reply; images are read as a receipt.
 src/
   shell.ts            the contract with the Rust shell
   strings.ts          every string the principal reads (es-ES), in one place
-  App.tsx             the container: status on top; chat, setup or connections under it
+  App.tsx             the container: status on top; chat, setup, connections or subscriptions under it
   styles.css          the one stylesheet: tokens, then each part
   chat/
     chat-client.ts    the local channel: socket, request ids, in-flight requests, reconnection
@@ -77,6 +78,9 @@ src/
   connections/
     validation.ts     the shell's checks, made before saving
     ConnectionsScreen.tsx   presentational: the list of servers, and the form of one
+  login/
+    accounts.ts       the names of the accounts a subscription login is made with
+    SubscriptionsScreen.tsx   presentational: one row per account, Conectar or Desconectar
 ```
 
 Presentational components take props and call back; hooks own the side effects; `chat-client.ts`
@@ -181,7 +185,21 @@ is framework-free, so it is tested against a fake `WebSocket` (`test/fake-web-so
   the daemon prints is stored and never forwarded. One connection runs at a time
   (`Core::oauth_turn`); the screen can be closed while the browser waits.
 - **Link buttons** (`{label, url}`) are named, not offered: this WebView cannot open links, and
-  `/login` stays in Telegram (DK-4 AC7).
+  `/login` stays in Telegram (DK-4 AC7); the app's own way to log in is the subscriptions
+  screen below.
+- **The subscriptions screen** (DK-15, the key button of the status bar, also linked from the
+  models section of the setup) lists the accounts a subscription login is made with (ChatGPT,
+  Kimi Code; Claude and GitHub Copilot only while a login of them is stored) with "Conectar" or
+  "Desconectar". The shell (`src-tauri/src/login.rs`) runs
+  `packages/daemon/scripts/login.ts --shell <account>` with Node and a cleared environment,
+  opens the login page it prints with `/usr/bin/open` only when it is `https` (or `http` on
+  this machine), tells the window each step on `shell://login` (the browser opened, a device
+  code to show, the flow waits for the address the browser ended on) and keeps the credential
+  the script prints once at the end in the Keychain item `model-login` under
+  `Supervisor::while_stopped`, so the daemon's next start gets it. The pasted address goes from
+  an uncontrolled field to the shell and to the script's stdin as one line, then the field is
+  emptied. One login runs at a time (`login::Session`); the screen can be closed while the
+  browser waits. The window never sees a token: only which accounts are connected.
 - **Secrets** typed in the setup screen, or as a value in the connections screen, stay in
   uncontrolled fields and a ref, never in React state or a DOM attribute, and are dropped once
   saved. Stored secrets are never sent to the window: it only knows whether each one is stored.
@@ -192,7 +210,7 @@ is framework-free, so it is tested against a fake `WebSocket` (`test/fake-web-so
   the daemon in `ANOMANDER_AUTH_JSON`, and the supervisor takes each line the daemon starts with
   `anomander credentials ` out of its output and stores it (`Core::login_handler`); that line is
   never forwarded. An `auth.json` left in the data folder is merged in at a start and removed
-  once stored.
+  once stored. A login made from the subscriptions screen (DK-15) joins the same item.
 - **A ledger from Docker** (DK-12) is imported from the setup screen's link: the principal
   pastes the full path of a file they copied out of the volume. The shell runs
   `packages/daemon/scripts/import-ledger.ts` with the daemon stopped (`Supervisor::while_stopped`:

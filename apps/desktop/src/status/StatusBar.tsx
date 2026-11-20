@@ -2,7 +2,7 @@
 import { useId, useState } from 'react';
 import type { DaemonStatus } from '../shell.ts';
 import { strings } from '../strings.ts';
-import { ChatIcon, CloseIcon, Mark, PlugIcon, SlidersIcon } from '../ui/icons.tsx';
+import { ChatIcon, CloseIcon, KeyIcon, Mark, PlugIcon, SlidersIcon } from '../ui/icons.tsx';
 import { describeStatus, type StatusView } from './describe.ts';
 
 export type Command = 'start' | 'stop';
@@ -21,10 +21,13 @@ export interface StatusBarProps {
   commandError: CommandError | null;
   setupOpen: boolean;
   connectionsOpen: boolean;
+  /** DK-15: the Suscripciones screen; without the handler the header does not offer it. */
+  subscriptionsOpen?: boolean;
   onStart: () => void;
   onStop: () => void;
   onToggleSetup: () => void;
   onToggleConnections: () => void;
+  onToggleSubscriptions?: () => void;
   onDismissError: () => void;
 }
 
@@ -68,7 +71,7 @@ export function ErrorBlock({ label, children }: { label: string; children: strin
 }
 
 export function StatusBar(props: StatusBarProps) {
-  const { daemon, busy, commandError, setupOpen, connectionsOpen } = props;
+  const { daemon, busy, commandError, setupOpen, connectionsOpen, subscriptionsOpen } = props;
   const { status } = strings;
   const view = daemon === null ? LOADING : describeStatus(daemon);
 
@@ -96,6 +99,18 @@ export function StatusBar(props: StatusBarProps) {
               onClick={action.run}
             >
               {action.label}
+            </button>
+          )}
+          {props.onToggleSubscriptions !== undefined && (
+            <button
+              type="button"
+              className="icon-button"
+              aria-label={subscriptionsOpen ? status.closeSetup : status.openSubscriptions}
+              title={subscriptionsOpen ? status.closeSetup : status.openSubscriptions}
+              disabled={daemon === null}
+              onClick={props.onToggleSubscriptions}
+            >
+              {subscriptionsOpen ? <ChatIcon /> : <KeyIcon />}
             </button>
           )}
           <button
