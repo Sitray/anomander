@@ -13,6 +13,7 @@ import { createRetention } from '../../src/retention/retention-job.ts';
 import { applyMigrations, openDatabase } from '../../src/store/database.ts';
 import { awaitText } from '../../src/store/decisions.ts';
 import { insertAssertion, insertProposal } from '../../src/store/expenses.ts';
+import { recordAction } from '../../src/store/history.ts';
 import {
   createReceiptDocument,
   finishReading,
@@ -225,6 +226,43 @@ describe('R-8 unread receipts', () => {
     // The question about keeping it is closed with the receipt.
     expect(decisionState(1)).toEqual({ decision: 'expired', proposal: 'rejected', answered_by: 0 });
   });
+
+  // T13 F2: without a door that can tell, the receipt stays queued and the log says so once.
+  it('AC5: a receipt it cannot tell about stays queued, and the failure is logged once, not every minute', async () => {
+    const documentId = await queueReceipt();
+    const halfRead = createReceiptDocument(db, {
+      source: 'telegram:8',
+      receivedAt: RECEIVED_AT,
+      mimeTypes: ['image/jpeg'],
+      now: RECEIVED_AT,
+    });
+    const error = vi.fn();
+    clock = new Date('2026-10-31T10:00:00.000Z');
+    const job = createRetention({
+      db,
+      inboxDir: inbox,
+      timeZone: TZ,
+      now,
+      notify: async () => {
+        throw new Error('Telegram is not configured: nothing is sent unasked');
+      },
+      logger: { ...logger, error },
+    });
+
+    for (let minute = 0; minute < 3; minute += 1) {
+      await job.watchQueuedReceipts();
+      await job.retain();
+      clock = new Date(clock.getTime() + 60_000);
+    }
+
+    expect(error.mock.calls.map(([message]) => message)).toEqual([
+      'could not discard an unread receipt; it stays queued',
+      'could not abandon a half-read receipt; it stays queued',
+    ]);
+    expect(document(documentId)).toMatchObject({ status: 'queued', image_deleted_at: null });
+    expect(existsSync(join(inbox, String(documentId)))).toBe(true);
+    expect(document(halfRead)).toMatchObject({ status: 'queued', image_deleted_at: null });
+  });
 });
 
 describe('R-19 retention job', () => {
@@ -343,6 +381,7 @@ describe('R-19 retention job', () => {
       decisionsExpired: 1,
       receiptsDiscarded: 0,
       receiptsAbandoned: 0,
+      actionsForgotten: 0,
     });
 
     const second = await job.retain();
@@ -351,6 +390,7 @@ describe('R-19 retention job', () => {
       decisionsExpired: 0,
       receiptsDiscarded: 0,
       receiptsAbandoned: 0,
+      actionsForgotten: 0,
     });
     expect(snapshot()).toEqual(after);
     expect(sent).toEqual([]);
@@ -414,5 +454,32 @@ describe('R-19 retention job', () => {
     expect(result.decisionsExpired).toBe(1);
     expect(statuses('pending_decisions')).toEqual([{ id: stale, status: 'expired' }]);
     expect(statuses('expenses')).toEqual([{ id: pendingExpense, status: 'refuted' }]);
+  });
+
+  // T14, security audit L3: what ANOMANDER did is not kept for ever.
+  it('forgets the actions that ended more than 30 days ago, once (DK-14)', async () => {
+    clock = new Date('2026-12-01T03:00:00.000Z');
+    const action = (endedAt: string) =>
+      recordAction(db, {
+        kind: 'screen',
+        door: 'app',
+        task: '¿De quién es este correo?',
+        outcome: 'answer',
+        steps: null,
+        calls: null,
+        endedAt,
+      });
+    action(ago(31));
+    action(ago(29));
+
+    const job = retention();
+    const first = await job.retain();
+    const second = await job.retain();
+
+    expect(first.actionsForgotten).toBe(1);
+    expect(second.actionsForgotten).toBe(0);
+    expect(db.prepare('SELECT ended_at FROM action_history').all()).toEqual([
+      { ended_at: ago(29) },
+    ]);
   });
 });

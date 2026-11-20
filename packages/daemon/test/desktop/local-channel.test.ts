@@ -17,7 +17,12 @@ import {
 import type { AssistantMessage, Context } from '@earendil-works/pi-ai';
 import Database from 'better-sqlite3';
 import { afterEach, beforeEach, describe, expect, it, type Mock, vi } from 'vitest';
-import { type Anomander, startAnomander, startSetupGuide } from '../../src/app.ts';
+import {
+  type Anomander,
+  type AnomanderDeps,
+  startAnomander,
+  startSetupGuide,
+} from '../../src/app.ts';
 import { loadConfig } from '../../src/config.ts';
 import type { Connection } from '../../src/connections/connection.ts';
 import { CONNECTION_TASK_PROMPT } from '../../src/connections/task.ts';
@@ -109,7 +114,10 @@ const config = (env: Record<string, string> = {}) =>
   });
 
 /** Starts the daemon; the channel, when on, listens on a free port so tests never use 4312. */
-const start = async (env: Record<string, string> = { ANOMANDER_LOCAL_TOKEN: TOKEN }) => {
+const start = async (
+  env: Record<string, string> = { ANOMANDER_LOCAL_TOKEN: TOKEN },
+  deps: Partial<AnomanderDeps<string>> = {},
+) => {
   anomander = startAnomander(
     { ...config(env), localPort: 0 },
     {
@@ -119,6 +127,7 @@ const start = async (env: Record<string, string> = { ANOMANDER_LOCAL_TOKEN: TOKE
       logger,
       connections: async () => connected,
       connectionProblems: () => problems,
+      ...deps,
     },
   );
   await anomander.started;
@@ -2051,5 +2060,138 @@ describe('DK-14 (verifier probes)', () => {
     );
     expect(logs).not.toContain('Falsa');
     expect(logs).not.toContain('apunta mi dirección');
+  });
+});
+
+// T14: what a slow setup check, a shutdown and a queue without a door must not do.
+describe('hardening (T14)', () => {
+  const question = '¿De quién es este correo?';
+  const says = (text: string): AssistantMessage['content'] => [{ type: 'text', text }];
+  const pending = <T>() => {
+    let settle = (_: T): void => {};
+    const promise = new Promise<T>((resolvePromise) => {
+      settle = resolvePromise;
+    });
+    return { promise, settle };
+  };
+
+  it('a slow setup check does not hold the turn: a task with connections is told meanwhile', async () => {
+    let clock = new Date('2026-11-20T10:00:00.000Z');
+    let check: () => Promise<readonly []> = async () => [];
+    const chat = await client(
+      await start(undefined, { setupGaps: () => check(), now: () => clock }),
+    );
+    connected = [
+      {
+        name: 'notes',
+        tools: [{ name: 'search', description: 'search', inputSchema: { type: 'object' } }],
+        readOnly: new Set(['search']),
+        call: async () => ({ text: '', isError: false }),
+      },
+    ];
+    tooled = [says('No hay ninguna nota.')];
+    const processor = pending<void>();
+    held = processor.promise;
+    const asked = chat.ask({ type: 'connect', task: 'Busca el hotel de Lisboa' });
+    await vi.waitFor(() => expect(tasked).toHaveLength(1));
+
+    // The cached check is old by now, and the next one hangs.
+    clock = new Date(clock.getTime() + 31_000);
+    const slow = pending<readonly []>();
+    const checking = pending<void>();
+    check = () => {
+      checking.settle();
+      return slow.promise;
+    };
+    const text = chat.ask({ type: 'text', text: '23 € cena' });
+    await checking.promise;
+    processor.settle();
+
+    expect(reply(await asked).text).toBe('No hay ninguna nota.');
+    slow.settle([]);
+    expect(reply(await text).text).toBe(PHRASED);
+  });
+
+  it('a shutdown lets the turn that runs end before it closes the store, and starts none after', async () => {
+    const daemon = await start();
+    const chat = await client(daemon);
+    const look = pending<string>();
+    seen = () => look.promise;
+    void chat.ask({ type: 'screen', text: question, image: png() });
+    await vi.waitFor(() => expect(screens).toHaveLength(1));
+    // It arrives while the look runs, so it waits for its turn.
+    void chat.ask({ type: 'text', text: '23 € cena' });
+    await new Promise((resolveWait) => setTimeout(resolveWait, 50));
+
+    const stopped = daemon.stop();
+    anomander = undefined;
+    setTimeout(() => look.settle(SEEN), 100);
+    await stopped;
+
+    expect(query('SELECT task, outcome FROM action_history')).toEqual([
+      { task: question, outcome: 'answer' },
+    ]);
+    expect(interpreted).toEqual([]);
+    expect(logger.error.mock.calls.map(([message]) => message)).not.toContain(
+      'action history not saved',
+    );
+  });
+
+  it('a shutdown waits for a turn only until its deadline', async () => {
+    const daemon = await start(undefined, { shutdownDeadlineMs: 50 });
+    const chat = await client(daemon);
+    seen = () => new Promise<string>(() => {});
+    void chat.ask({ type: 'screen', text: question, image: png() });
+    await vi.waitFor(() => expect(screens).toHaveLength(1));
+
+    await daemon.stop();
+    anomander = undefined;
+
+    expect(logger.warn).toHaveBeenCalledWith(
+      'anomander stopped before every turn ended: 50 ms passed',
+    );
+  });
+
+  // T13 F1: without Telegram nothing could tell what a queued receipt says.
+  it('without Telegram, a receipt queued by the budget is not read: it stays queued', async () => {
+    const alone = (limit: string) => ({
+      ...loadConfig({
+        ANOMANDER_LOCAL_TOKEN: TOKEN,
+        ANOMANDER_DB_PATH: join(scratch, 'anomander.db'),
+        ANOMANDER_MODEL: 'openai/gpt-4o-mini',
+        ANOMANDER_VISION_MODEL: 'openai/gpt-4o-mini',
+        ANOMANDER_DAILY_AI_CALL_LIMIT: limit,
+      }),
+      localPort: 0,
+    });
+    const counted = vi.fn(complete);
+    const capped = startAnomander(alone('0'), {
+      complete: counted,
+      model: 'openai/gpt-4o-mini',
+      logger,
+    });
+    anomander = capped;
+    await capped.started;
+    await (await client(capped)).ask({ type: 'receipt', images: [png()], caption: null });
+    await capped.stop();
+
+    // The next start has budget again: the queue would be read at once.
+    const daemon = startAnomander(alone('200'), {
+      complete: counted,
+      model: 'openai/gpt-4o-mini',
+      logger,
+    });
+    anomander = daemon;
+    await daemon.started;
+    // The jobs run once at start; give them that time before the stop ends them.
+    await new Promise((resolveWait) => setTimeout(resolveWait, 300));
+    await daemon.stop();
+    anomander = undefined;
+
+    expect(counted).not.toHaveBeenCalled();
+    expect(query('SELECT status FROM documents')).toEqual([{ status: 'queued' }]);
+    expect(logger.error.mock.calls.map(([message]) => message)).not.toContain(
+      'could not send the reply to a queued receipt',
+    );
   });
 });

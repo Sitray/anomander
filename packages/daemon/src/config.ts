@@ -1,4 +1,4 @@
-import { isIP } from 'node:net';
+import { BlockList, isIP } from 'node:net';
 import { z } from 'zod';
 
 // PRD §14.4, plus the read API of the read access draft (docs/read-access-prd.md §8). Every
@@ -130,11 +130,13 @@ const envSchema = z.object({
   ANOMANDER_INBOX_DIR: z.string().default('./data/inbox'),
   ANOMANDER_AUTH_PATH: z.string().default('./data/auth.json'),
   TZ: z.string().refine(isTimeZone, 'must be an IANA time zone').default('Europe/Madrid'),
-  ANOMANDER_API_TOKEN: z.string().optional(),
+  // Security audit M4: long enough that guessing it, even at the read API's pace, is hopeless.
+  ANOMANDER_API_TOKEN: z.string().min(32, 'must have at least 32 characters').optional(),
   ANOMANDER_API_HOST: z
     .string()
     .refine((value) => isIP(value) !== 0, 'must be an IP address')
     .default('127.0.0.1'),
+  ANOMANDER_API_ALLOW_PLAIN_HTTP: z.string().regex(/^1$/, 'must be 1 when set').optional(),
   ANOMANDER_API_PORT: z
     .string()
     .regex(/^\d+$/, NOT_A_PORT)
@@ -172,6 +174,26 @@ const TELEGRAM_KEYS = ['TELEGRAM_BOT_TOKEN', 'ANOMANDER_PRINCIPAL_CHAT_ID'] as c
 /** Without either front door nobody could talk to the daemon, so it does not start. */
 const NO_DOOR = `no front door. Set ${TELEGRAM_KEYS.map(hinted).join(' and ')} for Telegram, or ANOMANDER_LOCAL_TOKEN for the desktop app's chat`;
 
+/** This machine's own addresses: what the read API may bind to without TLS. */
+const LOOPBACK = new BlockList();
+LOOPBACK.addSubnet('127.0.0.0', 8, 'ipv4');
+LOOPBACK.addAddress('::1', 'ipv6');
+const isLoopback = (host: string): boolean =>
+  LOOPBACK.check(host, isIP(host) === 6 ? 'ipv6' : 'ipv4');
+
+/**
+ * Security audit M4: the read API speaks plain HTTP only, so off this machine its token would
+ * travel readable. While the API is on, a host elsewhere needs ANOMANDER_API_ALLOW_PLAIN_HTTP=1.
+ */
+const plainHttpOffHost = (input: Partial<Record<EnvKey, string>>): string | undefined => {
+  const host = input.ANOMANDER_API_HOST;
+  if (input.ANOMANDER_API_TOKEN === undefined || host === undefined || isIP(host) === 0) {
+    return undefined;
+  }
+  if (isLoopback(host) || input.ANOMANDER_API_ALLOW_PLAIN_HTTP !== undefined) return undefined;
+  return `ANOMANDER_API_HOST ${host} is not this machine and the read API has no TLS: set ANOMANDER_API_ALLOW_PLAIN_HTTP=1 to send the token over plain HTTP anyway`;
+};
+
 /**
  * `ANOMANDER_AUTH_PATH` alone, for `pnpm run login` and `pnpm run logout`, which need no bot or
  * model (R-27 AC7). An empty value counts as unset, as in `loadConfig`.
@@ -190,10 +212,12 @@ export const loadConfig = (env: Record<string, string | undefined>): Config => {
   const telegramSet = TELEGRAM_KEYS.filter((key) => input[key] !== undefined);
   const missing = telegramSet.length === 1 ? TELEGRAM_KEYS.filter((key) => !input[key]) : [];
   const noDoor = telegramSet.length === 0 && input.ANOMANDER_LOCAL_TOKEN === undefined;
-  if (!parsed.success || missing.length > 0 || noDoor) {
-    const invalid = (parsed.error?.issues ?? []).map(
-      (issue) => `${String(issue.path[0])} ${issue.message}`,
-    );
+  const offHost = plainHttpOffHost(input);
+  if (!parsed.success || missing.length > 0 || noDoor || offHost !== undefined) {
+    const invalid = [
+      ...(parsed.error?.issues ?? []).map((issue) => `${String(issue.path[0])} ${issue.message}`),
+      ...(offHost === undefined ? [] : [offHost]),
+    ];
     const problems = [
       ...(missing.length > 0 ? [`missing configuration: ${missing.map(hinted).join(', ')}`] : []),
       ...(noDoor ? [`missing configuration: ${NO_DOOR}`] : []),

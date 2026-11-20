@@ -73,7 +73,7 @@ import { createKeepReceiptAnswerHandler } from './retention/keep-receipt-decisio
 import { createRetention } from './retention/retention-job.ts';
 import { groundedRoutes } from './routing/grounded-route.ts';
 import { startScheduler } from './scheduler/scheduler.ts';
-import { describeGap, type SetupGap, setupGuide } from './setup/setup-guide.ts';
+import { cachedSetupGaps, describeGap, type SetupGap, setupGuide } from './setup/setup-guide.ts';
 import { acquireDaemonLock } from './store/daemon-lock.ts';
 import { applyMigrations, openDatabase } from './store/database.ts';
 import { type ActionRecord, recordAction } from './store/history.ts';
@@ -125,10 +125,13 @@ export interface AnomanderDeps<M> {
    */
   login?: LoginDeps;
   /**
-   * The connection gaps, checked on every message (R-28 AC4). `main.ts` passes pi-ai's
-   * `checkAuth` for both models' providers; without it, setup is always complete.
+   * The connection gaps, checked on every message (R-28 AC4) before its turn, through
+   * `cachedSetupGaps`. `main.ts` passes pi-ai's `checkAuth` for both models' providers; without
+   * it, setup is always complete.
    */
   setupGaps?: () => Promise<readonly SetupGap[]>;
+  /** How long `stop` waits for the turns that run before it closes the store; 5 s by default. */
+  shutdownDeadlineMs?: number;
   /** Points the bot at another Bot API server, such as the fake one in tests. */
   telegramApiRoot?: string;
   /**
@@ -168,18 +171,60 @@ export interface Anomander {
   stop(): Promise<void>;
 }
 
+/** T14: how long a shutdown waits for the turns that run before it closes the store. */
+export const SHUTDOWN_DEADLINE_MS = 5_000;
+const STOPPING = 'ANOMANDER is stopping: this turn did not start';
+
 /**
  * Runs the inputs of every front door one at a time, in the order they arrived: Telegram and the
- * desktop app are one conversation (DK-4 AC4), and two turns never interleave.
+ * desktop app are one conversation (DK-4 AC4), and two turns never interleave. Once `close` is
+ * called no turn starts, except one that ends work already running (`ends`); `drained` settles
+ * when every turn and every piece of work given to `track` has.
  */
 const oneTurnAtATime = () => {
   let last: Promise<unknown> = Promise.resolve();
-  return <I, R>(handler: (input: I) => Promise<R>) =>
+  let closed = false;
+  const running = new Set<Promise<unknown>>();
+  const track = <T>(work: Promise<T>): Promise<T> => {
+    running.add(work);
+    const done = () => running.delete(work);
+    work.then(done, done);
+    return work;
+  };
+  const inTurn =
+    <I, R>(handler: (input: I) => Promise<R>, { ends = false } = {}) =>
     (input: I): Promise<R> => {
-      const turn = last.then(() => handler(input));
+      const turn = last.then(() => {
+        if (closed && !ends) throw new Error(STOPPING);
+        return handler(input);
+      });
       last = turn.catch(() => {});
-      return turn;
+      return track(turn);
     };
+  return {
+    inTurn,
+    track,
+    close: () => {
+      closed = true;
+    },
+    // Work may start more work, such as a turn that starts a task's step: wait until none is left.
+    drained: async () => {
+      while (running.size > 0) await Promise.allSettled([...running]);
+    },
+  };
+};
+
+/** Whether `work` settled within `ms`. */
+const settlesWithin = async (work: Promise<unknown>, ms: number): Promise<boolean> => {
+  let timer: NodeJS.Timeout | undefined;
+  const late = new Promise<false>((resolve) => {
+    timer = setTimeout(() => resolve(false), ms);
+  });
+  try {
+    return await Promise.race([work.then(() => true), late]);
+  } finally {
+    clearTimeout(timer);
+  }
 };
 
 /** DK-3: the desktop app's front door, only while `ANOMANDER_LOCAL_TOKEN` is set. */
@@ -325,7 +370,11 @@ export const startAnomander = <M>(config: Config, deps: AnomanderDeps<M>): Anoma
   if (textModel === undefined || visionModel === undefined) {
     throw new Error('both models must be set; without them, start the setup guide (R-28)');
   }
-  const setupGaps = deps.setupGaps ?? (async () => []);
+  const check = deps.setupGaps;
+  const setupGaps =
+    check === undefined
+      ? async (): Promise<readonly SetupGap[]> => []
+      : cachedSetupGaps({ check, now: () => now().getTime(), logger });
   // DK-2 AC1: before the store is opened, so a second daemon leaves the ledger unchanged.
   const lock = acquireDaemonLock(config.dbPath);
   // A store that cannot be opened or migrated must not keep the lock.
@@ -629,7 +678,18 @@ export const startAnomander = <M>(config: Config, deps: AnomanderDeps<M>): Anoma
 
   // What every front door calls (DK-4 AC1). R-28: `/start`, and the guide while a provider is
   // not connected.
-  const inTurn = oneTurnAtATime();
+  const chatTurns = oneTurnAtATime();
+  const { inTurn } = chatTurns;
+  /**
+   * R-28 AC4: the guide while setup is incomplete. The check runs before the turn, so a slow
+   * provider never holds it (T14); inputs that wait for the same check keep their order.
+   */
+  const guided = <I, R>(handler: (input: I) => Promise<R>) => {
+    const turn = inTurn(async ({ input, gaps }: { input: I; gaps: readonly SetupGap[] }) =>
+      gaps.length > 0 ? { text: setupGuide(gaps) } : handler(input),
+    );
+    return async (input: I) => turn({ input, gaps: await setupGaps() });
+  };
 
   // A task waits on servers and on the processor, so it does not hold the chat's turn: a step
   // (its start, or one answered call) begins in a turn, runs outside it, and what it came to is
@@ -650,20 +710,26 @@ export const startAnomander = <M>(config: Config, deps: AnomanderDeps<M>): Anoma
   };
   /** A step of that task runs: no other task starts and no press is taken until it is said. */
   let working = false;
-  const say = inTurn(async ({ outcome, task }: { outcome: TaskOutcome; task: Asked }) => {
-    // A call that waits is not an end, nor is a press on one that no longer waits.
-    if (outcome.kind === 'ask') task.waiting = true;
-    else if (outcome.kind !== 'gone') keepTask(task, outcome.kind);
-    return connectionReply(outcome, task.task);
-  });
+  // It ends a step that already ran, so it is said even while the daemon stops.
+  const say = inTurn(
+    async ({ outcome, task }: { outcome: TaskOutcome; task: Asked }) => {
+      // A call that waits is not an end, nor is a press on one that no longer waits.
+      if (outcome.kind === 'ask') task.waiting = true;
+      else if (outcome.kind !== 'gone') keepTask(task, outcome.kind);
+      return connectionReply(outcome, task.task);
+    },
+    { ends: true },
+  );
   const connectionStep = (task: Asked, step: () => Promise<TaskOutcome>): Later | null => {
     const { door } = task;
     working = true;
-    const reply = step()
-      .then((outcome) => say({ outcome, task }))
-      .finally(() => {
-        working = false;
-      });
+    const reply = chatTurns.track(
+      step()
+        .then((outcome) => say({ outcome, task }))
+        .finally(() => {
+          working = false;
+        }),
+    );
     if (door === 'app') return { later: reply };
     // Telegram hands over one update at a time, so its handler ends now and the reply goes out
     // by itself, cut to what one message holds.
@@ -700,27 +766,21 @@ export const startAnomander = <M>(config: Config, deps: AnomanderDeps<M>): Anoma
     return connectionStep(asked, () => connectionTasks.answer(id, answer === 'allow'));
   };
   const onButtonAt = (door: Door) => {
-    const pressed = inTurn(async (press: ButtonPress) => {
-      const gaps = await setupGaps();
-      if (gaps.length > 0) return { text: setupGuide(gaps) };
+    const pressed = guided(async (press: ButtonPress) => {
       const answer = answerConnection(press.data, door);
       return answer === undefined ? recordedButton(press) : answer;
     });
     return async (press: ButtonPress) => settled(await pressed(press));
   };
   const onConnectAt = (door: Door) => {
-    const begun = inTurn(async (task: string) => {
-      const gaps = await setupGaps();
-      if (gaps.length > 0) return { text: setupGuide(gaps) };
-      return task === '' ? { text: strings.connectionUsage() } : runConnections(task, door);
-    });
+    const begun = guided(async (task: string) =>
+      task === '' ? { text: strings.connectionUsage() } : runConnections(task, door),
+    );
     return async (task: string) => settled(await begun(task));
   };
   const connectFromApp = onConnectAt('app');
   const connectFromTelegram = onConnectAt('telegram');
-  const answered = inTurn(async (message: PrincipalText): Promise<DoorReply | Later | null> => {
-    const gaps = await setupGaps();
-    if (gaps.length > 0) return { text: setupGuide(gaps) };
+  const answered = guided(async (message: PrincipalText): Promise<DoorReply | Later | null> => {
     if (isStart(message.text)) return { text: strings.hello() };
     const reply = await recordedText(message);
     // DK-13 AC2: a task with connections asked in words runs as one asked with `connect`.
@@ -732,19 +792,10 @@ export const startAnomander = <M>(config: Config, deps: AnomanderDeps<M>): Anoma
 
   const chat: ChatHandlers = {
     onText: async (message) => settled(await answered(message)),
-    onReceipt: inTurn(async (receipt) => {
-      const gaps = await setupGaps();
-      return gaps.length > 0 ? { text: setupGuide(gaps) } : recordedReceipt(receipt);
-    }),
+    onReceipt: guided(recordedReceipt),
     onButton: onButtonAt('telegram'),
-    onScreen: inTurn(async (question) => {
-      const gaps = await setupGaps();
-      return gaps.length > 0 ? { text: setupGuide(gaps) } : recordedScreen(question);
-    }),
-    onComputer: inTurn(async (request) => {
-      const gaps = await setupGaps();
-      return gaps.length > 0 ? { text: setupGuide(gaps) } : planStep(request);
-    }),
+    onScreen: guided(recordedScreen),
+    onComputer: guided(planStep),
     onConnect: (request) => connectFromApp(request.task),
   };
 
@@ -801,7 +852,8 @@ export const startAnomander = <M>(config: Config, deps: AnomanderDeps<M>): Anoma
       retain: retention.retain,
       sendMorningDigest: unasked(digest.send),
       sendDueReminders: unasked(dueReminders.send),
-      drainQueue: queue.drain,
+      // T13 F1: a receipt is read only where its reply can be told; it waits for Telegram.
+      drainQueue: unasked(queue.drain),
       watchReceipts: retention.watchQueuedReceipts,
       sendWeeklySummary: unasked(summary.send),
     },
@@ -838,15 +890,30 @@ export const startAnomander = <M>(config: Config, deps: AnomanderDeps<M>): Anoma
     polling: telegram.ended,
     readApi: readApi?.listening,
     localChannel: localChannel?.listening,
+    // T14: nothing new starts once this begins; the turns and jobs that run end, up to a
+    // deadline, before the store closes. A step that fails is reported after the rest closed.
     stop: async () => {
+      chatTurns.close();
       login?.stop();
-      await localChannel?.stop();
-      await servers?.close();
-      await readApi?.stop();
-      await telegram.stop();
-      await scheduler.stop();
+      const failures: unknown[] = [];
+      const settle = async (...steps: (Promise<unknown> | undefined)[]): Promise<void> => {
+        for (const step of await Promise.allSettled(steps)) {
+          if (step.status === 'rejected') failures.push(step.reason);
+        }
+      };
+      const deadlineMs = deps.shutdownDeadlineMs ?? SHUTDOWN_DEADLINE_MS;
+      // A scheduled job is waited for however long it takes, as before T14: it may be reading a
+      // receipt, and neither the store nor the lock may go from under it.
+      const jobs = settle(scheduler.stop());
+      const ended = settle(localChannel?.stop(), telegram.stop(), chatTurns.drained());
+      if (!(await settlesWithin(ended, deadlineMs))) {
+        logger.warn(`anomander stopped before every turn ended: ${deadlineMs} ms passed`);
+      }
+      await jobs;
+      await settle(servers?.close(), readApi?.stop());
       db.close();
       lock.release();
+      if (failures.length > 0) throw failures[0];
     },
   };
 };

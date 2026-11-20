@@ -5,6 +5,7 @@ import { buttons, decisionButtons, type Notify, strings } from '@anomander/proto
 import type Database from 'better-sqlite3';
 import type { Logger } from '../processor/text-interpreter.ts';
 import { reopenStaleAwaiting } from '../store/decisions.ts';
+import { forgetActionsEndedBefore } from '../store/history.ts';
 import { finishReading, recordDecisionMessage } from '../store/receipts.ts';
 import {
   discardReceipt,
@@ -17,7 +18,8 @@ import {
 } from './queued-receipts.ts';
 
 // R-19, the internal "retain" operation: a deterministic job that only changes `status` columns,
-// deletes temporary images and sends S-5, S-13 and S-14 (R-8 AC3, AC5, R-19 AC5).
+// deletes temporary images and sends S-5, S-13 and S-14 (R-8 AC3, AC5, R-19 AC5), and erases
+// what ANOMANDER did once it is old (AC6), outside the ledger.
 
 const DAY = 24 * 60 * 60 * 1000;
 
@@ -39,6 +41,8 @@ export interface RetentionResult {
   receiptsDiscarded: number;
   /** R-19 AC5: receipts an earlier run left half-read. */
   receiptsAbandoned: number;
+  /** R-19 AC6: actions of the history (DK-14) erased for their age. */
+  actionsForgotten: number;
 }
 
 export interface Retention {
@@ -59,6 +63,17 @@ export const createRetention = ({
   // R-19 AC5: a document received before this instant belongs to an earlier run of the daemon.
   const startedAt = now().toISOString();
 
+  /**
+   * T13 F2: the receipts whose notice could not go out, by what failed. Each is logged once, not
+   * every minute while nothing can tell it; a receipt that leaves the queue is forgotten here.
+   */
+  const unsent = { discard: new Set<number>(), abandon: new Set<number>() };
+  const logUnsent = (kind: keyof typeof unsent, documentId: number, log: () => void): void => {
+    if (unsent[kind].has(documentId)) return;
+    unsent[kind].add(documentId);
+    log();
+  };
+
   /** `{fecha}` of S-13 and S-14: the day the principal sent it, in `TZ`. */
   const sentOn = (receivedAt: string) => todayIn(timeZone, new Date(receivedAt));
 
@@ -70,11 +85,14 @@ export const createRetention = ({
         await notify({ text: strings.deletedUnreadReceipt(sentOn(receipt.received_at)) });
         await rm(join(inboxDir, String(receipt.id)), { recursive: true, force: true });
         if (discardReceipt(db, receipt.id, now().toISOString())) discarded += 1;
+        unsent.discard.delete(receipt.id);
       } catch (error) {
-        logger.error('could not discard an unread receipt; it stays queued', {
-          documentId: receipt.id,
-          error,
-        });
+        logUnsent('discard', receipt.id, () =>
+          logger.error('could not discard an unread receipt; it stays queued', {
+            documentId: receipt.id,
+            error,
+          }),
+        );
       }
     }
     return discarded;
@@ -92,11 +110,14 @@ export const createRetention = ({
         await rm(join(inboxDir, String(receipt.id)), { recursive: true, force: true });
         finishReading(db, receipt.id, 'unreadable', now().toISOString());
         abandoned += 1;
+        unsent.abandon.delete(receipt.id);
       } catch (error) {
-        logger.error('could not abandon a half-read receipt; it stays queued', {
-          documentId: receipt.id,
-          error,
-        });
+        logUnsent('abandon', receipt.id, () =>
+          logger.error('could not abandon a half-read receipt; it stays queued', {
+            documentId: receipt.id,
+            error,
+          }),
+        );
       }
     }
     return abandoned;
@@ -141,7 +162,15 @@ export const createRetention = ({
       const inferencesExpired = expireLooseInferences(db, new Date(at - 30 * DAY).toISOString());
       const receiptsDiscarded = await discardExpired();
       const receiptsAbandoned = await abandonHalfRead();
-      return { inferencesExpired, decisionsExpired, receiptsDiscarded, receiptsAbandoned };
+      // AC6: kept as long as an inference is (AC1); the text interpreter reads only 7 days.
+      const actionsForgotten = forgetActionsEndedBefore(db, new Date(at - 30 * DAY).toISOString());
+      return {
+        inferencesExpired,
+        decisionsExpired,
+        receiptsDiscarded,
+        receiptsAbandoned,
+        actionsForgotten,
+      };
     },
     watchQueuedReceipts: async () => {
       await discardExpired();

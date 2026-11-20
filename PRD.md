@@ -351,12 +351,13 @@ Every incoming message has exactly one destination, decided by code in this orde
 - AC3: If the principal states a category that does not exist ("40 € gasolina, categoría gasolina"), the expense is registered without a category and S-15 is sent. On "Sí", the category is created and assigned to that expense with `category_basis = 'declared'`.
 
 ### R-19 Retention job
-A deterministic job, the internal **retain** operation, runs at `ANOMANDER_RETENTION_CRON` (default `0 3 * * *`) in `TZ` and once at startup. It only changes `status` columns, deletes temporary images and sends the notices below.
+A deterministic job, the internal **retain** operation, runs at `ANOMANDER_RETENTION_CRON` (default `0 3 * * *`) in `TZ` and once at startup. It only changes `status` columns, deletes temporary images and sends the notices below, except the erase of AC6.
 - AC1: Inferences with `status = 'current'` that do not belong to a registered expense and are older than 30 days become `expired`.
 - AC2: Pending decisions still `open` 7 days after `created_at` become `expired`, their proposal becomes `rejected`, and their pending expense becomes `refuted`, so no current expense remains.
 - AC3: Queued receipts past `keep_until` are handled as in R-8 AC5.
 - AC4: Running the job twice in a row changes nothing the second time.
-- AC5: A receipt that an earlier run of the daemon left `'queued'` without `keep_until` (it stopped while reading it) is abandoned: the principal receives S-5, then its images are deleted and `documents.status` becomes `'unreadable'` with `image_deleted_at` set. A receipt received by the running daemon is never abandoned, since it may still be being read.
+- AC5: A receipt that an earlier run of the daemon left `'queued'` without `keep_until` (it stopped while reading it) is abandoned: the principal receives S-5, then its images are deleted and `documents.status` becomes `'unreadable'` with `image_deleted_at` set. A receipt received by the running daemon is never abandoned, since it may still be being read. When S-5 or S-14 cannot be sent, the receipt stays as it is and the failure is logged once, not on every run.
+- AC6: Actions of the history of what ANOMANDER did (`docs/desktop-prd.md` DK-14) that ended more than 30 days ago are erased, outside the ledger, as a confirmed erase is (security audit L3, 2026-11-20). This is the one row deletion the job makes.
 
 ### R-20 Supported inputs
 | Input | Behaviour |
@@ -445,7 +446,7 @@ When something the daemon needs from `.env` is missing, it says what instead of 
 - AC1: `/start` replies S-69 when setup is complete, or the guide otherwise. It is handled by code (R-17 AC8) and is never a recent turn.
 - AC2: Setup is incomplete when `ANOMANDER_MODEL` or `ANOMANDER_VISION_MODEL` is unset (S-71), names a model pi-ai does not know (S-72, once per variable), or a provider of those models has neither a login nor an API key (S-73, once per provider, named by its `/login` button label, or by its pi-ai provider ID when it has none).
 - AC3: The guide is S-70 followed by one line per gap, in the order of AC2. While setup is incomplete, the daemon sends it once when it starts and replies it to every text, receipt and button press except the routes of R-17 AC7. The same gaps are logged in English at start.
-- AC4: The connection gaps are checked on every message, so a login (R-27) completes setup without a restart. A model gap needs a change to `.env` and a restart; until then no processor call, store access or scheduled job runs.
+- AC4: The connection gaps are checked on every message, so a login (R-27) completes setup without a restart. The check runs before the message's turn and gives up after 5 seconds, counting setup as complete; a complete setup is not checked again for 30 seconds (T14). A model gap needs a change to `.env` and a restart; until then no processor call, store access or scheduled job runs.
 - AC5: The daemon needs at least one front door: Telegram (`TELEGRAM_BOT_TOKEN` with `ANOMANDER_PRINCIPAL_CHAT_ID`) or the desktop app's local channel (`ANOMANDER_LOCAL_TOKEN`, `docs/desktop-prd.md` DK-3). Without either, nobody can talk to it, so it exits and its log names both, with where to get the Telegram ones (@BotFather, @userinfobot). Half of Telegram, one variable without the other, is an error that names the missing one. Without Telegram nothing polls or is sent there, and what only Telegram serves (`/login`, `/logout`, `/mcp`, messages sent unasked) is absent.
 
 ## 12. User-facing strings (verbatim, `es-ES`)
