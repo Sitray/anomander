@@ -76,7 +76,6 @@ export const strings = {
 
     /** The model of the setup, under the composer (S2); read before its name. */
     model: 'Modelo:',
-    vision: 'visión',
 
     /** DK-9, DK-13: a look at the screen the daemon routed the principal's words to. */
     screenCapture: 'Captura de pantalla',

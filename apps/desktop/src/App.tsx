@@ -10,20 +10,6 @@ import { ErrorBlock, StatusBar } from './status/StatusBar.tsx';
 import { useShell } from './status/use-shell.ts';
 import { strings } from './strings.ts';
 
-/** S2: the chat model, and the vision model when a look or a computer step answers with another. */
-const modelLabel = ({
-  model,
-  visionModel,
-}: {
-  model: string | null;
-  visionModel: string | null;
-}) =>
-  model === null || model === ''
-    ? null
-    : visionModel === null || visionModel === '' || visionModel === model
-      ? model
-      : `${model} · ${strings.chat.vision} ${visionModel}`;
-
 export function App() {
   const shell = useShell();
   const { snapshot } = shell;
@@ -105,7 +91,7 @@ export function App() {
                 onReveal={shell.reveal}
                 onTaskRunning={shell.setTaskRunning}
                 subscribeStop={shell.onStopTask}
-                model={modelLabel(snapshot.setup)}
+                model={snapshot.setup.model}
               />
             </div>
             {open === 'setup' && (

@@ -252,18 +252,8 @@ describe('the setup', () => {
   it('names the chat model of the setup under the composer (S2)', async () => {
     await open(runningSnapshot({ setup: { ...FILLED_SETUP, visionModel: 'openai/gpt-4o' } }));
 
-    // A look and a step on the computer answer with the vision model, so it is named too.
-    expect(
-      screen
-        .getByText('openai/gpt-4o-mini · visión openai/gpt-4o')
-        .classList.contains('composer-model'),
-    ).toBe(true);
-  });
-
-  it('names one model when the vision model is the same (S2)', async () => {
-    await open(runningSnapshot({ setup: { ...FILLED_SETUP, visionModel: 'openai/gpt-4o-mini' } }));
-
     expect(screen.getByText('openai/gpt-4o-mini').classList.contains('composer-model')).toBe(true);
+    expect(screen.queryByText('openai/gpt-4o')).toBeNull();
   });
 
   it('keeps the conversation while the setup is open', async () => {
