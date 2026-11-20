@@ -1766,3 +1766,109 @@ describe('DK-13 route guards', () => {
     expect(interpreted).toEqual([]);
   });
 });
+
+describe('DK-14 (verifier probes)', () => {
+  const FORGET = JSON.stringify({ kind: 'forget_history' });
+  const tasks = () =>
+    query<{ task: string }>('SELECT task FROM action_history ORDER BY id').map(({ task }) => task);
+  const done = () => {
+    planned = async () => JSON.stringify({ kind: 'done', message: 'Hecho.' });
+  };
+  const yesOf = (question: ChatReply) => {
+    const [yes] = question.buttons;
+    if (yes === undefined || !('data' in yes)) throw new Error('no Sí');
+    return yes.data;
+  };
+
+  it('AC4: "Sí" to an older question never erases an action kept after it was asked', async () => {
+    const chat = await client(await start());
+    done();
+    await chat.ask({ type: 'computer', task: 'abre Notas', image: png(), done: [] });
+    await chat.ask({ type: 'computer', task: 'abre Safari', image: png(), done: [] });
+    routed = FORGET;
+    const first = reply(await chat.ask({ type: 'text', text: 'borra tu historial' }));
+    const second = reply(await chat.ask({ type: 'text', text: 'borra tu historial' }));
+    routed = undefined;
+    await chat.ask({ type: 'button', data: yesOf(first), channelRef: first.channelRef });
+    expect(tasks()).toEqual([]);
+    await chat.ask({ type: 'computer', task: 'abre Mail', image: png(), done: [] });
+    expect(tasks()).toEqual(['abre Mail']);
+
+    await chat.ask({ type: 'button', data: yesOf(second), channelRef: second.channelRef });
+
+    expect(tasks()).toEqual(['abre Mail']);
+  });
+
+  it('AC4: a second press on the same "Sí" erases nothing more', async () => {
+    const chat = await client(await start());
+    done();
+    await chat.ask({ type: 'computer', task: 'abre Notas', image: png(), done: [] });
+    routed = FORGET;
+    const question = reply(await chat.ask({ type: 'text', text: 'borra tu historial' }));
+    routed = undefined;
+    await chat.ask({ type: 'button', data: yesOf(question), channelRef: question.channelRef });
+    await chat.ask({ type: 'computer', task: 'abre Mail', image: png(), done: [] });
+
+    const again = reply(
+      await chat.ask({ type: 'button', data: yesOf(question), channelRef: question.channelRef }),
+    );
+
+    expect(again.text).not.toBe('Hecho, he borrado mi historial.');
+    expect(tasks()).toEqual(['abre Mail']);
+  });
+
+  it('a call carrying a remembered fact that is not read-only waits for Permitir with its exact arguments, and no log carries the fact', async () => {
+    const made: unknown[] = [];
+    connected = [
+      {
+        name: 'notes',
+        tools: ['search', 'create'].map((name) => ({
+          name,
+          description: name,
+          inputSchema: { type: 'object' },
+        })),
+        readOnly: new Set(['search']),
+        call: async (tool, args) => {
+          made.push({ tool, args });
+          return { text: 'ok', isError: false };
+        },
+      },
+    ];
+    const chat = await client(await start());
+    const db = openDatabase(join(scratch, 'anomander.db'));
+    const now = new Date().toISOString();
+    saveMemory(db, {
+      text: 'Vive en la calle Falsa 123',
+      quote: 'vivo en la calle Falsa 123',
+      said: true,
+      confidence: 1,
+      message: 'vivo en la calle Falsa 123',
+      source: 'desktop:1',
+      replaces: null,
+      receivedAt: now,
+      now,
+    });
+    db.close();
+    tooled = [
+      [
+        {
+          type: 'toolCall',
+          id: 'c1',
+          name: 'notes__create',
+          arguments: { title: 'Vive en la calle Falsa 123' },
+        },
+      ],
+    ];
+
+    const asked = reply(await chat.ask({ type: 'connect', task: 'apunta mi dirección' }));
+
+    expect(made).toEqual([]);
+    expect(asked.buttons.map(({ label }) => label)).toEqual(['Permitir', 'Detener']);
+    expect(asked.text).toContain('Vive en la calle Falsa 123');
+    const logs = JSON.stringify(
+      [logger.info, logger.warn, logger.error].flatMap((log) => log.mock.calls),
+    );
+    expect(logs).not.toContain('Falsa');
+    expect(logs).not.toContain('apunta mi dirección');
+  });
+});

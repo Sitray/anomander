@@ -1,6 +1,6 @@
 -- What ANOMANDER did (DK-14): one row per look at the screen, task on the computer or task with connections, written when it ended; erased on a confirmed forget
 CREATE TABLE action_history (
-  id INTEGER PRIMARY KEY,
+  id INTEGER PRIMARY KEY AUTOINCREMENT, -- never reused: a confirmed forget erases up to an id (DK-14 AC4)
   kind TEXT NOT NULL CHECK (kind IN ('screen', 'computer', 'connect')),
   door TEXT NOT NULL CHECK (door IN ('app', 'telegram')),
   task TEXT NOT NULL,               -- the principal's words: the question or the task, never what was typed, captured or answered

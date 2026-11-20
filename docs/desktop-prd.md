@@ -292,7 +292,7 @@ and keep its secrets in the operating system instead of a text file.
     an expense inference that rests on them is rejected like one that rests on a memory (R-23
     AC4).
   - AC4: when the principal asks to erase it ("borra tu historial"), code asks "¿Borro el
-    historial de lo que he hecho por ti? Son N acciones y no podré recuperarlas." with `Sí` and
+    historial de lo que he hecho por ti? Son N acciones y no podré recuperarlas." ("Es 1 acción" for one) with `Sí` and
     `No`, or replies "No tengo nada en mi historial." when it is empty. `Sí` erases every action
     kept when it was asked, checkpoints the WAL as a forget does (R-23 AC7), empties the recent
     turns and replies "Hecho, he borrado mi historial."; `No` erases nothing and replies "Vale,

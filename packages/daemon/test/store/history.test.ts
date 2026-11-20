@@ -192,3 +192,32 @@ describe('action history (DK-14)', () => {
     expect(forgetHistory(db, 10)).toBe(0);
   });
 });
+
+describe('migration 0008 (verifier probes)', () => {
+  it('upgrades a database at 0007, keeps its mode 600, and a second run applies nothing', async () => {
+    const { cpSync, mkdirSync, readdirSync } = await import('node:fs');
+    const { MIGRATIONS_DIR } = await import('../../src/store/database.ts');
+    const upTo7 = join(scratch, 'm7');
+    mkdirSync(upTo7);
+    for (const file of readdirSync(MIGRATIONS_DIR).filter((name) => name < '0008')) {
+      cpSync(join(MIGRATIONS_DIR, file), join(upTo7, file));
+    }
+    const oldPath = join(scratch, 'old.db');
+    const old = openDatabase(oldPath);
+    expect(applyMigrations(old, upTo7)).toBe(7);
+    expect(applyMigrations(old)).toBe(1);
+    expect(applyMigrations(old)).toBe(0);
+    recordAction(old, action());
+    expect(old.prepare('SELECT count(*) AS n FROM action_history').get()).toEqual({ n: 1 });
+    old.close();
+    expect(statSync(oldPath).mode & 0o777).toBe(0o600);
+  });
+
+  it('never reuses an id a full erase freed: AC4 erases up to an id', () => {
+    recordAction(db, action());
+    recordAction(db, action());
+    forgetHistory(db, 2);
+    recordAction(db, action({ task: 'después' }));
+    expect(lastActionId(db)).toBeGreaterThan(2);
+  });
+});
