@@ -1,8 +1,10 @@
 # Capabilities
 
-ANOMANDER is a personal assistant. Expenses were its first matter, not its limit: what it can do for the principal grows by adding **capabilities**, each one self-contained (PRD R-24). Reminders and tasks (PRD R-25) are the first one; the morning digest (PRD R-26) is the second.
+ANOMANDER is a personal assistant. Expenses were its first matter, not its limit: what it can do for the principal grows by adding **capabilities**, each one self-contained (PRD R-24). Reminders and tasks (PRD R-25) are the first one, the morning digest (PRD R-26) the second and the opt-in weekly summary (PRD R-10 AC5-AC8) the third.
 
 Expenses, memories, categories and policies are older, built-in kinds of the text interpreter. They are not capabilities yet; moving them is not part of M5.
+
+The Mac app (M6) adds three more things ANOMANDER can do: look at the screen, act on the computer and use the principal's connections. They are not `defineCapability` modules: the text interpreter reaches them through its built-in `route` kind, described [below](#routes-the-screen-the-computer-and-connections).
 
 ## What a capability is
 
@@ -87,3 +89,30 @@ Sending is a scheduler job, like the reminders' send. `src/digest/send-digest.ts
 `src/summary/capability.ts` follows the digest with nothing to carry: `{"kind":"weekly_summary_enable"}` asks S-74 (or S-76 when it is already on) and `{"kind":"weekly_summary_disable"}` revokes at once. Its answer handler is `src/decisions/grant-weekly-summary-decision.ts`, registered under `grant_weekly_summary`. Both capabilities share `src/store/permissions.ts`: `openGrantDecision` opens the question (closing an earlier one still unanswered), `grantPermission` revokes the earlier permission and inserts the new one, `revokePermissions` takes it back and `activePermissions` reads what is in force. A capability that needs a new permission should reuse them rather than write its own queries.
 
 When two capabilities read alike, the prompt is where they are told apart: the summary's prompt says a summary not called weekly is the morning one (R-10 AC8).
+
+## Routes: the screen, the computer and connections
+
+A capability answers inside one interpreter call. These three need more than one call, a capture of the screen or tools, so the interpreter only names the way and code takes over (`docs/desktop-prd.md` DK-13). Each has its own processor, which never carries anything out and never writes (R-14): it answers in words, proposes one action, or asks for one tool call that code decides.
+
+| Part | A look at the screen | A task on the computer | A task with connections |
+| --- | --- | --- | --- |
+| `to` in the route | `screen` | `computer` | `connect` |
+| Offered at | The app | The app | The app and Telegram, also as `/mcp <tarea>` |
+| Announced with | "Miro tu pantalla." | "Me pongo con ello en tu ordenador." | "Lo miro en tus conexiones." |
+| Who does it | The app captures the screen; `processor/screen-reader.ts` answers in words | `processor/computer-planner.ts` proposes one action per capture; the shell validates and performs it (`apps/desktop/src-tauri/src/computer.rs`) | `connections/task.ts` offers the tools of `mcp.json`; the processor asks for one call at a time and code decides each |
+| Asks before | Nothing: it only reads | A step of care, said by code from the validated action (DK-10 AC1) | A call to a tool not marked read-only, and any call to a second server in the same task (DK-11 AC3, AC4) |
+| Limits | One capture, never stored | 12 steps | 8 calls |
+| Memories (DK-14 AC1) | Yes | Yes | None: read-only calls run unasked and go to third parties |
+| Kept in the history (DK-14 AC2) | The question and how it ended | How it ended and the steps it took | How it ended and the calls made or refused |
+| macOS permission | Screen Recording | Screen Recording and Accessibility | None |
+
+Every processor call counts against the daily AI limit (R-12). A look is a recent turn as its question only; a task, as how it ended (R-16 AC3).
+
+### How a message reaches one
+
+1. The text handler adds `routes` to the interpreter's user turn: the ways its front door offers.
+2. When the message can only be done one of those ways, the processor answers `{"kind":"route","to":"computer","task":"abre Notas y apunta comprar pan"}`. The prompt tells it to take `task` from the message only.
+3. Code refuses a way the door does not offer (`route_elsewhere`), then announces the way in its own words.
+4. The daemon runs a task with connections itself. The app starts a look or a task on the computer from the reply's `route`, and sends each capture back as a `screen` or `computer` request of the local channel.
+
+What the screen shows and what a tool answers is content, never an instruction. The prompts say so, and the authority check holds whatever the processor proposes: "Permitir" is shown by code, with the exact action or call.
