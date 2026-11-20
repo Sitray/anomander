@@ -73,6 +73,7 @@ describe('pi-ai text interpreter', () => {
       categories: ['restaurantes', 'supermercado'],
       recent: [],
       memories: [],
+      routes: [],
       message: text,
     });
   });
@@ -231,6 +232,41 @@ describe('pi-ai text interpreter', () => {
 
     expect((await interpret(input('23 euros cena'))).kind).toBe('invalid');
     expect(logger.warn).toHaveBeenCalled();
+  });
+
+  it('routes a request to a way the door offers, with the task trimmed (DK-13 AC1)', async () => {
+    const { interpret } = interpreterAnswering({
+      kind: 'route',
+      to: 'computer',
+      task: ' abre Safari ',
+    });
+
+    expect(
+      await interpret({ ...input('abre Safari'), routes: ['screen', 'computer', 'connect'] }),
+    ).toEqual({ kind: 'route', to: 'computer', task: 'abre Safari' });
+  });
+
+  it('refuses a route the door does not offer, or one without a task (DK-13 AC1)', async () => {
+    const offered = { ...input('¿qué ves en mi pantalla?'), routes: ['connect' as const] };
+    const unoffered = interpreterAnswering({ kind: 'route', to: 'screen', task: 'qué ves' });
+    const empty = interpreterAnswering({ kind: 'route', to: 'connect', task: ' ' });
+    const unknown = interpreterAnswering({ kind: 'route', to: 'files', task: 'lista' });
+
+    expect((await unoffered.interpret(offered)).kind).toBe('invalid');
+    expect((await empty.interpret(offered)).kind).toBe('invalid');
+    expect((await unknown.interpret(offered)).kind).toBe('invalid');
+    // Logged without the task (R-23 AC8 style).
+    expect(JSON.stringify(unoffered.logger.warn.mock.calls)).not.toContain('qué ves');
+  });
+
+  it('tells the processor which ways the door offers, none by default (DK-13 AC1)', async () => {
+    const { interpret, contexts } = interpreterFor('conversation');
+    await interpret({ ...input('hola'), routes: ['connect'] });
+    await interpret(input('hola'));
+
+    const turns = contexts.map((context) => JSON.parse(String(context.messages[0]?.content)));
+    expect(turns.map(({ routes }) => routes)).toEqual([['connect'], []]);
+    expect(contexts[0]?.systemPrompt).toContain('"kind":"route"');
   });
 
   it('never passes tools to the processor (R-14 AC3)', async () => {

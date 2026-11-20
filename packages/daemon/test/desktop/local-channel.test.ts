@@ -45,7 +45,9 @@ let api: FakeTelegramApi;
 let anomander: Anomander | undefined;
 let sockets: WebSocket[];
 /** The user turns the text interpreter received, parsed. */
-let interpreted: { recent: unknown; message: string }[];
+let interpreted: { recent: unknown; message: string; routes: unknown }[];
+/** What the text interpreter answers instead of an expense, as its JSON text (DK-13). */
+let routed: string | undefined;
 /** The contexts the computer planner received. */
 let plans: Context[];
 /** What the computer planner answers, as the text of its response. */
@@ -87,7 +89,7 @@ const complete = async (_model: string, context: Context): Promise<AssistantMess
   }
   const [turn] = context.messages;
   if (typeof turn?.content === 'string') interpreted.push(JSON.parse(turn.content));
-  return reply;
+  return routed === undefined ? reply : { ...reply, content: [{ type: 'text', text: routed }] };
 };
 
 const config = (env: Record<string, string> = {}) =>
@@ -221,6 +223,7 @@ beforeEach(async () => {
   api = await startFakeTelegramApi();
   sockets = [];
   interpreted = [];
+  routed = undefined;
   screens = [];
   plans = [];
   planned = async () => JSON.stringify(CLICK);
@@ -826,6 +829,71 @@ describe('a task on the computer (DK-10)', () => {
     const answer = reply(await ask(chat));
     expect(answer.text).toBe(sent[0]?.text);
     expect(answer).not.toHaveProperty('computer');
+  });
+});
+
+describe('a request the chat routes by itself (DK-13)', () => {
+  const route = (to: string, task: string) => JSON.stringify({ kind: 'route', to, task });
+  const calendar = (): Connection => ({
+    name: 'calendar',
+    tools: [{ name: 'events', description: 'events', inputSchema: { type: 'object' } }],
+    readOnly: new Set(['events']),
+    call: async () => ({ text: 'dentista a las 10', isError: false }),
+  });
+  const says = (text: string): AssistantMessage['content'] => [{ type: 'text', text }];
+
+  it('AC1, AC2: the app offers every way, and starts a look or a task on the computer itself', async () => {
+    const chat = await client(await start());
+
+    routed = route('computer', ' abre Safari ');
+    const task = reply(await chat.ask({ type: 'text', text: 'abre Safari' }));
+    routed = route('screen', '¿qué error me sale?');
+    const look = reply(await chat.ask({ type: 'text', text: '¿qué error me sale?' }));
+
+    expect(task).toMatchObject({
+      text: 'Me pongo con ello en tu ordenador.',
+      buttons: [],
+      route: { to: 'computer', task: 'abre Safari' },
+    });
+    expect(look).toMatchObject({
+      text: 'Miro tu pantalla.',
+      route: { to: 'screen', task: '¿qué error me sale?' },
+    });
+    expect(interpreted.map(({ routes }) => routes)).toEqual([
+      ['screen', 'computer', 'connect'],
+      ['screen', 'computer', 'connect'],
+    ]);
+    expect(query('SELECT id FROM expenses')).toEqual([]);
+    expect(plans).toEqual([]);
+    expect(screens).toEqual([]);
+  });
+
+  it('AC2: a task with connections asked in words runs as a `connect` request does', async () => {
+    connected = [calendar()];
+    const chat = await client(await start());
+    routed = route('connect', 'qué tengo mañana');
+    tooled = [
+      [{ type: 'toolCall', id: 'call-1', name: 'calendar__events', arguments: {} }],
+      says('Mañana tienes dentista a las 10.'),
+    ];
+
+    const answer = reply(await chat.ask({ type: 'text', text: '¿qué tengo mañana?' }));
+
+    expect(answer.text).toBe('Mañana tienes dentista a las 10.');
+    expect(answer).not.toHaveProperty('route');
+    expect(api.sent).toEqual([]);
+  });
+
+  it('AC1, AC2: Telegram offers only connections, and answers a task asked there', async () => {
+    connected = [calendar()];
+    await start();
+    routed = route('connect', 'qué tengo mañana');
+    tooled = [says('Mañana tienes dentista a las 10.')];
+
+    api.push(updates.text({ chatId: PRINCIPAL }, '¿qué tengo mañana?'));
+
+    expect((await api.waitForSent(1)).at(-1)?.text).toBe('Mañana tienes dentista a las 10.');
+    expect(interpreted.at(-1)?.routes).toEqual(['connect']);
   });
 });
 

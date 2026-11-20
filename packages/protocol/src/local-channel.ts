@@ -135,6 +135,11 @@ export interface ChatReply {
    * anything else means the principal must allow it first (DK-10 AC1).
    */
   confirm?: boolean;
+  /**
+   * DK-13 AC2: in answer to a `text` request, the look or the task on the computer the app starts
+   * now, as if the principal had asked for it with a `screen` or `computer` request.
+   */
+  route?: { to: 'screen' | 'computer'; task: string };
 }
 
 /** The request `inReplyTo` was handled and has no reply. */

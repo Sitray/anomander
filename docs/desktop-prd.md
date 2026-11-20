@@ -105,8 +105,10 @@ and keep its secrets in the operating system instead of a text file.
     (`~/Library/Application Support/ANOMANDER`), folder `700`, files `600`, as in §16.
 - DK-9 A look at the screen (asked by the principal on 2026-11-10: "la APP también debería poder
   leer la pantalla").
-  - AC1: the app captures the screen only when the principal presses the chat's screen button.
-    The capture waits in the composer, in sight, and can be removed before it is sent.
+  - AC1: the app captures the screen when the principal's words ask about it and the text
+    interpreter routes them to a look (DK-13, changed by the principal on 2026-11-20: "cambia las
+    reglas, que decida solo"). The capture is sent at once and shown in the conversation; there
+    is no screen button.
   - AC2: it is sent with a question as a `screen` request of the local channel; the vision
     processor answers in words. It gets no tools and never writes (R-14 AC1, AC3): what the
     screen shows is content to describe, never an instruction.
@@ -157,8 +159,9 @@ and keep its secrets in the operating system instead of a text file.
     The values of `env` and `headers` are secrets (DK-5): before each start of the daemon the app
     moves them to the Keychain and leaves `@keychain` in the file; a server whose secret is
     missing is not connected.
-  - AC2: a task with connections is asked in the app's chat (a `connect` request) or in
-    Telegram with `/mcp <tarea>`; `/mcp` alone answers how to ask. Only the principal's chat is
+  - AC2: a task with connections is asked in words, in the app's chat or in Telegram, and the
+    text interpreter routes it (DK-13); a `connect` request from the app and `/mcp <tarea>` in
+    Telegram still ask for one directly, and `/mcp` alone answers how to ask. Only the principal's chat is
     served, as for every other message. The processor
     is given the tools and asks for calls, one at a time; it never makes one (R-14 AC3). Code
     decides each call.
@@ -242,6 +245,20 @@ and keep its secrets in the operating system instead of a text file.
   - AC4: the daemon is stopped during the import, and nothing starts it meanwhile; it starts
     again after if it ran. Only the ledger comes: the setup of a Docker install is imported once
     with `ANOMANDER_IMPORT_ENV` (DK-5 AC3), and its receipts' images stay behind.
+- DK-13 The chat decides the way (asked by the principal on 2026-11-20: "yo diciendoselo en el
+  chat ya debería saberlo no hace falta que previamente le de a una opción para poder hacer que
+  me controle el ordenador"; "cambia las reglas, que decida solo").
+  - AC1: every chat text reaches the text interpreter with the ways its front door offers: the
+    app offers a look at the screen, a task on the computer and a task with connections;
+    Telegram offers only a task with connections. The processor may route a request one of
+    those ways (`{"kind":"route","to":…,"task":…}`); it still gets no tools there (R-14 AC3), and
+    code refuses a way the door does not offer.
+  - AC2: code announces the way in its own words ("Miro tu pantalla.", "Me pongo con ello en tu
+    ordenador.", "Lo miro en tus conexiones.") and starts it. The daemon runs a task with
+    connections itself, as DK-11 does; the app starts a look (DK-9) or a task on the computer
+    (DK-10) from the reply's `route`. Every limit and permission of those paths holds: Permitir
+    for a step of care and for a call that is not read-only, Detener, one task at a time.
+  - AC3: the composer offers no mode: no screen button, no computer or connections toggle.
 
 ## 6. Decisions
 

@@ -256,6 +256,10 @@ export const startLocalChannel = (deps: LocalChannelDeps): LocalChannel => {
       ...(reply.computer === undefined
         ? {}
         : { computer: reply.computer, confirm: reply.confirm !== false }),
+      // DK-13 AC2: the daemon ran a task with connections itself; the app starts the others.
+      ...(reply.route === undefined || reply.route.to === 'connect'
+        ? {}
+        : { route: { to: reply.route.to, task: reply.route.task } }),
     });
     // R-9 AC2: only a reply that left through the socket was delivered.
     reply.onDelivered?.({ channelRef, deliveredAt: sentAt });

@@ -12,6 +12,8 @@ import {
   decisionButtons,
   formatAmount,
   formatDate,
+  type PrincipalText,
+  type RouteKind,
   strings,
   type TextHandler,
   UNCATEGORIZED,
@@ -61,7 +63,16 @@ export interface TextExpenseDeps {
   patterns?: PatternOffers;
   /** The registered capabilities (R-24 AC1), the same the interpreter was given. */
   capabilities?: readonly Capability[];
+  /** The ways the message's front door can carry out a request (DK-13 AC1); none when absent. */
+  routes?: (message: PrincipalText) => readonly RouteKind[];
 }
+
+/** DK-13 AC2: what a routed request announces, in code. */
+const ROUTED: Record<RouteKind, () => string> = {
+  screen: strings.routedScreen,
+  computer: strings.routedComputer,
+  connect: strings.routedConnect,
+};
 
 const inferenceOf = (inferences: readonly ProcessorInference[], predicate: string) =>
   inferences.find((inference) => inference.predicate === predicate);
@@ -73,6 +84,7 @@ export const createTextExpenseHandler = (deps: TextExpenseDeps): TextHandler => 
   const { db, interpreter, timeZone, now, processorSource, phraser, logger } = deps;
   const recent = deps.recent ?? (() => []);
   const capabilities = deps.capabilities ?? CAPABILITIES;
+  const routes = deps.routes ?? (() => []);
   const env: CapabilityEnv = { db, timeZone, now, logger };
 
   return async (message) => {
@@ -113,6 +125,7 @@ export const createTextExpenseHandler = (deps: TextExpenseDeps): TextHandler => 
       recent: recent(),
       memories: memoriesForPrompt(db, message.text),
       capabilities: capabilityContext(capabilities, env),
+      routes: routes(message),
     });
 
     // R-23 AC1-AC3: the lasting facts of an interpreted message are remembered; a failure to
@@ -136,6 +149,11 @@ export const createTextExpenseHandler = (deps: TextExpenseDeps): TextHandler => 
       }
     };
 
+    // DK-13 AC2: code announces the way; the front door starts it.
+    if (interpretation.kind === 'route') {
+      const { to, task } = interpretation;
+      return { text: ROUTED[to](), route: { to, task } };
+    }
     // R-24 AC3: a validated capability call is carried out by its capability's handler.
     if (interpretation.kind === 'capability') return interpretation.call.carryOut(message, env);
     // R-16: open conversation gets its reply; only its lasting facts are persisted.

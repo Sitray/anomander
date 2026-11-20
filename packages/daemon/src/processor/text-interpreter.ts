@@ -1,4 +1,5 @@
 import { type ProcessorInference, validateProcessorOutput } from '@anomander/core';
+import { ROUTE_KINDS, type RouteKind } from '@anomander/protocol';
 import type { AssistantMessage, Context } from '@earendil-works/pi-ai';
 import { z } from 'zod';
 import { AiBudgetExhaustedError } from '../budget/ai-budget.ts';
@@ -24,6 +25,8 @@ export interface TextInterpreterInput {
   memories: Memory[];
   /** What each capability adds to the user turn, under its name (R-24 AC1, R-25 AC1). */
   capabilities?: Record<string, unknown>;
+  /** The ways this front door can carry out a request (DK-13 AC1); none when absent. */
+  routes?: readonly RouteKind[];
 }
 
 /** A lasting fact about the principal the processor found in the message (R-23 AC1). */
@@ -62,6 +65,8 @@ export type Interpretation =
   | { kind: 'policy'; merchant: string; category: string; reply: string | null }
   /** A capability call, validated against its capability's schema (R-24 AC2). */
   | { kind: 'capability'; call: CapabilityCall }
+  /** DK-13 AC1: the request goes one of the ways the door offers; code starts it. */
+  | { kind: 'route'; to: RouteKind; task: string }
   | { kind: 'invalid'; reason: string }
   /** The processor failed or did not answer in time: nothing to interpret (R-22 AC1). */
   | { kind: 'failed'; reason: string }
@@ -112,7 +117,14 @@ You never create the category: the assistant asks the user first, and sends "rep
 
 If the user states that a merchant always belongs to a category, as a rule and with no amount ("Mercadona es supermercado"), reply:
 {"kind":"policy","merchant":"<the merchant, written as the user wrote it>","category":"<the category, written as the user wrote it>","reply":"<a short, friendly reply in Spanish (es-ES), at most 280 characters, saying the same as: Ya tengo la regla «<merchant> es <category in lowercase>».>"}
-You never save the rule: the assistant asks the user first, and sends "reply" only if the rule is already saved. Copy both names in "reply" exactly and add no number or amount.`;
+You never save the rule: the assistant asks the user first, and sends "reply" only if the rule is already saved. Copy both names in "reply" exactly and add no number or amount.
+
+If the message asks for something that can only be done one of the ways listed in "routes", reply:
+{"kind":"route","to":"<one of the listed ways>","task":"<what the user asks, in their words>"}
+- "screen": a question about what is on the user's screen now ("¿qué ves?", "¿qué error me sale?").
+- "computer": something to do on the user's computer: open an app, click, type, fill a form.
+- "connect": something from the services the user connected (calendar, files, mail, notes...).
+Never use a way "routes" does not list, and never route an expense or a question you can answer in words. You never carry the task out: the assistant does it.`;
 
 const MEMORIES_AND_TURN = (
   fields: string,
@@ -120,7 +132,7 @@ const MEMORIES_AND_TURN = (
 {"text":"<the fact, short, in Spanish>","quote":"<the words of the message it rests on>","said":<true if the user stated it, false if you deduced it>,"confidence":<number from 0 to 1>,"replaces":<the id of a listed memory it contradicts, or null>}
 Leave "memories" out when the message holds no lasting fact.
 
-The user turn is a JSON object with the fields "today", "categories", "recent", "memories"${fields} and "message". "recent" lists the previous turns of this conversation, oldest first, each with what the user wrote ("principal") and what you answered ("reply"); use it to understand references such as "ese" or "lo de antes". "memories" lists what you remember about the user, each with its "id", "text" and "mode"; use them only to shape a conversation reply and to pick what to forget, never as the source of an expense inference: every expense quote must be words of "message". Interpret only "message".`;
+The user turn is a JSON object with the fields "today", "categories", "recent", "memories", "routes"${fields} and "message". "recent" lists the previous turns of this conversation, oldest first, each with what the user wrote ("principal") and what you answered ("reply"); use it to understand references such as "ese" or "lo de antes". "memories" lists what you remember about the user, each with its "id", "text" and "mode"; use them only to shape a conversation reply and to pick what to forget, never as the source of an expense inference: every expense quote must be words of "message". Interpret only "message".`;
 
 /** R-24 AC1: the text interpreter's prompt for the given capabilities. */
 export const composeTextInterpreterPrompt = (capabilities: readonly Capability[]): string =>
@@ -152,6 +164,7 @@ const envelopeSchema = z.discriminatedUnion('kind', [
     memories: z.unknown().optional(),
   }),
   z.object({ kind: z.literal('memory_list') }),
+  z.object({ kind: z.literal('route'), to: z.enum(ROUTE_KINDS), task: z.string().trim().min(1) }),
   z.object({ kind: z.literal('forget'), ids: z.array(z.int().positive()) }),
   z.object({
     kind: z.literal('category'),
@@ -232,7 +245,7 @@ export const createPiAiTextInterpreter = <M>({
   capabilities = CAPABILITIES,
 }: PiAiTextInterpreterDeps<M>): TextInterpreter => {
   const systemPrompt = composeTextInterpreterPrompt(capabilities);
-  return async ({ text, today, categories, recent, memories, ...input }) => {
+  return async ({ text, today, categories, recent, memories, routes = [], ...input }) => {
     // R-14 AC3: one system prompt and one user turn; the context never carries `tools`.
     const context: Context = {
       systemPrompt,
@@ -244,6 +257,7 @@ export const createPiAiTextInterpreter = <M>({
             categories,
             recent,
             memories,
+            routes,
             ...input.capabilities,
             message: text,
           }),
@@ -290,6 +304,14 @@ export const createPiAiTextInterpreter = <M>({
       return { kind: 'invalid', reason };
     }
     if (envelope.data.kind === 'memory_list') return { kind: 'memory_list' };
+    // DK-13 AC1: only a way this door offers; logged without the task, which is the principal's.
+    if (envelope.data.kind === 'route') {
+      const { to, task } = envelope.data;
+      if (routes.includes(to)) return { kind: 'route', to, task };
+      const reason = `route ${to} is not offered here`;
+      logger.warn('text interpretation failed', { reason });
+      return { kind: 'invalid', reason };
+    }
     // R-23 AC6: the processor only picks; code keeps the ids of memories it was given, once each.
     if (envelope.data.kind === 'forget') {
       const given = new Set(memories.map(({ id }) => id));

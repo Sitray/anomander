@@ -3,6 +3,9 @@ import {
   type ComputerRequest,
   MAX_COMPUTER_STEPS,
   type Notify,
+  type PrincipalText,
+  ROUTE_KINDS,
+  type RouteKind,
   type ScreenQuestion,
   strings,
 } from '@anomander/protocol';
@@ -189,6 +192,13 @@ const connectionCommand = (text: string): string | undefined => {
   const command = /^\/mcp(?:@\w+)?(?:\s+([\s\S]*))?$/.exec(text.trim());
   return command === null ? undefined : (command[1] ?? '').trim();
 };
+
+/** The front door a message came through: the local channel names its messages `desktop:…`. */
+const doorOf = (channelRef: string): Door =>
+  channelRef.startsWith('desktop:') ? 'app' : 'telegram';
+
+/** DK-13 AC1: a look and a task on the computer need the app; connections serve both doors. */
+const ROUTES: Record<Door, readonly RouteKind[]> = { app: ROUTE_KINDS, telegram: ['connect'] };
 
 /** What a handler answers once its turn is over: a `Later` is waited for outside the turn. */
 const settled = async (answer: TelegramReply | Later | null): Promise<TelegramReply | null> =>
@@ -377,6 +387,7 @@ export const startAnomander = <M>(config: Config, deps: AnomanderDeps<M>): Anoma
       logger,
       recent: turns.recent,
       patterns,
+      routes: (message) => ROUTES[doorOf(message.channelRef)],
     }),
     now,
   });
@@ -637,13 +648,18 @@ export const startAnomander = <M>(config: Config, deps: AnomanderDeps<M>): Anoma
   };
   const connectFromApp = onConnectAt('app');
   const connectFromTelegram = onConnectAt('telegram');
+  const answered = inTurn(async (message: PrincipalText): Promise<TelegramReply | Later | null> => {
+    const gaps = await setupGaps();
+    if (gaps.length > 0) return { text: setupGuide(gaps) };
+    if (isStart(message.text)) return { text: strings.hello() };
+    const reply = await recordedText(message);
+    // DK-13 AC2: a task with connections asked in words runs as one asked with `connect`.
+    const { route } = reply;
+    return route?.to === 'connect' ? runConnections(route.task, doorOf(message.channelRef)) : reply;
+  });
 
   const chat: ChatHandlers = {
-    onText: inTurn(async (message) => {
-      const gaps = await setupGaps();
-      if (gaps.length > 0) return { text: setupGuide(gaps) };
-      return isStart(message.text) ? { text: strings.hello() } : recordedText(message);
-    }),
+    onText: async (message) => settled(await answered(message)),
     onReceipt: inTurn(async (receipt) => {
       const gaps = await setupGaps();
       return gaps.length > 0 ? { text: setupGuide(gaps) } : recordedReceipt(receipt);
