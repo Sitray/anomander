@@ -27,6 +27,12 @@ struct Fixture {
 impl Fixture {
     /// A supervisor whose daemon is `/bin/sh` running `body`; each launch appends a line to `count`.
     fn new(body: &str, options: Options) -> Fixture {
+        Fixture::handing_over(body, options, None)
+    }
+
+    /// As `new`, with `handover` as the line each launch writes to the daemon's stdin (DK-5 AC2).
+    fn handing_over(body: &str, options: Options, handover: Option<&str>) -> Fixture {
+        let handover = handover.map(str::to_owned);
         let dir = tempfile::tempdir().unwrap_or_else(|e| panic!("no temp dir: {e}"));
         let script = dir.path().join("daemon.sh");
         let count = dir.path().join("count");
@@ -54,6 +60,7 @@ impl Fixture {
                 port: PORT,
                 token: TOKEN.into(),
                 secrets: vec![SECRET.into(), TOKEN.into()],
+                handover: handover.clone(),
                 on_credentials: Some(Arc::clone(&on_credentials)),
             })
         };
@@ -140,6 +147,43 @@ fn it_is_running_once_the_local_channel_listens() {
     assert_eq!(channel.token, TOKEN);
     let states = fixture.states.lock().map(|s| s.clone()).unwrap_or_default();
     assert_eq!(states.first(), Some(&DaemonState::Starting));
+}
+
+/// A daemon that ignores SIGTERM, keeps its first stdin line in `handed` and the rest in `rest`,
+/// so each file holds what reached its stdin once the stop closed it.
+const KEEPS_STDIN: &str = "trap '' TERM\nIFS= read -r line\nprintf '%s\\n' \"$line\" > handed";
+
+#[test]
+fn the_secrets_are_written_once_to_the_daemons_stdin() -> Result<(), String> {
+    let handover = r#"{"TELEGRAM_BOT_TOKEN":"hunter2-bot-token","ANOMANDER_LOCAL_TOKEN":"x"}"#;
+    let body = format!("{KEEPS_STDIN}\n{LISTEN}\ncat > rest");
+    let fixture = Fixture::handing_over(&body, fast(), Some(handover));
+    fixture.supervisor.start();
+    let _ = fixture.wait_for_state(DaemonState::Running);
+    fixture.supervisor.stop();
+    let read = |name: &str| {
+        std::fs::read_to_string(fixture.dir.path().join(name)).map_err(|e| e.to_string())
+    };
+    assert_eq!(read("handed")?, format!("{handover}\n"));
+    assert_eq!(read("rest")?, "");
+    Ok(())
+}
+
+#[test]
+fn without_a_handover_nothing_is_written_to_the_daemons_stdin() -> Result<(), String> {
+    let fixture = Fixture::new(KEEPS_STDIN, fast());
+    fixture.supervisor.start();
+    let _ = wait_for_pid(&fixture);
+    std::thread::sleep(Duration::from_millis(200));
+    let handed = fixture.dir.path().join("handed");
+    assert!(!handed.exists(), "the daemon read a line");
+    fixture.supervisor.stop();
+    // The stop closed stdin: the line it read is empty.
+    assert_eq!(
+        std::fs::read_to_string(&handed).map_err(|e| e.to_string())?,
+        "\n"
+    );
+    Ok(())
 }
 
 #[test]
@@ -485,6 +529,7 @@ fn a_restart_hands_over_the_login_the_stopping_daemon_handed_back() -> Result<()
             port: PORT,
             token: TOKEN.into(),
             secrets: vec![],
+            handover: None,
             on_credentials: Some(Arc::clone(&on_credentials)),
         })
     };

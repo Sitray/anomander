@@ -182,7 +182,7 @@ is framework-free, so it is tested against a fake `WebSocket` (`test/fake-web-so
   "Olvidar OAuth", run under `Supervisor::while_stopped`, so a token the daemon refreshes
   meanwhile cannot overwrite them; the daemon starts again after if it ran. At each start the
   tokens of a server no longer in `mcp.json` at that URL are dropped, the rest go in
-  `ANOMANDER_MCP_OAUTH` (none while `mcp.json` is a link or cannot be read, or while the
+  `ANOMANDER_MCP_OAUTH` on the daemon's stdin (none while `mcp.json` is a link or cannot be read, or while the
   Keychain cannot give them: the daemon starts without them), only their tokens
   and client secrets are hidden from the daemon's output, and each `anomander mcp-oauth` line
   the daemon prints is stored and never forwarded. One connection runs at a time
@@ -209,8 +209,15 @@ is framework-free, so it is tested against a fake `WebSocket` (`test/fake-web-so
 - **Snapshots** carry no sequence number, so an event that arrived while a command was on its
   way wins over that command's answer.
 
+- **The secrets reach the daemon on its stdin** (DK-5 AC2), never in its environment, which
+  `ps eww` shows to every process of the principal. `child_env` (`src-tauri/src/daemon/launch.rs`)
+  gives the daemon the plain setup and `ANOMANDER_SECRETS_ON_STDIN=1`; `handover_line` puts the
+  bot token, the provider keys, `ANOMANDER_AUTH_JSON`, `ANOMANDER_MCP_SECRETS`,
+  `ANOMANDER_MCP_OAUTH` and `ANOMANDER_LOCAL_TOKEN` in one JSON line, which the supervisor writes
+  once to the daemon's stdin right after it starts, from its own thread. The pipe then stays open
+  only so the daemon stops when it closes (DK-1 AC1).
 - **The model login** (DK-5 AC1) lives in the Keychain item `model-login`. The shell hands it to
-  the daemon in `ANOMANDER_AUTH_JSON`, and the supervisor takes each line the daemon starts with
+  the daemon as `ANOMANDER_AUTH_JSON` on its stdin, and the supervisor takes each line the daemon starts with
   `anomander credentials ` out of its output and stores it (`Core::login_handler`); that line is
   never forwarded. An `auth.json` left in the data folder is merged in at a start and removed
   once stored. A login made from the subscriptions screen (DK-15) joins the same item.

@@ -2,7 +2,9 @@ import { isIP } from 'node:net';
 import { z } from 'zod';
 
 // PRD §14.4, plus the read API of the read access draft (docs/read-access-prd.md §8). Every
-// variable and default of the configuration table; secrets come only from the environment (`.env`).
+// variable and default of the configuration table; secrets come only from the environment (`.env`)
+// or, under the desktop app, from the line it hands over on stdin (DK-5 AC2, `supervised.ts`),
+// which `main.ts` lays over the environment before calling `loadConfig`.
 
 /** A provider-qualified model ID such as `openai/gpt-4o-mini` (R-15 AC1). */
 export interface ModelId {

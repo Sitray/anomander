@@ -2,6 +2,7 @@
 // (R-15 AC1) and starts the store, the Telegram front door and, while `ANOMANDER_API_TOKEN` is set,
 // the read API (RA-2), or the setup guide while `.env` names no usable model (R-28). pi-ai reads the stored logins from `ANOMANDER_AUTH_PATH` on every
 // request (R-15 AC3, R-27 AC5), or, under the desktop app, from `ANOMANDER_AUTH_JSON` (DK-5 AC1).
+// The desktop app hands every secret over on stdin instead of the environment (DK-5 AC2).
 import { type ExitCode, exitCodes } from '@anomander/protocol';
 import { isBotInUse } from '@anomander/telegram';
 import { builtinModels } from '@earendil-works/pi-ai/providers/all';
@@ -12,7 +13,13 @@ import { loadConfig } from './config.ts';
 import { createScrubbingLogger } from './scrubbing-logger.ts';
 import { createConnectionGaps, resolveModels } from './setup/setup-guide.ts';
 import { DaemonAlreadyRunningError } from './store/daemon-lock.ts';
-import { stopsWithParent, stopWhenParentGoes } from './supervised.ts';
+import {
+  handedAuthContext,
+  readHandover,
+  secretsOnStdin,
+  stopsWithParent,
+  stopWhenParentGoes,
+} from './supervised.ts';
 
 // Security audit M3: nothing the daemon writes holds a secret of its configuration.
 let secrets: readonly string[] = [];
@@ -28,9 +35,15 @@ const reason = (error: unknown) => (error instanceof Error ? error.message : Str
 
 log.info('anomander daemon starting');
 
+// DK-5 AC2: only the desktop app sets the flag; Docker and the CLI keep the environment. A handed
+// value is read from here, never copied into `process.env`.
+const handed = secretsOnStdin(process.env)
+  ? await readHandover(process.stdin).catch((error: unknown) => fail(reason(error)))
+  : {};
+
 const config = (() => {
   try {
-    return loadConfig(process.env);
+    return loadConfig({ ...process.env, ...handed });
   } catch (error) {
     return fail(reason(error));
   }
@@ -45,7 +58,7 @@ const credentials = (() => {
     return fail(reason(error));
   }
 })();
-const models = builtinModels({ credentials });
+const models = builtinModels({ credentials, authContext: handedAuthContext(handed, process.env) });
 const resolved = resolveModels(config, (provider, id) => models.getModel(provider, id));
 const login = {
   models: {

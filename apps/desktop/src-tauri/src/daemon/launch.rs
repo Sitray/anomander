@@ -1,5 +1,7 @@
-// How the shell starts the daemon (DK-1 AC1): which `node`, which entry point, and the child's
-// environment, which carries the secrets (DK-5 AC2) and this launch's token (DK-3 AC2).
+// How the shell starts the daemon (DK-1 AC1): which `node`, which entry point, the child's
+// environment, and the line on its stdin that carries the secrets (DK-5 AC2) and this launch's
+// token (DK-3 AC2). Secrets never go in the environment: `ps eww` shows it to the principal's
+// other processes.
 use std::net::{Ipv4Addr, TcpListener};
 use std::path::{Path, PathBuf};
 
@@ -74,7 +76,8 @@ pub struct DaemonInputs<'a> {
     pub local_port: u16,
 }
 
-/// The daemon's whole environment, for a child started from a cleared one.
+/// The daemon's whole environment, for a child started from a cleared one. It holds no secret:
+/// those travel on the handover line (`handover_line`).
 pub fn child_env(
     parent: &dyn Fn(&str) -> Option<String>,
     inputs: &DaemonInputs,
@@ -90,7 +93,6 @@ pub fn child_env(
         env.push(("TZ".into(), zone));
     }
     let mut set = |name: &str, value: &str| env.push((name.to_owned(), value.to_owned()));
-    set("TELEGRAM_BOT_TOKEN", inputs.telegram_bot_token);
     set("ANOMANDER_PRINCIPAL_CHAT_ID", inputs.principal_chat_id);
     // Unset, the daemon starts its setup guide (R-28).
     if let Some(model) = inputs.model {
@@ -98,9 +100,6 @@ pub fn child_env(
     }
     if let Some(model) = inputs.vision_model {
         set("ANOMANDER_VISION_MODEL", model);
-    }
-    for (name, key) in inputs.provider_keys {
-        set(name, key);
     }
     set("ANOMANDER_DB_PATH", &inputs.paths.db.to_string_lossy());
     set("ANOMANDER_INBOX_DIR", &inputs.paths.inbox.to_string_lossy());
@@ -110,6 +109,26 @@ pub fn child_env(
         "ANOMANDER_MCP_CONFIG",
         &inputs.paths.connections.to_string_lossy(),
     );
+    set("ANOMANDER_LOCAL_PORT", &inputs.local_port.to_string());
+    // DK-1 AC1: the daemon stops when its stdin closes, so a crashed app leaves no daemon.
+    set("ANOMANDER_STOP_WITH_PARENT", "1");
+    // DK-5 AC2: the daemon reads the secrets from the first line of its stdin.
+    set("ANOMANDER_SECRETS_ON_STDIN", "1");
+    env
+}
+
+/// DK-5 AC2: the secrets, by the variable the daemon would read them from, as one JSON object on
+/// one line (JSON escapes every line break inside a value). The supervisor writes it, then `\n`,
+/// to the daemon's stdin. Holds secrets: never log it.
+pub fn handover_line(inputs: &DaemonInputs) -> String {
+    let mut handed = serde_json::Map::new();
+    let mut set = |name: &str, value: &str| {
+        handed.insert(name.to_owned(), value.into());
+    };
+    set("TELEGRAM_BOT_TOKEN", inputs.telegram_bot_token);
+    for (name, key) in inputs.provider_keys {
+        set(name, key);
+    }
     if !inputs.connection_secrets.is_empty() {
         let secrets: serde_json::Map<String, serde_json::Value> = inputs
             .connection_secrets
@@ -125,10 +144,7 @@ pub fn child_env(
     set("ANOMANDER_AUTH_JSON", inputs.model_login);
     set("ANOMANDER_MCP_OAUTH", inputs.mcp_oauth);
     set("ANOMANDER_LOCAL_TOKEN", inputs.local_token);
-    set("ANOMANDER_LOCAL_PORT", &inputs.local_port.to_string());
-    // DK-1 AC1: the daemon stops when its stdin closes, so a crashed app leaves no daemon.
-    set("ANOMANDER_STOP_WITH_PARENT", "1");
-    env
+    serde_json::Value::Object(handed).to_string()
 }
 
 /// The parent's `PATH` with Homebrew's folders after it, each folder once.
@@ -215,51 +231,93 @@ mod tests {
         }
     }
 
-    #[test]
-    fn the_child_gets_its_configuration_secrets_and_token_and_nothing_else() {
-        let keys = vec![("OPENAI_API_KEY".to_owned(), "sk-1".to_owned())];
-        let paths = paths();
-        let inputs = DaemonInputs {
+    fn full_inputs<'a>(keys: &'a [(String, String)], paths: &'a DaemonPaths) -> DaemonInputs<'a> {
+        DaemonInputs {
             telegram_bot_token: "bot:1",
             principal_chat_id: "42",
             model: Some("openai/gpt-4o-mini"),
             vision_model: Some("openai/gpt-4o"),
-            provider_keys: &keys,
+            provider_keys: keys,
             connection_secrets: &[],
             model_login: r#"{"openai":{"type":"api_key","key":"sk-2"}}"#,
             mcp_oauth: r#"{"notes":{}}"#,
-            paths: &paths,
+            paths,
             local_token: "t".repeat(64).leak(),
             local_port: 50123,
-        };
-        let env: BTreeMap<_, _> = child_env(&parent, &inputs).into_iter().collect();
+        }
+    }
+
+    #[test]
+    fn the_child_env_holds_its_configuration_and_no_secret() {
+        let keys = vec![("OPENAI_API_KEY".to_owned(), "sk-1".to_owned())];
+        let paths = paths();
+        let env: BTreeMap<_, _> = child_env(&parent, &full_inputs(&keys, &paths))
+            .into_iter()
+            .collect();
         let expected: BTreeMap<String, String> = [
             ("PATH", "/usr/bin:/bin:/opt/homebrew/bin:/usr/local/bin"),
             ("HOME", "/Users/p"),
             ("TMPDIR", "/tmp/x/"),
             ("LANG", "es_ES.UTF-8"),
-            ("TELEGRAM_BOT_TOKEN", "bot:1"),
             ("ANOMANDER_PRINCIPAL_CHAT_ID", "42"),
             ("ANOMANDER_MODEL", "openai/gpt-4o-mini"),
             ("ANOMANDER_VISION_MODEL", "openai/gpt-4o"),
-            ("OPENAI_API_KEY", "sk-1"),
             ("ANOMANDER_DB_PATH", "/data/anomander.db"),
             ("ANOMANDER_INBOX_DIR", "/data/inbox"),
             ("ANOMANDER_AUTH_PATH", "/data/auth.json"),
             ("ANOMANDER_MCP_CONFIG", "/data/mcp.json"),
-            (
-                "ANOMANDER_AUTH_JSON",
-                r#"{"openai":{"type":"api_key","key":"sk-2"}}"#,
-            ),
-            ("ANOMANDER_MCP_OAUTH", r#"{"notes":{}}"#),
-            ("ANOMANDER_LOCAL_TOKEN", &"t".repeat(64)),
             ("ANOMANDER_LOCAL_PORT", "50123"),
             ("ANOMANDER_STOP_WITH_PARENT", "1"),
+            ("ANOMANDER_SECRETS_ON_STDIN", "1"),
         ]
         .into_iter()
         .map(|(k, v)| (k.to_owned(), v.to_owned()))
         .collect();
         assert_eq!(env, expected);
+    }
+
+    #[test]
+    fn the_secrets_travel_as_one_json_line_and_only_there() {
+        let keys = vec![("OPENAI_API_KEY".to_owned(), "sk-1".to_owned())];
+        let paths = paths();
+        let secrets = vec![("mcp/notes/env/TOKEN".to_owned(), "line\nbreak".to_owned())];
+        let inputs = DaemonInputs {
+            connection_secrets: &secrets,
+            ..full_inputs(&keys, &paths)
+        };
+        let line = handover_line(&inputs);
+        assert!(!line.contains('\n') && !line.contains('\r'), "{line}");
+        let handed: BTreeMap<String, String> =
+            serde_json::from_str(&line).unwrap_or_else(|e| panic!("not a JSON object: {e}"));
+        let expected: BTreeMap<String, String> = [
+            ("TELEGRAM_BOT_TOKEN", "bot:1"),
+            ("OPENAI_API_KEY", "sk-1"),
+            (
+                "ANOMANDER_AUTH_JSON",
+                r#"{"openai":{"type":"api_key","key":"sk-2"}}"#,
+            ),
+            (
+                "ANOMANDER_MCP_SECRETS",
+                r#"{"mcp/notes/env/TOKEN":"line\nbreak"}"#,
+            ),
+            ("ANOMANDER_MCP_OAUTH", r#"{"notes":{}}"#),
+            ("ANOMANDER_LOCAL_TOKEN", &"t".repeat(64)),
+        ]
+        .into_iter()
+        .map(|(k, v)| (k.to_owned(), v.to_owned()))
+        .collect();
+        assert_eq!(handed, expected);
+        // Not one of them is in the environment, where `ps eww` would show it.
+        let env = child_env(&parent, &inputs);
+        for value in handed.values() {
+            assert!(
+                !env.iter().any(|(_, v)| v == value),
+                "{value} is in the env"
+            );
+        }
+        for name in handed.keys() {
+            assert!(!env.iter().any(|(n, _)| n == name), "{name} is in the env");
+        }
     }
 
     #[test]
@@ -279,7 +337,9 @@ mod tests {
             local_port: 1,
         };
         let env: BTreeMap<_, _> = child_env(&|_| None, &inputs).into_iter().collect();
-        assert!(!env.contains_key("ANOMANDER_MCP_SECRETS"));
+        let handed: BTreeMap<String, String> =
+            serde_json::from_str(&handover_line(&inputs)).unwrap_or_default();
+        assert!(!handed.contains_key("ANOMANDER_MCP_SECRETS"));
         assert!(!env.contains_key("ANOMANDER_MODEL"));
         assert!(!env.contains_key("ANOMANDER_VISION_MODEL"));
         assert!(!env.contains_key("HOME"));
@@ -315,8 +375,9 @@ mod tests {
             local_token: "t",
             local_port: 1,
         };
-        let env: BTreeMap<_, _> = child_env(&|_| None, &inputs).into_iter().collect();
-        let sent: BTreeMap<String, String> = env
+        let handed: BTreeMap<String, String> =
+            serde_json::from_str(&handover_line(&inputs)).unwrap_or_default();
+        let sent: BTreeMap<String, String> = handed
             .get("ANOMANDER_MCP_SECRETS")
             .and_then(|json| serde_json::from_str(json).ok())
             .unwrap_or_default();

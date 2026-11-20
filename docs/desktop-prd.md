@@ -87,12 +87,16 @@ and keep its secrets in the operating system instead of a text file.
     in the macOS Keychain, entered once in the app's setup screen. The login is made from
     Telegram (`/login`, DK-4 AC7) or from the app's Suscripciones screen (DK-15) and kept by
     the daemon in memory: the app hands it over at
-    each start in `ANOMANDER_AUTH_JSON`, and every change (a login, a logout, a token refresh)
+    each start as `ANOMANDER_AUTH_JSON` on the daemon's stdin (AC2), and every change (a login, a logout, a token refresh)
     comes back on one line of the daemon's output that the app stores as the Keychain item
     `model-login` and never forwards. An `auth.json` found in the data folder at a start is
     merged into it, provider by provider, and removed once the merged login reads back.
-  - AC2: the app hands them to the daemon when it starts it, as the child process's
-    environment; they are never written to a file and never logged.
+  - AC2: the app hands them to the daemon when it starts it, on the child process's stdin, as
+    one JSON object on one line named by the daemon's variables, never in its environment, which
+    `ps eww` shows to every process of the principal; the environment says only
+    `ANOMANDER_SECRETS_ON_STDIN=1`. They are never written to a file and never logged. Docker
+    and the CLI, which never set that variable, keep reading the same variables from the
+    environment (AC3).
   - AC3: `.env` keeps working for Docker installs; the app does not read it, except once, when
     the principal asks: launched with `ANOMANDER_IMPORT_ENV=<path>`, it stores that file's bot
     token and provider keys in the Keychain and its chat ID and models in its settings.
@@ -389,7 +393,7 @@ the principal to confirm:
 
 | What | How |
 | --- | --- |
-| The token (DK-3 AC2) | `ANOMANDER_LOCAL_TOKEN` in the daemon's environment, at least 32 characters of `A-Z a-z 0-9 . _ ~ + -`. Unset: the channel is off and no port opens, as under Docker |
+| The token (DK-3 AC2) | `ANOMANDER_LOCAL_TOKEN`, handed over on the daemon's stdin by the app (DK-5 AC2), at least 32 characters of `A-Z a-z 0-9 . _ ~ + -`. Unset: the channel is off and no port opens, as under Docker |
 | The port | `ANOMANDER_LOCAL_PORT`, default `4312`, always on `127.0.0.1`. The app picks a free one at each launch |
 | Presenting the token | As the second WebSocket subprotocol: `new WebSocket(url, ['anomander.v1', token])` |
 | Messages | `ChatRequest` (`text`, `receipt`, `button`) and `ChatEvent` (`reply`, `done`, `rejected`) in `packages/protocol/src/local-channel.ts` |
@@ -403,12 +407,13 @@ Built in `apps/desktop` (see its README): a React window (`src/`) and a Tauri 2 
 
 | What | How |
 | --- | --- |
-| Starting the daemon (DK-1 AC1) | `node packages/daemon/src/main.ts` of this repository, with a cleared environment plus the setup, the data paths and this launch's token and port |
+| Starting the daemon (DK-1 AC1) | `node packages/daemon/src/main.ts` of this repository, with a cleared environment plus the setup without its secrets, the data paths, this launch's port and `ANOMANDER_SECRETS_ON_STDIN=1` |
+| Handing the secrets over (DK-5 AC2) | Right after the start the shell writes one line to the daemon's stdin: a JSON object with `TELEGRAM_BOT_TOKEN`, every provider key, `ANOMANDER_AUTH_JSON`, `ANOMANDER_MCP_SECRETS`, `ANOMANDER_MCP_OAUTH` and `ANOMANDER_LOCAL_TOKEN`. The daemon reads it before its configuration, lays it over its environment without copying it there, and stops with exit code `1` when it is not a JSON object of strings or does not arrive within 10 seconds; the rest of stdin is then only watched for its end (DK-1 AC1). pi-ai reads a handed provider key as if it were in the environment |
 | No daemon left behind (DK-1 AC1) | SIGTERM, then SIGKILL after 5 seconds. The daemon also stops when its stdin closes (`ANOMANDER_STOP_WITH_PARENT=1`), so a crashed or killed app leaves none |
 | Restarting (DK-1 AC2) | One second after an exit; exit codes 3 and 4 are never retried |
 | Secrets (DK-5) | Keychain items of service `ANOMANDER`, named as the daemon's variables. The rest in `settings.json` in the data folder, mode `600` |
-| Secrets of the connections (DK-11 AC1) | Keychain items named `mcp/<server>/<env or headers>/<name>`, listed in `settings.json`. The daemon gets them in `ANOMANDER_MCP_SECRETS`, a JSON object by that name. Every value is moved, secret or not: the code cannot tell. In the daemon's output a value is hidden from 4 characters when its name holds a word a secret's name usually does or it is a header, and from 8 otherwise. A file saved while its values are moved is left for the next start |
-| OAuth of the connections (DK-11 AC10) | The Keychain item `mcp-oauth`, one JSON object by server name with its client, tokens, redirect address and the server's URL. The shell runs `packages/daemon/scripts/mcp-oauth.ts`, which prints the address to open and then the tokens on one line; the daemon gets the set in `ANOMANDER_MCP_OAUTH` and prints it whole on a line starting `anomander mcp-oauth ` after a refresh. The shell stores what a connection gave, and forgets a server's tokens, with the daemon stopped, so a refresh it hands over meanwhile cannot overwrite them |
+| Secrets of the connections (DK-11 AC1) | Keychain items named `mcp/<server>/<env or headers>/<name>`, listed in `settings.json`. The daemon gets them in `ANOMANDER_MCP_SECRETS` on its stdin, a JSON object by that name. Every value is moved, secret or not: the code cannot tell. In the daemon's output a value is hidden from 4 characters when its name holds a word a secret's name usually does or it is a header, and from 8 otherwise. A file saved while its values are moved is left for the next start |
+| OAuth of the connections (DK-11 AC10) | The Keychain item `mcp-oauth`, one JSON object by server name with its client, tokens, redirect address and the server's URL. The shell runs `packages/daemon/scripts/mcp-oauth.ts`, which prints the address to open and then the tokens on one line; the daemon gets the set in `ANOMANDER_MCP_OAUTH` on its stdin and prints it whole on a line starting `anomander mcp-oauth ` after a refresh. The shell stores what a connection gave, and forgets a server's tokens, with the daemon stopped, so a refresh it hands over meanwhile cannot overwrite them |
 | The time zone | The daemon's `TZ` is the zone this machine's clock points to (`/etc/localtime`), so its dates are the principal's. When it cannot be read, the daemon's default |
 | The subscription login (DK-5 AC1) | The Keychain item `model-login`, the shape of `auth.json`. The daemon prints it whole on a line starting `anomander credentials ` after every change, before pi-ai uses it; a daemon killed between a token refresh and that line loses the refreshed token, and the principal logs in again. `pnpm run login` reaches the app's daemon only through an `auth.json` merged at its next start. The device ID stays on disk: it is not a secret |
 | The subscription login from the app (DK-15) | The shell (`src-tauri/src/login.rs`) runs `packages/daemon/scripts/login.ts --shell <account>` with a cleared environment plus `PATH` and `ANOMANDER_AUTH_PATH` (for the device ID only). The script prints `anomander login-open <address>` for the shell to open, `anomander login-code <code> <address>` for a device code, `anomander login-prompt` when it waits for the pasted address on its stdin, then `anomander login-done <json>` with the credential by provider and one word: `connected`, `timed_out` or `cancelled`. The shell tells the window each step on the event `shell://login` (opened, device code, prompt), merges the credential into `model-login` under `Supervisor::while_stopped`, and refuses any account but `openai` and `kimi-coding` before starting Node |
