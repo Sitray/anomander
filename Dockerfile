@@ -1,4 +1,7 @@
-FROM node:24-slim
+# The base image is pinned by digest (the multi-arch index), so a rebuild gets the same bytes. To
+# refresh it, take the new digest of `node:24-slim` and replace the one below:
+#   docker buildx imagetools inspect node:24-slim   (the "Digest:" line)
+FROM node:24-slim@sha256:dc26ae92c9fb15cf6b1d63e20f0944b2efe0f115b20e00be48fb23fceb061c54
 
 ENV NODE_ENV=production
 WORKDIR /app
