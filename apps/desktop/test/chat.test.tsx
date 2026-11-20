@@ -492,6 +492,19 @@ describe('a look at the screen (DK-9, DK-13)', () => {
     expect(within(log).getAllByText(question)).toHaveLength(1);
   });
 
+  it('lets go of the capture when the chat leaves the screen', async () => {
+    const { socket } = openWithScreen();
+    await routed(socket, 'screen', question);
+    await sentRequest(socket, 2);
+    const capture = within(screen.getByRole('log')).getByRole<HTMLImageElement>('img', {
+      name: strings.chat.screenCapture,
+    });
+
+    cleanup();
+
+    expect(URL.revokeObjectURL).toHaveBeenCalledWith(capture.getAttribute('src'));
+  });
+
   it('waits for the answer about the screen, and shows it', async () => {
     const { socket } = openWithScreen();
     await routed(socket, 'screen', question);
@@ -1158,5 +1171,120 @@ describe('a task with connections (DK-11, DK-13)', () => {
       type: 'button',
       data: 'connection:abc:allow',
     });
+  });
+});
+
+describe('DK-13: a route is followed only in the answer to a plain text', () => {
+  const openFull = () => {
+    const onCaptureScreen = vi.fn(async () => jpeg());
+    const onPerformAction = vi.fn(async () => jpeg());
+    render(
+      <ChatScreen
+        daemon={RUNNING}
+        channel={CHANNEL}
+        onCaptureScreen={onCaptureScreen}
+        onPerformAction={onPerformAction}
+      />,
+    );
+    act(() => FakeWebSocket.last.open());
+    return { socket: FakeWebSocket.last, onCaptureScreen, onPerformAction };
+  };
+
+  it('ignores a route in the answer to a button press', async () => {
+    const { socket, onCaptureScreen } = openFull();
+    say('mercadona 40');
+    const request = await sentRequest(socket);
+    act(() =>
+      socket.receive(
+        replyTo(request.id, { text: '¿Sí?', buttons: [{ label: 'Sí', data: 'policy:yes:7' }] }),
+      ),
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Sí' }));
+    const pressed = await sentRequest(socket, 2);
+    act(() =>
+      socket.receive(replyTo(pressed.id, { text: 'x', route: { to: 'computer', task: 'abre' } })),
+    );
+    await act(async () => {});
+    expect(onCaptureScreen).not.toHaveBeenCalled();
+    expect(socket.requests).toHaveLength(2);
+  });
+
+  it('ignores a route in the answer to a receipt', async () => {
+    const { socket, onCaptureScreen } = openFull();
+    fireEvent.change(screen.getByLabelText(strings.chat.attach, { selector: 'input' }), {
+      target: { files: [image('ticket.png')] },
+    });
+    pressEnter();
+    const request = await sentRequest(socket);
+    act(() =>
+      socket.receive(replyTo(request.id, { text: 'x', route: { to: 'screen', task: 'mira' } })),
+    );
+    await act(async () => {});
+    expect(onCaptureScreen).not.toHaveBeenCalled();
+    expect(socket.requests).toHaveLength(1);
+  });
+
+  it('ignores a route in the answer to a look: no loop of captures', async () => {
+    const { socket, onCaptureScreen } = openFull();
+    await routed(socket, 'screen', '¿qué ves?');
+    const look = await sentRequest(socket, 2);
+    act(() =>
+      socket.receive(replyTo(look.id, { text: 'x', route: { to: 'screen', task: 'otra' } })),
+    );
+    await act(async () => {});
+    expect(onCaptureScreen).toHaveBeenCalledTimes(1);
+    expect(socket.requests).toHaveLength(2);
+  });
+
+  it('ignores a connect route, and a second reply to the same text', async () => {
+    const { socket, onCaptureScreen } = openFull();
+    say('hola');
+    const request = await sentRequest(socket);
+    act(() =>
+      socket.receive(
+        replyTo(request.id, { text: 'a', route: { to: 'connect', task: 'x' } } as never),
+      ),
+    );
+    act(() =>
+      socket.receive(replyTo(request.id, { text: 'b', route: { to: 'screen', task: 'x' } })),
+    );
+    await act(async () => {});
+    expect(onCaptureScreen).not.toHaveBeenCalled();
+    expect(socket.requests).toHaveLength(1);
+  });
+
+  it('a reply to a text that arrives after the connection was opened again starts nothing', async () => {
+    const { socket, onCaptureScreen } = openFull();
+    say('hola');
+    const request = await sentRequest(socket);
+    act(() => socket.drop());
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 300));
+    });
+    const reopened = FakeWebSocket.last;
+    act(() => reopened.open());
+    act(() =>
+      reopened.receive(replyTo(request.id, { text: 'late', route: { to: 'screen', task: 'x' } })),
+    );
+    await act(async () => {});
+    expect(onCaptureScreen).not.toHaveBeenCalled();
+  });
+
+  it('a routed task still waits for Permitir before a step of care (DK-10 AC1)', async () => {
+    const { socket, onPerformAction } = openFull();
+    await routed(socket, 'computer', 'borra el archivo');
+    const step = await sentRequest(socket, 2);
+    act(() =>
+      socket.receive(
+        replyTo(step.id, {
+          text: 'Pulso Borrar',
+          computer: { type: 'click', x: 1, y: 1 } as never,
+          confirm: true,
+        }),
+      ),
+    );
+    await act(async () => {});
+    expect(onPerformAction).not.toHaveBeenCalled();
+    expect(screen.getByRole('button', { name: /permitir/i })).toBeTruthy();
   });
 });

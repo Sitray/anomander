@@ -731,7 +731,9 @@ export const startAnomander = <M>(config: Config, deps: AnomanderDeps<M>): Anoma
     const reply = await recordedText(message);
     // DK-13 AC2: a task with connections asked in words runs as one asked with `connect`.
     const { route } = reply;
-    return route?.to === 'connect' ? runConnections(route.task, doorOf(message.channelRef)) : reply;
+    if (route?.to !== 'connect') return reply;
+    // Telegram's answer goes out by itself when the task ends: the announcement goes now.
+    return runConnections(route.task, doorOf(message.channelRef)) ?? { text: reply.text };
   });
 
   const chat: ChatHandlers = {

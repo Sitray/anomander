@@ -129,6 +129,14 @@ export const useChat = (channel: LocalChannel | null, options: ChatOptions = {})
   const rest = useRef<() => void>(() => {});
   /** `launch`, defined below as well. */
   const launching = useRef<(id: string, route: Route) => void>(() => {});
+  /** The captures of looks shown in the conversation, let go of when the chat leaves. */
+  const captures = useRef(new Set<string>());
+  useEffect(
+    () => () => {
+      for (const url of captures.current) URL.revokeObjectURL(url);
+    },
+    [],
+  );
 
   useEffect(() => {
     const created = createChatClient({
@@ -325,6 +333,7 @@ export const useChat = (channel: LocalChannel | null, options: ChatOptions = {})
         // A capture that cannot be read never left: it is reported as not sent.
       }
       const captureUrl = URL.createObjectURL(new Blob([jpeg], { type: 'image/jpeg' }));
+      captures.current.add(captureUrl);
       dispatch({ type: 'started', id, requestId, captureUrl });
     },
     [inTurn],
@@ -347,7 +356,10 @@ export const useChat = (channel: LocalChannel | null, options: ChatOptions = {})
     (message: BotMessage) => {
       const { start } = message;
       if (start === null || start.delivery !== 'not_sent') return;
-      if (start.captureUrl !== null) URL.revokeObjectURL(start.captureUrl);
+      if (start.captureUrl !== null) {
+        URL.revokeObjectURL(start.captureUrl);
+        captures.current.delete(start.captureUrl);
+      }
       dispatch({ type: 'restarted', id: message.id });
       launch(message.id, start.route);
     },

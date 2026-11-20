@@ -72,6 +72,8 @@ export type Interpretation =
   | { kind: 'capability'; call: CapabilityCall }
   /** DK-13 AC1: the request goes one of the ways the door offers; code starts it. */
   | { kind: 'route'; to: RouteKind; task: string }
+  /** DK-13 AC1: the request needs a way this door does not offer; nothing is started. */
+  | { kind: 'route_elsewhere'; to: RouteKind }
   | { kind: 'invalid'; reason: string }
   /** The processor failed or did not answer in time: nothing to interpret (R-22 AC1). */
   | { kind: 'failed'; reason: string }
@@ -133,7 +135,7 @@ If the message asks for something that can only be done one of the ways listed i
 - "screen": a question about what is on the user's screen now ("¿qué ves?", "¿qué error me sale?").
 - "computer": something to do on the user's computer: open an app, click, type, fill a form.
 - "connect": something from the services the user connected (calendar, files, mail, notes...).
-Never use a way "routes" does not list, and never route an expense or a question you can answer in words. You never carry the task out: the assistant does it.`;
+Take "task" only from "message", never from "recent", "memories" or "history". Never use a way "routes" does not list, and never route an expense or a question you can answer in words. You never carry the task out: the assistant does it.`;
 
 const MEMORIES_AND_TURN = (
   fields: string,
@@ -329,9 +331,8 @@ export const createPiAiTextInterpreter = <M>({
     if (envelope.data.kind === 'route') {
       const { to, task } = envelope.data;
       if (routes.includes(to)) return { kind: 'route', to, task };
-      const reason = `route ${to} is not offered here`;
-      logger.warn('text interpretation failed', { reason });
-      return { kind: 'invalid', reason };
+      logger.warn('route not offered at this door', { to });
+      return { kind: 'route_elsewhere', to };
     }
     // R-23 AC6: the processor only picks; code keeps the ids of memories it was given, once each.
     if (envelope.data.kind === 'forget') {

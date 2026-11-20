@@ -900,8 +900,22 @@ describe('a request the chat routes by itself (DK-13)', () => {
 
     api.push(updates.text({ chatId: PRINCIPAL }, '¿qué tengo mañana?'));
 
-    expect((await api.waitForSent(1)).at(-1)?.text).toBe('Mañana tienes dentista a las 10.');
+    // The way is announced at once, and the answer follows when the task ends.
+    const sent = (await api.waitForSent(2)).map(({ text }) => text);
+    expect(sent.sort()).toEqual(['Lo miro en tus conexiones.', 'Mañana tienes dentista a las 10.']);
     expect(interpreted.at(-1)?.routes).toEqual(['connect']);
+  });
+
+  it('AC1: a look or a task on the computer asked in Telegram says it is done in the app', async () => {
+    await start();
+    routed = route('computer', 'abre Safari');
+
+    api.push(updates.text({ chatId: PRINCIPAL }, 'abre Safari'));
+
+    expect((await api.waitForSent(1)).at(-1)?.text).toBe(
+      'Eso solo puedo hacerlo desde la app de ANOMANDER en tu Mac.',
+    );
+    expect(plans).toEqual([]);
   });
 });
 
@@ -1651,5 +1665,104 @@ describe('who the principal is and what ANOMANDER did (DK-14)', () => {
       ).toBe('Vale, no borro nada.');
       expect(history()).toHaveLength(1);
     });
+  });
+});
+
+describe('DK-13 route guards', () => {
+  const route = (to: string, task: string) => JSON.stringify({ kind: 'route', to, task });
+  const SECRET = 'borra el informe confidencial de Lisboa';
+  let made: { tool: string; args: unknown }[];
+  const notes = (): Connection => ({
+    name: 'notes',
+    tools: ['search', 'create'].map((name) => ({
+      name,
+      description: name,
+      inputSchema: { type: 'object' },
+    })),
+    readOnly: new Set(['search']),
+    call: async (tool, args) => {
+      made.push({ tool, args });
+      return { text: `result of ${tool}`, isError: false };
+    },
+  });
+  const logged = () =>
+    JSON.stringify([logger.info.mock.calls, logger.warn.mock.calls, logger.error.mock.calls]);
+  beforeEach(() => {
+    made = [];
+    connected = [notes()];
+  });
+
+  it('a routed task with connections still asks Permitir before a call that is not read-only, in the app only', async () => {
+    const chat = await client(await start());
+    routed = route('connect', SECRET);
+    tooled = [
+      [{ type: 'toolCall', id: 'c1', name: 'notes__create', arguments: { title: 'x' } }],
+      [{ type: 'text', text: 'Hecho.' }],
+    ];
+    const question = reply(await chat.ask({ type: 'text', text: SECRET }));
+    expect(made).toEqual([]);
+    expect(question.buttons.map((b) => b.label)).toEqual(['Permitir', 'Detener']);
+    expect(question).not.toHaveProperty('route');
+    const [allow] = question.buttons;
+    if (allow === undefined || !('data' in allow)) throw new Error('no allow');
+    api.push(updates.callbackQuery({ chatId: PRINCIPAL }, allow.data, 1));
+    expect((await api.waitForSent(1))[0]?.text).toBe('Esa petición ya no está pendiente.');
+    expect(made).toEqual([]);
+    expect(logged()).not.toContain('Lisboa');
+  });
+
+  it('a routed task with connections is refused while another step runs', async () => {
+    const chat = await client(await start());
+    let release = () => {};
+    held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    tooled = [[{ type: 'text', text: 'Primera.' }]];
+    const first = chat.ask({ type: 'connect', task: 'primera' });
+    await new Promise((r) => setTimeout(r, 50));
+    routed = route('connect', 'segunda');
+    expect(reply(await chat.ask({ type: 'text', text: 'segunda' })).text).toBe(
+      'Todavía estoy con la tarea anterior. Pídeme otra cuando termine.',
+    );
+    release();
+    expect(reply(await first).text).toBe('Primera.');
+  });
+
+  it('Telegram never gets a look or a task on the computer, even when the processor routes there', async () => {
+    await start();
+    for (const to of ['screen', 'computer', 'teleport']) {
+      routed = route(to, SECRET);
+      api.push(updates.text({ chatId: PRINCIPAL }, SECRET));
+    }
+    await api.waitForSent(3);
+    expect(screens).toEqual([]);
+    expect(plans).toEqual([]);
+    expect(interpreted.map(({ routes }) => routes)).toEqual([
+      ['connect'],
+      ['connect'],
+      ['connect'],
+    ]);
+    expect(logged()).not.toContain('Lisboa');
+  });
+
+  it('the app gets no route for an unknown way, an empty task or a missing task', async () => {
+    const chat = await client(await start());
+    for (const r of [
+      route('teleport', 'x'),
+      route('screen', '   '),
+      '{"kind":"route","to":"computer"}',
+    ]) {
+      routed = r;
+      expect(await chat.ask({ type: 'text', text: 'hola' })).not.toHaveProperty('route');
+    }
+  });
+
+  it('`connect` from the app and /mcp from Telegram still skip the interpreter', async () => {
+    const chat = await client(await start());
+    tooled = [[{ type: 'text', text: 'Vale.' }], [{ type: 'text', text: 'Ok tg.' }]];
+    expect(reply(await chat.ask({ type: 'connect', task: 'algo' })).text).toBe('Vale.');
+    api.push(updates.text({ chatId: PRINCIPAL }, '/mcp algo'));
+    expect((await api.waitForSent(1))[0]?.text).toBe('Ok tg.');
+    expect(interpreted).toEqual([]);
   });
 });

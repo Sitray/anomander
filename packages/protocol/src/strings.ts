@@ -183,11 +183,12 @@ export const strings = {
   connectionGone: () => 'Esa petición ya no está pendiente.',
   /** A task was asked while another one runs: there is one at a time. */
   connectionBusy: () => 'Todavía estoy con la tarea anterior. Pídeme otra cuando termine.',
-  /** `/mcp` with no task after it, in Telegram. */
   // DK-13 AC2: what a routed request announces before it starts.
   routedScreen: () => 'Miro tu pantalla.',
   routedComputer: () => 'Me pongo con ello en tu ordenador.',
   routedConnect: () => 'Lo miro en tus conexiones.',
+  routeInApp: () => 'Eso solo puedo hacerlo desde la app de ANOMANDER en tu Mac.',
+  /** `/mcp` with no task after it, in Telegram. */
   connectionUsage: () => 'Dime qué quieres que haga con tus conexiones: /mcp y la tarea.',
   connectionNone: () =>
     'No tengo ninguna conexión disponible. Añádelas en mcp.json, en la carpeta de datos de ANOMANDER, y reinicia.',

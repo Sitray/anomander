@@ -161,6 +161,8 @@ export const createTextExpenseHandler = (deps: TextExpenseDeps): TextHandler => 
       const { to, task } = interpretation;
       return { text: ROUTED[to](), route: { to, task } };
     }
+    // DK-13 AC1: a look or a task on the computer asked where it cannot be done.
+    if (interpretation.kind === 'route_elsewhere') return { text: strings.routeInApp() };
     // R-24 AC3: a validated capability call is carried out by its capability's handler.
     if (interpretation.kind === 'capability') return interpretation.call.carryOut(message, env);
     // R-16: open conversation gets its reply; only its lasting facts are persisted.
