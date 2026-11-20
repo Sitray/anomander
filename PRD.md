@@ -446,7 +446,7 @@ When something the daemon needs from `.env` is missing, it says what instead of 
 - AC2: Setup is incomplete when `ANOMANDER_MODEL` or `ANOMANDER_VISION_MODEL` is unset (S-71), names a model pi-ai does not know (S-72, once per variable), or a provider of those models has neither a login nor an API key (S-73, once per provider, named by its `/login` button label, or by its pi-ai provider ID when it has none).
 - AC3: The guide is S-70 followed by one line per gap, in the order of AC2. While setup is incomplete, the daemon sends it once when it starts and replies it to every text, receipt and button press except the routes of R-17 AC7. The same gaps are logged in English at start.
 - AC4: The connection gaps are checked on every message, so a login (R-27) completes setup without a restart. A model gap needs a change to `.env` and a restart; until then no processor call, store access or scheduled job runs.
-- AC5: Without `TELEGRAM_BOT_TOKEN` or `ANOMANDER_PRINCIPAL_CHAT_ID` the bot cannot write, so the daemon exits and its log names each missing variable with where to get it (@BotFather, @userinfobot).
+- AC5: The daemon needs at least one front door: Telegram (`TELEGRAM_BOT_TOKEN` with `ANOMANDER_PRINCIPAL_CHAT_ID`) or the desktop app's local channel (`ANOMANDER_LOCAL_TOKEN`, `docs/desktop-prd.md` DK-3). Without either, nobody can talk to it, so it exits and its log names both, with where to get the Telegram ones (@BotFather, @userinfobot). Half of Telegram, one variable without the other, is an error that names the missing one. Without Telegram nothing polls or is sent there, and what only Telegram serves (`/login`, `/logout`, `/mcp`, messages sent unasked) is absent.
 
 ## 12. User-facing strings (verbatim, `es-ES`)
 
@@ -874,8 +874,8 @@ One Node process (the daemon) and one SQLite file. The Telegram front door runs 
 
 | Variable | Purpose | Default |
 | --- | --- | --- |
-| `TELEGRAM_BOT_TOKEN` | Bot token from @BotFather | required |
-| `ANOMANDER_PRINCIPAL_CHAT_ID` | The only chat the bot serves | required |
+| `TELEGRAM_BOT_TOKEN` | Bot token from @BotFather | required, unless the desktop app's channel is the only front door (R-28 AC5) |
+| `ANOMANDER_PRINCIPAL_CHAT_ID` | The only chat the bot serves | required with `TELEGRAM_BOT_TOKEN` (R-28 AC5) |
 | `ANOMANDER_DB_PATH` | SQLite file | `./data/anomander.db` |
 | `ANOMANDER_MODEL` | Model for interpretation and writing | required (R-28 guides when unset) |
 | `ANOMANDER_VISION_MODEL` | Model for reading receipts | required (R-28 guides when unset) |

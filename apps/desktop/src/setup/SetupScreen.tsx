@@ -67,8 +67,12 @@ export function Field({ label, help, error, required, children }: FieldProps) {
   );
 }
 
-const isComplete = (setup: SetupState): boolean =>
-  setup.hasTelegramBotToken && setup.principalChatId !== null;
+/**
+ * Whether the stored setup can start the daemon, as the shell decides: a model for the chat, or
+ * Telegram whole (T13), whose setup guide and `/login` need no model.
+ */
+export const isComplete = (setup: SetupState): boolean =>
+  setup.model !== null || (setup.hasTelegramBotToken && setup.principalChatId !== null);
 
 interface FormProps extends SetupScreenProps {
   /** The setup was saved and still cannot start the daemon. */
@@ -97,10 +101,10 @@ function SetupForm(props: FormProps) {
   // The screen replaces the chat: start reading it from its title.
   useEffect(() => heading.current?.focus(), []);
 
-  // S5: on a first run the daemon cannot start without these two; once stored, the token may
-  // stay blank to keep it, and an empty chat ID means "unset", as the shell takes it.
-  const tokenRequired = !setup.hasTelegramBotToken;
-  const chatIdRequired = setup.principalChatId === null;
+  // S5: until the setup can start the daemon, the chat needs a model. Telegram is optional (T13):
+  // both its fields, or neither. A stored token may stay blank to keep it, and an empty chat ID
+  // means "unset", as the shell takes it.
+  const modelRequired = !isComplete(setup);
 
   const change = (name: string, to: KeyChange | undefined) => {
     setChanges(({ [name]: _dropped, ...rest }) =>
@@ -143,15 +147,22 @@ function SetupForm(props: FormProps) {
     };
     // Omitted keeps the stored token.
     const token = botToken.current?.value.trim() ?? '';
+    const hasToken = token !== '' || setup.hasTelegramBotToken;
+    const hasChatId = input.principalChatId !== '';
     const wrong: Errors = {
-      // S5: what the daemon cannot start without is asked for while it is not stored.
-      ...(tokenRequired && token === '' ? { botToken: text.botTokenMissing } : {}),
-      ...(chatIdRequired && input.principalChatId === ''
+      // T13: half of Telegram is refused, as the shell does; a stored token counts as typed.
+      ...(hasChatId && !hasToken ? { botToken: text.botTokenMissing } : {}),
+      ...(!hasChatId && token !== ''
         ? { chatId: text.chatIdMissing }
         : isChatId(input.principalChatId)
           ? {}
           : { chatId: text.chatIdInvalid }),
-      ...(isModelId(input.model) ? {} : { model: text.modelInvalid }),
+      // S5: what the daemon cannot start without is asked for while it is not stored.
+      ...(modelRequired && input.model === '' && !(hasChatId && hasToken)
+        ? { model: text.modelMissing }
+        : isModelId(input.model)
+          ? {}
+          : { model: text.modelInvalid }),
       ...(isModelId(input.visionModel) ? {} : { visionModel: text.modelInvalid }),
       // A key typed but not added is still meant to be saved.
       ...takeTypedKey(false),
@@ -208,12 +219,7 @@ function SetupForm(props: FormProps) {
 
         <fieldset>
           <legend>{text.sectionTelegram}</legend>
-          <Field
-            label={text.botToken}
-            help={text.botTokenHelp}
-            error={errors.botToken}
-            required={tokenRequired}
-          >
+          <Field label={text.botToken} help={text.botTokenHelp} error={errors.botToken}>
             {({ id, describedBy, invalid }) => (
               <input
                 ref={botToken}
@@ -227,12 +233,7 @@ function SetupForm(props: FormProps) {
               />
             )}
           </Field>
-          <Field
-            label={text.chatId}
-            help={text.chatIdHelp}
-            error={errors.chatId}
-            required={chatIdRequired}
-          >
+          <Field label={text.chatId} help={text.chatIdHelp} error={errors.chatId}>
             {({ id, describedBy, invalid }) => (
               <input
                 id={id}
@@ -242,7 +243,6 @@ function SetupForm(props: FormProps) {
                 value={chatId}
                 aria-describedby={describedBy}
                 aria-invalid={invalid}
-                aria-required={chatIdRequired}
                 onChange={(event) => setChatId(event.target.value)}
               />
             )}
@@ -251,7 +251,12 @@ function SetupForm(props: FormProps) {
 
         <fieldset>
           <legend>{text.sectionModels}</legend>
-          <Field label={text.model} help={text.modelHelp} error={errors.model}>
+          <Field
+            label={text.model}
+            help={text.modelHelp}
+            error={errors.model}
+            required={modelRequired}
+          >
             {({ id, describedBy, invalid }) => (
               <input
                 id={id}
@@ -263,6 +268,7 @@ function SetupForm(props: FormProps) {
                 value={model}
                 aria-describedby={describedBy}
                 aria-invalid={invalid}
+                aria-required={modelRequired}
                 onChange={(event) => setModel(event.target.value)}
               />
             )}

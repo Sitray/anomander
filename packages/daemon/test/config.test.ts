@@ -11,12 +11,11 @@ describe('parseModelId', () => {
   });
 });
 
+const LOCAL_TOKEN = 'local-channel-token-0123456789abcdef';
+
 describe('loadConfig', () => {
-  it('names every missing required variable and applies the §14.4 defaults', () => {
-    // R-28 AC5: the models are not required to start; the bot and chat say where to get them.
-    expect(() => loadConfig({})).toThrow(
-      'missing configuration: TELEGRAM_BOT_TOKEN (the token @BotFather gives when you create the bot), ANOMANDER_PRINCIPAL_CHAT_ID (your Telegram user ID, which @userinfobot tells you)',
-    );
+  it('reads Telegram and applies the §14.4 defaults', () => {
+    // R-28 AC5: the models are not required to start.
     expect(
       loadConfig({ TELEGRAM_BOT_TOKEN: '123:abc', ANOMANDER_PRINCIPAL_CHAT_ID: '4242' }),
     ).toMatchObject({
@@ -33,8 +32,7 @@ describe('loadConfig', () => {
         ANOMANDER_DB_PATH: '',
       }),
     ).toEqual({
-      telegramBotToken: '123:abc',
-      principalChatId: 4242,
+      telegram: { botToken: '123:abc', principalChatId: 4242 },
       dbPath: './data/anomander.db',
       model: { provider: 'openai', id: 'gpt-4o-mini' },
       visionModel: { provider: 'ollama', id: 'llava' },
@@ -54,6 +52,44 @@ describe('loadConfig', () => {
       mcpSecrets: undefined,
       authJson: undefined,
       mcpOAuth: undefined,
+    });
+  });
+
+  // T13: Telegram is one front door, the desktop app's local channel the other; one is enough.
+  it('refuses to start without a front door, naming both', () => {
+    expect(() => loadConfig({})).toThrow(
+      "missing configuration: no front door. Set TELEGRAM_BOT_TOKEN (the token @BotFather gives when you create the bot) and ANOMANDER_PRINCIPAL_CHAT_ID (your Telegram user ID, which @userinfobot tells you) for Telegram, or ANOMANDER_LOCAL_TOKEN for the desktop app's chat",
+    );
+  });
+
+  it('starts with the local channel alone, without Telegram', () => {
+    expect(loadConfig({ ANOMANDER_LOCAL_TOKEN: LOCAL_TOKEN })).toMatchObject({
+      telegram: undefined,
+      localToken: LOCAL_TOKEN,
+    });
+  });
+
+  it('refuses half of Telegram, even beside the local channel', () => {
+    expect(() =>
+      loadConfig({ TELEGRAM_BOT_TOKEN: '123:abc', ANOMANDER_LOCAL_TOKEN: LOCAL_TOKEN }),
+    ).toThrow(
+      'missing configuration: ANOMANDER_PRINCIPAL_CHAT_ID (your Telegram user ID, which @userinfobot tells you)',
+    );
+    expect(() => loadConfig({ ANOMANDER_PRINCIPAL_CHAT_ID: '4242' })).toThrow(
+      'missing configuration: TELEGRAM_BOT_TOKEN (the token @BotFather gives when you create the bot)',
+    );
+  });
+
+  it('keeps Telegram beside the local channel', () => {
+    expect(
+      loadConfig({
+        TELEGRAM_BOT_TOKEN: '123:abc',
+        ANOMANDER_PRINCIPAL_CHAT_ID: '4242',
+        ANOMANDER_LOCAL_TOKEN: LOCAL_TOKEN,
+      }),
+    ).toMatchObject({
+      telegram: { botToken: '123:abc', principalChatId: 4242 },
+      localToken: LOCAL_TOKEN,
     });
   });
 

@@ -12,6 +12,9 @@ use crate::snapshot::SetupState;
 /// The Keychain account of the bot token: the daemon's variable name.
 pub const TELEGRAM_BOT_TOKEN: &str = "TELEGRAM_BOT_TOKEN";
 
+/// T13: Telegram is optional, but half of it is a mistake rather than a choice.
+pub const HALF_TELEGRAM: &str = "Telegram needs both the bot token and your chat ID; leave both empty to use ANOMANDER without Telegram";
+
 /// What `settings.json` holds: no secret, only which ones are stored.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
@@ -121,6 +124,17 @@ pub fn apply_setup(
             ));
         }
     }
+    // Both halves of Telegram, typed now or the token stored before, or neither: an empty chat ID
+    // with no token typed goes without Telegram, whatever token is stored.
+    let token = input.telegram_bot_token.as_deref().and_then(optional);
+    let has_token = || -> Result<bool, String> {
+        Ok(token.is_some() || store.get(TELEGRAM_BOT_TOKEN).map_err(|e| e.0)?.is_some())
+    };
+    if principal_chat_id.is_none() && token.is_some()
+        || principal_chat_id.is_some() && !has_token()?
+    {
+        return Err(HALF_TELEGRAM.to_owned());
+    }
     let model = checked_model("model", &input.model)?;
     let vision_model = checked_model("vision model", &input.vision_model)?;
     if let Some(name) = input
@@ -134,7 +148,7 @@ pub fn apply_setup(
     }
 
     let failed = |error: crate::secure_store::StoreError| error.0;
-    if let Some(token) = input.telegram_bot_token.as_deref().and_then(optional) {
+    if let Some(token) = token {
         store.set(TELEGRAM_BOT_TOKEN, &token).map_err(failed)?;
     }
     let mut provider_keys = current.provider_keys.clone();
@@ -403,12 +417,63 @@ mod tests {
         let base = json!({ "model": "", "visionModel": "" });
         let mut negative = base.clone();
         negative["principalChatId"] = json!("-1001");
+        negative["telegramBotToken"] = json!("bot:1");
         let settings = apply_setup(&input(negative), &Settings::default(), &store)?;
         assert_eq!(settings.principal_chat_id.as_deref(), Some("-1001"));
         let mut empty = base;
         empty["principalChatId"] = json!("");
         let settings = apply_setup(&input(empty), &Settings::default(), &store)?;
         assert_eq!(settings.principal_chat_id, None);
+        Ok(())
+    }
+
+    #[test]
+    fn telegram_is_optional_and_saving_without_it_works() -> Result<(), String> {
+        let store = MemoryStore::default();
+        let settings = apply_setup(
+            &input(json!({
+                "principalChatId": " ",
+                "model": "openai/gpt-4o-mini",
+                "visionModel": "",
+                "providerKeys": { "OPENAI_API_KEY": "sk-1" }
+            })),
+            &Settings::default(),
+            &store,
+        )?;
+        assert_eq!(settings.principal_chat_id, None);
+        assert_eq!(settings.model.as_deref(), Some("openai/gpt-4o-mini"));
+        assert_eq!(store.names(), vec!["OPENAI_API_KEY"]);
+        Ok(())
+    }
+
+    #[test]
+    fn half_of_telegram_is_refused_and_nothing_is_stored() {
+        let cases = [
+            json!({ "telegramBotToken": "bot:secret", "principalChatId": "",
+                    "model": "", "visionModel": "", "providerKeys": { "OPENAI_API_KEY": "sk-1" } }),
+            json!({ "principalChatId": "42", "model": "", "visionModel": "",
+                    "providerKeys": { "OPENAI_API_KEY": "sk-1" } }),
+        ];
+        for value in cases {
+            let store = MemoryStore::default();
+            match apply_setup(&input(value), &Settings::default(), &store) {
+                Err(message) => {
+                    assert_eq!(message, HALF_TELEGRAM);
+                    assert!(!message.contains("bot:secret"));
+                }
+                Ok(_) => panic!("accepted half of Telegram"),
+            }
+            assert!(store.names().is_empty());
+        }
+    }
+
+    #[test]
+    fn a_chat_id_with_the_token_stored_before_is_telegram_whole() -> Result<(), String> {
+        let store = MemoryStore::default();
+        store.set(TELEGRAM_BOT_TOKEN, "bot:old").map_err(|e| e.0)?;
+        let value = json!({ "principalChatId": "42", "model": "", "visionModel": "" });
+        let settings = apply_setup(&input(value), &Settings::default(), &store)?;
+        assert_eq!(settings.principal_chat_id.as_deref(), Some("42"));
         Ok(())
     }
 

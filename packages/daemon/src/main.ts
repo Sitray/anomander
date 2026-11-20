@@ -1,10 +1,10 @@
 // Daemon entry point: reads the configuration (PRD §14.4), resolves the model through pi-ai
-// (R-15 AC1) and starts the store, the Telegram front door and, while `ANOMANDER_API_TOKEN` is set,
+// (R-15 AC1) and starts the store, the front doors (Telegram while it is configured, the desktop
+// app's local channel while `ANOMANDER_LOCAL_TOKEN` is set) and, while `ANOMANDER_API_TOKEN` is set,
 // the read API (RA-2), or the setup guide while `.env` names no usable model (R-28). pi-ai reads the stored logins from `ANOMANDER_AUTH_PATH` on every
 // request (R-15 AC3, R-27 AC5), or, under the desktop app, from `ANOMANDER_AUTH_JSON` (DK-5 AC1).
 // The desktop app hands every secret over on stdin instead of the environment (DK-5 AC2).
 import { type ExitCode, exitCodes } from '@anomander/protocol';
-import { isBotInUse } from '@anomander/telegram';
 import { builtinModels } from '@earendil-works/pi-ai/providers/all';
 import { startAnomander, startSetupGuide } from './app.ts';
 import { createDeviceId } from './auth/device-id.ts';
@@ -48,7 +48,7 @@ const config = (() => {
     return fail(reason(error));
   }
 })();
-secrets = [config.telegramBotToken, config.apiToken ?? '', config.localToken ?? ''];
+secrets = [config.telegram?.botToken ?? '', config.apiToken ?? '', config.localToken ?? ''];
 
 // DK-5 AC1: the login the desktop app keeps in the Keychain, or the file of a Docker install.
 const credentials = (() => {
@@ -97,17 +97,21 @@ const anomander = (() => {
 })();
 
 anomander.started.then(
-  () => log.info('anomander is listening on Telegram'),
+  () => {
+    if (config.telegram !== undefined) log.info('anomander is listening on Telegram');
+  },
   // Reported below, through `polling`.
   () => {},
 );
-// A daemon that no longer polls is deaf: it says why and exits instead of staying up.
-anomander.polling.catch((error: unknown) =>
-  isBotInUse(error)
+// A daemon that no longer polls is deaf: it says why and exits instead of staying up. Only a
+// daemon with Telegram polls, so only then is `@anomander/telegram` loaded to tell why.
+anomander.polling.catch(async (error: unknown) => {
+  const { isBotInUse } = await import('@anomander/telegram');
+  return isBotInUse(error)
     ? // DK-2 AC2: another process, such as a Docker install, reads the same bot.
       fail('another ANOMANDER is using this Telegram bot (409 Conflict)', exitCodes.botInUse)
-    : fail(`Telegram polling stopped: ${reason(error)}`),
-);
+    : fail(`Telegram polling stopped: ${reason(error)}`);
+});
 // RA-2: logs the address only, never the token (AC2).
 anomander.readApi?.then(
   ({ host, port }) => log.info(`anomander read API listening on ${host}:${port}`),

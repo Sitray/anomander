@@ -7,6 +7,7 @@ import {
   type ChatRequest,
   type ComputerRequest,
   type ConnectRequest,
+  type DoorReply,
   LOCAL_CHANNEL_PROTOCOL,
   MAX_COMPUTER_STEPS,
   type PrincipalText,
@@ -14,7 +15,6 @@ import {
   type ScreenQuestion,
   strings,
 } from '@anomander/protocol';
-import type { TelegramReply } from '@anomander/telegram';
 import { type WebSocket, WebSocketServer } from 'ws';
 import { z } from 'zod';
 import type { Logger } from '../processor/text-interpreter.ts';
@@ -27,15 +27,15 @@ import type { Logger } from '../processor/text-interpreter.ts';
 
 /** The daemon's handlers, the ones the Telegram front door calls too (DK-4 AC1). */
 export interface ChatHandlers {
-  onText: (message: PrincipalText) => Promise<TelegramReply | null>;
+  onText: (message: PrincipalText) => Promise<DoorReply | null>;
   onReceipt: ReceiptHandler;
-  onButton: (press: ButtonPress) => Promise<TelegramReply | null>;
+  onButton: (press: ButtonPress) => Promise<DoorReply | null>;
   /** Only the app asks about the screen: Telegram has no capture to send. */
-  onScreen: (question: ScreenQuestion) => Promise<TelegramReply | null>;
+  onScreen: (question: ScreenQuestion) => Promise<DoorReply | null>;
   /** DK-10: proposes the next step of a task on the computer; it never performs one. */
-  onComputer: (request: ComputerRequest) => Promise<TelegramReply | null>;
+  onComputer: (request: ComputerRequest) => Promise<DoorReply | null>;
   /** DK-11: runs a task with the servers the principal connected. */
-  onConnect: (request: ConnectRequest) => Promise<TelegramReply | null>;
+  onConnect: (request: ConnectRequest) => Promise<DoorReply | null>;
 }
 
 export interface LocalChannelDeps {
@@ -66,7 +66,7 @@ const MAX_FILE_BYTES = 20 * 1024 * 1024;
 /** One frame: an album of large images in base64. A longer frame closes its connection. */
 const MAX_FRAME_BYTES = 64 * 1024 * 1024;
 // R-22 AC1: the principal always gets an answer, even when the daemon fails.
-const FAILED: TelegramReply = { text: strings.processingFailed() };
+const FAILED: DoorReply = { text: strings.processingFailed() };
 
 const id = z.string().min(1).max(64);
 const requestSchema = z.discriminatedUnion('type', [
@@ -156,7 +156,7 @@ export const startLocalChannel = (deps: LocalChannelDeps): LocalChannel => {
     );
   };
 
-  const answer = (request: ChatRequest): Promise<TelegramReply | null> => {
+  const answer = (request: ChatRequest): Promise<DoorReply | null> => {
     const channelRef = `desktop:${randomUUID()}`;
     const at = now().toISOString();
     switch (request.type) {
@@ -230,7 +230,7 @@ export const startLocalChannel = (deps: LocalChannelDeps): LocalChannel => {
       await send(socket, { type: 'rejected', inReplyTo: request.rejected });
       return;
     }
-    let reply: TelegramReply | null;
+    let reply: DoorReply | null;
     try {
       reply = await answer(request);
     } catch (error) {

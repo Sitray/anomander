@@ -179,29 +179,62 @@ describe('saving', () => {
     expect(await screen.findByText(text.savedIncomplete)).toBeTruthy();
   });
 
-  it('on a first run asks for the bot token and the chat ID before saving (S5)', () => {
+  // T13: Telegram is optional; what the chat needs is a model.
+  it('on a first run asks for the model only, and shows Telegram as optional (S5)', () => {
     const { onSave } = renderSetup(EMPTY_SETUP);
-    expect(screen.getAllByText(text.required)).toHaveLength(2);
+    expect(screen.getByText(text.sectionTelegram)).toBeTruthy();
+    expect(text.sectionTelegram).toBe('Telegram (opcional)');
+    expect(screen.getAllByText(text.required)).toHaveLength(1);
+    save();
+
+    expect(onSave).not.toHaveBeenCalled();
+    expect(screen.getByText(text.modelMissing)).toBeTruthy();
+    expect(field(text.model).getAttribute('aria-invalid')).toBe('true');
+    expect(screen.queryByText(text.botTokenMissing)).toBeNull();
+    expect(screen.queryByText(text.chatIdMissing)).toBeNull();
+    expect(screen.getByText(text.fixFields)).toBeTruthy();
+  });
+
+  it('saves without Telegram when both of its fields are empty (T13)', async () => {
+    const { onSave } = renderSetup(EMPTY_SETUP, async () => ({
+      ...EMPTY_SETUP,
+      model: 'openai/gpt-4o-mini',
+    }));
     fill(text.model, 'openai/gpt-4o-mini');
     save();
 
-    expect(onSave).not.toHaveBeenCalled();
-    expect(screen.getByText(text.botTokenMissing)).toBeTruthy();
-    expect(screen.getByText(text.chatIdMissing)).toBeTruthy();
-    expect(field(text.botToken).getAttribute('aria-invalid')).toBe('true');
-    expect(field(text.chatId).getAttribute('aria-invalid')).toBe('true');
-    expect(screen.getByText(text.fixFields)).toBeTruthy();
+    const input = await saved(onSave);
+    expect(input).toEqual({
+      principalChatId: '',
+      model: 'openai/gpt-4o-mini',
+      visionModel: '',
+      providerKeys: {},
+    });
+    // Saved and able to start: nothing is said to be missing.
+    await waitFor(() => expect(field(text.model).value).toBe('openai/gpt-4o-mini'));
     expect(screen.queryByText(text.savedIncomplete)).toBeNull();
   });
 
-  it('asks only for what is not stored yet (S5)', async () => {
-    const { onSave } = renderSetup({ ...EMPTY_SETUP, hasTelegramBotToken: true });
-    expect(screen.getAllByText(text.required)).toHaveLength(1);
+  it('refuses half of Telegram before saving (T13)', () => {
+    const { onSave } = renderSetup(EMPTY_SETUP);
+    fill(text.model, 'openai/gpt-4o-mini');
+    fill(text.botToken, BOT_TOKEN);
     save();
     expect(onSave).not.toHaveBeenCalled();
-    expect(screen.queryByText(text.botTokenMissing)).toBeNull();
     expect(screen.getByText(text.chatIdMissing)).toBeTruthy();
+    expect(field(text.chatId).getAttribute('aria-invalid')).toBe('true');
 
+    fill(text.botToken, '');
+    fill(text.chatId, '4242');
+    save();
+    expect(onSave).not.toHaveBeenCalled();
+    expect(screen.getByText(text.botTokenMissing)).toBeTruthy();
+    expect(screen.queryByText(text.chatIdMissing)).toBeNull();
+  });
+
+  it('takes a stored token as the half that is not typed', async () => {
+    const { onSave } = renderSetup({ ...EMPTY_SETUP, hasTelegramBotToken: true });
+    // Telegram whole can start the daemon without a model, as before.
     fill(text.chatId, '4242');
     save();
     expect(await saved(onSave)).toMatchObject({ principalChatId: '4242' });

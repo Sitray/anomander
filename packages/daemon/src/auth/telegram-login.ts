@@ -1,6 +1,6 @@
-import type { ButtonPress, PrincipalText } from '@anomander/protocol';
+import type { ButtonPress, DoorReply, PrincipalText } from '@anomander/protocol';
 import { buttons, strings } from '@anomander/protocol';
-import type { TelegramLogger, TelegramReply } from '@anomander/telegram';
+import type { TelegramLogger } from '@anomander/telegram';
 import type {
   AuthEvent,
   AuthInteraction,
@@ -35,7 +35,7 @@ export interface TelegramLoginDeps {
   /** pi-ai's `LoginOptions.getDeviceId`, which Sign in with ChatGPT requires. */
   getDeviceId: () => string;
   /** Sends a message to the principal straight through the bot, never as a recent turn. */
-  send: (message: TelegramReply) => Promise<void>;
+  send: (message: DoorReply) => Promise<void>;
   /** Deletes the principal's message `telegram:<message_id>` (R-27 AC3). */
   deleteMessage: (channelRef: string) => Promise<void>;
   logger: TelegramLogger;
@@ -45,9 +45,9 @@ export interface TelegramLoginDeps {
 
 export interface TelegramLogin {
   /** `undefined` when the text is not for a login; then the other routes decide. */
-  handleText(message: PrincipalText): Promise<{ reply: TelegramReply | null } | undefined>;
+  handleText(message: PrincipalText): Promise<{ reply: DoorReply | null } | undefined>;
   /** `undefined` when the press is not on a login button. */
-  handleButton(press: ButtonPress): Promise<{ reply: TelegramReply | null } | undefined>;
+  handleButton(press: ButtonPress): Promise<{ reply: DoorReply | null } | undefined>;
   /** Abandons the running login, if any, without a reply. */
   stop(): void;
 }
@@ -121,7 +121,7 @@ export const createTelegramLogin = (deps: TelegramLoginDeps): TelegramLogin => {
   const timeoutMs = deps.timeoutMs ?? LOGIN_TIMEOUT_MS;
   let current: Session | undefined;
 
-  const sendLogged = (providerId: string, message: TelegramReply) =>
+  const sendLogged = (providerId: string, message: DoorReply) =>
     send(message).catch(() => {
       logger.error('Failed to send a login message', { provider: providerId });
     });
@@ -150,7 +150,7 @@ export const createTelegramLogin = (deps: TelegramLoginDeps): TelegramLogin => {
 
   const interaction = (
     session: Session,
-    post: (message: TelegramReply) => Promise<void>,
+    post: (message: DoorReply) => Promise<void>,
   ): AuthInteraction => {
     const { answers, linkText } = session.account;
     return {
@@ -193,7 +193,7 @@ export const createTelegramLogin = (deps: TelegramLoginDeps): TelegramLogin => {
     const provider = chosen.providerId;
     // The link, then the outcome, in the order the flow produced them.
     let outbox: Promise<void> = Promise.resolve();
-    const post = (message: TelegramReply) => {
+    const post = (message: DoorReply) => {
       outbox = outbox.then(() => sendLogged(provider, message));
       return outbox;
     };
@@ -225,7 +225,7 @@ export const createTelegramLogin = (deps: TelegramLoginDeps): TelegramLogin => {
       });
   };
 
-  const logoutChoices = async (): Promise<TelegramReply> => {
+  const logoutChoices = async (): Promise<DoorReply> => {
     const stored = new Set(
       (await credentials.list())
         .filter(({ type }) => type === 'oauth')

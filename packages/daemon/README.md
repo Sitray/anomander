@@ -694,9 +694,11 @@ connecting an account.
 
 ## Setup guide (R-28)
 
-The daemon starts as long as `TELEGRAM_BOT_TOKEN` and `ANOMANDER_PRINCIPAL_CHAT_ID` are set;
-without them it exits, and the log says where to get each one. Everything else that blocks a
-processor call is a gap (`src/setup/setup-guide.ts`), sent as S-70 with one line per gap:
+The daemon starts as long as it has a front door: Telegram (`TELEGRAM_BOT_TOKEN` with
+`ANOMANDER_PRINCIPAL_CHAT_ID`), the desktop app's local channel (`ANOMANDER_LOCAL_TOKEN`), or
+both. Without either it exits, and the log names both and where to get the Telegram ones; half of
+Telegram is an error that names the missing variable. Everything else that blocks a processor
+call is a gap (`src/setup/setup-guide.ts`), sent as S-70 with one line per gap:
 
 - **Model gaps**, found once in `main.ts` by `resolveModels`: a model variable unset (S-71) or
   naming a model pi-ai does not know (S-72). Only a restart rereads `.env`, so `main.ts` starts
@@ -706,7 +708,8 @@ processor call is a gap (`src/setup/setup-guide.ts`), sent as S-70 with one line
   a provider of either model with no login and no API key (S-73). The full daemon replies the
   guide instead of calling the processor, so a `/login` completes setup without a restart.
 
-Either way the guide is logged in English and sent once when the bot starts. `/start` replies
+Either way the guide is logged in English and sent once when the bot starts; without Telegram it
+is only logged, and the app's chat answers every message with it. `/start` replies
 S-69 once setup is complete, or the guide; like the login routes, it never reaches the processor
 and is never a recent turn (R-17 AC8).
 
@@ -715,7 +718,15 @@ and is never a recent turn (R-17 AC8).
 `src/main.ts` reads the configuration, resolves `ANOMANDER_MODEL` through pi-ai's
 `builtinModels({ credentials })` and calls `startAnomander` (`src/app.ts`), the composition root
 that opens the store, builds the text and receipt cycles and starts the Telegram bot with long
-polling. `startAnomander` takes the resolved `ANOMANDER_VISION_MODEL` as `visionModel`; without
+polling, while Telegram is configured.
+
+**Without Telegram** (`src/telegram-door.ts`) `@anomander/telegram` is never imported: nothing
+polls Telegram or is sent there, `started` resolves once the store is ready and `polling` only at
+`stop`. What only Telegram serves is absent: `/login` and `/logout` (the app logs in from its
+Suscripciones screen), `/mcp`, and the setup guide sent at start. The local channel only answers
+(DK-4 AC5), so the messages sent unasked have no door: the due reminders, the morning digest and
+the weekly summary are not run (a reminder then goes out late once Telegram is set up), and the
+rest (S-12, S-13, S-14, a queued receipt's reply) fail as a failed send does and are logged. `startAnomander` takes the resolved `ANOMANDER_VISION_MODEL` as `visionModel`; without
 it, receipts are read with `model`. Model credentials come from a stored login (see "Model login"
 above) or from the provider's usual environment variable (for example `OPENAI_API_KEY`), as pi-ai
 resolves them; under the desktop app that variable is the one handed over on stdin, which
@@ -734,7 +745,8 @@ place of the database file, removing its `-wal` and `-shm`.
 ## Configuration
 
 `loadConfig(process.env)` (`src/config.ts`) reads PRD §14.4. An empty value counts as unset.
-The error names every missing required variable.
+The error names every missing required variable. Telegram is one front door and the local
+channel the other; at least one is required (R-28 AC5).
 
 Docker and the CLI set every variable in the environment. The desktop app keeps the secrets out
 of it, where `ps eww` would show them (DK-5 AC2): it sets `ANOMANDER_SECRETS_ON_STDIN=1` and
@@ -746,8 +758,8 @@ a JSON object of strings, or none within 10 seconds, stops the daemon with exit 
 
 | Variable | Default |
 | --- | --- |
-| `TELEGRAM_BOT_TOKEN` | required |
-| `ANOMANDER_PRINCIPAL_CHAT_ID` | required, an integer |
+| `TELEGRAM_BOT_TOKEN` | required, unless `ANOMANDER_LOCAL_TOKEN` is set; then optional, with `ANOMANDER_PRINCIPAL_CHAT_ID` |
+| `ANOMANDER_PRINCIPAL_CHAT_ID` | required with `TELEGRAM_BOT_TOKEN`, an integer |
 | `ANOMANDER_MODEL` | required, provider-qualified (R-15 AC1) |
 | `ANOMANDER_VISION_MODEL` | required, provider-qualified |
 | `ANOMANDER_DB_PATH` | `./data/anomander.db` |

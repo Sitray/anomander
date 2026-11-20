@@ -20,7 +20,7 @@ export const strings = {
     /** DK-1 AC2: the shell is already starting it again. */
     failingDetail: 'ANOMANDER se ha cerrado solo. Arrancando otra vez…',
     reasons: {
-      not_configured: 'Para arrancar hacen falta el token de tu bot de Telegram y tu ID de chat.',
+      not_configured: 'Para arrancar hace falta elegir un modelo. Telegram es opcional.',
       already_running:
         'Ya hay otro ANOMANDER abierto con estos mismos datos. Cierra el otro y arranca este.',
       bot_in_use:
@@ -160,7 +160,7 @@ export const strings = {
   setup: {
     title: 'Configuración',
     close: 'Volver al chat',
-    sectionTelegram: 'Telegram',
+    sectionTelegram: 'Telegram (opcional)',
     sectionModels: 'Modelos',
     intro: 'Las claves se guardan en el llavero de macOS, nunca en un archivo.',
 
@@ -170,12 +170,14 @@ export const strings = {
     botToken: 'Token del bot de Telegram',
     botTokenHelp: 'Te lo da @BotFather en Telegram cuando creas el bot.',
     botTokenStored: 'Guardado. Déjalo en blanco para mantenerlo.',
-    botTokenMissing: 'Falta el token del bot. Sin él ANOMANDER no puede arrancar.',
+    botTokenMissing:
+      'Falta el token del bot. Telegram necesita el token y tu ID de chat; sin Telegram, deja los dos en blanco.',
 
     chatId: 'Tu ID de chat',
     chatIdHelp: 'Escribe a @userinfobot en Telegram y te lo dice.',
     chatIdInvalid: 'Tiene que ser un número, como 4242.',
-    chatIdMissing: 'Falta tu ID de chat. Sin él ANOMANDER no sabe a quién responder.',
+    chatIdMissing:
+      'Falta tu ID de chat. Telegram necesita el token y tu ID de chat; sin Telegram, deja los dos en blanco.',
 
     model: 'Modelo',
     modelHelp: 'Entiende lo que escribes. Va con su proveedor delante.',
@@ -185,6 +187,7 @@ export const strings = {
     visionModel: 'Modelo para fotos',
     visionModelHelp: 'Lee las fotos de los tickets. Mismo formato que el anterior.',
     modelInvalid: 'Escríbelo con el proveedor delante, como openai/gpt-4o-mini.',
+    modelMissing: 'Falta el modelo. Sin él ANOMANDER no puede contestarte.',
 
     keys: 'Claves de proveedores',
     keysHelp: 'La clave de API del proveedor de cada modelo. Está en su panel de desarrollador.',
@@ -212,7 +215,7 @@ export const strings = {
     fixFields: 'Revisa los campos marcados.',
     /** The shell refused the setup; its own message follows, verbatim. */
     rejected: 'No se ha guardado. Esto dice la aplicación:',
-    savedIncomplete: 'Guardado. Para arrancar aún faltan el token del bot y tu ID de chat.',
+    savedIncomplete: 'Guardado. Para arrancar aún falta el modelo.',
   },
 
   /** DK-11: the servers of `mcp.json`. */

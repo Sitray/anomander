@@ -6,7 +6,7 @@ import { ChatScreen } from './chat/ChatScreen.tsx';
 import { ConnectionsScreen } from './connections/ConnectionsScreen.tsx';
 import { LedgerScreen } from './ledger/LedgerScreen.tsx';
 import { SubscriptionsScreen } from './login/SubscriptionsScreen.tsx';
-import { SetupScreen } from './setup/SetupScreen.tsx';
+import { isComplete, SetupScreen } from './setup/SetupScreen.tsx';
 import type { SetupInput } from './shell.ts';
 import { ErrorBlock, StatusBar } from './status/StatusBar.tsx';
 import { useShell } from './status/use-shell.ts';
@@ -49,8 +49,9 @@ export function App() {
   const save = useCallback(
     async (input: SetupInput) => {
       const { setup } = await saveSetup(input);
-      // Saved and able to start: back to the chat. Otherwise the screen says what is missing.
-      if (setup.hasTelegramBotToken && setup.principalChatId !== null) close();
+      // Saved and able to start, with or without Telegram (T13): back to the chat. Otherwise the
+      // screen says what is missing.
+      if (isComplete(setup)) close();
       return setup;
     },
     [saveSetup, close],

@@ -7,6 +7,7 @@ import { strings } from '../src/strings.ts';
 import { FakeWebSocket } from './fake-web-socket.ts';
 import {
   CONNECTIONS,
+  EMPTY_SETUP,
   FILLED_SETUP,
   replyTo,
   runningSnapshot,
@@ -234,6 +235,44 @@ describe('the setup', () => {
       providerKeys: {},
     });
     expect(screen.getByRole('status').textContent).toBe(strings.status.starting);
+  });
+
+  // T13: Telegram is optional; a model is enough for the daemon to start.
+  it('goes back to the chat after a save with a model and no Telegram', async () => {
+    await open(stoppedSnapshot('not_configured'));
+    mocked.saveSetup.mockResolvedValue({
+      daemon: STARTING,
+      channel: null,
+      setup: { ...EMPTY_SETUP, model: 'openai/gpt-4o-mini' },
+    });
+    fireEvent.change(screen.getByLabelText(strings.setup.model), {
+      target: { value: 'openai/gpt-4o-mini' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: strings.setup.save }));
+
+    await waitFor(() => expect(setupHeading()).toBeNull());
+    expect(mocked.saveSetup).toHaveBeenCalledWith({
+      principalChatId: '',
+      model: 'openai/gpt-4o-mini',
+      visionModel: '',
+      providerKeys: {},
+    });
+  });
+
+  it('still goes back to the chat after a save with Telegram and no model', async () => {
+    await open(stoppedSnapshot('not_configured'));
+    mocked.saveSetup.mockResolvedValue({
+      daemon: STARTING,
+      channel: null,
+      setup: { ...EMPTY_SETUP, hasTelegramBotToken: true, principalChatId: '4242' },
+    });
+    fireEvent.change(screen.getByLabelText(strings.setup.botToken), {
+      target: { value: '123456:secret' },
+    });
+    fireEvent.change(screen.getByLabelText(strings.setup.chatId), { target: { value: '4242' } });
+    fireEvent.click(screen.getByRole('button', { name: strings.setup.save }));
+
+    await waitFor(() => expect(setupHeading()).toBeNull());
   });
 
   it('prefers an event that arrived while saving over the result of the save', async () => {
