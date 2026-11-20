@@ -1,9 +1,11 @@
 // DK-6: the menu bar icon shows whether ANOMANDER is running, stopped or failing (AC1), and its
 // menu opens the chat, starts or stops ANOMANDER, and quits (AC2). While the chat waits for an
-// answer, the icon also shows that ANOMANDER is thinking. The texts are read by the
-// principal, so they are Spanish (es-ES); the icon is drawn here, as a template image.
+// answer, or a task on the computer goes by itself (DK-10), the icon also shows that ANOMANDER is
+// working. The texts are read by the principal, so they are Spanish (es-ES); the icon is drawn
+// here, as a template image.
+use std::f32::consts::TAU;
 use std::sync::atomic::{AtomicU8, Ordering};
-use std::sync::{Mutex, PoisonError};
+use std::sync::{Condvar, Mutex, OnceLock, PoisonError};
 use std::time::Duration;
 use tauri::image::Image;
 use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
@@ -34,28 +36,36 @@ const STOP: &str = "Detener ANOMANDER";
 /// the setup screen by itself.
 const SET_UP: &str = "Configurar ANOMANDER…";
 
-/// What the menu bar shows: the daemon's status, and whether the chat waits for an answer.
+/// What the menu bar shows: the daemon's status, and the work ANOMANDER has in hand.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct View {
     pub status: DaemonStatus,
+    /// The chat waits for an answer.
     pub thinking: bool,
+    /// A task on the computer goes by itself (DK-10).
+    pub task: bool,
 }
 
-/// How the icon is drawn. Thinking only shows on a running daemon: one that is not running owes
+/// How the icon is drawn. Work only shows on a running daemon: one that is not running owes
 /// nothing, whatever the window last said.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Look {
     Running,
-    Thinking,
+    Working,
     Stopped,
     Starting,
     Failing,
 }
 
 impl View {
+    /// Whether ANOMANDER has work in hand: an answer owed, or a task going by itself.
+    pub fn working(&self) -> bool {
+        self.thinking || self.task
+    }
+
     pub fn look(&self) -> Look {
         match self.status.state {
-            DaemonState::Running if self.thinking => Look::Thinking,
+            DaemonState::Running if self.working() => Look::Working,
             DaemonState::Running => Look::Running,
             DaemonState::Stopped => Look::Stopped,
             DaemonState::Starting => Look::Starting,
@@ -67,6 +77,8 @@ impl View {
 pub fn labels(view: &View) -> Labels {
     let status = &view.status;
     let (status, toggle) = match (status.state, status.reason) {
+        // A task is the more telling of the two: the chat may be waiting for it as well.
+        (DaemonState::Running, _) if view.task => ("ANOMANDER está haciendo una tarea…", STOP),
         (DaemonState::Running, _) if view.thinking => ("ANOMANDER está pensando…", STOP),
         (DaemonState::Running, _) => ("ANOMANDER está en marcha", STOP),
         (DaemonState::Starting, _) => ("ANOMANDER está arrancando…", STOP),
@@ -105,12 +117,15 @@ pub struct TrayMenu {
     /// "Detener tarea": enabled while a task on the computer goes by itself (DK-10).
     stop_task: MenuItem<Wry>,
     view: Mutex<View>,
-    /// Which frame of the thinking dots is on screen.
+    /// Wakes the animation thread when the view changes, so it sleeps through an idle app.
+    woken: Condvar,
+    /// Which frame of the working wave is on screen.
     frame: AtomicU8,
 }
 
-/// How long each frame of the thinking dots stays.
-const FRAME: Duration = Duration::from_millis(280);
+/// How long each frame of the working wave stays: `FRAMES` of them make one turn of 1.44 s, a
+/// calm pace at 25 frames a second.
+const FRAME: Duration = Duration::from_millis(40);
 
 /// Builds the icon and its menu; `on_menu` gets the ID of the chosen item.
 pub fn build(
@@ -121,6 +136,7 @@ pub fn build(
     let view = View {
         status: initial.clone(),
         thinking: false,
+        task: false,
     };
     let texts = labels(&view);
     // The status reads as a heading: it cannot be chosen.
@@ -150,49 +166,96 @@ pub fn build(
         toggle,
         stop_task,
         view: Mutex::new(view),
+        woken: Condvar::new(),
         frame: AtomicU8::new(0),
     });
     animate(app.handle().clone());
     Ok(())
 }
 
-/// Moves the thinking dots for as long as the app lives. While nothing is thinking it only
-/// looks, so an idle app draws nothing.
+/// Moves the working wave for as long as the app lives. While nothing is working the thread
+/// sleeps until a change wakes it, so an idle app draws nothing and wakes for nothing.
 fn animate(app: AppHandle) {
-    std::thread::spawn(move || loop {
-        std::thread::sleep(FRAME);
-        let Some(menu) = app.try_state::<TrayMenu>() else {
-            continue;
+    std::thread::spawn(move || {
+        // The frames are drawn once, here, so the main thread never waits for them.
+        working_frames();
+        loop {
+            let Some(menu) = app.try_state::<TrayMenu>() else {
+                std::thread::sleep(FRAME);
+                continue;
+            };
+            wait_until(&menu, |view| view.look() == Look::Working);
+            if reduce_motion() {
+                // A still icon says the same: the mark with its dots at rest, already drawn.
+                wait_until(&menu, |view| view.look() != Look::Working);
+                continue;
+            }
+            while step(&app, &menu) {
+                std::thread::sleep(FRAME);
+            }
+        }
+    });
+}
+
+/// Blocks until `holds` is true of the view, waking only when the view changes.
+fn wait_until(menu: &TrayMenu, holds: impl Fn(&View) -> bool) {
+    let view = menu.view.lock().unwrap_or_else(PoisonError::into_inner);
+    let _held = menu
+        .woken
+        .wait_while(view, |view| !holds(view))
+        .unwrap_or_else(PoisonError::into_inner);
+}
+
+/// Draws the next frame of the wave; false once the work is over.
+fn step(app: &AppHandle, menu: &TrayMenu) -> bool {
+    let working = menu
+        .view
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .look()
+        == Look::Working;
+    if !working {
+        return false;
+    }
+    let handle = app.clone();
+    // Menu bar changes run on the main thread.
+    let _ = app.run_on_main_thread(move || {
+        let Some(menu) = handle.try_state::<TrayMenu>() else {
+            return;
         };
-        let thinking = menu
+        // The answer may have arrived in between: then the icon is no longer ours to draw.
+        let view = menu
             .view
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
-            .look()
-            == Look::Thinking;
-        if !thinking {
-            continue;
+            .clone();
+        if view.look() != Look::Working {
+            return;
         }
-        let handle = app.clone();
-        // Menu bar changes run on the main thread.
-        let _ = app.run_on_main_thread(move || {
-            let Some(menu) = handle.try_state::<TrayMenu>() else {
-                return;
-            };
-            // The answer may have arrived in between: then the icon is no longer ours to draw.
-            let view = menu
-                .view
-                .lock()
-                .unwrap_or_else(PoisonError::into_inner)
-                .clone();
-            if view.look() != Look::Thinking {
-                return;
-            }
-            let frame = (menu.frame.load(Ordering::Relaxed) + 1) % FRAMES;
-            menu.frame.store(frame, Ordering::Relaxed);
-            draw(&handle, Look::Thinking, frame);
-        });
+        let frame = (menu.frame.load(Ordering::Relaxed) + 1) % FRAMES;
+        menu.frame.store(frame, Ordering::Relaxed);
+        draw(&handle, Look::Working, frame);
     });
+    true
+}
+
+/// Whether the principal asked macOS to reduce motion (System Settings › Accessibility ›
+/// Display). Read from the preference once per spell of work, off the main thread; a sandboxed
+/// or non-macOS build reads nothing and moves.
+fn reduce_motion() -> bool {
+    #[cfg(target_os = "macos")]
+    {
+        std::process::Command::new("/usr/bin/defaults")
+            .args(["read", "com.apple.universalaccess", "reduceMotion"])
+            .output()
+            .is_ok_and(|output| {
+                output.status.success() && String::from_utf8_lossy(&output.stdout).trim() == "1"
+            })
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        false
+    }
 }
 
 fn draw(app: &AppHandle, look: Look, frame: u8) {
@@ -214,7 +277,8 @@ pub fn show_thinking(app: &AppHandle, thinking: bool) {
     change(app, |view| view.thinking = thinking);
 }
 
-/// Offers "Detener tarea" while a task on the computer goes by itself. Runs on the main thread.
+/// Offers "Detener tarea" while a task on the computer goes by itself, and shows the work in the
+/// icon. Runs on the main thread.
 pub fn show_task(app: &AppHandle, running: bool) {
     let Some(menu) = app.try_state::<TrayMenu>() else {
         return;
@@ -222,6 +286,7 @@ pub fn show_task(app: &AppHandle, running: bool) {
     if let Err(error) = menu.stop_task.set_enabled(running) {
         eprintln!("could not update the menu: {error}");
     }
+    change(app, |view| view.task = running);
 }
 
 fn change(app: &AppHandle, update: impl FnOnce(&mut View)) {
@@ -237,6 +302,7 @@ fn change(app: &AppHandle, update: impl FnOnce(&mut View)) {
         }
         view.clone()
     };
+    menu.woken.notify_all();
     show(app, &menu, &view);
 }
 
@@ -271,48 +337,81 @@ const DIMMED: f32 = 0.42;
 /// - running: the solid mark;
 /// - stopped: the mark dimmed;
 /// - starting: the mark dimmed, with a small ring that says something is on its way;
-/// - thinking: the solid mark and, beside it, three dots that rise one after another, as a chat
-///   shows the other side typing; `frame` says which dot is up;
+/// - working: the solid mark and, beside it, three dots that rise and brighten one after another
+///   in a wave, as a chat shows the other side typing; `frame` is the moment of the turn;
 /// - failing: the solid mark with an exclamation badge.
+///
+/// `SIZE` is 18 points at 2x: the tray scales the image to the menu bar's 18 points, so it is
+/// drawn sharp on a Retina screen.
 pub fn icon(look: Look, frame: u8) -> Image<'static> {
+    if look == Look::Working {
+        let rgba: &'static [u8] = &working_frames()[usize::from(frame % FRAMES)];
+        return Image::new(rgba, width(look), SIZE);
+    }
     Image::new_owned(icon_rgba(look, frame), width(look), SIZE)
 }
 
-/// The frames of the thinking dots: one per dot, and one with all three at rest.
-pub const FRAMES: u8 = 4;
-/// The room the thinking dots take beside the mark.
+/// The frames of one turn of the working wave.
+pub const FRAMES: u8 = 36;
+/// The room the dots take beside the mark.
 const DOTS_WIDTH: u32 = 30;
 
-/// The icon's width: the thinking dots sit beside the mark, so that icon is wider.
+/// Every frame of the working wave, drawn once: a frame is then a lookup, not a render.
+fn working_frames() -> &'static [Vec<u8>] {
+    static FRAMES_RGBA: OnceLock<Vec<Vec<u8>>> = OnceLock::new();
+    FRAMES_RGBA.get_or_init(|| {
+        (0..FRAMES)
+            .map(|frame| icon_rgba(Look::Working, frame))
+            .collect()
+    })
+}
+
+/// The icon's width: the dots sit beside the mark, so the working icon is wider.
 fn width(look: Look) -> u32 {
-    if look == Look::Thinking {
+    if look == Look::Working {
         SIZE + DOTS_WIDTH
     } else {
         SIZE
     }
 }
 
-/// How opaque the thinking dots are at a point: the dot whose turn it is rises and is solid, the
-/// others wait dimmed on the line.
+/// Where one dot is at a frame: how far it has risen, 0 to 1, and how opaque it is.
+///
+/// Each dot in turn lifts and brightens along a sine hump, so it leaves the line and lands on it
+/// with no velocity, and the three overlap into one wave that travels right; the row then rests
+/// a moment before the next turn.
+fn dot_pose(frame: u8, dot: u8) -> (f32, f32) {
+    /// The part of a turn one dot spends up.
+    const HUMP: f32 = 0.5;
+    /// How far behind the previous dot each one starts, as part of a turn.
+    const BEHIND: f32 = 0.17;
+    /// How opaque a dot is on the line.
+    const WAITING: f32 = 0.5;
+    let turn = f32::from(frame % FRAMES) / f32::from(FRAMES) - BEHIND * f32::from(dot);
+    let along = turn.rem_euclid(1.0) / HUMP;
+    let lift = if along < 1.0 {
+        (1.0 - (TAU * along).cos()) / 2.0
+    } else {
+        0.0
+    };
+    (lift, WAITING + (1.0 - WAITING) * lift)
+}
+
+/// How opaque the dots are at a point.
 fn dots(frame: u8, x: f32, y: f32) -> f32 {
     const FIRST: f32 = 41.0;
     const APART: f32 = 9.0;
     const LINE: f32 = 23.0;
     const RISE: f32 = 5.0;
     const RADIUS: f32 = 3.0;
-    const WAITING: f32 = 0.5;
     (0..3u8)
         .map(|dot| {
-            let up = dot == frame % FRAMES;
-            let (cx, cy) = (
-                FIRST + APART * f32::from(dot),
-                if up { LINE - RISE } else { LINE },
-            );
-            let inside = ((x - cx).powi(2) + (y - cy).powi(2)).sqrt() <= RADIUS;
-            match (inside, up) {
-                (false, _) => 0.0,
-                (true, true) => 1.0,
-                (true, false) => WAITING,
+            let (lift, alpha) = dot_pose(frame, dot);
+            let (cx, cy) = (FIRST + APART * f32::from(dot), LINE - RISE * lift);
+            if (x - cx).hypot(y - cy) <= RADIUS {
+                alpha
+            } else {
+                0.0
             }
         })
         .fold(0.0, f32::max)
@@ -380,7 +479,7 @@ fn opacity(look: Look, frame: u8, x: f32, y: f32) -> f32 {
     match look {
         Look::Running => mark(1.0),
         Look::Stopped => mark(DIMMED),
-        Look::Thinking => mark(1.0).max(dots(frame, x, y)),
+        Look::Working => mark(1.0).max(dots(frame, x, y)),
         Look::Starting => {
             if (BADGE_RADIUS - 2.3..=BADGE_RADIUS).contains(&from_badge) {
                 1.0
@@ -416,6 +515,7 @@ mod tests {
                 last_error: None,
             },
             thinking: false,
+            task: false,
         }
     }
 
@@ -426,16 +526,38 @@ mod tests {
         }
     }
 
+    fn on_a_task(state: DaemonState) -> View {
+        View {
+            task: true,
+            ..status(state, None)
+        }
+    }
+
     #[test]
     fn a_running_daemon_that_owes_an_answer_says_it_is_thinking() {
         let texts = labels(&thinking(DaemonState::Running));
         assert_eq!(texts.status, "ANOMANDER está pensando…");
         assert_eq!(texts.toggle, "Detener ANOMANDER");
-        assert_eq!(thinking(DaemonState::Running).look(), Look::Thinking);
+        assert_eq!(thinking(DaemonState::Running).look(), Look::Working);
     }
 
     #[test]
-    fn thinking_never_hides_a_daemon_that_is_not_running() {
+    fn a_running_daemon_on_a_task_says_so_and_works_in_the_icon() {
+        let texts = labels(&on_a_task(DaemonState::Running));
+        assert_eq!(texts.status, "ANOMANDER está haciendo una tarea…");
+        assert_eq!(texts.toggle, "Detener ANOMANDER");
+        assert_eq!(on_a_task(DaemonState::Running).look(), Look::Working);
+        // The chat waiting for the task's answer does not change what the task says.
+        let both = View {
+            thinking: true,
+            ..on_a_task(DaemonState::Running)
+        };
+        assert_eq!(labels(&both), texts);
+        assert_eq!(both.look(), Look::Working);
+    }
+
+    #[test]
+    fn work_never_hides_a_daemon_that_is_not_running() {
         for (state, look) in [
             (DaemonState::Stopped, Look::Stopped),
             (DaemonState::Starting, Look::Starting),
@@ -443,6 +565,8 @@ mod tests {
         ] {
             assert_eq!(thinking(state).look(), look);
             assert_eq!(labels(&thinking(state)), labels(&status(state, None)));
+            assert_eq!(on_a_task(state).look(), look);
+            assert_eq!(labels(&on_a_task(state)), labels(&status(state, None)));
         }
     }
 
@@ -520,6 +644,7 @@ mod tests {
                 last_error: Some("node was not found".into()),
             },
             thinking: false,
+            task: false,
         };
         assert_eq!(labels(&never_ran).status, "ANOMANDER no ha podido arrancar");
         assert_eq!(
@@ -536,7 +661,7 @@ mod tests {
     fn each_state_has_its_own_template_icon() {
         let looks = [
             Look::Running,
-            Look::Thinking,
+            Look::Working,
             Look::Stopped,
             Look::Starting,
             Look::Failing,
@@ -562,27 +687,42 @@ mod tests {
         assert_eq!(strongest(&icon_rgba(Look::Failing, 0)), 255);
     }
 
+    /// Fails unless the icon's outermost rows and columns are clear.
+    fn assert_clear_edge(rgba: &[u8], width: u32) {
+        let alpha = |x: u32, y: u32| rgba[((y * width + x) * 4 + 3) as usize];
+        for x in 0..width {
+            assert_eq!(alpha(x, 0), 0);
+            assert_eq!(alpha(x, SIZE - 1), 0);
+        }
+        for y in 0..SIZE {
+            assert_eq!(alpha(0, y), 0);
+            assert_eq!(alpha(width - 1, y), 0);
+        }
+    }
+
     #[test]
     fn the_mark_stays_inside_the_icon_with_a_clear_edge() {
-        for (look, frame) in [
-            (Look::Running, 0),
-            (Look::Failing, 0),
-            (Look::Thinking, 0),
-            (Look::Thinking, 2),
-            (Look::Thinking, 3),
-        ] {
-            let width = width(look);
-            let rgba = icon_rgba(look, frame);
-            let alpha = |x: u32, y: u32| rgba[((y * width + x) * 4 + 3) as usize];
-            for x in 0..width {
-                assert_eq!(alpha(x, 0), 0);
-                assert_eq!(alpha(x, SIZE - 1), 0);
-            }
-            for y in 0..SIZE {
-                assert_eq!(alpha(0, y), 0);
-                assert_eq!(alpha(width - 1, y), 0);
-            }
+        for look in [Look::Running, Look::Failing, Look::Starting, Look::Stopped] {
+            assert_clear_edge(&icon_rgba(look, 0), width(look));
         }
+    }
+
+    #[test]
+    fn every_frame_of_the_wave_is_a_template_image_of_the_working_size() {
+        let wide = width(Look::Working);
+        let frames = working_frames();
+        assert_eq!(frames.len(), usize::from(FRAMES));
+        for (index, rgba) in frames.iter().enumerate() {
+            assert_eq!(rgba.len(), (wide * SIZE * 4) as usize);
+            assert!(rgba.chunks(4).all(|pixel| pixel[..3] == [0, 0, 0]));
+            assert_clear_edge(rgba, wide);
+            // The cache is the drawing, frame for frame.
+            assert_eq!(*rgba, icon_rgba(Look::Working, index as u8));
+        }
+        // The icon hands out the cached frame, and turns over after the last.
+        let image = icon(Look::Working, FRAMES + 2);
+        assert_eq!((image.width(), image.height()), (wide, SIZE));
+        assert_eq!(image.rgba(), frames[2].as_slice());
     }
 
     /// The alpha of the icon's columns from `from` on, row by row.
@@ -594,36 +734,63 @@ mod tests {
     }
 
     #[test]
-    fn thinking_keeps_the_mark_whole_and_puts_the_dots_beside_it() {
-        let wide = width(Look::Thinking);
+    fn working_keeps_the_mark_whole_and_puts_the_dots_beside_it() {
+        let wide = width(Look::Working);
         assert!(wide > SIZE);
-        let thinking = icon_rgba(Look::Thinking, 0);
         let running = icon_rgba(Look::Running, 0);
-        assert_eq!(
-            columns(&thinking, wide, 0, SIZE),
-            columns(&running, SIZE, 0, SIZE)
-        );
-        assert!(columns(&thinking, wide, SIZE, wide).contains(&255));
+        for frame in 0..FRAMES {
+            let working = icon_rgba(Look::Working, frame);
+            assert_eq!(
+                columns(&working, wide, 0, SIZE),
+                columns(&running, SIZE, 0, SIZE)
+            );
+        }
+        // Somewhere in the turn a dot is solid, and at rest none is.
+        let (first, peak) = (icon_rgba(Look::Working, 0), icon_rgba(Look::Working, 9));
+        assert!(columns(&peak, wide, SIZE, wide).contains(&255));
+        assert!(!columns(&first, wide, SIZE, wide).contains(&255));
+        assert_ne!(first, peak);
+        // The frame after the last is the first again.
+        assert_eq!(icon_rgba(Look::Working, FRAMES), first);
     }
 
     #[test]
-    fn the_dots_move_and_the_mark_does_not() {
-        let wide = width(Look::Thinking);
-        let frames: Vec<Vec<u8>> = (0..FRAMES)
-            .map(|frame| icon_rgba(Look::Thinking, frame))
-            .collect();
-        for (index, frame) in frames.iter().enumerate() {
-            assert_eq!(
-                columns(frame, wide, 0, SIZE),
-                columns(&frames[0], wide, 0, SIZE)
-            );
-            for other in &frames[index + 1..] {
-                assert_ne!(frame, other);
-            }
+    fn the_idle_looks_do_not_move() {
+        for look in [Look::Running, Look::Stopped, Look::Starting, Look::Failing] {
+            assert_eq!(icon_rgba(look, 0), icon_rgba(look, 17));
         }
-        // The frame after the last is the first again.
-        assert_eq!(icon_rgba(Look::Thinking, FRAMES), frames[0]);
-        // At rest all three dots wait dimmed: nothing in them is solid.
-        assert!(!columns(&frames[3], wide, SIZE, wide).contains(&255));
+    }
+
+    /// The lift of `dot` at each frame of a turn.
+    fn lifts(dot: u8) -> Vec<f32> {
+        (0..FRAMES).map(|frame| dot_pose(frame, dot).0).collect()
+    }
+
+    #[test]
+    fn the_dots_rise_in_turn_along_a_smooth_wave_and_rest_between_turns() {
+        let peak_of = |dot: u8| {
+            let lifts = lifts(dot);
+            (0..lifts.len())
+                .max_by(|a, b| lifts[*a].total_cmp(&lifts[*b]))
+                .unwrap()
+        };
+        // One after another, left to right.
+        assert!(peak_of(0) < peak_of(1) && peak_of(1) < peak_of(2));
+        for dot in 0..3 {
+            let lifts = lifts(dot);
+            // Each goes all the way up and comes back to the line.
+            assert!(lifts.iter().cloned().fold(0.0, f32::max) > 0.95);
+            assert_eq!(lifts[0], 0.0);
+            // And moves a little at a time: no frame jumps more than a fifth of the rise.
+            for pair in lifts.windows(2) {
+                assert!((pair[1] - pair[0]).abs() <= 0.2, "{pair:?}");
+            }
+            let (_, alpha_at_rest) = dot_pose(0, dot);
+            assert_eq!(alpha_at_rest, 0.5);
+        }
+        // The turn ends with the row at rest for a moment before it starts again.
+        let at_rest = |frame: u8| (0..3).all(|dot| dot_pose(frame, dot).0 == 0.0);
+        assert!(at_rest(FRAMES - 1) && at_rest(0));
+        assert!(!at_rest(FRAMES / 2));
     }
 }
