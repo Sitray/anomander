@@ -719,6 +719,16 @@ it, receipts are read with `model`. Model credentials come from a stored login (
 above) or from the provider's usual environment variable (for example `OPENAI_API_KEY`), as pi-ai
 resolves them.
 
+**Migrations and backups.** At start `applyMigrations` (`src/store/database.ts`) applies the
+`migrations/*.sql` files not yet recorded in `schema_migrations`, each in its own transaction. A
+database that records a version this build does not know is refused, with both version numbers in
+the error, and left untouched. When migrations are pending on a database that already holds some,
+it is first copied with `VACUUM INTO` beside its file as
+`<db>.backup-v<from>-<yyyymmddThhmmssZ>` (UTC, mode 600; `src/store/backup.ts`); the three newest
+such files are kept and older ones deleted. A fresh database gets no copy, and a copy that cannot
+be written stops the start with nothing applied. To go back, stop the daemon and put a backup in
+place of the database file, removing its `-wal` and `-shm`.
+
 ## Configuration
 
 `loadConfig(process.env)` (`src/config.ts`) reads PRD §14.4. An empty value counts as unset.
