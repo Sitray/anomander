@@ -1,8 +1,8 @@
 // DK-6: the menu bar icon shows whether ANOMANDER is running, stopped or failing (AC1), and its
-// menu opens the chat, starts or stops ANOMANDER, and quits (AC2). While the chat waits for an
-// answer, or a task on the computer goes by itself (DK-10), the icon also shows that ANOMANDER is
-// working. The texts are read by the principal, so they are Spanish (es-ES); the icon is drawn
-// here, as a template image.
+// menu opens the chat, starts or stops ANOMANDER, and quits (AC2), and copies a diagnostic report
+// (AC4). While the chat waits for an answer, or a task on the computer goes by itself (DK-10),
+// the icon also shows that ANOMANDER is working. The texts are read by the principal, so they are
+// Spanish (es-ES); the icon is drawn here, as a template image.
 use std::f32::consts::TAU;
 use std::sync::atomic::{AtomicU8, Ordering};
 use std::sync::{Condvar, Mutex, OnceLock, PoisonError};
@@ -19,6 +19,8 @@ pub const TRAY_ID: &str = "anomander";
 pub const OPEN_CHAT: &str = "open-chat";
 pub const TOGGLE: &str = "toggle-daemon";
 pub const STOP_TASK: &str = "stop-task";
+/// DK-6 AC4: copies the diagnostic report to the clipboard.
+pub const COPY_DIAGNOSTICS: &str = "copy-diagnostics";
 pub const QUIT: &str = "quit";
 
 /// The texts of the menu for one status.
@@ -145,12 +147,26 @@ pub fn build(
     let toggle = MenuItem::with_id(app, TOGGLE, texts.toggle, true, None::<&str>)?;
     // The app is out of the way while a task goes by itself: this is how to stop it then.
     let stop_task = MenuItem::with_id(app, STOP_TASK, "Detener tarea", false, None::<&str>)?;
+    let diagnostics = MenuItem::with_id(
+        app,
+        COPY_DIAGNOSTICS,
+        "Copiar diagnóstico",
+        true,
+        None::<&str>,
+    )?;
     let quit = MenuItem::with_id(app, QUIT, "Salir de ANOMANDER", true, Some("Cmd+Q"))?;
     let separator = PredefinedMenuItem::separator(app)?;
     let menu = Menu::with_items(
         app,
         &[
-            &status, &separator, &open, &stop_task, &toggle, &separator, &quit,
+            &status,
+            &separator,
+            &open,
+            &stop_task,
+            &toggle,
+            &separator,
+            &diagnostics,
+            &quit,
         ],
     )?;
     TrayIconBuilder::with_id(TRAY_ID)

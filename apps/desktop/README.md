@@ -221,6 +221,17 @@ is framework-free, so it is tested against a fake `WebSocket` (`test/fake-web-so
   `anomander credentials ` out of its output and stores it (`Core::login_handler`); that line is
   never forwarded. An `auth.json` left in the data folder is merged in at a start and removed
   once stored. A login made from the subscriptions screen (DK-15) joins the same item.
+- **Field logs** (DK-6 AC4) are in `~/Library/Logs/dev.anomander.desktop/anomander.log`
+  (folder `700`, files `600`), set aside at 1 MB with 5 files kept (`anomander.1.log` the newest
+  older one). Everything the shell prints and the daemon's lines it forwards go there
+  (`src-tauri/src/diagnostics/`): the shell's stdout and stderr become pipes whose lines go on to
+  the terminal unchanged and to the file scrubbed by `daemon::output::scrub` of every secret the
+  run has known (the launch token, and each start's `LaunchSpec.secrets`). The lines that hand
+  over a login or OAuth tokens are never forwarded, so they never reach it. "Copiar diagnóstico"
+  in the menu bar copies a plain-text report: the app's version, the macOS version, the daemon's
+  state in the menu's words and the last 200 lines of the log, scrubbed again; nothing else. The
+  daemon logs references, reasons and amounts, never what the principal wrote (§16); an error
+  from a provider or a connected server is logged as it came.
 - **A ledger from Docker** (DK-12) is imported from the setup screen's link: the principal
   pastes the full path of a file they copied out of the volume. The shell runs
   `packages/daemon/scripts/import-ledger.ts` with the daemon stopped (`Supervisor::while_stopped`:

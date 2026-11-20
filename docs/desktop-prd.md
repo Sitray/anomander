@@ -109,6 +109,12 @@ and keep its secrets in the operating system instead of a text file.
     every task on the computer, and after an answer only when the chat window is not in front
     (asked by the principal on 2026-11-20: "solo debería salir con un aviso de que ha acabado, no
     el Pensando entero, para eso tenemos la animacion de la barra"). A click on it opens the chat.
+  - AC4: field logs (engineering audit High 4, 2026-11-20). What the app prints and the daemon's
+    lines it forwards go to `~/Library/Logs/dev.anomander.desktop/anomander.log`, folder `700`
+    and files `600`, set aside at 1 MB with 5 files kept. Every line is scrubbed of every secret
+    the run has known before it reaches the file, as the forwarded output is (DK-5 AC2). The menu's
+    "Copiar diagnóstico" copies to the clipboard the app's version, the macOS version, the
+    daemon's state and the last 200 lines of the log, scrubbed again, and nothing else.
 - DK-7 While the app is closed.
   - AC1: nothing runs. At launch, what was missed follows the rules already in force: a late
     reminder gets S-43 (R-25 AC7), and the morning digest is sent if it is still before 12:00
