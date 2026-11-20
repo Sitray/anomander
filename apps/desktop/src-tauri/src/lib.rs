@@ -8,6 +8,7 @@ pub mod connections;
 pub mod daemon;
 pub mod data_dir;
 pub mod ledger_import;
+pub mod notch;
 pub mod notification;
 pub mod oauth_connect;
 pub mod screen;
@@ -225,12 +226,15 @@ async fn stop_daemon(app: AppHandle) -> Result<(), String> {
     .await
 }
 
-/// The chat waits for an answer, or no longer does: the menu bar shows it.
+/// The chat waits for an answer, or no longer does: the menu bar and the notch show it.
 #[tauri::command]
 fn set_thinking(app: AppHandle, thinking: bool) -> Result<(), String> {
     let handle = app.clone();
-    app.run_on_main_thread(move || tray::show_thinking(&handle, thinking))
-        .map_err(|error| error.to_string())
+    app.run_on_main_thread(move || {
+        tray::show_thinking(&handle, thinking);
+        notch::show_thinking(&handle, thinking);
+    })
+    .map_err(|error| error.to_string())
 }
 
 /// An answer arrived in the chat: notifies it, unless the principal is looking at the window.
@@ -275,12 +279,16 @@ fn reveal(app: AppHandle) {
     come_back(&app);
 }
 
-/// A task goes by itself, or no longer does: the menu bar offers to stop it.
+/// A task goes by itself, or no longer does: the menu bar offers to stop it, and with the notch
+/// shows the work.
 #[tauri::command]
 fn set_task_running(app: AppHandle, running: bool) -> Result<(), String> {
     let handle = app.clone();
-    app.run_on_main_thread(move || tray::show_task(&handle, running))
-        .map_err(|error| error.to_string())
+    app.run_on_main_thread(move || {
+        tray::show_task(&handle, running);
+        notch::show_task(&handle, running);
+    })
+    .map_err(|error| error.to_string())
 }
 
 /// A JPEG of the screen for a question the principal is asking in the chat, taken with the chat
@@ -396,6 +404,7 @@ fn set_up(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         Options::default(),
     );
     tray::build(app, &supervisor.current().status, on_menu)?;
+    notch::build(app)?;
     app.manage(Shell { core, supervisor });
 
     // DK-1 AC1: opening the app starts the daemon.
