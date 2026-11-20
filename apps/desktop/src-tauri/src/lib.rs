@@ -7,6 +7,7 @@ pub mod connection_secrets;
 pub mod connections;
 pub mod daemon;
 pub mod data_dir;
+pub mod diagnostics;
 pub mod ledger_import;
 pub mod login;
 pub mod notch;
@@ -24,12 +25,15 @@ use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
 use tauri::{AppHandle, Emitter, Manager, RunEvent, WindowEvent};
+use tauri_plugin_clipboard_manager::ClipboardExt;
 use tauri_plugin_notification::NotificationExt;
 
 use crate::connections::{ConnectionsView, ServerInput};
 use crate::daemon::launch::{daemon_entry, find_node, launch_token, search_path};
-use crate::daemon::supervisor::{Options, Supervisor, Update};
+use crate::daemon::supervisor::{Options, Prepared, Supervisor, Update};
 use crate::data_dir::{DataDir, FOLDER_NAME};
+use crate::diagnostics::log_file::{self, LogFile};
+use crate::diagnostics::report::{self, Facts};
 use crate::ledger_import::LedgerImport;
 use crate::login::{LoginOutcome, SubscriptionsView};
 use crate::oauth_connect::{open_in_browser, OAuthConnect};
@@ -91,6 +95,8 @@ struct Shell {
     core: Arc<Core>,
     supervisor: Supervisor,
     logins: Logins,
+    /// DK-6 AC4: the log's folder, `~/Library/Logs/dev.anomander.desktop`.
+    logs: PathBuf,
 }
 
 impl Shell {
@@ -468,12 +474,80 @@ fn on_menu(app: &AppHandle, id: &str) {
                 eprintln!("could not stop the task: {error}");
             }
         }
+        tray::COPY_DIAGNOSTICS => {
+            let handle = app.clone();
+            in_background(app, move |shell| copy_diagnostics(&handle, shell));
+        }
         tray::QUIT => app.exit(0),
         _ => {}
     }
 }
 
+/// DK-6 AC4: the report of `diagnostics::report` to the clipboard, and a notification that says
+/// whether it is there.
+fn copy_diagnostics(app: &AppHandle, shell: &Shell) {
+    let view = tray::View {
+        status: shell.supervisor.current().status,
+        thinking: false,
+        task: false,
+    };
+    let lines = report::tail(&shell.logs, report::LINES).unwrap_or_else(|error| {
+        eprintln!("could not read the log: {error}");
+        Vec::new()
+    });
+    let secrets = diagnostics::secrets();
+    let secrets: Vec<&str> = secrets.iter().map(String::as_str).collect();
+    let facts = Facts {
+        app_version: &app.package_info().version.to_string(),
+        macos_version: &report::macos_version(),
+        daemon: tray::labels(&view).status,
+    };
+    let text = report::report(&facts, &lines, &secrets);
+    let handle = app.clone();
+    // The pasteboard belongs to the main thread.
+    let copied = app.run_on_main_thread(move || {
+        let said = match handle.clipboard().write_text(text) {
+            Ok(()) => "Diagnóstico copiado. Pégalo donde lo necesites.",
+            Err(error) => {
+                eprintln!("could not copy the diagnostic report: {error}");
+                "No se ha podido copiar el diagnóstico."
+            }
+        };
+        let shown = handle
+            .notification()
+            .builder()
+            .title("ANOMANDER")
+            .body(said)
+            .show();
+        if let Err(error) = shown {
+            eprintln!("could not say the diagnostic report was copied: {error}");
+        }
+    });
+    if let Err(error) = copied {
+        eprintln!("could not copy the diagnostic report: {error}");
+    }
+}
+
+/// DK-6 AC4: from now on, what the app and the daemon print also goes to the log in `dir`. An app
+/// without its log still runs.
+fn start_log(dir: &std::path::Path) {
+    let started = LogFile::open(dir, log_file::MAX_BYTES, log_file::FILES)
+        .and_then(diagnostics::capture::start);
+    match started {
+        Ok(()) => eprintln!("ANOMANDER {} started", env!("CARGO_PKG_VERSION")),
+        Err(error) => eprintln!("could not open the log in {}: {error}", dir.display()),
+    }
+}
+
 fn set_up(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
+    // First, so the log has every line after it.
+    let logs = app.path().app_log_dir().unwrap_or_else(|error| {
+        eprintln!("no folder for the log: {error}");
+        PathBuf::new()
+    });
+    if !logs.as_os_str().is_empty() {
+        start_log(&logs);
+    }
     // DK-8 AC1: `~/Library/Application Support/ANOMANDER`, not the identifier's folder.
     let data = DataDir::open(app.path().data_dir()?.join(FOLDER_NAME))?;
     screen::remove_leftovers(data.root());
@@ -482,6 +556,7 @@ fn set_up(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         Settings::default()
     });
     let token = launch_token()?;
+    diagnostics::remember([&token]);
     let logins = Logins {
         store: Arc::new(secure_store::Keychain),
         auth_path: data.daemon_paths().auth,
@@ -509,7 +584,14 @@ fn set_up(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     };
     let preparer = Arc::clone(&core);
     let supervisor = Supervisor::new(
-        Box::new(move || preparer.prepare()),
+        Box::new(move || {
+            let prepared = preparer.prepare();
+            // Each launch's secrets are taken out of the log as well as out of its output.
+            if let Prepared::Ready(spec) = &prepared {
+                diagnostics::remember(&spec.secrets);
+            }
+            prepared
+        }),
         Box::new(move |update| publisher.publish(update)),
         Options::default(),
     );
@@ -519,6 +601,7 @@ fn set_up(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         core,
         supervisor,
         logins,
+        logs,
     });
 
     // DK-1 AC1: opening the app starts the daemon.
@@ -552,6 +635,7 @@ fn quit(app: &AppHandle) {
 pub fn run() {
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_notification::init())
+        .plugin(tauri_plugin_clipboard_manager::init())
         .invoke_handler(tauri::generate_handler![
             get_snapshot,
             save_setup,
