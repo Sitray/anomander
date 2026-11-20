@@ -1,5 +1,7 @@
 # ANOMANDER
 
+[![CI](https://github.com/Sitray/anomander/actions/workflows/ci.yml/badge.svg)](https://github.com/Sitray/anomander/actions/workflows/ci.yml)
+
 A personal assistant that understands your world, knows what is true, knows what it may do, and carries a matter to a verifiable result.
 
 > Status: in development, not released. Milestones M0 to M6 of the [PRD](PRD.md) roadmap (§17) are built: see [What works today](#what-works-today). The design is in [`docs/`](docs).
