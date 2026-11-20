@@ -5,6 +5,7 @@ import type { Connection } from '../../src/connections/connection.ts';
 import {
   type ConnectionTasks,
   createConnectionTasks,
+  type DecidedCall,
   MAX_CONNECTION_CALLS,
   MAX_RESULT_CHARACTERS,
   type TaskOutcome,
@@ -45,6 +46,8 @@ describe('DK-11: a task with connections', () => {
   let results: Record<string, { text: string; isError: boolean } | Error>;
   let tasks: ConnectionTasks;
   let ids: number;
+  /** The calls code told it sent or the principal refused (DK-14 AC2). */
+  let decided: DecidedCall[];
 
   const connection = (name: string, tools: string[], readOnly: string[]): Connection => ({
     name,
@@ -80,6 +83,9 @@ describe('DK-11: a task with connections', () => {
       ...(problems === undefined ? {} : { problems: () => problems }),
       logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
       newId: () => `id-${++ids}`,
+      decided: (call) => {
+        decided.push(call);
+      },
     });
     return tasks;
   };
@@ -111,6 +117,7 @@ describe('DK-11: a task with connections', () => {
     script = [];
     results = {};
     ids = 0;
+    decided = [];
   });
 
   it('S2: gives the processor the tools, and answers with its words once it calls none', async () => {
@@ -124,9 +131,10 @@ describe('DK-11: a task with connections', () => {
     expect(context?.tools?.map((tool) => tool.name)).toEqual(['notes__search', 'notes__create']);
     expect(context?.tools?.[0]?.parameters).toEqual({ type: 'object', properties: {} });
     expect(context?.messages).toHaveLength(1);
+    // DK-14 AC1: the task with what ANOMANDER remembers, here nothing.
     expect(context?.messages[0]).toMatchObject({
       role: 'user',
-      content: 'Busca mis notas de Lisboa',
+      content: JSON.stringify({ task: 'Busca mis notas de Lisboa', memories: [] }),
     });
   });
 
@@ -174,6 +182,32 @@ describe('DK-11: a task with connections', () => {
     expect(await tasks.answer(outcome.id, true)).toEqual({ kind: 'gone' });
     expect(made).toEqual([]);
     expect(contexts).toHaveLength(1);
+  });
+
+  it('DK-14 AC2: tells which calls were sent and which the principal refused, never their arguments', async () => {
+    script = [
+      call(['notes__search', { query: 'Lisboa' }]),
+      call(['nowhere__tool', {}]),
+      call(['notes__create', { title: 'Hotel Sol' }]),
+    ];
+    const outcome = asked(
+      await start([notes()]).start('Apunta el hotel', [
+        { text: 'Se llama Eric', mode: 'declared' },
+      ]),
+    );
+    script = [call(['notes__create', { title: 'Otro' }])];
+    const next = asked(await tasks.answer(outcome.id, true));
+    await tasks.answer(next.id, false);
+
+    expect(decided).toEqual([
+      { server: 'notes', tool: 'search', allowed: true },
+      { server: 'notes', tool: 'create', allowed: true },
+      { server: 'notes', tool: 'create', allowed: false },
+    ]);
+    expect(JSON.parse(String(contexts[0]?.messages[0]?.content))).toEqual({
+      task: 'Apunta el hotel',
+      memories: [{ text: 'Se llama Eric', mode: 'declared' }],
+    });
   });
 
   it('S3: a call allowed once is performed once, whatever is pressed after', async () => {

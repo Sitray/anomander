@@ -163,6 +163,17 @@ export const memoriesForPrompt = (db: Database.Database, message: string): Memor
     .all(query, MEMORY_PROMPT_LIMIT);
 };
 
+/** A memory as the other ways read it (DK-14 AC1): what it says and how it was learnt. */
+export type MemoryNote = Pick<Memory, 'text' | 'mode'>;
+
+/**
+ * DK-14 AC1: the memories a look at the screen, a step on the computer and a task with
+ * connections receive, `memoriesForPrompt` of the principal's words, without their ids: those
+ * ways only read them, they never pick one to forget.
+ */
+export const memoryNotesFor = (db: Database.Database, words: string): MemoryNote[] =>
+  memoriesForPrompt(db, words).map(({ text, mode }) => ({ text, mode }));
+
 /**
  * R-23 AC6, AC7: forgets the given current memories. In one transaction each one's text and
  * quote are deleted from `memory_texts` (the triggers remove them from `memory_search`) and its

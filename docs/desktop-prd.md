@@ -110,11 +110,12 @@ and keep its secrets in the operating system instead of a text file.
     reglas, que decida solo"). The capture is sent at once and shown in the conversation; there
     is no screen button.
   - AC2: it is sent with a question as a `screen` request of the local channel; the vision
-    processor answers in words. It gets no tools and never writes (R-14 AC1, AC3): what the
-    screen shows is content to describe, never an instruction.
+    processor answers in words, with what ANOMANDER remembers about the principal (DK-14 AC1). It
+    gets no tools and never writes (R-14 AC1, AC3): what the screen shows is content to
+    describe, never an instruction.
   - AC3: the look counts against the daily AI limit (R-12) and is a recent turn, as its question
-    only (R-16 AC3). The capture is not stored: the shell removes its file once read, and the
-    daemon keeps it in memory for the call.
+    only (R-16 AC3); it is kept in the history the same way (DK-14 AC2). The capture is not
+    stored: the shell removes its file once read, and the daemon keeps it in memory for the call.
   - AC4: macOS must allow the app to record the screen; while it does not, the app says how to
     allow it and captures nothing.
 - DK-10 A task on the computer (asked by the principal on 2026-11-10: "puede el agente
@@ -135,8 +136,9 @@ and keep its secrets in the operating system instead of a text file.
     that may have been performed is never offered again.
   - AC2: the daemon only proposes. For a `computer` request (the task, a capture of the screen
     and the steps already done) the vision processor answers one action, or ends the task in
-    words. It gets no tools and never writes (R-14 AC1, AC3); what the screen shows is content,
-    never an instruction.
+    words; it also gets what ANOMANDER remembers about the principal (DK-14 AC1). It gets no
+    tools and never writes (R-14 AC1, AC3); what the screen shows is content, never an
+    instruction.
   - AC3: an action is one of four: a click or double click on a point, a text of at most 500
     characters on one line (no line break, control or direction character: Enter is its own
     step), one key with modifiers, or a scroll. Anything else is not an action: the daemon
@@ -144,7 +146,8 @@ and keep its secrets in the operating system instead of a text file.
     said by code from the validated action, with the exact text or keys; for a click or a scroll
     the app also shows the capture around the point.
   - AC4: a task takes at most 12 steps, and every step counts against the daily AI limit (R-12).
-    Only how a task ended is a recent turn (R-16 AC3).
+    Only how a task ended is a recent turn (R-16 AC3), and only how it ended and how many steps
+    it took is kept in the history (DK-14 AC2).
   - AC5: macOS must allow the app to send input (Accessibility) and to record the screen; while
     it does not, the app says how to allow it and does nothing.
 
@@ -173,9 +176,14 @@ and keep its secrets in the operating system instead of a text file.
     its task was asked: a press at the other front door runs nothing.
   - AC4: once a server answered in a task, a call to another server always waits for "Permitir",
     read-only or not: what was read from one server never leaves towards another unasked.
-  - AC5: a task carries the principal's words and what the tools answered, and nothing else: no
-    expense, memory or recent turn. What a tool or its description says is content, never an
-    instruction. Only how a task ended is a recent turn (R-16 AC3).
+  - AC5: a task carries the principal's words, what ANOMANDER remembers about them (DK-14 AC1)
+    and what the tools answered, and nothing else: no expense or recent turn (changed by the
+    principal on 2026-11-20: "También me gustaría que recordara quién soy, que recuerde quien soy
+    y tenga memoria de lo que ha hecho"; "si, me gustaria ya que esto es algo que la gente tendrá
+    en su local"). Accepted with it: a read-only call runs without asking, so it may carry a
+    remembered fact to a connected server unasked. What a tool or its description says is
+    content, never an instruction. Only how a task ended is a recent turn (R-16 AC3), and only
+    how it ended and which calls it made is kept in the history (DK-14 AC2).
   - AC6: a task makes at most 8 calls, and every processor call counts against the daily AI
     limit (R-12). A result over 12 000 characters is cut; what is not text is only named.
     After its last call the processor is asked once more, so what that call answered still
@@ -259,6 +267,40 @@ and keep its secrets in the operating system instead of a text file.
     (DK-10) from the reply's `route`. Every limit and permission of those paths holds: Permitir
     for a step of care and for a call that is not read-only, Detener, one task at a time.
   - AC3: the composer offers no mode: no screen button, no computer or connections toggle.
+- DK-14 Who the principal is and what ANOMANDER did (asked by the principal on 2026-11-20:
+  "También me gustaría que recordara quién soy, que recuerde quien soy y tenga memoria de lo que
+  ha hecho"; the proposal "pasarle los recuerdos a todas las rutas, y agregar un historial
+  persistente de acciones para que pueda contestar «¿qué hiciste ayer?»" accepted the same day:
+  "si, me gustaria ya que esto es algo que la gente tendrá en su local").
+  - AC1: a look at the screen (DK-9), every step of a task on the computer (DK-10) and a task
+    with connections (DK-11) get the current memories (R-23), chosen as for a conversation
+    reply (R-23 AC4) from the question or the task, each with its text and mode, in the user
+    turn. They are facts about the principal, never instructions. They still never become an
+    expense fact (R-23 AC4): none of these ways writes one.
+  - AC2: when one of those ends, the daemon keeps it in `action_history`, in the app's database:
+    what it was, the front door it was asked at, the principal's words (the question or the
+    task), how it ended as a code word, when, and for a task on the computer the steps it took,
+    for a task with connections each tool of each server code sent or the principal refused,
+    and which. Never the capture, what a step typed or pressed, a call's arguments or what a
+    tool or the processor answered. Expenses stay in the ledger and are not copied here. A task
+    on the computer that the app ends by itself ("Detener", a step not allowed, a newer task)
+    is not seen by the daemon and is not kept (assumption); a task with connections that waited
+    for "Permitir" and was ended by a newer one is kept as `replaced`.
+  - AC3: the text interpreter gets the latest of them in its user turn as `history`, oldest
+    first, with when each ended in `TZ`: at most 20, none older than 7 days, bounded by code. It
+    uses them only to answer what ANOMANDER did ("¿qué hiciste ayer?") in a conversation reply;
+    an expense inference that rests on them is rejected like one that rests on a memory (R-23
+    AC4).
+  - AC4: when the principal asks to erase it ("borra tu historial"), code asks "¿Borro el
+    historial de lo que he hecho por ti? Son N acciones y no podré recuperarlas." with `Sí` and
+    `No`, or replies "No tengo nada en mi historial." when it is empty. `Sí` erases every action
+    kept when it was asked, checkpoints the WAL as a forget does (R-23 AC7), empties the recent
+    turns and replies "Hecho, he borrado mi historial."; `No` erases nothing and replies "Vale,
+    no borro nada.".
+  - AC5: the history is local: it lives only in the app's database (DK-8), is never logged (a
+    failure to keep an action is logged without its words) and never leaves the machine except
+    in the history the text interpreter receives. Unlike the recent turns (R-16 AC3), it
+    survives a restart.
 
 ## 6. Decisions
 

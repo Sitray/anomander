@@ -29,7 +29,11 @@ import type { RecentTurn } from '../conversation/recent-turns.ts';
 import { type PatternOffers, thenOfferPattern } from '../patterns/pattern-offers.ts';
 import { checkedPhrasing, type ReplyPhraser } from '../processor/reply-phraser.ts';
 import type { Logger, MemoryFact, TextInterpreter } from '../processor/text-interpreter.ts';
-import { openCreateCategoryDecision, openForgetMemoryDecision } from '../store/decisions.ts';
+import {
+  openCreateCategoryDecision,
+  openForgetHistoryDecision,
+  openForgetMemoryDecision,
+} from '../store/decisions.ts';
 import {
   listActivePolicies,
   listCategories,
@@ -37,6 +41,7 @@ import {
   recordReplyDelivery,
   registerTextExpense,
 } from '../store/expenses.ts';
+import { countActions, historyForPrompt, lastActionId } from '../store/history.ts';
 import { listMemories, memoriesForPrompt, saveMemory } from '../store/memory.ts';
 import { hasActivePolicy, openCreatePolicyDecision } from '../store/policies.ts';
 import { recordDecisionMessage } from '../store/receipts.ts';
@@ -126,6 +131,8 @@ export const createTextExpenseHandler = (deps: TextExpenseDeps): TextHandler => 
       memories: memoriesForPrompt(db, message.text),
       capabilities: capabilityContext(capabilities, env),
       routes: routes(message),
+      // DK-14 AC3: what ANOMANDER did lately, bounded by code.
+      history: historyForPrompt(db, timeZone, now()),
     });
 
     // R-23 AC1-AC3: the lasting facts of an interpreted message are remembered; a failure to
@@ -183,6 +190,29 @@ export const createTextExpenseHandler = (deps: TextExpenseDeps): TextHandler => 
       });
       return {
         text: strings.confirmForget(matches.map(({ text }) => text)),
+        buttons: decisionButtons(decisionId, options),
+        onDelivered: (delivery) => {
+          if (!recordDecisionMessage(db, decisionId, delivery.channelRef)) {
+            logger.warn('decision message already recorded', { decisionId });
+          }
+        },
+      };
+    }
+    // DK-14 AC4: code asks before erasing the history, and names how much it holds; the question
+    // stored names no action.
+    if (interpretation.kind === 'forget_history') {
+      const upToId = lastActionId(db);
+      if (upToId === null) return { text: strings.noHistory() };
+      const options = [buttons.yes, buttons.no];
+      const question = strings.confirmForgetHistory(countActions(db));
+      const decisionId = openForgetHistoryDecision(db, {
+        upToId,
+        question,
+        options,
+        now: now().toISOString(),
+      });
+      return {
+        text: question,
         buttons: decisionButtons(decisionId, options),
         onDelivered: (delivery) => {
           if (!recordDecisionMessage(db, decisionId, delivery.channelRef)) {

@@ -326,6 +326,8 @@ WHERE status = 'pending';
 
 `supermarket_purchases` stays as it was. Unlike `0003` to `0006`, `0007` is not yet a block of PRD §13: it joins it when the draft moves into `PRD.md`.
 
+The history of what ANOMANDER did (desktop PRD DK-14) is the table `action_history`, added by `0008_action_history.sql`: one row per look at the screen, task on the computer or task with connections when it ends, with its `kind` (`screen`, `computer`, `connect`), its `door` (`app`, `telegram`), the principal's `task` words, its `outcome` code, the `steps` of a computer task, the `calls_json` of a task with connections (server, tool and whether it was allowed; never arguments or results) and `ended_at` in UTC, indexed. It is not an assertion table: it records what was done, not a fact about the world. A confirmed `forget_history` deletes its rows; nothing else deletes them. Like `0007`, `0008` is not yet a block of PRD §13.
+
 Schema decisions:
 
 - **Money is stored in cents** (`INTEGER`), never as decimals, so that sums add up exactly.

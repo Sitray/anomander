@@ -73,6 +73,7 @@ describe('pi-ai text interpreter', () => {
       categories: ['restaurantes', 'supermercado'],
       recent: [],
       memories: [],
+      history: [],
       routes: [],
       message: text,
     });
@@ -267,6 +268,72 @@ describe('pi-ai text interpreter', () => {
     const turns = contexts.map((context) => JSON.parse(String(context.messages[0]?.content)));
     expect(turns.map(({ routes }) => routes)).toEqual([['connect'], []]);
     expect(contexts[0]?.systemPrompt).toContain('"kind":"route"');
+  });
+
+  it('tells the processor what it did lately, none by default, and asks to erase it only by its kind (DK-14 AC3, AC4)', async () => {
+    const { interpret, contexts } = interpreterFor('conversation');
+    const done = {
+      when: '2026-11-19 18:30',
+      what: 'computer' as const,
+      door: 'app' as const,
+      task: 'abre Notas',
+      outcome: 'done',
+      steps: 2,
+    };
+    await interpret({ ...input('¿qué hiciste ayer?'), history: [done] });
+    await interpret(input('hola'));
+
+    const turns = contexts.map((context) => JSON.parse(String(context.messages[0]?.content)));
+    expect(turns.map(({ history }) => history)).toEqual([[done], []]);
+    expect(contexts[0]?.systemPrompt).toContain('"history" lists what you did for the user');
+    expect(contexts[0]?.systemPrompt).toContain('{"kind":"forget_history"}');
+
+    const forget = interpreterAnswering({ kind: 'forget_history' });
+    expect(await forget.interpret(input('borra tu historial'))).toEqual({ kind: 'forget_history' });
+  });
+
+  it('rejects an expense inference that rests on the history, not on the message (DK-14 AC3)', async () => {
+    const { interpret } = interpreterAnswering({
+      kind: 'expense',
+      inferences: [
+        {
+          subject_type: 'expense',
+          subject_id: null,
+          predicate: 'total',
+          value_json: 2300,
+          mode: 'inferred',
+          basis_json: { quote: '23 €' },
+          confidence: 0.98,
+        },
+        {
+          subject_type: 'expense',
+          subject_id: null,
+          predicate: 'merchant',
+          value_json: 'Hotel Sol',
+          mode: 'inferred',
+          basis_json: { quote: 'reserva el Hotel Sol' },
+          confidence: 0.7,
+        },
+      ],
+    });
+
+    const interpretation = await interpret({
+      ...input('23 € lo de ayer'),
+      history: [
+        {
+          when: '2026-11-19 18:30',
+          what: 'connect',
+          door: 'app',
+          task: 'reserva el Hotel Sol',
+          outcome: 'answer',
+          calls: [{ server: 'hotels', tool: 'book', allowed: true }],
+        },
+      ],
+    });
+
+    expect(interpretation.kind === 'expense' && interpretation.inferences).toEqual([
+      expect.objectContaining({ predicate: 'total', value_json: 2300 }),
+    ]);
   });
 
   it('never passes tools to the processor (R-14 AC3)', async () => {

@@ -331,7 +331,7 @@ Code checks every proposed receipt expense.
 ### R-16 Open conversation
 - AC1: A message that is not an expense, a policy or an answer to a pending decision gets a conversational reply.
 - AC2: Open conversation persists nothing except the memories of R-23.
-- AC3: The text interpreter receives the recent turns of the conversation, oldest first, at most the last 10 and none older than 30 minutes. A turn is each principal text, receipt (as `[foto de ticket]` and its caption) or button press (as `[botón: {opción}]`) with the reply that was sent, and each message sent to the principal unasked. Turns are kept only in the daemon's memory, never written to the database or logged, and lost on restart; a confirmed forget (R-23 AC6) empties them.
+- AC3: The text interpreter receives the recent turns of the conversation, oldest first, at most the last 10 and none older than 30 minutes. A turn is each principal text, receipt (as `[foto de ticket]` and its caption) or button press (as `[botón: {opción}]`) with the reply that was sent, and each message sent to the principal unasked. Turns are kept only in the daemon's memory, never written to the database or logged, and lost on restart; a confirmed forget (R-23 AC6) empties them. What ANOMANDER did (looks at the screen, tasks on the computer, tasks with connections) is kept apart, in the local history of desktop PRD DK-14, which survives a restart and can be erased (changed by the principal on 2026-11-20: "si, me gustaria ya que esto es algo que la gente tendrá en su local").
 
 ### R-17 Message routing
 Every incoming message has exactly one destination, decided by code in this order.
@@ -387,7 +387,7 @@ The principal always gets an answer.
 - AC3: A processor call that fails with a transient provider error (overloaded or rate limited, as pi-ai classifies it) is retried twice, after 1 and then 2 seconds, before it counts as failed. Each retry is one more call against the daily AI budget (R-12), and none is made once the budget is spent.
 
 ### R-23 Conversation memory
-ANOMANDER remembers lasting facts about the principal, such as "soy vegetariano", and uses them only to converse (G7).
+ANOMANDER remembers lasting facts about the principal, such as "soy vegetariano", and uses them to converse (G7) and, since 2026-11-20, in a look at the screen, a task on the computer and a task with connections (desktop PRD DK-14 AC1: "También me gustaría que recordara quién soy"). They never become an expense fact (AC4).
 - AC1: In the same processor call that interprets a principal text (R-2, R-16), the processor may return lasting facts about the principal, each with its text, the words of the message it rests on, and whether the principal said it. No extra processor call is made.
 - AC2: Code stores each fact as an assertion about the principal with predicate `memory`: mode `declared` and actor `principal` only when the processor says the principal said it and its quote appears in the message; otherwise mode `inferred` and actor `processor`. The source is the Telegram message. The fact's text and quote are stored in `memory_texts`, not in the assertion.
 - AC3: A fact that replaces a current memory ("ya no soy vegetariano") stores the new memory with `supersedes_id`, sets the old one to `refuted` and erases its text as AC6 and AC7 do, so no outdated text is kept.
@@ -916,6 +916,7 @@ Checks every feature document should run:
 - Nothing personal in the repository: expenses, categories, policies and permissions live in the local database; tokens and keys live in `.env`.
 - Providers are chosen at install time; the core assumes none.
 - Receipt images leave the server only while being read by the configured vision model, and are deleted afterwards (R-8).
+- The history of what ANOMANDER did (desktop PRD DK-14) lives only in the local database: the words of each task and how it ended, never a capture, a typed text, a tool's arguments or its results. Remembered facts may reach a connected server inside a read-only call, which runs without asking (desktop PRD DK-11 AC5, accepted by the principal on 2026-11-20).
 - The data folder, the database and the receipt images are readable by their owner only: the daemon creates folders with mode `700` and files with mode `600`. A folder or database that already exists keeps its mode.
 - The ontology in `docs/` is the public specification: contributions must respect it, and any app can be built on it.
 - `SECURITY.md` explains how to report vulnerabilities. `CONTRIBUTING.md` points to the ODD workflow.

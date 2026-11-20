@@ -91,7 +91,8 @@ Every incoming message has exactly one destination, decided by code (R-17):
    dispatch table (`createDecisionAnswers`, a plain record; add another operation by spreading
    it: `{ ...createDecisionAnswers(deps), keep_receipt: ... }`). `app.ts` adds `keep_receipt`
    (R-8), `forget_memory` (R-23 AC6), `create_category` (R-18), `create_policy` (R-13),
-   `cancel_reminder` (R-25 AC9) and `grant_morning_digest` (R-26 AC2).
+   `cancel_reminder` (R-25 AC9), `grant_morning_digest` (R-26 AC2) and `forget_history`
+   (DK-14 AC4).
 2. **A text** goes through `createTextRouter` (`src/decisions/router.ts`), in this order:
    - a Telegram reply to the message of an `open` or `awaiting_text` decision corrects that
      decision (AC2);
@@ -276,6 +277,35 @@ them from the index) and sets the assertions to `expired`, in one transaction. T
 `openDatabase` turns on `secure_delete`, the index has FTS5 `secure-delete`, and the WAL is
 checkpointed and truncated afterwards, so the text is in neither the database file nor its WAL.
 The test proves it by reading the raw bytes. Never log a memory's text or quote (AC8).
+
+## Memories in every way, and the history of what ANOMANDER did (DK-14)
+
+**Memories (AC1).** `memoryNotesFor` (`src/store/memory.ts`) is `memoriesForPrompt` of the
+question or the task, as `{text, mode}` without ids. `app.ts` hands it to the screen reader, to
+every step of the computer planner and to `connectionTasks.start`; each puts it in its user turn
+as `memories` (the screen reader's and the planner's text part, the task's user turn, are now a
+JSON object) and its prompt calls them facts about the principal, never instructions.
+
+**History (AC2, AC5).** `src/store/history.ts` keeps `action_history` (migration `0008`): one
+row per look at the screen, task on the computer or task with connections, written by `keep` in
+`app.ts` when it ends. A row holds `kind`, `door`, the principal's words (`task`), `outcome` (the
+reading's kind; `done`, `cannot`, `too_many_steps` or the plan's kind; the task outcome's kind or
+`replaced`), `steps` for the computer and `calls_json` for connections. The calls come from the
+`decided` hook of `createConnectionTasks`: `{server, tool, allowed}` when code sends a call or
+the principal refuses it; never arguments or results. A failure to keep a row is logged with
+its kind and reason only.
+
+**Prompt (AC3).** The text handler puts `historyForPrompt` in the interpreter's user turn as
+`history`: at most 20 rows (`HISTORY_PROMPT_LIMIT`), none older than 7 days
+(`HISTORY_PROMPT_DAYS`), oldest first, with `when` in `TZ` (`YYYY-MM-DD HH:mm`). The quote rule of
+R-23 AC4 keeps it out of every expense fact.
+
+**Erasing (AC4).** `{"kind":"forget_history"}` makes the text handler open a `forget_history`
+proposal (payload `{"up_to_id": <the latest row>}`) and ask with `Sí` and `No`, or reply that
+there is nothing when the table is empty. `createForgetHistoryAnswerHandler`
+(`src/decisions/forget-history-decision.ts`) records the answer, and on `Sí` deletes the rows up
+to that id with `forgetHistory`, which checkpoints and truncates the WAL, and empties the recent
+turns.
 
 ## Categories (R-18)
 
@@ -479,7 +509,7 @@ Each message is one JSON text frame, typed in `packages/protocol/src/local-chann
 | `text` | `reply` with the same string Telegram would get (DK-4 AC1) |
 | `receipt`: one or several images in base64 | `reply`; a PDF, another file type or an image over 20 MB gets R-20's reply, as in Telegram |
 | `button`: the `data` of a reply's button | `reply`; S-19 when the decision is no longer open, whichever door closed it (DK-4 AC3) |
-| `screen`: a question and one capture of the screen in base64 (DK-9) | `reply` with what the vision processor sees (`src/processor/screen-reader.ts`): no tools, nothing stored, one call against the daily AI limit; an image over 20 MB gets R-20's reply |
+| `screen`: a question and one capture of the screen in base64 (DK-9) | `reply` with what the vision processor sees (`src/processor/screen-reader.ts`): no tools, nothing stored but its question in the history (DK-14), one call against the daily AI limit; an image over 20 MB gets R-20's reply |
 | `connect`: a task for the connected MCP servers (DK-11) | `reply` in words that ends the task, or a `reply` that describes one call and carries "Permitir" and "Detener" buttons (`connection:<id>:allow`, `connection:<id>:refuse`). `src/connections/task.ts` decides every call the processor asks for; `mcp-client.ts` makes it. The servers come from `ANOMANDER_MCP_CONFIG` (`config.ts`). At most 8 calls, each processor call against the daily AI limit |
 | `computer`: a task, one capture and the steps already done (DK-10) | `reply` whose `computer` is the one action the vision processor proposes (`src/processor/computer-planner.ts`), described by code; or a `reply` in words that ends the task. The daemon never performs anything. At most 12 steps, each one call against the daily AI limit |
 | A frame that is none of these | `rejected`, and nothing is done with it |
@@ -766,8 +796,8 @@ expected kind and fields for the cases in `evals/text/cases.json`, also out of g
 - Every assertion goes through `assertionDraftSchema` before it is inserted (§7.2), and the
   ledger is append-only except `status` (R-7 AC3, enforced by triggers).
 - The reply is built from the stored row, never from the proposal (R-9 AC1).
-- Message, receipt, correction, memory and reminder text is never logged; a rejected processor
-  item is logged by its reason and predicate only (R-14 AC2).
+- Message, receipt, correction, memory, reminder and action history text is never logged; a
+  rejected processor item is logged by its reason and predicate only (R-14 AC2).
 - Tokens and what the principal pastes during a login are never logged, stored outside
   `ANOMANDER_AUTH_PATH` or sent to the chat (R-27 AC3, AC5).
 - The local channel listens on `127.0.0.1` only and closes, without a byte, any connection

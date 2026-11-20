@@ -363,6 +363,42 @@ export const openForgetMemoryDecision = (
     });
   })();
 
+export interface ForgetHistoryQuestion {
+  /** The latest action when the principal was asked: one that ends later is not erased. */
+  upToId: number;
+  /** The question asked; it names no action. */
+  question: string;
+  options: readonly string[];
+  now: string;
+}
+
+/**
+ * DK-14 AC4: a `forget_history` proposal, `asked`, naming the latest action to erase up to, and
+ * its pending decision. The history belongs to no matter. Returns the decision.
+ */
+export const openForgetHistoryDecision = (
+  db: Database.Database,
+  ask: ForgetHistoryQuestion,
+): number =>
+  db.transaction(() => {
+    const proposal = db
+      .prepare(
+        `INSERT INTO proposals (matter_id, operation, payload_json, basis_json, status, created_at)
+         VALUES (NULL, 'forget_history', ?, ?, 'asked', ?)`,
+      )
+      .run(
+        JSON.stringify({ up_to_id: ask.upToId }),
+        JSON.stringify({ rule: 'DK-14 AC4' }),
+        ask.now,
+      );
+    return openPendingDecision(db, {
+      proposalId: Number(proposal.lastInsertRowid),
+      question: ask.question,
+      options: ask.options,
+      now: ask.now,
+    });
+  })();
+
 export interface CancelReminderQuestion {
   reminderIds: readonly number[];
   /** The S-46 header only: a reminder's text stays in `reminders` (R-25 AC9). */

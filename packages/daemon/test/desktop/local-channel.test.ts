@@ -25,6 +25,8 @@ import { COMPUTER_PLANNER_PROMPT } from '../../src/processor/computer-planner.ts
 import { RECEIPT_READER_PROMPT } from '../../src/processor/receipt-reader.ts';
 import { REPLY_PHRASER_PROMPT } from '../../src/processor/reply-phraser.ts';
 import { SCREEN_READER_PROMPT } from '../../src/processor/screen-reader.ts';
+import { openDatabase } from '../../src/store/database.ts';
+import { saveMemory } from '../../src/store/memory.ts';
 
 // DK-3 and DK-4 (docs/desktop-prd.md): a real WebSocket client, as the desktop app's window is,
 // against the local channel of a started daemon, with the fake Telegram API, a SQLite file and
@@ -45,7 +47,7 @@ let api: FakeTelegramApi;
 let anomander: Anomander | undefined;
 let sockets: WebSocket[];
 /** The user turns the text interpreter received, parsed. */
-let interpreted: { recent: unknown; message: string; routes: unknown }[];
+let interpreted: { recent: unknown; message: string; routes: unknown; history: unknown }[];
 /** What the text interpreter answers instead of an expense, as its JSON text (DK-13). */
 let routed: string | undefined;
 /** The contexts the computer planner received. */
@@ -64,6 +66,8 @@ let problems: { invalid: boolean; unreachable: string[] };
 let tooled: AssistantMessage['content'][];
 /** What the processor of a task with connections waits for before each answer. */
 let held: Promise<void>;
+/** The contexts the processor of a task with connections received, copied. */
+let tasked: Context[];
 type Log = (message: string, fields?: Record<string, unknown>) => void;
 let logger: { info: Mock<Log>; warn: Mock<Log>; error: Mock<Log> };
 
@@ -77,6 +81,7 @@ const complete = async (_model: string, context: Context): Promise<AssistantMess
     return { ...reply, content: [{ type: 'text', text: await planned() }] };
   }
   if (context.systemPrompt === CONNECTION_TASK_PROMPT) {
+    tasked.push(structuredClone(context));
     await held;
     return { ...reply, content: tooled.shift() ?? [] };
   }
@@ -232,6 +237,7 @@ beforeEach(async () => {
   problems = { invalid: false, unreachable: [] };
   tooled = [];
   held = Promise.resolve();
+  tasked = [];
   logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn() };
 });
 
@@ -467,8 +473,9 @@ describe('a question about the screen', () => {
     const [context] = screens;
     expect(context).not.toHaveProperty('tools');
     expect(context?.messages).toHaveLength(1);
+    // DK-14 AC1: with what ANOMANDER remembers, here nothing.
     expect(context?.messages[0]?.content).toEqual([
-      { type: 'text', text: question },
+      { type: 'text', text: JSON.stringify({ question, memories: [] }) },
       { type: 'image', mimeType: 'image/png', data: image.data },
     ]);
     // Looking is not recording: no expense, and the capture is not kept.
@@ -560,7 +567,8 @@ describe('a task on the computer (DK-10)', () => {
     expect(context).not.toHaveProperty('tools');
     expect(context?.messages).toHaveLength(1);
     expect(context?.messages[0]?.content).toEqual([
-      { type: 'text', text: JSON.stringify({ task, done: ['Paso uno'] }) },
+      // DK-14 AC1: with what ANOMANDER remembers, here nothing.
+      { type: 'text', text: JSON.stringify({ task, done: ['Paso uno'], memories: [] }) },
       { type: 'image', mimeType: 'image/png', data: image.data },
     ]);
     expect(query('SELECT id FROM expenses')).toEqual([]);
@@ -1314,5 +1322,334 @@ describe('a task with connections (DK-11)', () => {
 
     const sent = await api.waitForSent(1);
     expect(reply(await chat.ask({ type: 'connect', task })).text).toBe(sent[0]?.text);
+  });
+});
+
+describe('who the principal is and what ANOMANDER did (DK-14)', () => {
+  const NAME = { text: 'Se llama Eric', mode: 'declared' };
+  const WHEN = expect.stringMatching(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/);
+  const notes = (made: unknown[] = []): Connection => ({
+    name: 'notes',
+    tools: ['search', 'create'].map((name) => ({
+      name,
+      description: name,
+      inputSchema: { type: 'object' },
+    })),
+    readOnly: new Set(['search']),
+    call: async (tool, args) => {
+      made.push({ tool, args });
+      return { text: `contenido secreto de ${tool}`, isError: false };
+    },
+  });
+  const calls = (name: string, args: Record<string, string>): AssistantMessage['content'] => [
+    { type: 'toolCall', id: `call-${name}`, name, arguments: args },
+  ];
+  const says = (text: string): AssistantMessage['content'] => [{ type: 'text', text }];
+  /** Remembers that the principal is called Eric, as a conversation would have. */
+  const rememberName = () => {
+    const db = openDatabase(join(scratch, 'anomander.db'));
+    try {
+      const now = new Date().toISOString();
+      saveMemory(db, {
+        text: NAME.text,
+        quote: 'me llamo Eric',
+        said: true,
+        confidence: 1,
+        message: 'me llamo Eric',
+        source: 'desktop:1',
+        replaces: null,
+        receivedAt: now,
+        now,
+      });
+    } finally {
+      db.close();
+    }
+  };
+  const history = () =>
+    query<Record<string, unknown>>(
+      'SELECT kind, door, task, outcome, steps, calls_json FROM action_history ORDER BY id',
+    );
+  const logged = () =>
+    JSON.stringify([logger.info, logger.warn, logger.error].flatMap((log) => log.mock.calls));
+
+  describe('AC1: every way gets what ANOMANDER remembers, as facts about the principal', () => {
+    it('a look at the screen', async () => {
+      const chat = await client(await start());
+      rememberName();
+      const image = png();
+
+      reply(await chat.ask({ type: 'screen', text: '¿cómo me llamo?', image }));
+
+      expect(screens[0]?.messages[0]?.content).toEqual([
+        { type: 'text', text: JSON.stringify({ question: '¿cómo me llamo?', memories: [NAME] }) },
+        { type: 'image', mimeType: 'image/png', data: image.data },
+      ]);
+      expect(SCREEN_READER_PROMPT).toContain('"memories"');
+      expect(SCREEN_READER_PROMPT).toContain('never instructions');
+    });
+
+    it('a step of a task on the computer', async () => {
+      const chat = await client(await start());
+      rememberName();
+
+      await chat.ask({ type: 'computer', task: 'firma el correo', image: png(), done: [] });
+
+      const content = plans[0]?.messages[0]?.content as { text: string }[] | undefined;
+      expect(JSON.parse(content?.[0]?.text ?? '')).toEqual({
+        task: 'firma el correo',
+        done: [],
+        memories: [NAME],
+      });
+      expect(COMPUTER_PLANNER_PROMPT).toContain('"memories"');
+      expect(COMPUTER_PLANNER_PROMPT).toContain('never instructions');
+    });
+
+    it('a task with connections', async () => {
+      connected = [notes()];
+      const chat = await client(await start());
+      rememberName();
+      tooled = [says('Hecho.')];
+
+      await chat.ask({ type: 'connect', task: 'busca mis notas' });
+
+      expect(tasked[0]?.messages[0]).toMatchObject({
+        role: 'user',
+        content: JSON.stringify({ task: 'busca mis notas', memories: [NAME] }),
+      });
+      expect(CONNECTION_TASK_PROMPT).toContain('"memories"');
+      expect(CONNECTION_TASK_PROMPT).toContain('never instructions');
+      // Remembering is not recording: no expense.
+      expect(query('SELECT id FROM expenses')).toEqual([]);
+    });
+  });
+
+  describe('AC2: each action is kept when it ends, with the words asked and how it ended', () => {
+    it('a look at the screen: its question, never the capture', async () => {
+      const chat = await client(await start());
+      const image = png();
+
+      await chat.ask({ type: 'screen', text: '¿qué error me sale?', image });
+      seen = async () => {
+        throw new Error('down');
+      };
+      await chat.ask({ type: 'screen', text: '¿y ahora?', image });
+
+      expect(history()).toEqual([
+        {
+          kind: 'screen',
+          door: 'app',
+          task: '¿qué error me sale?',
+          outcome: 'answer',
+          steps: null,
+          calls_json: null,
+        },
+        {
+          kind: 'screen',
+          door: 'app',
+          task: '¿y ahora?',
+          outcome: 'failed',
+          steps: null,
+          calls_json: null,
+        },
+      ]);
+      expect(JSON.stringify(history())).not.toContain(image.data.slice(0, 40));
+      expect(JSON.stringify(history())).not.toContain(SEEN);
+      expect(logged()).not.toContain('qué error me sale');
+    });
+
+    it('a task on the computer: its words, how it ended and its steps, never what it typed', async () => {
+      const chat = await client(await start());
+      const task = 'entra en mi banco';
+      const done = ['Quiero escribir «contraseña-123».', 'Quiero pulsar Intro.'];
+
+      // A step that is not the last one is not an end.
+      await chat.ask({ type: 'computer', task, image: png(), done: [] });
+      expect(history()).toEqual([]);
+      planned = async () =>
+        JSON.stringify({ kind: 'done', message: 'He entrado con contraseña-123.' });
+      await chat.ask({ type: 'computer', task, image: png(), done });
+      planned = async () => JSON.stringify({ kind: 'cannot', message: 'No veo el banco.' });
+      await chat.ask({ type: 'computer', task, image: png(), done: [] });
+      const twelve = Array.from({ length: 12 }, (_, index) => `Paso ${index + 1}`);
+      await chat.ask({ type: 'computer', task, image: png(), done: twelve });
+
+      expect(history()).toEqual([
+        { kind: 'computer', door: 'app', task, outcome: 'done', steps: 2, calls_json: null },
+        { kind: 'computer', door: 'app', task, outcome: 'cannot', steps: 0, calls_json: null },
+        {
+          kind: 'computer',
+          door: 'app',
+          task,
+          outcome: 'too_many_steps',
+          steps: 12,
+          calls_json: null,
+        },
+      ]);
+      expect(JSON.stringify(history())).not.toContain('contraseña-123');
+      expect(logged()).not.toContain(task);
+    });
+
+    it('a task with connections: its words, how it ended and which calls were allowed, never their arguments or results', async () => {
+      const made: unknown[] = [];
+      connected = [notes(made)];
+      const chat = await client(await start());
+      const task = 'apunta el hotel de Lisboa';
+      tooled = [
+        calls('notes__search', { query: 'Lisboa' }),
+        calls('notes__create', { title: 'Hotel Sol' }),
+        says('Apuntado.'),
+      ];
+
+      const question = reply(await chat.ask({ type: 'connect', task }));
+      expect(history()).toEqual([]);
+      const [allow] = question.buttons as { data: string }[];
+      await chat.ask({ type: 'button', data: allow?.data, channelRef: question.channelRef });
+
+      // One that the principal stops, and one that waits when another is asked.
+      tooled = [calls('notes__create', { title: 'Otro' })];
+      const stopped = reply(await chat.ask({ type: 'connect', task: 'apunta otro' }));
+      const [, refuse] = stopped.buttons as { data: string }[];
+      await chat.ask({ type: 'button', data: refuse?.data, channelRef: stopped.channelRef });
+      tooled = [calls('notes__create', { title: 'Tercero' }), says('Vale.')];
+      await chat.ask({ type: 'connect', task: 'apunta un tercero' });
+      await chat.ask({ type: 'connect', task: 'y un cuarto' });
+
+      expect(history()).toEqual([
+        {
+          kind: 'connect',
+          door: 'app',
+          task,
+          outcome: 'answer',
+          steps: null,
+          calls_json:
+            '[{"server":"notes","tool":"search","allowed":true},{"server":"notes","tool":"create","allowed":true}]',
+        },
+        {
+          kind: 'connect',
+          door: 'app',
+          task: 'apunta otro',
+          outcome: 'stopped',
+          steps: null,
+          calls_json: '[{"server":"notes","tool":"create","allowed":false}]',
+        },
+        {
+          kind: 'connect',
+          door: 'app',
+          task: 'apunta un tercero',
+          outcome: 'replaced',
+          steps: null,
+          calls_json: '[]',
+        },
+        {
+          kind: 'connect',
+          door: 'app',
+          task: 'y un cuarto',
+          outcome: 'answer',
+          steps: null,
+          calls_json: '[]',
+        },
+      ]);
+      const kept = JSON.stringify(history());
+      expect(kept).not.toContain('Hotel Sol');
+      expect(kept).not.toContain('contenido secreto');
+      expect(kept).not.toContain('Apuntado.');
+      expect(logged()).not.toContain('hotel de Lisboa');
+    });
+
+    it('a task with connections asked in Telegram keeps its door', async () => {
+      connected = [notes()];
+      await start();
+      tooled = [says('No hay ninguna nota.')];
+
+      api.push(updates.text({ chatId: PRINCIPAL }, '/mcp busca Lisboa'));
+      await api.waitForSent(1);
+
+      expect(history()).toEqual([
+        {
+          kind: 'connect',
+          door: 'telegram',
+          task: 'busca Lisboa',
+          outcome: 'answer',
+          steps: null,
+          calls_json: '[]',
+        },
+      ]);
+    });
+  });
+
+  it('AC3: the text interpreter gets what ANOMANDER did lately, with when it ended, in either door', async () => {
+    const chat = await client(await start());
+    planned = async () => JSON.stringify({ kind: 'done', message: 'Hecho.' });
+    await chat.ask({ type: 'computer', task: 'abre Notas', image: png(), done: ['Paso 1'] });
+
+    await chat.ask({ type: 'text', text: '¿qué hiciste ayer?' });
+    api.push(updates.text({ chatId: PRINCIPAL }, '¿qué hiciste hoy?'));
+    await api.waitForSent(1);
+
+    const entry = {
+      when: WHEN,
+      what: 'computer',
+      door: 'app',
+      task: 'abre Notas',
+      outcome: 'done',
+      steps: 1,
+    };
+    expect(interpreted.map(({ history: given }) => given)).toEqual([[entry], [entry]]);
+  });
+
+  describe('AC4: the principal can erase it, after "Sí"', () => {
+    const FORGET = JSON.stringify({ kind: 'forget_history' });
+
+    it('"Sí" erases every action asked about, empties the recent turns and says so', async () => {
+      const chat = await client(await start());
+      planned = async () => JSON.stringify({ kind: 'done', message: 'Hecho.' });
+      await chat.ask({ type: 'computer', task: 'abre Notas', image: png(), done: [] });
+      await chat.ask({ type: 'computer', task: 'abre Safari', image: png(), done: [] });
+
+      routed = FORGET;
+      const question = reply(await chat.ask({ type: 'text', text: 'borra tu historial' }));
+      expect(question.text).toBe(
+        '¿Borro el historial de lo que he hecho por ti? Son 2 acciones y no podré recuperarlas.',
+      );
+      expect(question.buttons.map((button) => button.label)).toEqual(['Sí', 'No']);
+      expect(history()).toHaveLength(2);
+
+      const [yes] = question.buttons as { data: string }[];
+      const done = reply(
+        await chat.ask({ type: 'button', data: yes?.data, channelRef: question.channelRef }),
+      );
+
+      expect(done.text).toBe('Hecho, he borrado mi historial.');
+      expect(history()).toEqual([]);
+      routed = undefined;
+      await chat.ask({ type: 'text', text: '23 € cena' });
+      // Only the press itself: the turns of the tasks are gone.
+      expect(interpreted.at(-1)?.recent).toEqual([
+        { principal: '[botón: Sí]', reply: 'Hecho, he borrado mi historial.' },
+      ]);
+      expect(interpreted.at(-1)?.history).toEqual([]);
+    });
+
+    it('"No" erases nothing, and with nothing kept there is nothing to ask', async () => {
+      const chat = await client(await start());
+      routed = FORGET;
+      expect(reply(await chat.ask({ type: 'text', text: 'borra tu historial' }))).toMatchObject({
+        text: 'No tengo nada en mi historial.',
+        buttons: [],
+      });
+
+      routed = undefined;
+      planned = async () => JSON.stringify({ kind: 'done', message: 'Hecho.' });
+      await chat.ask({ type: 'computer', task: 'abre Notas', image: png(), done: [] });
+      routed = FORGET;
+      const question = reply(await chat.ask({ type: 'text', text: 'borra tu historial' }));
+      const [, no] = question.buttons as { data: string }[];
+
+      expect(
+        reply(await chat.ask({ type: 'button', data: no?.data, channelRef: question.channelRef }))
+          .text,
+      ).toBe('Vale, no borro nada.');
+      expect(history()).toHaveLength(1);
+    });
   });
 });

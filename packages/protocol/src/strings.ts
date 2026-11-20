@@ -228,6 +228,12 @@ export const strings = {
   forgotten: () => 'Hecho, lo he olvidado.',
   notForgotten: () => 'Vale, no olvido nada.',
   nothingToForget: () => 'No encuentro nada así en lo que recuerdo.',
+  // DK-14 AC4: erasing the history of what ANOMANDER did, after "Sí".
+  confirmForgetHistory: (count: number) =>
+    `¿Borro el historial de lo que he hecho por ti? ${count === 1 ? 'Es 1 acción' : `Son ${count} acciones`} y no podré recuperarlas.`,
+  historyForgotten: () => 'Hecho, he borrado mi historial.',
+  historyNotForgotten: () => 'Vale, no borro nada.',
+  noHistory: () => 'No tengo nada en mi historial.',
   futureReceipt: (total: number, merchant: string, date: string) =>
     `${formatAmount(total)} en ${merchant}, con fecha ${formatDate(date)}, que aún no ha llegado. ¿Lo apunto así o corrijo la fecha?`,
   categoryNotCreated: () => 'Vale, no la creo.',
