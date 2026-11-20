@@ -8,15 +8,7 @@ import {
   useRef,
 } from 'react';
 import { strings } from '../strings.ts';
-import {
-  ArrowUpIcon,
-  CloseIcon,
-  FileIcon,
-  PaperclipIcon,
-  PlugIcon,
-  PointerIcon,
-  ScreenIcon,
-} from '../ui/icons.tsx';
+import { ArrowUpIcon, CloseIcon, FileIcon, PaperclipIcon } from '../ui/icons.tsx';
 import type { Attachment } from './attachments.ts';
 
 /** The longest `text` the daemon accepts. */
@@ -33,12 +25,8 @@ export interface ComposerProps {
   blocked: string | null;
   onText: (text: string) => void;
   onFiles: (files: File[]) => void;
-  /** Asks for a capture of the screen; absent where the window cannot take one. */
-  onScreen?: () => void;
-  /** DK-10: whether the next message is a task on the computer; absent where it cannot be. */
-  control?: { on: boolean; onToggle: () => void };
-  /** DK-11: whether the next message is a task with connections. */
-  connect?: { on: boolean; onToggle: () => void };
+  /** The model in use (S2), named under the box; `null` names none. */
+  model: string | null;
   onRemove: (id: string) => void;
   onSubmit: () => void;
 }
@@ -46,7 +34,7 @@ export interface ComposerProps {
 export function Composer(props: ComposerProps) {
   const { text, attachments, notice, disabled, blocked, onText, onFiles, onRemove, onSubmit } =
     props;
-  const { onScreen, control, connect } = props;
+  const { model } = props;
   const reasonId = useId();
   const textarea = useRef<HTMLTextAreaElement>(null);
   const picker = useRef<HTMLInputElement>(null);
@@ -93,8 +81,6 @@ export function Composer(props: ComposerProps) {
           {notice}
         </p>
       )}
-      {control?.on === true && <p className="composer-mode">{strings.chat.computerMode}</p>}
-      {connect?.on === true && <p className="composer-mode">{strings.chat.connectMode}</p>}
       <div className="composer-box" data-disabled={disabled || undefined}>
         {attachments.length > 0 && (
           <ul className="tray" aria-label={strings.chat.attachments}>
@@ -144,59 +130,13 @@ export function Composer(props: ComposerProps) {
           >
             <PaperclipIcon />
           </button>
-          {onScreen !== undefined && (
-            <button
-              type="button"
-              className="icon-button"
-              aria-label={strings.chat.screen}
-              title={strings.chat.screen}
-              disabled={disabled}
-              onClick={onScreen}
-            >
-              <ScreenIcon />
-            </button>
-          )}
-          {control !== undefined && (
-            <button
-              type="button"
-              className="icon-button"
-              aria-label={strings.chat.computer}
-              aria-pressed={control.on}
-              title={strings.chat.computer}
-              disabled={disabled}
-              onClick={control.onToggle}
-            >
-              <PointerIcon />
-            </button>
-          )}
-          {connect !== undefined && (
-            <button
-              type="button"
-              className="icon-button"
-              aria-label={strings.chat.connect}
-              aria-pressed={connect.on}
-              title={strings.chat.connect}
-              disabled={disabled}
-              onClick={connect.onToggle}
-            >
-              <PlugIcon />
-            </button>
-          )}
           <textarea
             ref={textarea}
             className="composer-input"
             rows={1}
             value={text}
             maxLength={MAX_TEXT_LENGTH}
-            placeholder={
-              disabled
-                ? ''
-                : control?.on === true
-                  ? strings.chat.computerPlaceholder
-                  : connect?.on === true
-                    ? strings.chat.connectPlaceholder
-                    : strings.chat.placeholder
-            }
+            placeholder={disabled ? '' : strings.chat.placeholder}
             aria-label={strings.chat.message}
             aria-describedby={blocked === null ? undefined : reasonId}
             disabled={disabled}
@@ -220,6 +160,13 @@ export function Composer(props: ComposerProps) {
           </button>
         </div>
       </div>
+      {/* S2: subtle, under the box; the name is the setup's, as it is. */}
+      {model !== null && (
+        <p className="composer-model">
+          <span className="sr-only">{`${strings.chat.model} `}</span>
+          {model}
+        </p>
+      )}
     </form>
   );
 }

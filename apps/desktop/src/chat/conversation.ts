@@ -1,6 +1,6 @@
 // DK-4: the conversation as the window shows it. A pure reducer: it lives in memory only and is
 // gone when the window is (never localStorage or disk).
-import type { ChatButton, ComputerAction } from '@anomander/protocol';
+import type { ChatButton, ChatReply, ComputerAction } from '@anomander/protocol';
 import type { Attachment } from './attachments.ts';
 import type { ConnectionState, Outcome } from './chat-client.ts';
 
@@ -21,10 +21,22 @@ export interface OwnMessage {
   delivery: Delivery;
   /** `null` until it left through the socket. */
   requestId: string | null;
-  /** A task on the computer (DK-10): sent with a capture of the screen, never as a plain text. */
-  task: boolean;
-  /** A task with connections (DK-11): sent again as one, never as a plain text. */
-  connect: boolean;
+}
+
+/** DK-13: the look at the screen or the task on the computer a plain text was routed to. */
+export type Route = NonNullable<ChatReply['route']>;
+
+/**
+ * What a reply that announces a route started: a `screen` request with a capture, or the first
+ * step of a task. It is sent again as what it is, never as a plain text.
+ */
+export interface Start {
+  route: Route;
+  delivery: Delivery;
+  /** `null` until it left through the socket. */
+  requestId: string | null;
+  /** The capture a look sent, as an object URL; `null` for a task or before it was taken. */
+  captureUrl: string | null;
 }
 
 /**
@@ -55,6 +67,8 @@ export interface BotMessage {
   press: Press | null;
   /** `null` for every reply that proposes nothing. */
   proposal: Proposal | null;
+  /** `null` for every reply that announces no route the window starts. */
+  start: Start | null;
 }
 
 export type Message = OwnMessage | BotMessage;
@@ -67,14 +81,7 @@ export interface Conversation {
 export type ConversationAction =
   | { type: 'connection'; state: ConnectionState }
   /** The principal sent a message; it has not left yet. */
-  | {
-      type: 'said';
-      id: string;
-      text: string;
-      attachments: Attachment[];
-      task?: boolean;
-      connect?: boolean;
-    }
+  | { type: 'said'; id: string; text: string; attachments: Attachment[] }
   /** The principal asked to send a message that was not sent again. */
   | { type: 'retried'; id: string }
   /** A message left through the socket as `requestId`, or could not leave at all (`null`). */
@@ -83,9 +90,14 @@ export type ConversationAction =
   | { type: 'pressed'; id: string; data: string; requestId: string | null }
   /**
    * `proposal` is set only for the answer to a step of a task the principal asked for: an action
-   * in any other reply is never offered.
+   * in any other reply is never offered. `start` only for the answer to a plain text whose route
+   * the window starts now (DK-13).
    */
-  | { type: 'outcome'; requestId: string; outcome: Outcome; proposal?: Proposal }
+  | { type: 'outcome'; requestId: string; outcome: Outcome; proposal?: Proposal; start?: Route }
+  /** What the reply `id` started left as `requestId`, or could not leave (`null`), this time. */
+  | { type: 'started'; id: string; requestId: string | null; captureUrl?: string }
+  /** The principal asked to start again what the reply `id` started and did not leave. */
+  | { type: 'restarted'; id: string }
   /** The principal allowed the proposal of the reply `id`; it is being performed. */
   | { type: 'allowed'; id: string }
   /**
@@ -116,6 +128,9 @@ const settle = (message: Message, requestId: string, delivery: Delivery): Messag
   if (message.kind === 'own') {
     return message.requestId === requestId ? { ...message, delivery } : message;
   }
+  if (message.start?.requestId === requestId) {
+    return { ...message, start: { ...message.start, delivery } };
+  }
   return message.press?.requestId === requestId
     ? { ...message, press: { ...message.press, delivery } }
     : message;
@@ -136,6 +151,13 @@ export const reduceConversation = (
       message.kind === 'bot' && message.id === id ? { ...message, press } : message,
     );
 
+  const starting = (id: string, change: (start: Start) => Start): Conversation =>
+    mapped((message) =>
+      message.kind === 'bot' && message.id === id && message.start !== null
+        ? { ...message, start: change(message.start) }
+        : message,
+    );
+
   switch (action.type) {
     case 'connection':
       return { ...conversation, connection: action.state };
@@ -151,8 +173,6 @@ export const reduceConversation = (
             attachments: action.attachments,
             delivery: 'pending',
             requestId: null,
-            task: action.task ?? false,
-            connect: action.connect ?? false,
           },
         ],
       };
@@ -193,10 +213,28 @@ export const reduceConversation = (
             buttons,
             press: null,
             proposal: action.proposal ?? null,
+            // Pending from the start: the capture is taken before anything leaves.
+            start:
+              action.start === undefined
+                ? null
+                : { route: action.start, delivery: 'pending', requestId: null, captureUrl: null },
           },
         ],
       };
     }
+    case 'started':
+      return starting(action.id, (start) => ({
+        ...start,
+        ...leftAs(action.requestId),
+        captureUrl: action.captureUrl ?? null,
+      }));
+    case 'restarted':
+      return starting(action.id, (start) => ({
+        ...start,
+        delivery: 'pending',
+        requestId: null,
+        captureUrl: null,
+      }));
     case 'allowed':
       return answered(action.id, { data: 'allow', delivery: 'pending', requestId: null });
     case 'performed':
@@ -226,5 +264,7 @@ export const reduceConversation = (
 /** Whether the daemon still owes an answer to anything. */
 export const isWaiting = (conversation: Conversation): boolean =>
   conversation.messages.some((message) =>
-    message.kind === 'own' ? message.delivery === 'pending' : message.press?.delivery === 'pending',
+    message.kind === 'own'
+      ? message.delivery === 'pending'
+      : message.press?.delivery === 'pending' || message.start?.delivery === 'pending',
   );

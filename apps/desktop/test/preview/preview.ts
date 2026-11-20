@@ -12,8 +12,9 @@
 //
 // The scripted daemon answers by what is typed: "mercadona" asks a Sí/No question, "rechaza" is
 // rejected, "corta" loses the connection, "lento" never answers, "largo" answers at length,
-// "/login" answers with a link button; a PDF gets S-18 and images are read as a receipt.
-import type { ChatButton, ChatRequest } from '@anomander/protocol';
+// "/login" answers with a link button, "pantalla" is routed to a look and "ordenador" to a task
+// on the computer (DK-13); a PDF gets S-18 and images are read as a receipt.
+import type { ChatButton, ChatReply, ChatRequest } from '@anomander/protocol';
 import { emit } from '@tauri-apps/api/event';
 import { mockIPC } from '@tauri-apps/api/mocks';
 import {
@@ -172,6 +173,11 @@ mockIPC(
         comeUp();
         return connections;
       }
+      case 'capture_screen':
+        return screenCapture();
+      case 'reveal':
+      case 'set_task_running':
+        return undefined;
       case 'connect_oauth':
       case 'forget_oauth': {
         // The principal takes a moment in the browser; `refused=oauth` shows a failure.
@@ -203,6 +209,17 @@ mockIPC(
   { shouldMockEvents: true },
 );
 
+/** A plain JPEG in place of the screen: the preview never sees the real one. */
+const screenCapture = async (): Promise<ArrayBuffer> => {
+  const canvas = new OffscreenCanvas(640, 360);
+  const context = canvas.getContext('2d');
+  if (context !== null) {
+    context.fillStyle = '#7a9cc6';
+    context.fillRect(0, 0, 640, 360);
+  }
+  return (await canvas.convertToBlob({ type: 'image/jpeg' })).arrayBuffer();
+};
+
 // ---------- The scripted daemon ----------
 
 const YES_NO: ChatButton[] = [
@@ -223,7 +240,11 @@ const LONG_REPLY = [
 /** The decisions already answered: a second press gets S-19, as in the daemon. */
 const closed = new Set<string>();
 
-type Answer = { text: string; buttons?: ChatButton[] } | 'rejected' | 'drop' | 'never';
+type Answer =
+  | { text: string; buttons?: ChatButton[]; route?: ChatReply['route'] }
+  | 'rejected'
+  | 'drop'
+  | 'never';
 
 const answerTo = (request: ChatRequest): Answer => {
   if (request.type === 'button') {
@@ -243,6 +264,8 @@ const answerTo = (request: ChatRequest): Answer => {
     }
     return { text: 'Apuntado: 47,85 € en Mercadona, supermercado, 12 líneas.' };
   }
+  if (request.type === 'screen') return { text: 'Veo una pantalla de un solo color.' };
+  if (request.type === 'computer') return { text: 'En esta vista previa no toco nada. Hecho.' };
   const text = ('task' in request ? request.task : request.text).toLowerCase();
   if (text.includes('rechaza')) return 'rejected';
   if (text.includes('corta')) return 'drop';
@@ -252,6 +275,15 @@ const answerTo = (request: ChatRequest): Answer => {
     return {
       text: 'Abre este enlace para entrar con tu cuenta.',
       buttons: [{ label: 'Abrir', url: 'https://example.com/login' }],
+    };
+  }
+  if (request.type === 'text' && text.includes('pantalla')) {
+    return { text: 'Miro tu pantalla.', route: { to: 'screen', task: request.text } };
+  }
+  if (request.type === 'text' && text.includes('ordenador')) {
+    return {
+      text: 'Me pongo con ello en tu ordenador.',
+      route: { to: 'computer', task: request.text },
     };
   }
   if (text.includes('mercadona')) {
@@ -284,6 +316,7 @@ class ScriptedSocket extends FakeWebSocket {
           channelRef: `desktop:${crypto.randomUUID()}`,
           text: answer.text,
           buttons: answer.buttons ?? [],
+          ...(answer.route === undefined ? {} : { route: answer.route }),
           sentAt: new Date().toISOString(),
         });
       }

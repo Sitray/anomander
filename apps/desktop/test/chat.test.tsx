@@ -408,115 +408,199 @@ describe('without a channel', () => {
   });
 });
 
-describe('the screen', () => {
-  const capture = () => new TextEncoder().encode('bytes').buffer as ArrayBuffer;
-  const look = () => screen.getByRole('button', { name: strings.chat.screen });
-  const openWithScreen = (onCaptureScreen: () => Promise<ArrayBuffer>): FakeWebSocket => {
+const ROUTED = { screen: 'Miro tu pantalla.', computer: 'Me pongo con ello en tu ordenador.' };
+
+/**
+ * DK-13: says `task` as a plain text and has the daemon route it `to` a look or a task on the
+ * computer, in its own words. Answers the text request.
+ */
+const routed = async (socket: FakeWebSocket, to: 'screen' | 'computer', task: string) => {
+  const before = socket.requests.length;
+  say(task);
+  const request = await sentRequest(socket, before + 1);
+  expect(request).toMatchObject({ type: 'text', text: task });
+  act(() => socket.receive(replyTo(request.id, { text: ROUTED[to], route: { to, task } })));
+  return request;
+};
+
+const jpeg = () => new TextEncoder().encode('bytes').buffer as ArrayBuffer;
+
+describe('the composer (DK-13 AC3)', () => {
+  it('offers no mode: only files and send, wherever the window can look and act', () => {
+    render(
+      <ChatScreen
+        daemon={RUNNING}
+        channel={CHANNEL}
+        onCaptureScreen={async () => jpeg()}
+        onPerformAction={async () => jpeg()}
+      />,
+    );
+    act(() => FakeWebSocket.last.open());
+
+    const form = composer().closest('form') as HTMLElement;
+    expect(
+      within(form)
+        .getAllByRole('button')
+        .map((button) => button.getAttribute('aria-label')),
+    ).toEqual([strings.chat.attach, strings.chat.send]);
+    expect(composer().placeholder).toBe(strings.chat.placeholder);
+  });
+
+  it('names the model in use under where the principal writes, subtly (S2)', () => {
+    render(<ChatScreen daemon={RUNNING} channel={CHANNEL} model="openai/gpt-4o-mini" />);
+
+    const label = screen.getByText('openai/gpt-4o-mini');
+    expect(label.classList.contains('composer-model')).toBe(true);
+    expect(label.closest('form')).not.toBeNull();
+    expect(label.closest('.composer-box')).toBeNull();
+    expect(label.textContent).toBe(`${strings.chat.model} openai/gpt-4o-mini`);
+  });
+
+  it('names no model when there is none', () => {
+    const { container } = render(<ChatScreen daemon={RUNNING} channel={CHANNEL} model={null} />);
+
+    expect(container.querySelector('.composer-model')).toBeNull();
+  });
+});
+
+describe('a look at the screen (DK-9, DK-13)', () => {
+  const openWithScreen = (capture: () => Promise<ArrayBuffer> = async () => jpeg()) => {
+    const onCaptureScreen = vi.fn(capture);
     render(<ChatScreen daemon={RUNNING} channel={CHANNEL} onCaptureScreen={onCaptureScreen} />);
     act(() => FakeWebSocket.last.open());
-    return FakeWebSocket.last;
+    return { socket: FakeWebSocket.last, onCaptureScreen };
   };
-  const captured = () =>
-    waitFor(() =>
-      expect(screen.getByRole('img', { name: strings.chat.screenCapture })).toBeTruthy(),
-    );
+  const question = '¿De quién es este correo?';
 
-  it('offers no look at the screen where the window cannot capture it', () => {
-    openChat();
+  it('looks when the daemon routes the words to it: the capture is shown and sent with them', async () => {
+    const { socket, onCaptureScreen } = openWithScreen();
+    await routed(socket, 'screen', question);
 
-    expect(screen.queryByRole('button', { name: strings.chat.screen })).toBeNull();
-  });
-
-  it('shows the capture before anything is sent, and sends it with the question', async () => {
-    const socket = openWithScreen(async () => capture());
-    fireEvent.click(look());
-    await captured();
-    expect(socket.sent).toEqual([]);
-
-    say('¿De quién es este correo?');
-
-    expect(await sentRequest(socket)).toMatchObject({
+    expect(await sentRequest(socket, 2)).toEqual({
+      id: expect.any(String),
       type: 'screen',
-      text: '¿De quién es este correo?',
+      text: question,
       image: { mimeType: 'image/jpeg', data: BYTES },
     });
-    expect(screen.queryByRole('list', { name: strings.chat.attachments })).toBeNull();
+    // A look does not keep the app out of the way.
+    expect(onCaptureScreen).toHaveBeenCalledTimes(1);
+    expect(onCaptureScreen).toHaveBeenCalledWith();
+    const log = screen.getByRole('log');
+    expect(within(log).getByRole('img', { name: strings.chat.screenCapture })).toBeTruthy();
+    expect(within(log).getByText(ROUTED.screen)).toBeTruthy();
+    // The principal's words are shown once, as they wrote them.
+    expect(within(log).getAllByText(question)).toHaveLength(1);
   });
 
-  it('asks what is on the screen when nothing was typed', async () => {
-    const socket = openWithScreen(async () => capture());
-    fireEvent.click(look());
-    await captured();
-    fireEvent.click(screen.getByRole('button', { name: strings.chat.send }));
+  it('waits for the answer about the screen, and shows it', async () => {
+    const { socket } = openWithScreen();
+    await routed(socket, 'screen', question);
+    const look = await sentRequest(socket, 2);
 
-    expect(await sentRequest(socket)).toMatchObject({
-      type: 'screen',
-      text: strings.chat.screenQuestion,
-    });
-    expect(within(screen.getByRole('log')).getByText(strings.chat.screenQuestion)).toBeTruthy();
+    expect(screen.getByText(strings.chat.thinking)).toBeTruthy();
+    act(() => socket.receive(replyTo(look.id, { text: 'Es de Ana, sobre la reunión.' })));
+
+    expect(screen.getByText('Es de Ana, sobre la reunión.')).toBeTruthy();
+    expect(screen.queryByText(strings.chat.thinking)).toBeNull();
   });
 
-  it('can be taken back before sending', async () => {
-    const socket = openWithScreen(async () => capture());
-    fireEvent.click(look());
-    await captured();
-    fireEvent.click(
-      screen.getByRole('button', {
-        name: strings.chat.removeAttachment(strings.chat.screenCapture),
-      }),
-    );
-
-    say('23 € cena');
-
-    expect(await sentRequest(socket)).toMatchObject({ type: 'text', text: '23 € cena' });
-  });
-
-  it('keeps a single capture: a new look replaces the last one', async () => {
-    openWithScreen(async () => capture());
-    fireEvent.click(look());
-    await captured();
-    fireEvent.click(look());
-
-    await waitFor(() => expect(URL.revokeObjectURL).toHaveBeenCalledTimes(1));
-    expect(screen.getAllByRole('img', { name: strings.chat.screenCapture })).toHaveLength(1);
-  });
-
-  it('does not mix a capture with receipts', async () => {
-    openWithScreen(async () => capture());
-    fireEvent.paste(composer(), { clipboardData: { files: [image('ticket.png')] } });
-    fireEvent.click(look());
+  it('says it cannot look where the window cannot capture the screen', async () => {
+    const socket = openChat();
+    await routed(socket, 'screen', question);
 
     await waitFor(() =>
-      expect(screen.getByRole('status').textContent).toBe(strings.chat.screenAlone),
+      expect(screen.getByRole('status').textContent).toBe(strings.chat.screenUnavailable),
     );
-    expect(screen.queryByRole('img', { name: strings.chat.screenCapture })).toBeNull();
+    expect(socket.requests).toHaveLength(1);
+    expect(screen.queryByText(strings.chat.thinking)).toBeNull();
   });
 
-  it('says how to allow it when macOS does not let the app see the screen', async () => {
-    openWithScreen(async () => {
-      throw 'screen_permission';
+  it('says how to allow it when macOS does not let the app see the screen, and looks again when asked', async () => {
+    let allowedByMac = false;
+    const { socket, onCaptureScreen } = openWithScreen(async () => {
+      if (!allowedByMac) throw 'screen_permission';
+      return jpeg();
     });
-    fireEvent.click(look());
+    await routed(socket, 'screen', question);
 
     await waitFor(() =>
       expect(screen.getByRole('status').textContent).toBe(strings.chat.screenPermission),
     );
+    expect(screen.getByText(strings.chat.lookNotSent)).toBeTruthy();
+    expect(socket.requests).toHaveLength(1);
+
+    allowedByMac = true;
+    fireEvent.click(screen.getByRole('button', { name: strings.chat.startAgain }));
+
+    // Still a look, never a plain text.
+    expect(await sentRequest(socket, 2)).toMatchObject({ type: 'screen', text: question });
+    expect(onCaptureScreen).toHaveBeenCalledTimes(2);
+    expect(screen.queryByText(strings.chat.lookNotSent)).toBeNull();
   });
 
   it('says when the capture failed for another reason', async () => {
-    openWithScreen(async () => {
+    const { socket } = openWithScreen(async () => {
       throw 'screencapture exited with 1';
     });
-    fireEvent.click(look());
+    await routed(socket, 'screen', question);
 
     await waitFor(() =>
       expect(screen.getByRole('status').textContent).toBe(strings.chat.screenFailed),
     );
+    expect(socket.requests).toHaveLength(1);
+  });
+
+  it('says a look was not sent when the daemon rejects it, and offers it again', async () => {
+    const { socket } = openWithScreen();
+    await routed(socket, 'screen', question);
+    const look = await sentRequest(socket, 2);
+    act(() => socket.receive({ type: 'rejected', inReplyTo: look.id }));
+
+    expect(screen.getByText(strings.chat.lookNotSent)).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: strings.chat.startAgain }));
+    expect(await sentRequest(socket, 3)).toMatchObject({ type: 'screen', text: question });
+  });
+
+  it('offers nothing again when the connection was lost during a look', async () => {
+    const { socket } = openWithScreen();
+    await routed(socket, 'screen', question);
+    await sentRequest(socket, 2);
+    act(() => socket.drop());
+
+    expect(screen.getByText(strings.chat.startUnknown)).toBeTruthy();
+    expect(screen.queryByRole('button', { name: strings.chat.startAgain })).toBeNull();
+  });
+
+  it.each([
+    [
+      'a receipt',
+      () => fireEvent.paste(composer(), { clipboardData: { files: [image('ticket.png')] } }),
+    ],
+    ['a press', () => fireEvent.click(screen.getByRole('button', { name: 'Sí' }))],
+  ])('ignores a route in the reply to %s: only a plain text is routed', async (_, send) => {
+    const { socket, onCaptureScreen } = openWithScreen();
+    say('mercadona 40');
+    const text = await sentRequest(socket);
+    act(() =>
+      socket.receive(replyTo(text.id, { buttons: [{ label: 'Sí', data: 'policy:yes:7' }] })),
+    );
+    send();
+    if (socket.requests.length === 1) pressEnter();
+    const request = await sentRequest(socket, 2);
+    act(() =>
+      socket.receive(
+        replyTo(request.id, { text: ROUTED.screen, route: { to: 'screen', task: 'mira' } }),
+      ),
+    );
+    await act(async () => {});
+
+    expect(onCaptureScreen).not.toHaveBeenCalled();
+    expect(socket.requests).toHaveLength(2);
+    expect(screen.queryByText(strings.chat.thinking)).toBeNull();
   });
 });
 
-describe('a task on the computer (DK-10)', () => {
-  const jpeg = () => new TextEncoder().encode('bytes').buffer as ArrayBuffer;
+describe('a task on the computer (DK-10, DK-13)', () => {
   const CLICK = { kind: 'click', x: 512, y: 80, double: false, target: 'Enviar' } as const;
   const PROPOSAL = 'Quiero hacer clic en «Enviar».';
   const task = 'Envía el correo que tengo abierto';
@@ -555,43 +639,39 @@ describe('a task on the computer (DK-10)', () => {
       stopFromMenu: () => act(() => stopFromMenu()),
     };
   };
-  const mode = () => screen.getByRole('button', { name: strings.chat.computer });
   const allow = () =>
     screen.getByRole<HTMLButtonElement>('button', { name: strings.chat.computerAllow });
   const refuse = () =>
     screen.getByRole<HTMLButtonElement>('button', { name: strings.chat.computerRefuse });
+  /** Has the daemon route `text` to a task on the computer; answers the task's first step. */
+  const started = async (socket: FakeWebSocket, text = task) => {
+    const before = socket.requests.length;
+    await routed(socket, 'computer', text);
+    return sentRequest(socket, before + 2);
+  };
   /** Asks for the task and has the daemon propose `computer` for it. */
   const proposed = async (socket: FakeWebSocket, computer: unknown = CLICK, text = PROPOSAL) => {
-    fireEvent.click(mode());
-    say(task);
-    const request = await sentRequest(socket);
+    const request = await started(socket);
     act(() => socket.receive(replyTo(request.id, { text, computer } as never)));
     return request;
   };
 
-  it('offers no control of the computer where the window cannot perform an action', () => {
-    openChat();
+  it('says it cannot act where the window cannot perform an action', async () => {
+    const socket = openChat();
+    await routed(socket, 'computer', task);
 
-    expect(screen.queryByRole('button', { name: strings.chat.computer })).toBeNull();
+    await waitFor(() =>
+      expect(screen.getByRole('status').textContent).toBe(strings.chat.computerUnavailable),
+    );
+    expect(socket.requests).toHaveLength(1);
+    expect(screen.queryByText(strings.chat.thinking)).toBeNull();
   });
 
-  it('says what the mode means before anything is asked, and can be left', () => {
-    openWithComputer();
-    fireEvent.click(mode());
-
-    expect(mode().getAttribute('aria-pressed')).toBe('true');
-    expect(screen.getByText(strings.chat.computerMode)).toBeTruthy();
-
-    fireEvent.click(mode());
-    expect(screen.queryByText(strings.chat.computerMode)).toBeNull();
-  });
-
-  it('sends the task with the screen as it is, and performs nothing', async () => {
+  it('starts the task the daemon routes, with the screen as it is, and performs nothing', async () => {
     const { socket, onCaptureScreen, onPerformAction } = openWithComputer();
-    fireEvent.click(mode());
-    say(task);
+    await routed(socket, 'computer', task);
 
-    expect(await sentRequest(socket)).toEqual({
+    expect(await sentRequest(socket, 2)).toEqual({
       id: expect.any(String),
       type: 'computer',
       task,
@@ -599,9 +679,13 @@ describe('a task on the computer (DK-10)', () => {
       done: [],
     });
     expect(onCaptureScreen).toHaveBeenCalledTimes(1);
+    expect(onCaptureScreen).toHaveBeenCalledWith(true);
     expect(onPerformAction).not.toHaveBeenCalled();
-    // One task at a time: the next message is a plain one again.
-    expect(mode().getAttribute('aria-pressed')).toBe('false');
+    const log = screen.getByRole('log');
+    expect(within(log).getByText(ROUTED.computer)).toBeTruthy();
+    // The principal's words are shown once, as they wrote them.
+    expect(within(log).getAllByText(task)).toHaveLength(1);
+    expect(screen.getByText(strings.chat.thinking)).toBeTruthy();
   });
 
   it('AC1: shows the proposed action and waits; allowing it performs exactly that action and asks for the next step', async () => {
@@ -611,11 +695,12 @@ describe('a task on the computer (DK-10)', () => {
     expect(screen.getByText(PROPOSAL)).toBeTruthy();
     expect(screen.getByRole('img', { name: strings.chat.computerPreview })).toBeTruthy();
     expect(onPerformAction).not.toHaveBeenCalled();
-    expect(socket.requests).toHaveLength(1);
+    expect(socket.requests).toHaveLength(2);
+    expect(screen.queryByText(strings.chat.thinking)).toBeNull();
 
     fireEvent.click(allow());
 
-    expect(await sentRequest(socket, 2)).toMatchObject({
+    expect(await sentRequest(socket, 3)).toMatchObject({
       type: 'computer',
       task,
       image: { mimeType: 'image/jpeg', data: BYTES },
@@ -631,7 +716,7 @@ describe('a task on the computer (DK-10)', () => {
     const { socket } = openWithComputer();
     await proposed(socket);
     fireEvent.click(allow());
-    const second = await sentRequest(socket, 2);
+    const second = await sentRequest(socket, 3);
     const typing = { kind: 'type', text: 'Hola' };
     act(() =>
       socket.receive(
@@ -645,7 +730,7 @@ describe('a task on the computer (DK-10)', () => {
         .filter((button) => !button.disabled)[0] as HTMLButtonElement,
     );
 
-    expect(await sentRequest(socket, 3)).toMatchObject({
+    expect(await sentRequest(socket, 4)).toMatchObject({
       done: [PROPOSAL, 'Quiero escribir: «Hola»'],
     });
   });
@@ -660,7 +745,7 @@ describe('a task on the computer (DK-10)', () => {
     expect(allow().disabled).toBe(true);
     await act(async () => {});
     expect(onPerformAction).not.toHaveBeenCalled();
-    expect(socket.requests).toHaveLength(1);
+    expect(socket.requests).toHaveLength(2);
   });
 
   it('performs an allowed action once, however many times it is pressed', async () => {
@@ -669,20 +754,19 @@ describe('a task on the computer (DK-10)', () => {
 
     fireEvent.click(allow());
     fireEvent.click(allow());
-    await sentRequest(socket, 2);
+    await sentRequest(socket, 3);
 
     expect(onPerformAction).toHaveBeenCalledTimes(1);
   });
 
   it('shows no buttons when the daemon ends the task in words', async () => {
     const { socket } = openWithComputer();
-    fireEvent.click(mode());
-    say(task);
-    const request = await sentRequest(socket);
+    const request = await started(socket);
     act(() => socket.receive(replyTo(request.id, { text: 'Correo enviado.' })));
 
     expect(screen.getByText('Correo enviado.')).toBeTruthy();
     expect(screen.queryByRole('button', { name: strings.chat.computerAllow })).toBeNull();
+    expect(screen.queryByText(strings.chat.thinking)).toBeNull();
   });
 
   it('never offers an action the principal did not ask a task for', async () => {
@@ -694,6 +778,20 @@ describe('a task on the computer (DK-10)', () => {
     expect(screen.getByText(PROPOSAL)).toBeTruthy();
     expect(screen.queryByRole('button', { name: strings.chat.computerAllow })).toBeNull();
     expect(onPerformAction).not.toHaveBeenCalled();
+  });
+
+  it('ignores a route in the answer to a step: only a plain text is routed', async () => {
+    const { socket, onCaptureScreen } = openWithComputer();
+    const request = await started(socket);
+    act(() =>
+      socket.receive(
+        replyTo(request.id, { text: ROUTED.screen, route: { to: 'screen', task: 'mira' } }),
+      ),
+    );
+    await act(async () => {});
+
+    expect(onCaptureScreen).toHaveBeenCalledTimes(1);
+    expect(socket.requests).toHaveLength(2);
   });
 
   it('says how to allow it when macOS does not let the app use the computer, and nothing was done', async () => {
@@ -709,7 +807,7 @@ describe('a task on the computer (DK-10)', () => {
     );
     // Nothing was done, so it can be allowed again once macOS lets it.
     expect(allow().disabled).toBe(false);
-    expect(socket.requests).toHaveLength(1);
+    expect(socket.requests).toHaveLength(2);
   });
 
   it('does not offer the action again when it may have been done', async () => {
@@ -722,14 +820,14 @@ describe('a task on the computer (DK-10)', () => {
 
     await waitFor(() => expect(screen.getByText(strings.chat.computerUnknown)).toBeTruthy());
     expect(allow().disabled).toBe(true);
-    expect(socket.requests).toHaveLength(1);
+    expect(socket.requests).toHaveLength(2);
   });
 
   it('does not offer the action again when the connection was lost after doing it', async () => {
     const { socket } = openWithComputer();
     await proposed(socket);
     fireEvent.click(allow());
-    await sentRequest(socket, 2);
+    await sentRequest(socket, 3);
 
     act(() => socket.drop());
 
@@ -737,42 +835,36 @@ describe('a task on the computer (DK-10)', () => {
     expect(allow().disabled).toBe(true);
   });
 
-  it('a task that could not capture the screen was not sent', async () => {
+  it('a task that could not capture the screen was not sent, and starts again as a task', async () => {
+    let allowedByMac = false;
     const { socket } = openWithComputer(
       async () => jpeg(),
       async () => {
-        throw 'screen_permission';
+        if (!allowedByMac) throw 'screen_permission';
+        return jpeg();
       },
     );
-    fireEvent.click(mode());
-    say(task);
+    await routed(socket, 'computer', task);
 
     await waitFor(() =>
       expect(screen.getByRole('status').textContent).toBe(strings.chat.screenPermission),
     );
-    expect(screen.getByText(strings.chat.notSent)).toBeTruthy();
-    expect(socket.requests).toEqual([]);
-  });
+    expect(screen.getByText(strings.chat.taskNotSent)).toBeTruthy();
+    expect(socket.requests).toHaveLength(1);
 
-  it('a task goes without files', async () => {
-    const { socket } = openWithComputer();
-    fireEvent.paste(composer(), { clipboardData: { files: [image('ticket.png')] } });
-    fireEvent.click(mode());
-    say(task);
+    allowedByMac = true;
+    fireEvent.click(screen.getByRole('button', { name: strings.chat.startAgain }));
 
-    await waitFor(() =>
-      expect(screen.getByRole('status').textContent).toBe(strings.chat.computerAlone),
-    );
-    expect(socket.requests).toEqual([]);
+    // Never as a plain text: with the screen as it is now.
+    expect(await sentRequest(socket, 2)).toMatchObject({ type: 'computer', task, done: [] });
+    expect(screen.queryByText(strings.chat.taskNotSent)).toBeNull();
   });
 
   describe('a routine step', () => {
     const stop = () => screen.queryByRole('button', { name: strings.chat.computerStop });
     /** Asks for the task; the daemon answers `computer` as a routine step. */
     const routine = async (socket: FakeWebSocket) => {
-      fireEvent.click(mode());
-      say(task);
-      const request = await sentRequest(socket);
+      const request = await started(socket);
       act(() =>
         socket.receive(
           replyTo(request.id, { text: PROPOSAL, computer: CLICK, confirm: false } as never),
@@ -784,7 +876,7 @@ describe('a task on the computer (DK-10)', () => {
       const { socket, onPerformAction } = openWithComputer();
       await routine(socket);
 
-      expect(await sentRequest(socket, 2)).toMatchObject({ type: 'computer', done: [PROPOSAL] });
+      expect(await sentRequest(socket, 3)).toMatchObject({ type: 'computer', done: [PROPOSAL] });
       expect(onPerformAction).toHaveBeenCalledTimes(1);
       expect(onPerformAction).toHaveBeenCalledWith(CLICK, true);
       expect(screen.getByText(PROPOSAL)).toBeTruthy();
@@ -794,9 +886,7 @@ describe('a task on the computer (DK-10)', () => {
 
     it('is asked for all the same unless the daemon says it is routine', async () => {
       const { socket, onPerformAction } = openWithComputer();
-      fireEvent.click(mode());
-      say(task);
-      const request = await sentRequest(socket);
+      const request = await started(socket);
       act(() =>
         socket.receive(
           replyTo(request.id, { text: PROPOSAL, computer: CLICK, confirm: true } as never),
@@ -812,7 +902,7 @@ describe('a task on the computer (DK-10)', () => {
       const { socket } = openWithComputer();
       expect(stop()).toBeNull();
       await routine(socket);
-      const second = await sentRequest(socket, 2);
+      const second = await sentRequest(socket, 3);
       expect(stop()).not.toBeNull();
 
       // A step of care: the task waits for the principal, with its own way to stop.
@@ -827,7 +917,7 @@ describe('a task on the computer (DK-10)', () => {
       expect(stop()).toBeNull();
 
       fireEvent.click(allow());
-      const third = await sentRequest(socket, 3);
+      const third = await sentRequest(socket, 4);
       expect(stop()).not.toBeNull();
       act(() => socket.receive(replyTo(third.id, { text: 'Hecho.' })));
       expect(stop()).toBeNull();
@@ -835,9 +925,7 @@ describe('a task on the computer (DK-10)', () => {
 
     it('stopping the task performs nothing more, even a routine step already on its way', async () => {
       const { socket, onPerformAction } = openWithComputer();
-      fireEvent.click(mode());
-      say(task);
-      const request = await sentRequest(socket);
+      const request = await started(socket);
 
       fireEvent.click(stop() as HTMLElement);
       act(() =>
@@ -849,27 +937,23 @@ describe('a task on the computer (DK-10)', () => {
 
       expect(onPerformAction).not.toHaveBeenCalled();
       expect(screen.getByText(strings.chat.computerRefused)).toBeTruthy();
-      expect(socket.requests).toHaveLength(1);
+      expect(socket.requests).toHaveLength(2);
       expect(stop()).toBeNull();
     });
 
+    const routineReply = (id: string, text = PROPOSAL) =>
+      replyTo(id, { text, computer: CLICK, confirm: false } as never);
+
     it('a new task runs again after one was stopped', async () => {
       const { socket, onPerformAction } = openWithComputer();
-      fireEvent.click(mode());
-      say(task);
-      await sentRequest(socket);
+      await started(socket);
       fireEvent.click(stop() as HTMLElement);
 
-      fireEvent.click(mode());
-      say('Abre Chrome');
-      const again = await sentRequest(socket, 2);
-      act(() =>
-        socket.receive(
-          replyTo(again.id, { text: PROPOSAL, computer: CLICK, confirm: false } as never),
-        ),
-      );
+      const again = await started(socket, 'Abre Chrome');
+      expect(again).toMatchObject({ type: 'computer', task: 'Abre Chrome' });
+      act(() => socket.receive(routineReply(again.id)));
 
-      await sentRequest(socket, 3);
+      await sentRequest(socket, 5);
       expect(onPerformAction).toHaveBeenCalledTimes(1);
     });
 
@@ -884,27 +968,20 @@ describe('a task on the computer (DK-10)', () => {
       await waitFor(() =>
         expect(screen.getByRole('status').textContent).toBe(strings.chat.computerPermission),
       );
-      expect(socket.requests).toHaveLength(1);
+      expect(socket.requests).toHaveLength(2);
       expect(stop()).toBeNull();
 
       allowedByMac = true;
       fireEvent.click(allow());
-      await sentRequest(socket, 2);
+      await sentRequest(socket, 3);
       expect(onPerformAction).toHaveBeenCalledTimes(2);
     });
 
-    const routineReply = (id: string, text = PROPOSAL) =>
-      replyTo(id, { text, computer: CLICK, confirm: false } as never);
-
     it('a stopped task stays stopped when another one starts', async () => {
       const { socket, onPerformAction } = openWithComputer();
-      fireEvent.click(mode());
-      say(task);
-      const first = await sentRequest(socket);
+      const first = await started(socket);
       fireEvent.click(stop() as HTMLElement);
-      fireEvent.click(mode());
-      say('Abre Chrome');
-      await sentRequest(socket, 2);
+      await started(socket, 'Abre Chrome');
 
       act(() => socket.receive(routineReply(first.id)));
       await act(async () => {});
@@ -920,9 +997,7 @@ describe('a task on the computer (DK-10)', () => {
       await proposed(socket);
       expect(allow().disabled).toBe(false);
 
-      fireEvent.click(mode());
-      say('Abre Chrome');
-      await sentRequest(socket, 2);
+      await started(socket, 'Abre Chrome');
 
       expect(allow().disabled).toBe(true);
       fireEvent.click(allow());
@@ -939,15 +1014,14 @@ describe('a task on the computer (DK-10)', () => {
       fireEvent.click(allow());
       await waitFor(() => expect(onPerformAction).toHaveBeenCalledTimes(1));
 
-      // While the first is being performed, the menu bar stops the task and a new one starts.
-      fireEvent.click(mode());
-      say('Abre Chrome');
+      // While the first is being performed, a new one starts.
+      await routed(socket, 'computer', 'Abre Chrome');
       await act(async () => {});
       expect(onPerformAction).toHaveBeenCalledTimes(1);
 
       await act(async () => finish(jpeg()));
       // The first task was ended by the second: its next step is not asked for.
-      await waitFor(() => expect(socket.requests.length).toBeGreaterThanOrEqual(2));
+      await sentRequest(socket, 4);
       expect(
         socket.requests.filter((request) => 'done' in request && request.done.length > 0),
       ).toEqual([]);
@@ -956,7 +1030,7 @@ describe('a task on the computer (DK-10)', () => {
     it('keeps the app out of the way while it runs by itself, and brings it back to ask or to end', async () => {
       const { socket, onCaptureScreen, onPerformAction, onReveal } = openWithComputer();
       await routine(socket);
-      const second = await sentRequest(socket, 2);
+      const second = await sentRequest(socket, 3);
 
       expect(onCaptureScreen).toHaveBeenCalledWith(true);
       expect(onPerformAction).toHaveBeenCalledWith(CLICK, true);
@@ -974,23 +1048,20 @@ describe('a task on the computer (DK-10)', () => {
     });
 
     it('brings the app back when the task could not even start', async () => {
-      const { onReveal } = openWithComputer(
+      const { socket, onReveal } = openWithComputer(
         async () => jpeg(),
         async () => {
           throw 'screen_permission';
         },
       );
-      fireEvent.click(mode());
-      say(task);
+      await routed(socket, 'computer', task);
 
       await waitFor(() => expect(onReveal).toHaveBeenCalledTimes(1));
     });
 
     it('tells the shell while a task runs, and stops from the menu bar', async () => {
       const { socket, onPerformAction, onTaskRunning, onReveal, stopFromMenu } = openWithComputer();
-      fireEvent.click(mode());
-      say(task);
-      const request = await sentRequest(socket);
+      const request = await started(socket);
       expect(onTaskRunning).toHaveBeenLastCalledWith(true);
 
       stopFromMenu();
@@ -1002,19 +1073,17 @@ describe('a task on the computer (DK-10)', () => {
       expect(onPerformAction).not.toHaveBeenCalled();
     });
 
-    const lookAtScreen = () => screen.getByRole('button', { name: strings.chat.screen });
-
     it('takes no look at the screen while a task runs', async () => {
       const { socket, onCaptureScreen } = openWithComputer();
-      fireEvent.click(mode());
-      say(task);
-      await sentRequest(socket);
+      await started(socket);
 
-      fireEvent.click(lookAtScreen());
+      await routed(socket, 'screen', '¿Qué ves?');
       await act(async () => {});
 
       expect(onCaptureScreen).toHaveBeenCalledTimes(1);
-      expect(screen.getByText(strings.chat.computerBusy)).toBeTruthy();
+      expect(screen.getByRole('status').textContent).toBe(strings.chat.computerBusy);
+      expect(screen.getByText(strings.chat.lookNotSent)).toBeTruthy();
+      expect(socket.requests).toHaveLength(3);
     });
 
     it('a look at the screen waits for an action still being performed', async () => {
@@ -1027,13 +1096,14 @@ describe('a task on the computer (DK-10)', () => {
       await waitFor(() => expect(onPerformAction).toHaveBeenCalledTimes(1));
       stopFromMenu();
 
-      fireEvent.click(lookAtScreen());
+      await routed(socket, 'screen', '¿Qué ves?');
       await act(async () => {});
       expect(onCaptureScreen).toHaveBeenCalledTimes(1);
 
       await act(async () => finish(jpeg()));
       await waitFor(() => expect(onCaptureScreen).toHaveBeenCalledTimes(2));
       expect(onCaptureScreen).toHaveBeenLastCalledWith();
+      expect(await sentRequest(socket, 4)).toMatchObject({ type: 'screen', text: '¿Qué ves?' });
     });
 
     it('stays out of the way when a new task follows a stop made during an action', async () => {
@@ -1046,38 +1116,28 @@ describe('a task on the computer (DK-10)', () => {
       fireEvent.click(allow());
       await waitFor(() => expect(onPerformAction).toHaveBeenCalledTimes(1));
       stopFromMenu();
-      fireEvent.click(mode());
-      say('Abre Chrome');
+      await routed(socket, 'computer', 'Abre Chrome');
 
       await act(async () => finish(jpeg()));
-      await sentRequest(socket, 2);
+      await sentRequest(socket, 4);
 
       expect(onReveal).not.toHaveBeenCalled();
     });
   });
 });
 
-describe('a task with connections (DK-11)', () => {
+describe('a task with connections (DK-11, DK-13)', () => {
   const task = 'Apunta en mis notas el hotel de Lisboa';
-  const mode = () => screen.getByRole('button', { name: strings.chat.connect });
 
-  it('sends the next message as a task with connections, and only that one', async () => {
+  it('is asked in words: it goes as a plain text, and the daemon runs it', async () => {
     const socket = openChat();
-    fireEvent.click(mode());
-    expect(mode().getAttribute('aria-pressed')).toBe('true');
-    expect(screen.getByText(strings.chat.connectMode)).toBeTruthy();
-
     say(task);
 
-    expect(await sentRequest(socket)).toMatchObject({ type: 'connect', task });
-    expect(mode().getAttribute('aria-pressed')).toBe('false');
-    say('23 € cena');
-    expect(await sentRequest(socket, 2)).toMatchObject({ type: 'text', text: '23 € cena' });
+    expect(await sentRequest(socket)).toEqual({ id: expect.any(String), type: 'text', text: task });
   });
 
   it('answers a call that waits with its buttons, as any other question', async () => {
     const socket = openChat();
-    fireEvent.click(mode());
     say(task);
     const request = await sentRequest(socket);
     act(() =>
@@ -1098,29 +1158,5 @@ describe('a task with connections (DK-11)', () => {
       type: 'button',
       data: 'connection:abc:allow',
     });
-  });
-
-  it('sends a task that was not sent again as a task, never as a plain text', async () => {
-    const socket = openChat();
-    fireEvent.click(mode());
-    say(task);
-    const request = await sentRequest(socket);
-    act(() => socket.receive({ type: 'rejected', inReplyTo: request.id }));
-
-    fireEvent.click(screen.getByRole('button', { name: strings.chat.sendAgain }));
-
-    expect(await sentRequest(socket, 2)).toMatchObject({ type: 'connect', task });
-  });
-
-  it('goes without files', async () => {
-    const socket = openChat();
-    fireEvent.paste(composer(), { clipboardData: { files: [image('ticket.png')] } });
-    fireEvent.click(mode());
-    say(task);
-
-    await waitFor(() =>
-      expect(screen.getByRole('status').textContent).toBe(strings.chat.connectAlone),
-    );
-    expect(socket.requests).toEqual([]);
   });
 });

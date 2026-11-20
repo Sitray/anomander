@@ -240,4 +240,35 @@ describe('requests', () => {
     socket.receive({ type: 'done', inReplyTo: id });
     expect(outcomes).toEqual([[id, { type: 'done' }]]);
   });
+
+  it('keeps the route of a reply only as DK-13 sends it: a look or a task, with its words', () => {
+    const socket = connected();
+    const routes = [
+      { to: 'screen', task: '¿Qué ves?', extra: 'dropped' },
+      { to: 'computer', task: 'Abre Chrome' },
+      { to: 'connect', task: 'Apunta el hotel' },
+      { to: 'computer', task: '  ' },
+      { to: 'screen' },
+      'screen',
+    ];
+    const ids = routes.map(() => sent(client.send({ type: 'text', text: 'mira' })));
+    routes.forEach((route, index) => {
+      socket.receive({ ...reply(ids[index] as string), route } as never);
+    });
+
+    const replies = outcomes.map(([, outcome]) =>
+      outcome.type === 'reply' ? outcome.reply : null,
+    );
+    expect(replies.map((received) => received?.route)).toEqual([
+      { to: 'screen', task: '¿Qué ves?' },
+      { to: 'computer', task: 'Abre Chrome' },
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+    ]);
+    expect(replies.slice(2).some((received) => received === null || 'route' in received)).toBe(
+      false,
+    );
+  });
 });

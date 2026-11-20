@@ -832,6 +832,20 @@ button {
   opacity: 1;
 }
 
+/* S2: the model in use, under the box, out of the way. */
+.composer-model {
+  padding-inline: var(--s1);
+  color: var(--text-3);
+  font-size: var(--text-xs);
+  text-align: end;
+  overflow-wrap: anywhere;
+}
+
+/* DK-13: the capture a look sent, under the words that announced it. */
+.message.bot .thumbnails {
+  margin-top: var(--s1);
+}
+
 .send {
   flex: none;
   display: grid;
@@ -1339,17 +1353,6 @@ button {
   border-radius: 50%;
   box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.85);
   pointer-events: none;
-}
-
-.composer-mode {
-  margin: 0 0 6px;
-  font-size: 12px;
-  line-height: 1.35;
-  opacity: 0.8;
-}
-
-.icon-button[aria-pressed="true"] {
-  color: #e5484d;
 }
 
 .task-bar {

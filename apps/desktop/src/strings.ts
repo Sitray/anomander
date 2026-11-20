@@ -74,29 +74,26 @@ export const strings = {
     tooMany: `Caben ${MAX_ATTACHMENTS} archivos por mensaje. Me quedo con los ${MAX_ATTACHMENTS} primeros.`,
     tooHeavy: 'Pesan demasiado para ir juntos. Envíalos en varios mensajes.',
 
-    /** A look at the screen: the capture waits in the composer, in sight, until it is sent. */
-    screen: 'Preguntar por mi pantalla',
+    /** The model of the setup, under the composer (S2); read before its name. */
+    model: 'Modelo:',
+
+    /** DK-9, DK-13: a look at the screen the daemon routed the principal's words to. */
     screenCapture: 'Captura de pantalla',
-    /** What is asked when a capture is sent with no words. */
-    screenQuestion: '¿Qué ves en mi pantalla?',
-    screenAlone: 'La captura va sola: envía los tickets en otro mensaje.',
+    screenUnavailable: 'Desde esta ventana no puedo ver tu pantalla.',
     screenPermission:
       'macOS no me deja ver la pantalla. Actívame en Ajustes del Sistema › Privacidad y seguridad › Grabación de pantalla y audio, y vuelve a abrir ANOMANDER.',
     screenFailed: 'No he podido capturar la pantalla. Prueba otra vez.',
 
-    /** DK-11: a task with the servers the principal connected. */
-    connect: 'Usar mis conexiones',
-    connectMode:
-      'Voy a usar tus conexiones. Lo que solo lee lo hago sin preguntar; antes de cualquier otra cosa te enseño qué quiero hacer y espero tu permiso.',
-    connectPlaceholder: '¿Qué hago con tus conexiones?',
-    connectAlone: 'Una tarea con conexiones va sin archivos. Quítalos o envíalos antes.',
+    /** DK-13: a look or a task that did not leave; nothing was done, so it can start again. */
+    lookNotSent: 'No he llegado a mirar tu pantalla.',
+    taskNotSent: 'No he llegado a empezar la tarea.',
+    startAgain: 'Intentar otra vez',
+    /** The connection was lost while a look or the first step of a task was on its way. */
+    startUnknown:
+      'Se cortó la conexión y no sé si me llegó. Pídemelo otra vez si aún lo necesitas.',
 
     /** DK-10: a task on the computer, one allowed step at a time. */
-    computer: 'Hacer algo en mi ordenador',
-    computerMode:
-      'Voy a usar tu ordenador. Los pasos rutinarios los hago sin preguntar; antes de algo delicado te enseño qué quiero hacer y espero tu permiso.',
-    computerPlaceholder: '¿Qué hago en tu ordenador?',
-    computerAlone: 'Una tarea en el ordenador va sin archivos. Quítalos o envíalos antes.',
+    computerUnavailable: 'Desde esta ventana no puedo usar tu ordenador.',
     /** A routine step: performed without asking. */
     computerAuto: 'Paso rutinario: lo hago sin preguntar.',
     computerRunning: 'Estoy usando tu ordenador…',

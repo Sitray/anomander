@@ -91,6 +91,7 @@ export function App() {
                 onReveal={shell.reveal}
                 onTaskRunning={shell.setTaskRunning}
                 subscribeStop={shell.onStopTask}
+                model={snapshot.setup.model}
               />
             </div>
             {open === 'setup' && (

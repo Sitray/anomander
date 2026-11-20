@@ -12,6 +12,7 @@ import {
   type Conversation,
   emptyConversation,
   type OwnMessage,
+  type Route,
   reduceConversation,
 } from './conversation.ts';
 
@@ -21,12 +22,10 @@ export interface Chat {
   say(text: string, attachments: Attachment[]): void;
   /** Sends again a message that was not sent. */
   retry(message: OwnMessage): void;
+  /** Starts again the look or the task `message` announced, which did not leave (DK-13). */
+  restart(message: BotMessage): void;
   /** Presses a button of `message` (DK-4 AC3). */
   press(message: BotMessage, data: string): void;
-  /** Starts a task with the servers the principal connected (DK-11). */
-  connect(text: string): void;
-  /** Starts a task on the computer (DK-10): sends it with the screen as it is now. */
-  task(text: string): void;
   /** Performs the action `message` proposes, then asks for the next step (DK-10 AC1). */
   allow(message: BotMessage): void;
   /** Stops the task at the action `message` proposes; nothing is performed. */
@@ -35,8 +34,6 @@ export interface Chat {
   running: boolean;
   /** Stops the task that is running: nothing more is performed for it. */
   stop(): void;
-  /** Runs `work` on the screen once every capture and action asked before it is over. */
-  afterComputer<T>(work: () => Promise<T>): Promise<T>;
 }
 
 /** The shell's side of a task on the computer; both reject with the shell's own error. */
@@ -57,6 +54,11 @@ export interface ChatOptions {
   onReply?: (text: string) => void;
   /** Absent where the window cannot act on the computer. */
   computer?: Computer;
+  /**
+   * DK-9: a JPEG of the screen for a look; the app comes back after it. Absent where the window
+   * cannot capture the screen. Rejects with `screen_permission` when macOS does not allow it.
+   */
+  look?: () => Promise<ArrayBuffer>;
   /** Called with why something on the computer could not be done. */
   onProblem?: (text: string) => void;
 }
@@ -71,10 +73,12 @@ interface Step {
   captureUrl: string;
 }
 
-/** Errors of the shell after which nothing was done: its permission checks come first. */
 /** The task ended while its action waited for its turn: it was not performed. */
 const ENDED = Symbol('ended');
+/** A task started while a look waited for its turn: the screen is the task's. */
+const BUSY = Symbol('busy');
 
+/** Errors of the shell after which nothing was done: its permission checks come first. */
 const NOTHING_DONE: Record<string, string> = {
   computer_permission: strings.chat.computerPermission,
   screen_permission: strings.chat.screenPermission,
@@ -83,12 +87,13 @@ const NOTHING_DONE: Record<string, string> = {
 const requestFor = async (text: string, attachments: Attachment[]): Promise<NewRequest> => {
   if (attachments.length === 0) return { type: 'text', text };
   const images = await encodeAttachments(attachments);
-  const [capture] = images;
-  // A capture travels alone, as a question about the screen.
-  if (attachments.some((attachment) => attachment.screen) && capture !== undefined) {
-    return { type: 'screen', text, image: capture };
-  }
   return { type: 'receipt', images, caption: text === '' ? null : text };
+};
+
+/** DK-13: what the window says when it cannot start `route` at all. */
+const UNAVAILABLE: Record<Route['to'], string> = {
+  screen: strings.chat.screenUnavailable,
+  computer: strings.chat.computerUnavailable,
 };
 
 export const useChat = (channel: LocalChannel | null, options: ChatOptions = {}): Chat => {
@@ -99,6 +104,8 @@ export const useChat = (channel: LocalChannel | null, options: ChatOptions = {})
   latest.current = options;
   /** The steps whose answer has not arrived, by request. */
   const asked = useRef(new Map<string, Step>());
+  /** The plain texts whose answer has not arrived: only theirs may carry a route (DK-13). */
+  const texts = useRef(new Set<string>());
   /** The proposals the principal has not answered, by the reply that carries them. */
   const proposed = useRef(new Map<string, Step & { action: ComputerAction; text: string }>());
   const [running, show] = useState(false);
@@ -120,6 +127,8 @@ export const useChat = (channel: LocalChannel | null, options: ChatOptions = {})
   const performing = useRef<(id: string) => void>(() => {});
   /** `rest`, defined below as well. */
   const rest = useRef<() => void>(() => {});
+  /** `launch`, defined below as well. */
+  const launching = useRef<(id: string, route: Route) => void>(() => {});
 
   useEffect(() => {
     const created = createChatClient({
@@ -128,6 +137,8 @@ export const useChat = (channel: LocalChannel | null, options: ChatOptions = {})
         // DK-10: an action is offered only in answer to a step the principal asked for.
         const step = asked.current.get(requestId);
         asked.current.delete(requestId);
+        // DK-13: a route is followed only in the answer to a plain text.
+        const plain = texts.current.delete(requestId);
         const action = outcome.type === 'reply' ? outcome.reply.computer : undefined;
         if (step !== undefined && outcome.type === 'reply' && action !== undefined) {
           const { channelRef, text } = outcome.reply;
@@ -152,7 +163,13 @@ export const useChat = (channel: LocalChannel | null, options: ChatOptions = {})
             URL.revokeObjectURL(step.captureUrl);
             if (step.run === run.current) rest.current();
           }
-          dispatch({ type: 'outcome', requestId, outcome });
+          const route = plain && outcome.type === 'reply' ? outcome.reply.route : undefined;
+          const able = route !== undefined && startable(route, latest.current);
+          dispatch({ type: 'outcome', requestId, outcome, ...(able ? { start: route } : {}) });
+          if (route !== undefined && outcome.type === 'reply') {
+            if (able) launching.current(outcome.reply.channelRef, route);
+            else latest.current.onProblem?.(UNAVAILABLE[route.to]);
+          }
         }
         if (outcome.type === 'reply') latest.current.onReply?.(outcome.reply.text);
       },
@@ -174,7 +191,9 @@ export const useChat = (channel: LocalChannel | null, options: ChatOptions = {})
   const deliver = useCallback(async (id: string, text: string, attachments: Attachment[]) => {
     let requestId: string | null = null;
     try {
-      requestId = client.current?.send(await requestFor(text, attachments)) ?? null;
+      const request = await requestFor(text, attachments);
+      requestId = client.current?.send(request) ?? null;
+      if (requestId !== null && request.type === 'text') texts.current.add(requestId);
     } catch {
       // A file that cannot be read never left: it is reported as not sent.
     }
@@ -188,21 +207,6 @@ export const useChat = (channel: LocalChannel | null, options: ChatOptions = {})
       void deliver(id, text, attachments);
     },
     [deliver],
-  );
-
-  /** Sends `text` as a task with connections: the daemon runs it and asks through buttons. */
-  const ask = useCallback((id: string, text: string) => {
-    const requestId = client.current?.send({ type: 'connect', task: text }) ?? null;
-    dispatch({ type: 'left', id, requestId });
-  }, []);
-
-  const connect = useCallback(
-    (text: string) => {
-      const id = crypto.randomUUID();
-      dispatch({ type: 'said', id, text, attachments: [], connect: true });
-      ask(id, text);
-    },
-    [ask],
   );
 
   const press = useCallback((message: BotMessage, data: string) => {
@@ -257,6 +261,7 @@ export const useChat = (channel: LocalChannel | null, options: ChatOptions = {})
     return requestId;
   }, []);
 
+  /** Starts the task the reply `id` announced (DK-10): its first step, with the screen as it is. */
   const begin = useCallback(
     async (id: string, text: string) => {
       const { computer, onProblem } = latest.current;
@@ -279,18 +284,74 @@ export const useChat = (channel: LocalChannel | null, options: ChatOptions = {})
         }
       }
       if (requestId === null && mine === run.current) rest.current();
-      dispatch({ type: 'left', id, requestId });
+      dispatch({ type: 'started', id, requestId });
     },
     [step, abandon, inTurn, setRunning],
   );
 
-  const task = useCallback(
-    (text: string) => {
-      const id = crypto.randomUUID();
-      dispatch({ type: 'said', id, text, attachments: [], task: true });
-      void begin(id, text);
+  /**
+   * Takes the look the reply `id` announced (DK-9): a capture once every action asked before it
+   * is over, shown in the conversation and sent with `question`.
+   */
+  const glance = useCallback(
+    async (id: string, question: string) => {
+      const { look, onProblem } = latest.current;
+      // `launch` asked `startable` first: this only narrows the type, and never leaves it pending.
+      if (look === undefined) {
+        dispatch({ type: 'started', id, requestId: null });
+        return;
+      }
+      let jpeg: ArrayBuffer | null = null;
+      try {
+        // A task owns the screen while it goes: a look would bring the app back in its way.
+        jpeg = await inTurn(() => {
+          if (going.current) throw BUSY;
+          return look();
+        });
+      } catch (error) {
+        if (error === BUSY) onProblem?.(strings.chat.computerBusy);
+        else if (error === 'screen_permission') onProblem?.(strings.chat.screenPermission);
+        else onProblem?.(strings.chat.screenFailed);
+      }
+      if (jpeg === null) {
+        dispatch({ type: 'started', id, requestId: null });
+        return;
+      }
+      let requestId: string | null = null;
+      try {
+        const image = await encodeJpeg(jpeg);
+        requestId = client.current?.send({ type: 'screen', text: question, image }) ?? null;
+      } catch {
+        // A capture that cannot be read never left: it is reported as not sent.
+      }
+      const captureUrl = URL.createObjectURL(new Blob([jpeg], { type: 'image/jpeg' }));
+      dispatch({ type: 'started', id, requestId, captureUrl });
     },
-    [begin],
+    [inTurn],
+  );
+
+  /** Starts the look or the task the reply `id` announced, or says why it cannot. */
+  const launch = useCallback(
+    (id: string, route: Route) => {
+      if (!startable(route, latest.current)) {
+        latest.current.onProblem?.(UNAVAILABLE[route.to]);
+        dispatch({ type: 'started', id, requestId: null });
+      } else if (route.to === 'computer') void begin(id, route.task);
+      else void glance(id, route.task);
+    },
+    [begin, glance],
+  );
+  launching.current = launch;
+
+  const restart = useCallback(
+    (message: BotMessage) => {
+      const { start } = message;
+      if (start === null || start.delivery !== 'not_sent') return;
+      if (start.captureUrl !== null) URL.revokeObjectURL(start.captureUrl);
+      dispatch({ type: 'restarted', id: message.id });
+      launch(message.id, start.route);
+    },
+    [launch],
   );
 
   /** Performs the proposal of the reply `id`, once, then asks for the next step. */
@@ -369,25 +430,14 @@ export const useChat = (channel: LocalChannel | null, options: ChatOptions = {})
   const retry = useCallback(
     (message: OwnMessage) => {
       dispatch({ type: 'retried', id: message.id });
-      // A task goes again with the screen as it is now, never as a plain text.
-      if (message.task) void begin(message.id, message.text);
-      else if (message.connect) ask(message.id, message.text);
-      else void deliver(message.id, message.text, message.attachments);
+      void deliver(message.id, message.text, message.attachments);
     },
-    [deliver, begin, ask],
+    [deliver],
   );
 
-  return {
-    conversation,
-    say,
-    retry,
-    press,
-    connect,
-    task,
-    allow,
-    refuse,
-    running,
-    stop,
-    afterComputer: inTurn,
-  };
+  return { conversation, say, retry, restart, press, allow, refuse, running, stop };
 };
+
+/** Whether the window can start `route` at all: it needs the shell's side of it. */
+const startable = (route: Route, options: ChatOptions): boolean =>
+  (route.to === 'computer' ? options.computer : options.look) !== undefined;

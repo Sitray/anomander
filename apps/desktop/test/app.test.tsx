@@ -249,6 +249,13 @@ describe('the setup', () => {
     expect(screen.getByRole('status').textContent).toBe(strings.status.running);
   });
 
+  it('names the chat model of the setup under the composer (S2)', async () => {
+    await open(runningSnapshot({ setup: { ...FILLED_SETUP, visionModel: 'openai/gpt-4o' } }));
+
+    expect(screen.getByText('openai/gpt-4o-mini').classList.contains('composer-model')).toBe(true);
+    expect(screen.queryByText('openai/gpt-4o')).toBeNull();
+  });
+
   it('keeps the conversation while the setup is open', async () => {
     await open(runningSnapshot());
     act(() => FakeWebSocket.last.open());

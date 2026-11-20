@@ -59,22 +59,9 @@ export const AlertIcon = () => (
   </Icon>
 );
 
-export const PointerIcon = () => (
-  <Icon>
-    <path d="M3.5 2.75l3.6 10 1.5-4.15 4.15-1.5z" />
-  </Icon>
-);
-
 export const PlugIcon = () => (
   <Icon>
     <path d="M6 2.25v3M10 2.25v3M4.25 5.25h7.5v2.5a3.75 3.75 0 0 1-7.5 0zM8 11.5v2.25" />
-  </Icon>
-);
-
-export const ScreenIcon = () => (
-  <Icon>
-    <rect x="2" y="3" width="12" height="8" rx="1.25" />
-    <path d="M6 13.75h4M8 11v2.75" />
   </Icon>
 );
 

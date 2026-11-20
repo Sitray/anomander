@@ -31,6 +31,8 @@ export interface ChatScreenProps {
   onTaskRunning?: (running: boolean) => void;
   /** Subscribes `stop` to the menu bar's "Detener tarea"; answers how to unsubscribe. */
   subscribeStop?: (stop: () => void) => () => void;
+  /** The model the daemon answers with (S2); `null` or absent when none is set. */
+  model?: string | null;
 }
 
 /** Why there is no channel, in the principal's words. */
@@ -46,7 +48,7 @@ const carriesFiles = (event: DragEvent): boolean => event.dataTransfer.types.inc
 
 export function ChatScreen(props: ChatScreenProps) {
   const { daemon, channel, onThinking, onReply, onCaptureScreen, onPerformAction } = props;
-  const { onReveal, onTaskRunning, subscribeStop } = props;
+  const { onReveal, onTaskRunning, subscribeStop, model = null } = props;
   const draft = useDraft();
   const computer = useMemo(
     () =>
@@ -63,13 +65,10 @@ export function ChatScreen(props: ChatScreenProps) {
   const chat = useChat(channel, {
     ...(onReply === undefined ? {} : { onReply }),
     ...(computer === undefined ? {} : { computer }),
+    // DK-9: a look does not keep the app out of the way.
+    ...(onCaptureScreen === undefined ? {} : { look: () => onCaptureScreen() }),
     onProblem: draft.warn,
   });
-  /** What the next message is: a plain one, a task on the computer, or one with connections. */
-  const [mode, setMode] = useState<'plain' | 'control' | 'connect'>('plain');
-  const control = mode === 'control';
-  const toggle = (wanted: 'control' | 'connect') =>
-    setMode((current) => (current === wanted ? 'plain' : wanted));
   const [dropping, setDropping] = useState(false);
   /** `dragenter` minus `dragleave`: both also fire for every child the pointer crosses. */
   const dragDepth = useRef(0);
@@ -90,56 +89,13 @@ export function ChatScreen(props: ChatScreenProps) {
       ? strings.chat.disabled.connecting
       : null;
 
+  // DK-13: every message goes as it is; the daemon decides whether it is a look or a task.
   const submit = () => {
     const typed = draft.text.trim();
     if (blocked !== null || (typed === '' && draft.attachments.length === 0)) return;
-    if (control) {
-      if (draft.attachments.length > 0) {
-        draft.warn(strings.chat.computerAlone);
-        return;
-      }
-      chat.task(typed);
-      draft.clear();
-      // One task at a time: the next message is a plain one again.
-      setMode('plain');
-      return;
-    }
-    if (mode === 'connect') {
-      if (draft.attachments.length > 0) {
-        draft.warn(strings.chat.connectAlone);
-        return;
-      }
-      chat.connect(typed);
-      draft.clear();
-      setMode('plain');
-      return;
-    }
-    // A capture always goes with a question: without words, the obvious one.
-    const capture = draft.attachments.some((attachment) => attachment.screen);
-    chat.say(capture && typed === '' ? strings.chat.screenQuestion : typed, draft.attachments);
+    chat.say(typed, draft.attachments);
     draft.clear();
   };
-
-  const look =
-    onCaptureScreen === undefined
-      ? undefined
-      : () => {
-          if (!draft.takesScreen()) return;
-          // A task owns the screen while it goes: a look would bring the app back in its way.
-          if (chat.running) {
-            draft.warn(strings.chat.computerBusy);
-            return;
-          }
-          chat
-            .afterComputer(() => onCaptureScreen())
-            .then(draft.addScreen, (error: unknown) =>
-              draft.warn(
-                error === 'screen_permission'
-                  ? strings.chat.screenPermission
-                  : strings.chat.screenFailed,
-              ),
-            );
-        };
 
   const endDrag = () => {
     dragDepth.current = 0;
@@ -177,6 +133,7 @@ export function ChatScreen(props: ChatScreenProps) {
         messages={chat.conversation.messages}
         waiting={waiting}
         onRetry={chat.retry}
+        onRestart={chat.restart}
         onPress={chat.press}
         onAllow={chat.allow}
         onRefuse={chat.refuse}
@@ -197,11 +154,7 @@ export function ChatScreen(props: ChatScreenProps) {
         blocked={blocked}
         onText={draft.setText}
         onFiles={draft.addFiles}
-        {...(look === undefined ? {} : { onScreen: look })}
-        {...(computer === undefined
-          ? {}
-          : { control: { on: control, onToggle: () => toggle('control') } })}
-        connect={{ on: mode === 'connect', onToggle: () => toggle('connect') }}
+        model={model}
         onRemove={draft.remove}
         onSubmit={submit}
       />
