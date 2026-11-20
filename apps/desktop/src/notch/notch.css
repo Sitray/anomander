@@ -1,0 +1,196 @@
+/*
+ * The notice from the notch. The window is transparent; everything drawn is the pill: the notch's
+ * own black, so over the notch it is the notch, and under the menu bar it is the notch grown
+ * down. Only `transform` and `opacity` move, so the drop composites without a layout or a paint.
+ */
+
+:root {
+  color-scheme: dark;
+
+  /* The notch's black, and the app icon's bone and ember on it. */
+  --black: #000;
+  --bone: #ebe7df;
+  --ember: #d47a3a;
+
+  /* `PILL_WIDTH` and `DROP` of `notch.rs`. */
+  --pill: 176px;
+  --drop: 44px;
+
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --font: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+  background: transparent;
+  cursor: default;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+body {
+  font: 12px / 1 var(--font);
+  -webkit-font-smoothing: antialiased;
+}
+
+#root {
+  display: flex;
+  justify-content: center;
+}
+
+.pill {
+  all: unset;
+  box-sizing: border-box;
+  display: block;
+  width: var(--pill);
+  /* `--bar` is the menu bar the pill covers, from the notch down; the shell sets it. */
+  height: calc(var(--bar) + var(--drop));
+  padding-top: var(--bar);
+  background: var(--black);
+  color: var(--bone);
+  border-radius: 0 0 20px 20px;
+  /* It grows out of the notch: the top edge never moves. */
+  transform-origin: 50% 0;
+  cursor: pointer;
+}
+
+/* Retracted: squashed into the notch and gone. Leaving is quicker than arriving. */
+.pill[data-up="false"] {
+  opacity: 0;
+  transform: scale(0.72, 0.3);
+  pointer-events: none;
+  transition:
+    transform 240ms var(--ease-out),
+    opacity 160ms var(--ease-out) 40ms;
+}
+
+/* Up: a spring with a little give, as something that dropped and settled. The second
+ * `transition` is the spring itself (a damping ratio of 0.72 over 420 ms); a WebKit without
+ * `linear()` keeps the first. */
+.pill[data-up="true"] {
+  opacity: 1;
+  transform: none;
+  transition:
+    transform 420ms var(--ease-out),
+    opacity 140ms var(--ease-out);
+  /* biome-ignore lint/suspicious/noDuplicateProperties: the first transition is the fallback for a WebKit without linear() */
+  transition:
+    transform 420ms
+    linear(
+      0,
+      0.056 5%,
+      0.187 10%,
+      0.348 15%,
+      0.51 20%,
+      0.656 25%,
+      0.778 30%,
+      0.873 35%,
+      0.942 40%,
+      0.989 45%,
+      1.017 50%,
+      1.032 55%,
+      1.038 60%,
+      1.037 65%,
+      1.033 70%,
+      1.027 75%,
+      1.021 80%,
+      1.015 85%,
+      1.01 90%,
+      1.006 95%,
+      1
+    ),
+    opacity 140ms var(--ease-out);
+}
+
+.pill-body {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  height: var(--drop);
+  transition:
+    opacity 180ms var(--ease-out) 100ms,
+    transform 320ms var(--ease-out) 100ms;
+}
+
+/* The words arrive a beat after the pill, from just above where they land. */
+.pill[data-up="false"] .pill-body {
+  opacity: 0;
+  transform: translateY(-4px);
+  transition:
+    opacity 120ms var(--ease-out),
+    transform 120ms var(--ease-out);
+}
+
+.mark {
+  color: var(--ember);
+  flex: none;
+}
+
+.label {
+  color: var(--bone);
+  opacity: 0.85;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+}
+
+/* The same wave as the menu bar icon: each dot in turn lifts and brightens along a hump that
+ * takes half the turn, the next starting 0.17 of a turn behind, and the row rests between turns. */
+.wave {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 10px;
+}
+
+.wave i {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--bone);
+  opacity: 0.5;
+  animation: wave 1.44s ease-in-out infinite;
+}
+
+.wave i:nth-child(2) {
+  animation-delay: 0.245s;
+}
+
+.wave i:nth-child(3) {
+  animation-delay: 0.49s;
+}
+
+@keyframes wave {
+  0%,
+  50%,
+  100% {
+    transform: none;
+    opacity: 0.5;
+  }
+  25% {
+    transform: translateY(-4px);
+    opacity: 1;
+  }
+}
+
+/* Reduced motion: the pill fades in place and the dots rest; the words still say the work. */
+@media (prefers-reduced-motion: reduce) {
+  .pill[data-up="false"],
+  .pill[data-up="true"] {
+    transform: none;
+    transition: opacity 200ms var(--ease-out);
+  }
+
+  .pill-body,
+  .pill[data-up="false"] .pill-body {
+    transform: none;
+    transition: opacity 200ms var(--ease-out);
+  }
+
+  .wave i {
+    animation: none;
+  }
+}

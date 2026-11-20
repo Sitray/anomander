@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "notch",
+  "description": "The notice from the notch: it listens to the shell's state and opens the chat, nothing else.",
+  "windows": ["notch"],
+  "permissions": ["core:default", "core:event:allow-listen", "core:event:allow-unlisten"]
+}
