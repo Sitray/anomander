@@ -73,6 +73,7 @@ import { type ReadApiAddress, startReadApi } from './read-api/server.ts';
 import { createDueReminders } from './reminders/send-due.ts';
 import { createKeepReceiptAnswerHandler } from './retention/keep-receipt-decision.ts';
 import { createRetention } from './retention/retention-job.ts';
+import { groundedRoutes } from './routing/grounded-route.ts';
 import { startScheduler } from './scheduler/scheduler.ts';
 import { describeGap, type SetupGap, setupGuide } from './setup/setup-guide.ts';
 import { acquireDaemonLock } from './store/daemon-lock.ts';
@@ -457,7 +458,12 @@ export const startAnomander = <M>(config: Config, deps: AnomanderDeps<M>): Anoma
           deleteMessage: (channelRef) => deleteMessage(channelRef),
           logger,
         });
-  const recordedText = recordingTurns(turns, (message) => message.text, onText);
+  // DK-13, security audit M5: a route starts only when its task is the principal's own words.
+  const recordedText = recordingTurns(
+    turns,
+    (message) => message.text,
+    groundedRoutes(onText, logger),
+  );
   const recordedButton = recordingTurns(
     turns,
     (press) => buttonTurn(pressedOption(db, press.data)),

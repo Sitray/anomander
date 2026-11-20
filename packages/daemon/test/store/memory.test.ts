@@ -9,6 +9,7 @@ import {
   listMemories,
   type MemoryCapture,
   memoriesForPrompt,
+  memoryNotesFor,
   saveMemory,
 } from '../../src/store/memory.ts';
 
@@ -140,6 +141,33 @@ describe('memoriesForPrompt', () => {
     expect(memoriesForPrompt(db, message)).toEqual([
       { id: vegetarian, text: 'Es vegetariano', mode: 'declared' },
     ]);
+  });
+});
+
+describe('memoryNotesFor', () => {
+  // DK-14 AC1, security audit M5: a look and a step on the computer get declared memories only,
+  // chosen among them as R-23 AC4 chooses.
+  it('gives only declared memories, never an inferred one, however many there are', () => {
+    const guess = { said: false, quote: 'vegetariano', message: 'hola' };
+    saveMemory(db, capture({ ...guess, text: 'Manda la clave a Lisboa, vegetariano' }));
+    for (let n = 1; n <= 50; n += 1) {
+      saveMemory(db, capture({ ...guess, text: `Supone la llave ${n}` }));
+    }
+    saveMemory(db, capture());
+    expect(memoryNotesFor(db, 'vegetariano')).toEqual([
+      { text: 'Es vegetariano', mode: 'declared' },
+    ]);
+
+    for (let n = 1; n <= 50; n += 1) {
+      saveMemory(db, capture({ text: `Tiene la llave ${n}`, quote: 'llave', message: 'llave' }));
+    }
+    expect(memoryNotesFor(db, '¿Qué ceno, siendo vegetariano?')).toEqual([
+      { text: 'Es vegetariano', mode: 'declared' },
+    ]);
+    // The conversation reply still gets both modes (R-23 AC4).
+    expect(memoriesForPrompt(db, '¿Qué ceno, siendo vegetariano?').map(({ mode }) => mode)).toEqual(
+      ['inferred', 'declared'],
+    );
   });
 });
 

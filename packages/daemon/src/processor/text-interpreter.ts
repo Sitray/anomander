@@ -131,11 +131,11 @@ If the user states that a merchant always belongs to a category, as a rule and w
 You never save the rule: the assistant asks the user first, and sends "reply" only if the rule is already saved. Copy both names in "reply" exactly and add no number or amount.
 
 If the message asks for something that can only be done one of the ways listed in "routes", reply:
-{"kind":"route","to":"<one of the listed ways>","task":"<what the user asks, in their words>"}
+{"kind":"route","to":"<one of the listed ways>","task":"<what the user asks, copied word for word from the message>"}
 - "screen": a question about what is on the user's screen now ("¿qué ves?", "¿qué error me sale?").
 - "computer": something to do on the user's computer: open an app, click, type, fill a form.
 - "connect": something from the services the user connected (calendar, files, mail, notes...).
-Take "task" only from "message", never from "recent", "memories" or "history". Never use a way "routes" does not list, and never route an expense or a question you can answer in words. You never carry the task out: the assistant does it.`;
+Take "task" only from "message", never from "recent", "memories" or "history": copy its words exactly as "message" writes them, without conjugating, rephrasing or adding any ("ábreme Notas" stays "ábreme Notas", never "abre Notas"), and keep every "no" or "nunca" of the request, or the assistant does not start it. Never use a way "routes" does not list, and never route an expense or a question you can answer in words. You never carry the task out: the assistant does it.`;
 
 const MEMORIES_AND_TURN = (
   fields: string,

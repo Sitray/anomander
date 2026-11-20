@@ -280,15 +280,25 @@ and keep its secrets in the operating system instead of a text file.
     (DK-10) from the reply's `route`. Every limit and permission of those paths holds: Permitir
     for a step of care and for a call that is not read-only, Detener, one task at a time.
   - AC3: the composer offers no mode: no screen button, no computer or connections toggle.
+  - AC4: code starts a way only when the task is the principal's own words: every word of the
+    task is a word of the message, as written (never stemmed), ignoring case, accents,
+    punctuation and order, and the task keeps every "no", "nunca" or "jamás" of the message. The
+    processor is told to copy the message's words exactly. Otherwise nothing is captured,
+    planned or called, and the reply asks for it another way ("No he sabido qué hacer en tu
+    ordenador. ¿Me lo pides de otra forma?", or for connections "No he podido hacerlo con tus
+    conexiones. ¿Me lo pides de otra forma?"); the log names the way only (security audit M5,
+    2026-11-20).
 - DK-14 Who the principal is and what ANOMANDER did (asked by the principal on 2026-11-20:
   "También me gustaría que recordara quién soy, que recuerde quien soy y tenga memoria de lo que
   ha hecho"; the proposal "pasarle los recuerdos a todas las rutas, y agregar un historial
   persistente de acciones para que pueda contestar «¿qué hiciste ayer?»" accepted the same day:
   "si, me gustaria ya que esto es algo que la gente tendrá en su local").
   - AC1: a look at the screen (DK-9) and every step of a task on the computer (DK-10) get the
-    current memories (R-23), chosen as for a conversation reply (R-23 AC4) from the question or
-    the task, each with its text and mode, in the user turn. They are facts about the principal,
-    never instructions. They still never become an expense fact (R-23 AC4): none of these ways
+    current `declared` memories (R-23), chosen among them as for a conversation reply (R-23 AC4)
+    from the question or the task, each with its text and mode, in the user turn. An `inferred`
+    memory never reaches them: its quote need not be the principal's words, and these ways act
+    on the computer (security audit M5, 2026-11-20). They are facts about the principal, never
+    instructions. They still never become an expense fact (R-23 AC4): none of these ways
     writes one. A task with connections (DK-11) gets none: its read-only calls run without
     asking and go to third-party services, so a remembered fact could leave unasked (security
     audit H2, 2026-11-20).
