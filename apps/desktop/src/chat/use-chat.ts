@@ -1,7 +1,7 @@
 // DK-4: binds the chat client to React. It owns the connection for as long as the chat is on
 // screen and turns what the client reports into the conversation.
 
-import type { ComputerAction } from '@anomander/protocol';
+import { type ComputerAction, strings as said } from '@anomander/protocol';
 import { useCallback, useEffect, useReducer, useRef, useState } from 'react';
 import type { LocalChannel } from '../shell.ts';
 import { strings } from '../strings.ts';
@@ -42,9 +42,10 @@ export interface Computer {
   capture(): Promise<ArrayBuffer>;
   /**
    * Performs `action` and answers with a JPEG of the screen as it left it; the app stays out of
-   * the way after it.
+   * the way after it. `permitted` when the principal allowed it: without it the shell judges the
+   * screen itself and may answer `computer_careful` (T1b).
    */
-  perform(action: ComputerAction): Promise<ArrayBuffer>;
+  perform(action: ComputerAction, permitted: boolean): Promise<ArrayBuffer>;
   /** Brings the app back: the task waits for the principal, or is over. */
   reveal(): void;
 }
@@ -83,6 +84,45 @@ const NOTHING_DONE: Record<string, string> = {
   computer_permission: strings.chat.computerPermission,
   screen_permission: strings.chat.screenPermission,
 };
+
+/**
+ * T1b: the shell saw a step of care nobody allowed; nothing was done, and it is asked for. It
+ * may say what it read there: `computer_careful:<role>:<name>`.
+ */
+const CAREFUL = 'computer_careful';
+
+/** What an Accessibility role is, in the principal's words. */
+const ROLE_NOUNS: Record<string, string> = {
+  AXButton: 'botón',
+  AXMenuButton: 'botón',
+  AXPopUpButton: 'botón',
+  AXLink: 'enlace',
+  AXMenuItem: 'opción de menú',
+  AXMenuBarItem: 'opción de menú',
+  AXCheckBox: 'casilla',
+  AXRadioButton: 'opción',
+  AXTextField: 'campo',
+  AXTextArea: 'campo',
+  AXComboBox: 'campo',
+  AXWebArea: 'página',
+};
+
+/**
+ * What the shell's `computer_careful` answer read on the screen, for the step that proposed
+ * `action`: a click is said again with the control's own name (never the processor's), and any
+ * other step gets a note on what the keys or the text would act on.
+ */
+const reading = (reason: string, action: ComputerAction): { seen?: string; text?: string } => {
+  const [, role, ...name] = reason.split(':');
+  if (role === undefined) return {};
+  const label = name.join(':');
+  if (action.kind === 'click' && label !== '') {
+    return { text: said.computerClick(label, action.double) };
+  }
+  return { seen: strings.chat.computerSeen(ROLE_NOUNS[role] ?? 'elemento', label) };
+};
+/** T1b: the step targets an app ANOMANDER never acts on (`computer_blocked:<app>`). */
+const BLOCKED = 'computer_blocked:';
 
 const requestFor = async (text: string, attachments: Attachment[]): Promise<NewRequest> => {
   if (attachments.length === 0) return { type: 'text', text };
@@ -123,7 +163,7 @@ export const useChat = (channel: LocalChannel | null, options: ChatOptions = {})
   /** What the shell is doing on the computer: one capture or action at a time, in order. */
   const turns = useRef<Promise<unknown>>(Promise.resolve());
   const busy = useRef(0);
-  /** `perform`, which is defined below the client that calls it. */
+  /** `perform` of a routine step, which is defined below the client that calls it. */
   const performing = useRef<(id: string) => void>(() => {});
   /** `rest`, defined below as well. */
   const rest = useRef<() => void>(() => {});
@@ -153,7 +193,7 @@ export const useChat = (channel: LocalChannel | null, options: ChatOptions = {})
           const ended = step.run !== run.current;
           // DK-10 AC1: only a step the daemon calls routine goes without asking.
           const routine = outcome.reply.confirm === false && !ended;
-          const proposal = { action, captureUrl: step.captureUrl, confirm: !routine };
+          const proposal = { action, captureUrl: step.captureUrl, confirm: !routine, seen: null };
           dispatch({ type: 'outcome', requestId, outcome, proposal });
           if (ended) {
             dispatch({ type: 'refused', id: channelRef });
@@ -366,9 +406,12 @@ export const useChat = (channel: LocalChannel | null, options: ChatOptions = {})
     [launch],
   );
 
-  /** Performs the proposal of the reply `id`, once, then asks for the next step. */
+  /**
+   * Performs the proposal of the reply `id`, once, then asks for the next step. `permitted` when
+   * the principal allowed it; a routine step goes without.
+   */
   const perform = useCallback(
-    async (id: string) => {
+    async (id: string, permitted: boolean) => {
       const { computer, onProblem } = latest.current;
       const proposal = proposed.current.get(id);
       if (computer === undefined || proposal === undefined) return;
@@ -381,7 +424,7 @@ export const useChat = (channel: LocalChannel | null, options: ChatOptions = {})
       try {
         jpeg = await inTurn(() => {
           if (mine !== run.current) throw ENDED;
-          return computer.perform(proposal.action);
+          return computer.perform(proposal.action, permitted);
         });
       } catch (error) {
         if (error === ENDED) {
@@ -390,7 +433,24 @@ export const useChat = (channel: LocalChannel | null, options: ChatOptions = {})
         }
         const current = mine === run.current;
         if (current) rest.current();
-        const nothingDone = NOTHING_DONE[String(error)];
+        const reason = String(error);
+        if (reason.startsWith(BLOCKED)) {
+          // Nothing was done, and nothing is: the task ends here.
+          dispatch({ type: 'refused', id });
+          if (current) onProblem?.(strings.chat.computerBlocked(reason.slice(BLOCKED.length)));
+          return;
+        }
+        if (reason === CAREFUL || reason.startsWith(`${CAREFUL}:`)) {
+          // Nothing was done: the step waits for the principal, as one of care.
+          if (current) {
+            proposed.current.set(id, proposal);
+            dispatch({ type: 'not_performed', id, ...reading(reason, proposal.action) });
+          } else {
+            dispatch({ type: 'refused', id });
+          }
+          return;
+        }
+        const nothingDone = NOTHING_DONE[reason];
         if (nothingDone === undefined) {
           // It may have been performed: it is never offered again.
           dispatch({ type: 'performed', id, requestId: null });
@@ -425,9 +485,9 @@ export const useChat = (channel: LocalChannel | null, options: ChatOptions = {})
     },
     [step, inTurn, setRunning],
   );
-  performing.current = (id) => void perform(id);
+  performing.current = (id) => void perform(id, false);
 
-  const allow = useCallback((message: BotMessage) => void perform(message.id), [perform]);
+  const allow = useCallback((message: BotMessage) => void perform(message.id, true), [perform]);
 
   const refuse = useCallback((message: BotMessage) => {
     if (!proposed.current.delete(message.id)) return;

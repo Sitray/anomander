@@ -424,14 +424,17 @@ async fn capture_screen(app: AppHandle, keep_hidden: bool) -> Result<tauri::ipc:
 /// How long the screen takes to show what an action did, before it is captured again.
 const SCREEN_SETTLES: Duration = Duration::from_millis(900);
 
-/// DK-10 AC1: performs the one action the principal just allowed in the chat, and answers with a
-/// JPEG of the screen as that action left it. The app hides for it, so the click or the keys go
-/// to the app the principal was using.
+/// DK-10 AC1: performs one action of a task, and answers with a JPEG of the screen as that action
+/// left it. The app hides for it, so the click or the keys go to the app the principal was using.
+/// `permitted` says the principal allowed it in the chat; without it the shell performs it only
+/// when the screen shows a routine step, and answers `computer_careful` otherwise (T1b). An app
+/// of the blocklist is never acted on (`computer_blocked:<app>`).
 #[tauri::command]
 async fn perform_action(
     app: AppHandle,
     action: computer::Action,
     keep_hidden: bool,
+    permitted: bool,
 ) -> Result<tauri::ipc::Response, String> {
     if !computer::allowed() {
         return Err(computer::NO_PERMISSION.into());
@@ -442,7 +445,15 @@ async fn perform_action(
     app.hide().map_err(|error| error.to_string())?;
     let captured = blocking(app.clone(), move |shell| {
         std::thread::sleep(APP_LEAVES);
-        computer::perform(&action, computer::screen_size(), &mut computer::SystemInput)?;
+        // Read after the app stepped aside: the screen the input goes to.
+        computer::perform_guarded(
+            &action,
+            computer::screen_size(),
+            permitted,
+            &computer::SystemScreen,
+            std::process::id() as i32,
+            &mut computer::SystemInput,
+        )?;
         std::thread::sleep(SCREEN_SETTLES);
         screen::capture(shell.core.data_root())
     })

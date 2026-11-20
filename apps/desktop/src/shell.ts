@@ -233,13 +233,19 @@ export const shell = {
   captureScreen: (keepHidden = false): Promise<ArrayBuffer> =>
     invoke('capture_screen', { keepHidden }),
   /**
-   * DK-10: performs the one action the principal just allowed, with the app out of the way, and
-   * answers with a JPEG of the screen as it left it. With `keepHidden` the app stays away after
-   * an action that worked, until `reveal`. Rejects with `computer_permission` or
-   * `screen_permission` when macOS does not allow it; then nothing was done.
+   * DK-10: performs one action of a task, with the app out of the way, and answers with a JPEG of
+   * the screen as it left it. With `keepHidden` the app stays away after an action that worked,
+   * until `reveal`. `permitted` says the principal allowed it; without it the shell performs it
+   * only when the screen shows a routine step (T1b). Rejects, and then nothing was done, with
+   * `computer_permission` or `screen_permission` when macOS does not allow it,
+   * `computer_careful[:<role>:<name>]` when the screen shows a step of care nobody allowed, or
+   * `computer_blocked:<app>` when it targets an app ANOMANDER never acts on.
    */
-  performAction: (action: ComputerAction, keepHidden = false): Promise<ArrayBuffer> =>
-    invoke('perform_action', { action, keepHidden }),
+  performAction: (
+    action: ComputerAction,
+    keepHidden = false,
+    permitted = false,
+  ): Promise<ArrayBuffer> => invoke('perform_action', { action, keepHidden, permitted }),
   /** Brings the app and the chat back to the front. */
   reveal: (): Promise<void> => invoke('reveal'),
   /** Whether a task goes by itself, so the menu bar offers "Detener tarea" (DK-10). */

@@ -21,10 +21,14 @@ export interface ChatScreenProps {
   /** Takes a JPEG of the screen; rejects with `screen_permission` when macOS does not allow it. */
   onCaptureScreen?: (keepHidden?: boolean) => Promise<ArrayBuffer>;
   /**
-   * DK-10: performs one action on the computer and answers with a JPEG of the screen after it.
-   * Rejects with `computer_permission` or `screen_permission` when macOS does not allow it.
+   * DK-10: performs one action on the computer and answers with a JPEG of the screen after it;
+   * `permitted` when the principal allowed it (`shell.performAction`).
    */
-  onPerformAction?: (action: ComputerAction, keepHidden?: boolean) => Promise<ArrayBuffer>;
+  onPerformAction?: (
+    action: ComputerAction,
+    keepHidden?: boolean,
+    permitted?: boolean,
+  ) => Promise<ArrayBuffer>;
   /** Brings the app back after a capture or an action that kept it out of the way. */
   onReveal?: () => void;
   /** Called whenever a task on the computer starts or stops going by itself. */
@@ -59,7 +63,8 @@ export function ChatScreen(props: ChatScreenProps) {
         : {
             // A task keeps the app out of the way from its first capture until it rests.
             capture: () => onCaptureScreen(true),
-            perform: (action: ComputerAction) => onPerformAction(action, true),
+            perform: (action: ComputerAction, permitted: boolean) =>
+              onPerformAction(action, true, permitted),
             reveal: () => onReveal?.(),
           },
     [onCaptureScreen, onPerformAction, onReveal],

@@ -46,6 +46,8 @@ name = "anomander-desktop"
 version = "0.0.0"
 dependencies = [
  "getrandom 0.3.4",
+ "icu_normalizer",
+ "icu_properties",
  "libc",
  "security-framework",
  "serde",

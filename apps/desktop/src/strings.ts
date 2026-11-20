@@ -128,6 +128,12 @@ export const strings = {
     /** The step may have been performed: it is never offered again. */
     computerUnknown:
       'No sé si este paso llegó a hacerse. Mira tu pantalla antes de pedírmelo otra vez.',
+    /** T1b: what the shell read where a step it asks for would act: `noun` such as "campo". */
+    computerSeen: (noun: string, label: string) =>
+      label === '' ? `En pantalla: ${noun} sin nombre.` : `En pantalla: ${noun} «${label}».`,
+    /** T1b: the step targets an app ANOMANDER never acts on; the task ends. */
+    computerBlocked: (app: string) =>
+      `No actúo sobre ${app}: es una app protegida. He detenido la tarea.`,
     computerPermission:
       'macOS no me deja usar el ordenador. Actívame en Ajustes del Sistema › Privacidad y seguridad › Accesibilidad y vuelve a abrir ANOMANDER.',
 
