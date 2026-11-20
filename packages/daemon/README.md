@@ -552,6 +552,19 @@ one, as before. In the app the `reply` to `connect` (or to the press) arrives wh
 over. In Telegram the handler returns at once and the reply is sent when the step is over, cut
 to 4 096 characters, the most one Telegram message holds.
 
+The text interpreter is told the connected tools in `connected` (`known()` of
+`src/connections/mcp-client.ts`, which never connects a server: one not connected yet gives only
+its `readOnly` tools, without a purpose). Each purpose is the server's own first sentence, without
+what cannot be seen, cut to 120 characters, at most 40 tools, in the user turn as data. A lookup
+on the internet goes to `connect` when a tool can search and is never routed to the computer;
+with none the interpreter answers `no_web_search` and code says how to add the web search
+connection (`WEB_SEARCH_CONNECTION` of `packages/protocol`, DK-11 AC11, DK-13 AC5).
+
+A connection may name, by tool, arguments that make a read-only call ask (`asksWith` of
+`Connection`). `argumentsThatAsk` in `mcp-client.ts` gives any program running `pi-web-access`
+the preset's: `fetch_content` always asks, and `web_search` asks with `provider`, `proxy` or
+`includeContent`. `mcp.json` has no key for them: the app checks its keys as the daemon reads them.
+
 ### Servers connected with OAuth (DK-11 AC10)
 
 `scripts/mcp-oauth.ts <url>` (run by the desktop app, never by the daemon) connects the app to a

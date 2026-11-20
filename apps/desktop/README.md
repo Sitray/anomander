@@ -214,6 +214,37 @@ is framework-free, so it is tested against a fake `WebSocket` (`test/fake-web-so
   above. A save starts the daemon again, which reads the file at its start, and so ends a task
   that was running; a daemon that is stopped stays stopped and reads the file when it is next
   started.
+- **Web search** (DK-11 AC11, DK-13 AC5): while no server is named `Internet`, the connections
+  screen offers "Añadir búsqueda web". One press saves, through the same `save_connection` as
+  the form, `WEB_SEARCH_CONNECTION` from `packages/protocol`:
+
+  ```json
+  {
+    "mcpServers": {
+      "Internet": {
+        "command": "npx",
+        "args": ["-y", "pi-web-access@0.48.0"],
+        "env": { "npm_config_ignore_scripts": "true" },
+        "readOnly": ["web_search", "get_search_content"]
+      }
+    }
+  }
+  ```
+
+  The version is pinned; `-y` only lets `npx` fetch that version without a prompt nobody would
+  see. Its own dependencies are version ranges, not pinned, so `npm_config_ignore_scripts` keeps
+  npm from running their install scripts (the value moves to the Keychain like any other). A
+  search runs without "Permitir". Reading a page (`fetch_content`) always asks, with its exact
+  address, and so does a search with `provider`, `proxy` or `includeContent`: the daemon applies
+  these rules to any program that runs `pi-web-access`, whatever `readOnly` says. GitHub cloning
+  and the provider can only be set in the package's `web-search.json`, so the preset leaves
+  them. What leaves the Mac, as the screen says: the package from npm the first time; with no
+  key and no `~/.pi/agent/web-search.json`, what is searched goes only to Exa's hosted MCP
+  (`mcp.exa.ai`); pages are read from this Mac after "Permitir"; that file, when present,
+  applies its keys, providers and proxy. It needs Node 22.19 or later on the daemon's `PATH`.
+  The chat's interpreter is told the connected tools with a one-line purpose, so "búscame dónde
+  comprar…" goes to this connection and never to the computer; with no search connection the
+  reply says how to add it.
 - **OAuth** (DK-11 AC10): a server reached by its URL has "Conectar con OAuth". The shell
   (`src-tauri/src/oauth_connect.rs`) runs `packages/daemon/scripts/mcp-oauth.ts` with Node,
   opens the authorization address it prints with `/usr/bin/open` only when it is `https` (or

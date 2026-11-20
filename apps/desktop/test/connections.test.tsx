@@ -237,6 +237,65 @@ describe('adding a server', () => {
   });
 });
 
+describe('the web search connection (T17)', () => {
+  const WEB_SEARCH: ConnectionInput = {
+    name: 'Internet',
+    kind: 'process',
+    command: 'npx',
+    args: ['-y', 'pi-web-access@0.48.0'],
+    // npm runs no install script of the package or of what it brings.
+    values: [{ name: 'npm_config_ignore_scripts', value: 'true' }],
+    // Reading a page always asks.
+    readOnly: ['web_search', 'get_search_content'],
+  };
+  const added: ConnectionsView = {
+    servers: [
+      {
+        ...WEB_SEARCH,
+        kind: 'process',
+        values: [{ name: 'npm_config_ignore_scripts', stored: true }],
+        oauth: false,
+      },
+    ],
+    invalid: null,
+  } as ConnectionsView;
+
+  it('is added in one step, pinned, with its reading tools marked read-only, and says what leaves the Mac', async () => {
+    const { onSave } = await renderScreen(NO_CONNECTIONS, async () => added);
+    expect(screen.getByText(text.webSearchNote)).toBeTruthy();
+
+    click(text.addWebSearch);
+
+    expect(await saved(onSave)).toEqual(WEB_SEARCH);
+    await waitFor(() =>
+      expect(servers().textContent).toContain('Internetnpx -y pi-web-access@0.48.0'),
+    );
+    expect(screen.queryByRole('button', { name: text.addWebSearch })).toBeNull();
+  });
+
+  it('is not offered once there is a server by that name, nor while the file cannot be changed', async () => {
+    await renderScreen(added);
+    expect(screen.queryByRole('button', { name: text.addWebSearch })).toBeNull();
+    cleanup();
+
+    await renderScreen({ servers: [], invalid: 'mcp.json is not as the daemon reads it' });
+    expect(screen.queryByRole('button', { name: text.addWebSearch })).toBeNull();
+  });
+
+  it('shows what the shell says when it refuses, and stays on the list', async () => {
+    await renderScreen(NO_CONNECTIONS, async () => {
+      throw 'the daemon would not read the server';
+    });
+
+    click(text.addWebSearch);
+
+    const alert = await screen.findByRole('alert');
+    expect(alert.textContent).toContain(text.webSearchRejected);
+    expect(alert.textContent).toContain('the daemon would not read the server');
+    expect(screen.getByRole('button', { name: text.addWebSearch })).toBeTruthy();
+  });
+});
+
 describe('editing a server', () => {
   it('shows what the file holds, and of a value only its name and that it is stored', async () => {
     await renderScreen();

@@ -127,6 +127,8 @@ describe('text expense handler', () => {
       capabilities: { reminders: expect.objectContaining({ pending: [] }) },
       // DK-13 AC1: no way to route a request unless the front door offers one.
       routes: [],
+      // T17: no connected server to tell of unless the daemon gives some.
+      connected: [],
       // DK-14 AC3: nothing done yet.
       history: [],
     });

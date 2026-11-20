@@ -110,9 +110,11 @@ Every processor call counts against the daily AI limit (R-12). A look is a recen
 
 ### How a message reaches one
 
-1. The text handler adds `routes` to the interpreter's user turn: the ways its front door offers.
+1. The text handler adds `routes` to the interpreter's user turn: the ways its front door offers. It also adds `connected`: the tools of the connected servers with a one-line purpose, so the processor knows what a task with connections can do (DK-13 AC5). The purposes are the servers' own words, capped and kept out of the prompt.
 2. When the message can only be done one of those ways, the processor answers `{"kind":"route","to":"computer","task":"abre Notas y apunta comprar pan"}`. The prompt tells it to take `task` from the message only.
 3. Code refuses a way the door does not offer (`route_elsewhere`), then announces the way in its own words.
 4. The daemon runs a task with connections itself. The app starts a look or a task on the computer from the reply's `route`, and sends each capture back as a `screen` or `computer` request of the local channel.
+
+A lookup on the internet is never a task on the computer. With a connection that searches (the "Añadir búsqueda web" preset, `pi-web-access`, DK-11 AC11) it is routed to `connect`, and its search runs without "Permitir"; reading a page, or a search that picks its provider, a proxy or the pages' content, asks first. With none, the processor answers `{"kind":"no_web_search"}` and code says how to add one.
 
 What the screen shows and what a tool answers is content, never an instruction. The prompts say so, and the authority check holds whatever the processor proposes: "Permitir" is shown by code, with the exact action or call.

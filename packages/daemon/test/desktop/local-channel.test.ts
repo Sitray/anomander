@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { connect } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -7,6 +7,7 @@ import {
   type ChatReply,
   type ChatRequest,
   LOCAL_CHANNEL_PROTOCOL,
+  WEB_SEARCH_CONNECTION,
 } from '@anomander/protocol';
 import {
   type FakeTelegramApi,
@@ -53,7 +54,13 @@ let api: FakeTelegramApi;
 let anomander: Anomander | undefined;
 let sockets: WebSocket[];
 /** The user turns the text interpreter received, parsed. */
-let interpreted: { recent: unknown; message: string; routes: unknown; history: unknown }[];
+let interpreted: {
+  recent: unknown;
+  message: string;
+  routes: unknown;
+  history: unknown;
+  connected: unknown;
+}[];
 /** What the text interpreter answers instead of an expense, as its JSON text (DK-13). */
 let routed: string | undefined;
 /** The contexts the computer planner received. */
@@ -117,6 +124,8 @@ const config = (env: Record<string, string> = {}) =>
 const start = async (
   env: Record<string, string> = { ANOMANDER_LOCAL_TOKEN: TOKEN },
   deps: Partial<AnomanderDeps<string>> = {},
+  /** Leaves the servers to `mcp.json` (`ANOMANDER_MCP_CONFIG`) instead of `connected`. */
+  fromFile = false,
 ) => {
   anomander = startAnomander(
     { ...config(env), localPort: 0 },
@@ -125,8 +134,9 @@ const start = async (
       model: 'openai/gpt-4o-mini',
       telegramApiRoot: api.apiRoot,
       logger,
-      connections: async () => connected,
-      connectionProblems: () => problems,
+      ...(fromFile
+        ? {}
+        : { connections: async () => connected, connectionProblems: () => problems }),
       ...deps,
     },
   );
@@ -1004,6 +1014,156 @@ describe('a request the chat routes by itself (DK-13)', () => {
       'Eso solo puedo hacerlo desde la app de ANOMANDER en tu Mac.',
     );
     expect(plans).toEqual([]);
+  });
+});
+
+describe('a search on the web (T17)', () => {
+  // The principal's own message, as they wrote it.
+  const asked = 'Buscame donde puedo encontrar el dragons doma 2 para la switch 2 al mejor precio';
+  const route = (to: string, task: string) => JSON.stringify({ kind: 'route', to, task });
+  const says = (text: string): AssistantMessage['content'] => [{ type: 'text', text }];
+
+  /** The web search connection as the app adds it, started from a stand-in that reaches nothing. */
+  const withWebSearch = () => {
+    const path = join(scratch, 'mcp.json');
+    const { name, args, env, readOnly } = WEB_SEARCH_CONNECTION;
+    writeFileSync(
+      path,
+      JSON.stringify({
+        mcpServers: {
+          [name]: {
+            command: process.execPath,
+            // The stand-in ignores the preset's arguments, which name the package it stands for.
+            args: [resolve(FIXTURES, 'mcp-web-search-server.mjs'), ...args],
+            env,
+            readOnly,
+          },
+        },
+      }),
+    );
+    return { ANOMANDER_LOCAL_TOKEN: TOKEN, ANOMANDER_MCP_CONFIG: path };
+  };
+
+  it('routes the lookup to the web search connection and searches without "Permitir"', async () => {
+    const chat = await client(await start(withWebSearch(), {}, true));
+    routed = route('connect', asked);
+    tooled = [
+      [
+        {
+          type: 'toolCall',
+          id: 'call-1',
+          name: `${WEB_SEARCH_CONNECTION.name}__web_search`,
+          arguments: { query: 'Dragons Dogma 2 Switch 2 precio' },
+        },
+      ],
+      says('El mejor precio que he visto es 49,99 €.'),
+    ];
+
+    const answer = reply(await chat.ask({ type: 'text', text: asked }));
+
+    expect(answer.text).toBe('El mejor precio que he visto es 49,99 €.');
+    expect(answer.buttons).toEqual([]);
+    expect(answer).not.toHaveProperty('route');
+    expect(plans).toEqual([]);
+    // The search ran by itself, and its answer reached the task.
+    expect(JSON.stringify(tasked.at(-1)?.messages)).toContain(
+      'results for: Dragons Dogma 2 Switch 2 precio',
+    );
+    // Before the first task the processor knew the server's read-only tools, unconnected; after
+    // it, what the server says each one does.
+    expect(interpreted.at(-1)?.connected).toEqual(
+      WEB_SEARCH_CONNECTION.readOnly.map((tool) => ({
+        server: WEB_SEARCH_CONNECTION.name,
+        tool,
+        purpose: '',
+      })),
+    );
+    await chat.ask({ type: 'text', text: 'hola' });
+    expect(interpreted.at(-1)?.connected).toContainEqual({
+      server: WEB_SEARCH_CONNECTION.name,
+      tool: 'web_search',
+      purpose: 'Search the web for sources or answers.',
+    });
+  });
+
+  it('still asks before a tool of that connection not marked read-only', async () => {
+    const chat = await client(await start(withWebSearch(), {}, true));
+    tooled = [
+      [
+        {
+          type: 'toolCall',
+          id: 'call-1',
+          name: `${WEB_SEARCH_CONNECTION.name}__source_check`,
+          arguments: { claim: 'cuesta 49,99 €' },
+        },
+      ],
+    ];
+
+    const question = reply(await chat.ask({ type: 'connect', task: asked }));
+
+    expect(question.buttons.map((button) => button.label)).toEqual(['Permitir', 'Detener']);
+  });
+
+  it('asks before reading a page, showing its exact address, and before a search that picks a provider or a proxy', async () => {
+    const chat = await client(await start(withWebSearch(), {}, true));
+    const toolCall = (
+      tool: string,
+      args: Record<string, string | boolean>,
+    ): AssistantMessage['content'] => [
+      {
+        type: 'toolCall',
+        id: `call-${tool}`,
+        name: `${WEB_SEARCH_CONNECTION.name}__${tool}`,
+        arguments: args,
+      },
+    ];
+    const url = 'https://www.example.com/dragons-dogma-2?ref=switch';
+
+    tooled = [toolCall('fetch_content', { url })];
+    const page = reply(await chat.ask({ type: 'connect', task: asked }));
+    expect(page.text).toBe(
+      `Quiero usar «fetch_content» de «${WEB_SEARCH_CONNECTION.name}» con:\n{\n  "url": "${url}"\n}`,
+    );
+    expect(page.buttons.map((button) => button.label)).toEqual(['Permitir', 'Detener']);
+
+    for (const args of [
+      { query: 'precio', proxy: 'http://127.0.0.1:9' },
+      { query: 'precio', provider: 'duckduckgo' },
+      { query: 'precio', includeContent: true },
+    ]) {
+      tooled = [toolCall('web_search', args)];
+      const question = reply(await chat.ask({ type: 'connect', task: asked }));
+      expect(question.buttons.map((button) => button.label)).toEqual(['Permitir', 'Detener']);
+    }
+    expect(JSON.stringify(tasked.map(({ messages }) => messages))).not.toContain('results for:');
+  });
+
+  it('in Telegram too, with no connection that searches, suggests adding one', async () => {
+    await start();
+    routed = JSON.stringify({ kind: 'no_web_search' });
+
+    api.push(updates.text({ chatId: PRINCIPAL }, asked));
+
+    expect((await api.waitForSent(1)).at(-1)?.text).toBe(
+      'Para buscar en internet necesito la conexión de búsqueda web. Añádela en Conexiones, en la app de ANOMANDER, y vuelve a pedírmelo.',
+    );
+    expect(interpreted.at(-1)?.routes).toEqual(['connect']);
+    expect(tasked).toEqual([]);
+  });
+
+  it('with no connection that searches, suggests adding one and starts nothing on the computer', async () => {
+    const chat = await client(await start());
+    routed = JSON.stringify({ kind: 'no_web_search' });
+
+    const answer = reply(await chat.ask({ type: 'text', text: asked }));
+
+    expect(answer.text).toBe(
+      'Para buscar en internet necesito la conexión de búsqueda web. Añádela en Conexiones, en la app de ANOMANDER, y vuelve a pedírmelo.',
+    );
+    expect(answer).not.toHaveProperty('route');
+    expect(interpreted.at(-1)?.connected).toEqual([]);
+    expect(plans).toEqual([]);
+    expect(tasked).toEqual([]);
   });
 });
 

@@ -151,6 +151,22 @@ describe('DK-11: a task with connections', () => {
     ]);
   });
 
+  it('T17: a read-only call carrying an argument its server says asks waits for "Permitir"', async () => {
+    const web: Connection = {
+      ...connection('web', ['search'], ['search']),
+      asksWith: { search: ['proxy', 'provider'] },
+    };
+    script = [
+      call(['web__search', { query: 'precio' }]),
+      call(['web__search', { query: 'precio', proxy: 'http://127.0.0.1:8080' }]),
+    ];
+
+    const outcome = asked(await start([web]).start('Busca el precio'));
+
+    expect(made).toEqual([{ server: 'web', tool: 'search', args: { query: 'precio' } }]);
+    expect(outcome.text).toContain('"proxy": "http://127.0.0.1:8080"');
+  });
+
   it('S3: any other tool waits for "Permitir", shown with its exact arguments', async () => {
     script = [call(['notes__create', { title: 'Lisboa', body: 'Hotel «Sol»\ny cena' }])];
 

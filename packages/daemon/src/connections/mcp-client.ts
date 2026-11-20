@@ -1,10 +1,11 @@
+import { WEB_SEARCH_CONNECTION, WEB_SEARCH_PACKAGE } from '@anomander/protocol';
 import type { OAuthClientProvider } from '@modelcontextprotocol/sdk/client/auth.js';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
 import { ErrorCode, McpError } from '@modelcontextprotocol/sdk/types.js';
-import type { Logger } from '../processor/text-interpreter.ts';
+import type { ConnectedTool, Logger } from '../processor/text-interpreter.ts';
 import type { ConnectionsConfig, ServerConfig } from './config.ts';
 import type { Connection, ToolInfo } from './connection.ts';
 import { type OAuthKeeper, originScopedFetch } from './oauth.ts';
@@ -84,6 +85,18 @@ export const connectTo = async (
   };
 };
 
+/**
+ * T17: the arguments that make a call of `server` ask. A program that runs `pi-web-access`, at
+ * any version, gets those of the web search connection, whatever its `readOnly` says: one of its
+ * tools reaches any address, and two read-only calls on it must not carry a page elsewhere.
+ * `mcp.json` has no place for them: the app checks its keys as the daemon reads them.
+ */
+export const argumentsThatAsk = (server: ServerConfig): Record<string, readonly string[]> =>
+  server.kind === 'process' &&
+  server.args.some((arg) => arg === WEB_SEARCH_PACKAGE || arg.startsWith(`${WEB_SEARCH_PACKAGE}@`))
+    ? WEB_SEARCH_CONNECTION.asksWith
+    : {};
+
 /** How a configured server is reached; `authProvider` for one connected with OAuth. */
 export const transportFor = (
   server: ServerConfig,
@@ -112,6 +125,12 @@ export interface Connections {
   get(): Promise<Connection[]>;
   /** The configured servers that are not connected, as the last `get` left them. */
   unreachable(): string[];
+  /**
+   * What each configured server offers, without connecting one (T17): the tools of a connected
+   * server, with what it says they do, and the read-only tools the principal named for one that
+   * is not connected yet, without a purpose. In the order of the configuration.
+   */
+  known(): ConnectedTool[];
   /** Closes every server, once any being connected is; nothing is connected after. */
   close(): Promise<void>;
 }
@@ -184,6 +203,7 @@ export const createConnections = (deps: ConnectionsDeps): Connections => {
               close: made.close,
               connection: {
                 ...made.connection,
+                asksWith: argumentsThatAsk(server),
                 call: async (tool, args) => {
                   try {
                     return await made.connection.call(tool, args);
@@ -225,6 +245,13 @@ export const createConnections = (deps: ConnectionsDeps): Connections => {
       return next;
     },
     unreachable: () => Object.keys(config).filter((name) => !connected.has(name)),
+    known: () =>
+      Object.entries(config).flatMap(([server, { readOnly }]) => {
+        const tools = connected.get(server)?.connection.tools;
+        return tools === undefined
+          ? readOnly.map((tool) => ({ server, tool, purpose: '' }))
+          : tools.map(({ name, description }) => ({ server, tool: name, purpose: description }));
+      }),
     close: async () => {
       closed = true;
       // After the connection being made, so its server is closed with the others; but not for

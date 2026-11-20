@@ -15,7 +15,8 @@ import type { Connection, ToolInfo } from './connection.ts';
 // given the tools and asks for calls; it never makes one (R-14 AC3). Every call it asks for
 // stops here, and the code decides:
 // - a tool the principal marked read-only runs by itself, while nothing another server answered
-//   is in the task: what was read from one server never leaves towards another unasked;
+//   is in the task: what was read from one server never leaves towards another unasked; unless
+//   the call carries an argument its server says asks (`asksWith`, T17);
 // - anything else waits for "Permitir", shown by code with its exact arguments.
 // The task carries the principal's words, what ANOMANDER remembers about them (DK-14 AC1) and
 // what the tools answered, nothing of the ledger.
@@ -243,8 +244,9 @@ export const createConnectionTasks = <M>(deps: ConnectionTasksDeps<M>): Connecti
   };
 
   /** Whether the call may run without asking (see the head of this file). */
-  const runsByItself = (run: Run, { connection, tool }: Target): boolean =>
+  const runsByItself = (run: Run, { connection, tool }: Target, call: ToolCall): boolean =>
     connection.readOnly.has(tool.name) &&
+    !(connection.asksWith?.[tool.name] ?? []).some((name) => Object.hasOwn(call.arguments, name)) &&
     [...run.answered].every((server) => server === connection.name);
 
   const advance = async (run: Run): Promise<TaskOutcome> => {
@@ -292,7 +294,7 @@ export const createConnectionTasks = <M>(deps: ConnectionTasksDeps<M>): Connecti
         continue;
       }
       const step = { run, call, target, rest };
-      if (runsByItself(run, target)) {
+      if (runsByItself(run, target, call)) {
         await perform(step);
         continue;
       }
