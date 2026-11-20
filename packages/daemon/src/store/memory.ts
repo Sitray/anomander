@@ -66,9 +66,10 @@ const principalId = (db: Database.Database): number => {
 const CURRENT_MEMORY = `a.subject_type = 'principal' AND a.predicate = 'memory'
   AND a.status = 'current'`;
 
-const SELECT_MEMORY = `SELECT a.id, t.text, a.mode
+const SELECT_MEMORY_WHERE = `SELECT a.id, t.text, a.mode
   FROM assertions a JOIN memory_texts t ON t.assertion_id = a.id
-  WHERE ${CURRENT_MEMORY}`;
+  WHERE`;
+const SELECT_MEMORY = `${SELECT_MEMORY_WHERE} ${CURRENT_MEMORY}`;
 
 const isCurrentMemory = (db: Database.Database, id: number): boolean =>
   db
@@ -139,40 +140,59 @@ const matchQuery = (message: string): string | null => {
 /**
  * R-23 AC4: the memories a conversation reply receives. All current memories when there are at
  * most 50; beyond that, the 50 the message matches best in `memory_search` (bm25), in the order
- * they were remembered. A message with no words matches none.
+ * they were remembered. A message with no words matches none. With `only`, just the memories of
+ * that mode, chosen the same way among them.
  */
-export const memoriesForPrompt = (db: Database.Database, message: string): Memory[] => {
+export const memoriesForPrompt = (
+  db: Database.Database,
+  message: string,
+  only?: MemoryMode,
+): Memory[] => {
+  const current = only === undefined ? CURRENT_MEMORY : `${CURRENT_MEMORY} AND a.mode = ?`;
+  const modes = only === undefined ? [] : [only];
   const { count } = db
-    .prepare<[], { count: number }>(
-      `SELECT count(*) AS count FROM assertions a WHERE ${CURRENT_MEMORY}`,
+    .prepare<string[], { count: number }>(
+      `SELECT count(*) AS count FROM assertions a WHERE ${current}`,
     )
-    .get() ?? { count: 0 };
-  if (count <= MEMORY_PROMPT_LIMIT) return listMemories(db);
+    .get(...modes) ?? { count: 0 };
+  if (count <= MEMORY_PROMPT_LIMIT) {
+    return db
+      .prepare<string[], Memory>(`${SELECT_MEMORY_WHERE} ${current} ORDER BY a.id`)
+      .all(...modes);
+  }
   const query = matchQuery(message);
   if (query === null) return [];
   return db
-    .prepare<[string, number], Memory>(
+    .prepare<(string | number)[], Memory>(
       `SELECT id, text, mode FROM (
-         ${SELECT_MEMORY} AND a.id IN (
+         ${SELECT_MEMORY_WHERE} ${current} AND a.id IN (
            SELECT s.rowid FROM memory_search s
            JOIN assertions a ON a.id = s.rowid
-           WHERE memory_search MATCH ? AND ${CURRENT_MEMORY}
+           WHERE memory_search MATCH ? AND ${current}
            ORDER BY s.rank LIMIT ?))
        ORDER BY id`,
     )
-    .all(query, MEMORY_PROMPT_LIMIT);
+    .all(...modes, query, ...modes, MEMORY_PROMPT_LIMIT);
 };
 
-/** A memory as the other ways read it (DK-14 AC1): what it says and how it was learnt. */
-export type MemoryNote = Pick<Memory, 'text' | 'mode'>;
+/**
+ * A memory as a look at the screen and a step on the computer read it (DK-14 AC1): what the
+ * principal said about themselves, never what the processor deduced.
+ */
+export interface MemoryNote {
+  text: string;
+  mode: 'declared';
+}
 
 /**
- * DK-14 AC1: the memories a look at the screen, a step on the computer and a task with
- * connections receive, `memoriesForPrompt` of the principal's words, without their ids: those
- * ways only read them, they never pick one to forget.
+ * DK-14 AC1: the memories a look at the screen and a step on the computer receive, chosen as
+ * `memoriesForPrompt` chooses among the `declared` ones only, without their ids: those ways only
+ * read them, they never pick one to forget. An `inferred` memory never reaches them: its quote
+ * need not be the principal's words, so it could carry an instruction into a way that acts
+ * (security audit M5).
  */
 export const memoryNotesFor = (db: Database.Database, words: string): MemoryNote[] =>
-  memoriesForPrompt(db, words).map(({ text, mode }) => ({ text, mode }));
+  memoriesForPrompt(db, words, 'declared').map(({ text }) => ({ text, mode: 'declared' }));
 
 /**
  * R-23 AC6, AC7: forgets the given current memories. In one transaction each one's text and
