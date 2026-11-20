@@ -7,6 +7,7 @@ use crate::connection_secrets::sweep;
 use crate::connections::{self, Change, ConnectionsView, ServerInput, ServerView, Target};
 use crate::daemon::launch::{
     child_env, daemon_entry, find_node, free_port, handover_line, search_path, DaemonInputs,
+    TelegramInputs,
 };
 use crate::daemon::supervisor::{Credentials, Handed, LaunchSpec, Prepared, Update};
 use crate::data_dir::DataDir;
@@ -446,16 +447,24 @@ impl Core {
     /// fresh port.
     pub fn prepare(&self) -> Prepared {
         let settings = lock(&self.setup).settings.clone();
-        let Some(chat_id) = settings.principal_chat_id.clone() else {
-            return Prepared::NotConfigured;
-        };
         let secrets = match load_secrets(&settings, self.store.as_ref()) {
             Ok(secrets) => secrets,
             Err(message) => return Prepared::Failed(message),
         };
-        let Some(bot_token) = secrets.telegram_bot_token else {
+        // T13: Telegram is a door the daemon may go without, with both halves or not at all; the
+        // local channel is always on. Without Telegram the chat needs at least a model; with it,
+        // its setup guide and `/login` work without one, as before.
+        let telegram = settings
+            .principal_chat_id
+            .as_deref()
+            .zip(secrets.telegram_bot_token.as_deref())
+            .map(|(principal_chat_id, bot_token)| TelegramInputs {
+                bot_token,
+                principal_chat_id,
+            });
+        if telegram.is_none() && settings.model.is_none() {
             return Prepared::NotConfigured;
-        };
+        }
         let login = match self.model_login() {
             Ok(login) => login,
             Err(message) => return Prepared::Failed(message),
@@ -497,8 +506,7 @@ impl Core {
         let model_login = serde_json::Value::Object(login.clone()).to_string();
         let mcp_oauth_json = serde_json::Value::Object(mcp_oauth.clone()).to_string();
         let inputs = DaemonInputs {
-            telegram_bot_token: &bot_token,
-            principal_chat_id: &chat_id,
+            telegram,
             model: settings.model.as_deref(),
             vision_model: settings.vision_model.as_deref(),
             provider_keys: &secrets.provider_keys,
@@ -511,7 +519,9 @@ impl Core {
         };
         let env = child_env(&parent, &inputs);
         let handover = handover_line(&inputs);
-        let mut redacted = vec![bot_token, self.token.clone()];
+        // A stored token is hidden even when it is not handed over.
+        let mut redacted = vec![self.token.clone()];
+        redacted.extend(secrets.telegram_bot_token.clone());
         redacted.extend(tokens_of(&login));
         redacted.extend(oauth_connect::secrets_of(&mcp_oauth));
         redacted.extend(secrets.provider_keys.into_iter().map(|(_, key)| key));
@@ -956,16 +966,62 @@ mod tests {
         assert!(!f.root.join("anomander.db").exists());
     }
 
+    /// T13: whether the launch carries Telegram, and only the local channel otherwise.
+    fn without_telegram(spec: &LaunchSpec) -> bool {
+        let handed = handed(spec);
+        !handed.contains_key("TELEGRAM_BOT_TOKEN")
+            && !spec
+                .env
+                .iter()
+                .any(|(name, _)| name == "ANOMANDER_PRINCIPAL_CHAT_ID")
+            && handed.get("ANOMANDER_LOCAL_TOKEN") == Some(&"t".repeat(64))
+    }
+
     #[test]
-    fn without_a_chat_id_or_a_bot_token_it_is_not_configured() {
+    fn without_telegram_the_daemon_starts_with_the_local_channel_alone() {
+        let (_, mut settings) = configured();
+        settings.principal_chat_id = None;
+        let store = MemoryStore::default();
+        let _ = store.set("OPENAI_API_KEY", "sk-secret");
+        let f = fixture(store, settings);
+        let spec = ready(&f.core);
+        assert!(without_telegram(&spec));
+        assert_eq!(
+            handed(&spec).get("OPENAI_API_KEY").map(String::as_str),
+            Some("sk-secret")
+        );
+        assert!(!f.core.setup_state().has_telegram_bot_token);
+    }
+
+    #[test]
+    fn half_of_telegram_is_left_out_of_the_launch() {
+        // A token kept from before, without a chat ID.
         let (store, mut settings) = configured();
         settings.principal_chat_id = None;
         let f = fixture(store, settings);
+        let spec = ready(&f.core);
+        assert!(without_telegram(&spec));
+        // Still hidden from the output, in case it shows up there.
+        assert!(spec.secrets.iter().any(|secret| secret == "bot:secret"));
+
+        // A chat ID without a token.
+        let f = fixture(MemoryStore::default(), configured().1);
+        assert!(without_telegram(&ready(&f.core)));
+    }
+
+    #[test]
+    fn without_telegram_and_without_a_model_it_is_not_configured() {
+        let (_, mut settings) = configured();
+        settings.principal_chat_id = None;
+        settings.model = None;
+        let f = fixture(MemoryStore::default(), settings);
         assert!(matches!(f.core.prepare(), Prepared::NotConfigured));
 
-        let f = fixture(MemoryStore::default(), configured().1);
-        assert!(matches!(f.core.prepare(), Prepared::NotConfigured));
-        assert!(!f.core.setup_state().has_telegram_bot_token);
+        // With Telegram it starts, as before: its setup guide and `/login` need no model.
+        let (store, mut settings) = configured();
+        settings.model = None;
+        let f = fixture(store, settings);
+        assert!(!without_telegram(&ready(&f.core)));
     }
 
     #[test]

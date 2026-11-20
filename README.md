@@ -24,7 +24,7 @@ The Mac app:
 
 | Part | What it does | Spec |
 | --- | --- | --- |
-| Chat and setup | Talk to ANOMANDER in a window; the setup screen keeps the bot token and the model keys in the macOS Keychain | DK-1 to DK-5 |
+| Chat and setup | Talk to ANOMANDER in a window; the setup screen keeps the model keys and, if you use Telegram, the bot token in the macOS Keychain | DK-1 to DK-5 |
 | Menu bar and notch | The menu bar icon shows a wave while ANOMANDER works. When the work ends, a drop grows out of the notch saying "Ha terminado" and retracts | DK-6 |
 | No mode buttons | You just write. From your words the daemon decides whether to look at the screen, act on the computer or use your connections, and says which | DK-13 |
 | A look at the screen | Captures the screen and answers about it. The capture is never stored | DK-9 |
@@ -188,7 +188,7 @@ Steps:
    APPLE_SIGNING_IDENTITY="<identity name or hash>" pnpm --dir apps/desktop tauri build --debug
    ```
    The app is `apps/desktop/src-tauri/target/debug/bundle/macos/ANOMANDER.app`.
-4. **Set it up.** Open the app and fill in the setup screen: the bot token, your Telegram ID, the models and a key, or connect a subscription from Suscripciones.
+4. **Set it up.** Open the app and fill in the setup screen: the models and a key, or connect a subscription from Suscripciones. Telegram is optional: add the bot token and your Telegram ID to talk to ANOMANDER there too, or leave both empty to use the app's chat alone.
 5. **Allow it.** In System Settings › Privacy & Security, turn ANOMANDER on under Screen Recording (for a look at the screen) and Accessibility (for tasks on the computer). Until then the app says how and does nothing.
 
 Good to know:

@@ -203,6 +203,11 @@ is framework-free, so it is tested against a fake `WebSocket` (`test/fake-web-so
   an uncontrolled field to the shell and to the script's stdin as one line, then the field is
   emptied. One login runs at a time (`login::Session`); the screen can be closed while the
   browser waits. The window never sees a token: only which accounts are connected.
+- **Telegram is optional** (DK-5 AC4). `Core::prepare` (`src-tauri/src/shell.rs`) hands the
+  daemon the bot token and `ANOMANDER_PRINCIPAL_CHAT_ID` only when both are stored; otherwise the
+  local channel is its only front door. Without Telegram and without a model it is
+  `not_configured`. `apply_setup` (`src-tauri/src/setup.rs`) and the setup screen refuse half of
+  Telegram; a token stored before counts as typed, and an empty chat ID leaves it unused.
 - **Secrets** typed in the setup screen, or as a value in the connections screen, stay in
   uncontrolled fields and a ref, never in React state or a DOM attribute, and are dropped once
   saved. Stored secrets are never sent to the window: it only knows whether each one is stored.
@@ -212,7 +217,7 @@ is framework-free, so it is tested against a fake `WebSocket` (`test/fake-web-so
 - **The secrets reach the daemon on its stdin** (DK-5 AC2), never in its environment, which
   `ps eww` shows to every process of the principal. `child_env` (`src-tauri/src/daemon/launch.rs`)
   gives the daemon the plain setup and `ANOMANDER_SECRETS_ON_STDIN=1`; `handover_line` puts the
-  bot token, the provider keys, `ANOMANDER_AUTH_JSON`, `ANOMANDER_MCP_SECRETS`,
+  bot token (only with Telegram), the provider keys, `ANOMANDER_AUTH_JSON`, `ANOMANDER_MCP_SECRETS`,
   `ANOMANDER_MCP_OAUTH` and `ANOMANDER_LOCAL_TOKEN` in one JSON line, which the supervisor writes
   once to the daemon's stdin right after it starts, from its own thread. The pipe then stays open
   only so the daemon stops when it closes (DK-1 AC1).

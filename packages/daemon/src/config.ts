@@ -23,9 +23,19 @@ export const parseModelId = (value: string): ModelId => {
   return { provider, id };
 };
 
-export interface Config {
-  telegramBotToken: string;
+/** Telegram's front door: both variables, or neither. */
+export interface TelegramConfig {
+  botToken: string;
+  /** `ANOMANDER_PRINCIPAL_CHAT_ID`. */
   principalChatId: number;
+}
+
+export interface Config {
+  /**
+   * `TELEGRAM_BOT_TOKEN` and `ANOMANDER_PRINCIPAL_CHAT_ID`. While unset, nothing polls or sends to
+   * Telegram, and the local channel (`localToken`) is the only front door.
+   */
+  telegram: TelegramConfig | undefined;
   dbPath: string;
   /** Unset until `.env` names it; the daemon then starts the setup guide instead (R-28). */
   model: ModelId | undefined;
@@ -95,12 +105,13 @@ const isTimeZone = (value: string): boolean => {
 const NOT_A_PORT = 'must be a port from 1 to 65535';
 
 const envSchema = z.object({
-  TELEGRAM_BOT_TOKEN: z.string(),
+  TELEGRAM_BOT_TOKEN: z.string().optional(),
   ANOMANDER_PRINCIPAL_CHAT_ID: z
     .string()
     .regex(/^-?\d+$/, 'must be an integer')
     .transform(Number)
-    .pipe(z.int()),
+    .pipe(z.int())
+    .optional(),
   ANOMANDER_DB_PATH: z.string().default('./data/anomander.db'),
   ANOMANDER_MODEL: modelId.optional(),
   ANOMANDER_VISION_MODEL: modelId.optional(),
@@ -156,6 +167,11 @@ const HINTS: Partial<Record<EnvKey, string>> = {
 };
 const hinted = (key: EnvKey) => (HINTS[key] === undefined ? key : `${key} (${HINTS[key]})`);
 
+/** Telegram is one front door: both of these, or neither. */
+const TELEGRAM_KEYS = ['TELEGRAM_BOT_TOKEN', 'ANOMANDER_PRINCIPAL_CHAT_ID'] as const;
+/** Without either front door nobody could talk to the daemon, so it does not start. */
+const NO_DOOR = `no front door. Set ${TELEGRAM_KEYS.map(hinted).join(' and ')} for Telegram, or ANOMANDER_LOCAL_TOKEN for the desktop app's chat`;
+
 /**
  * `ANOMANDER_AUTH_PATH` alone, for `pnpm run login` and `pnpm run logout`, which need no bot or
  * model (R-27 AC7). An empty value counts as unset, as in `loadConfig`.
@@ -170,23 +186,28 @@ export const loadConfig = (env: Record<string, string | undefined>): Config => {
     keys.flatMap((key) => (env[key] ? [[key, env[key]]] : [])),
   ) as Partial<Record<EnvKey, string>>;
   const parsed = envSchema.safeParse(input);
-  if (!parsed.success) {
-    const missing = keys.filter(
-      (key) => input[key] === undefined && !envSchema.shape[key].safeParse(undefined).success,
+  // Half of Telegram is a mistake, not a choice: the half that is set names the missing one.
+  const telegramSet = TELEGRAM_KEYS.filter((key) => input[key] !== undefined);
+  const missing = telegramSet.length === 1 ? TELEGRAM_KEYS.filter((key) => !input[key]) : [];
+  const noDoor = telegramSet.length === 0 && input.ANOMANDER_LOCAL_TOKEN === undefined;
+  if (!parsed.success || missing.length > 0 || noDoor) {
+    const invalid = (parsed.error?.issues ?? []).map(
+      (issue) => `${String(issue.path[0])} ${issue.message}`,
     );
-    const invalid = parsed.error.issues
-      .filter((issue) => !missing.includes(issue.path[0] as EnvKey))
-      .map((issue) => `${String(issue.path[0])} ${issue.message}`);
     const problems = [
       ...(missing.length > 0 ? [`missing configuration: ${missing.map(hinted).join(', ')}`] : []),
+      ...(noDoor ? [`missing configuration: ${NO_DOOR}`] : []),
       ...(invalid.length > 0 ? [`invalid configuration: ${invalid.join('; ')}`] : []),
     ];
     throw new Error(problems.join('. '));
   }
   const values = parsed.data;
+  const { TELEGRAM_BOT_TOKEN: botToken, ANOMANDER_PRINCIPAL_CHAT_ID: principalChatId } = values;
   return {
-    telegramBotToken: values.TELEGRAM_BOT_TOKEN,
-    principalChatId: values.ANOMANDER_PRINCIPAL_CHAT_ID,
+    telegram:
+      botToken === undefined || principalChatId === undefined
+        ? undefined
+        : { botToken, principalChatId },
     dbPath: values.ANOMANDER_DB_PATH,
     model: values.ANOMANDER_MODEL,
     visionModel: values.ANOMANDER_VISION_MODEL,

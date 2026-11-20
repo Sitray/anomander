@@ -83,6 +83,20 @@ export interface Reply {
   onDelivered?: (delivery: Delivery) => void;
 }
 
+/** A button that opens `url` instead of coming back as a press, such as `Abrir` (R-27 AC2). */
+export interface LinkButton {
+  label: string;
+  url: string;
+}
+
+export type DoorButton = ReplyButton | LinkButton;
+
+/**
+ * A `Reply` whose buttons may also be links: what a front door sends, Telegram or the desktop
+ * app's local channel (DK-4 AC1).
+ */
+export type DoorReply = Omit<Reply, 'buttons'> & { buttons?: readonly DoorButton[] };
+
 export type TextHandler = (message: PrincipalText) => Promise<Reply>;
 
 /** One image of a receipt. The bytes are fetched only when the daemon asks for them. */

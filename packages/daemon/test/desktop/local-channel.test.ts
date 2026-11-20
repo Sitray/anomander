@@ -459,6 +459,53 @@ describe('the chat over the local channel', () => {
   });
 });
 
+// T13: the desktop app without a Telegram bot. The local channel is the only front door.
+describe('without Telegram', () => {
+  const alone = () => ({
+    ...loadConfig({
+      ANOMANDER_LOCAL_TOKEN: TOKEN,
+      ANOMANDER_DB_PATH: join(scratch, 'anomander.db'),
+      ANOMANDER_MODEL: 'openai/gpt-4o-mini',
+      ANOMANDER_VISION_MODEL: 'openai/gpt-4o-mini',
+    }),
+    localPort: 0,
+  });
+
+  it('answers the chat as with a bot, and its polling ends only when it stops', async () => {
+    const daemon = startAnomander(alone(), { complete, model: 'openai/gpt-4o-mini', logger });
+    anomander = daemon;
+    await daemon.started;
+    let polled = false;
+    daemon.polling.then(() => {
+      polled = true;
+    });
+    const chat = await client(daemon);
+
+    expect(reply(await chat.ask({ type: 'text', text: '23 € cena' })).text).toBe(PHRASED);
+    await vi.waitFor(() =>
+      expect(query("SELECT status FROM actions WHERE status = 'verified'")).toHaveLength(1),
+    );
+    expect(reply(await chat.ask({ type: 'text', text: '/start' })).text).toBe('¡Hola!');
+    expect(polled).toBe(false);
+    expect(logger.error).not.toHaveBeenCalled();
+
+    await daemon.stop();
+    anomander = undefined;
+    await daemon.polling;
+  });
+
+  it('answers with the setup guide while no model is usable, without sending it anywhere (R-28)', async () => {
+    const guide = startSetupGuide(alone(), { gaps: [{ kind: 'model_unset' }], logger });
+    anomander = guide;
+    await guide.started;
+    const chat = await client(guide);
+
+    expect(reply(await chat.ask({ type: 'text', text: 'hola' })).text).toContain('ANOMANDER_MODEL');
+    expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining('setup incomplete'));
+    expect(logger.error).not.toHaveBeenCalled();
+  });
+});
+
 describe('a question about the screen', () => {
   const question = '¿De quién es este correo?';
 

@@ -10,7 +10,8 @@ export type DaemonState = 'starting' | 'running' | 'stopped' | 'failing';
 
 /**
  * Why the daemon is not running, when the shell knows:
- * - `not_configured`: the setup screen still lacks the bot token or the principal's chat ID;
+ * - `not_configured`: the setup screen still lacks a model, and Telegram (the bot token and the
+ *   principal's chat ID) is not set up either: Telegram is optional (DK-5 AC4);
  * - `already_running`: another daemon runs on the same database (DK-2 AC1, exit code 3);
  * - `bot_in_use`: another ANOMANDER uses the Telegram bot (DK-2 AC2, exit code 4);
  * - `gave_up`: it exited 3 times within 5 minutes (DK-1 AC2);

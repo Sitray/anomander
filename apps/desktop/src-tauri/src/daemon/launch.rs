@@ -57,10 +57,17 @@ pub struct DaemonPaths {
     pub connections: PathBuf,
 }
 
+/// Telegram's front door: the bot token and the principal's chat ID, both or neither. Holds a
+/// secret: no `Debug`.
+pub struct TelegramInputs<'a> {
+    pub bot_token: &'a str,
+    pub principal_chat_id: &'a str,
+}
+
 /// What one start of the daemon needs. Holds secrets: no `Debug`.
 pub struct DaemonInputs<'a> {
-    pub telegram_bot_token: &'a str,
-    pub principal_chat_id: &'a str,
+    /// `None` starts the daemon without Telegram: the local channel is its only front door.
+    pub telegram: Option<TelegramInputs<'a>>,
     pub model: Option<&'a str>,
     pub vision_model: Option<&'a str>,
     /// By provider variable, such as `OPENAI_API_KEY`.
@@ -93,7 +100,9 @@ pub fn child_env(
         env.push(("TZ".into(), zone));
     }
     let mut set = |name: &str, value: &str| env.push((name.to_owned(), value.to_owned()));
-    set("ANOMANDER_PRINCIPAL_CHAT_ID", inputs.principal_chat_id);
+    if let Some(telegram) = &inputs.telegram {
+        set("ANOMANDER_PRINCIPAL_CHAT_ID", telegram.principal_chat_id);
+    }
     // Unset, the daemon starts its setup guide (R-28).
     if let Some(model) = inputs.model {
         set("ANOMANDER_MODEL", model);
@@ -125,7 +134,9 @@ pub fn handover_line(inputs: &DaemonInputs) -> String {
     let mut set = |name: &str, value: &str| {
         handed.insert(name.to_owned(), value.into());
     };
-    set("TELEGRAM_BOT_TOKEN", inputs.telegram_bot_token);
+    if let Some(telegram) = &inputs.telegram {
+        set("TELEGRAM_BOT_TOKEN", telegram.bot_token);
+    }
     for (name, key) in inputs.provider_keys {
         set(name, key);
     }
@@ -233,8 +244,10 @@ mod tests {
 
     fn full_inputs<'a>(keys: &'a [(String, String)], paths: &'a DaemonPaths) -> DaemonInputs<'a> {
         DaemonInputs {
-            telegram_bot_token: "bot:1",
-            principal_chat_id: "42",
+            telegram: Some(TelegramInputs {
+                bot_token: "bot:1",
+                principal_chat_id: "42",
+            }),
             model: Some("openai/gpt-4o-mini"),
             vision_model: Some("openai/gpt-4o"),
             provider_keys: keys,
@@ -321,11 +334,37 @@ mod tests {
     }
 
     #[test]
+    fn without_telegram_neither_its_chat_id_nor_its_token_is_handed() {
+        let keys = vec![("OPENAI_API_KEY".to_owned(), "sk-1".to_owned())];
+        let paths = paths();
+        let inputs = DaemonInputs {
+            telegram: None,
+            ..full_inputs(&keys, &paths)
+        };
+        let env: BTreeMap<_, _> = child_env(&parent, &inputs).into_iter().collect();
+        let handed: BTreeMap<String, String> =
+            serde_json::from_str(&handover_line(&inputs)).unwrap_or_default();
+        assert!(!env.contains_key("ANOMANDER_PRINCIPAL_CHAT_ID"));
+        assert!(!handed.contains_key("TELEGRAM_BOT_TOKEN"));
+        // The local channel is the daemon's front door.
+        assert_eq!(
+            handed.get("ANOMANDER_LOCAL_TOKEN").map(String::as_str),
+            Some("t".repeat(64).as_str())
+        );
+        assert_eq!(
+            env.get("ANOMANDER_LOCAL_PORT").map(String::as_str),
+            Some("50123")
+        );
+    }
+
+    #[test]
     fn an_unset_model_and_absent_parent_variables_are_left_out() {
         let paths = paths();
         let inputs = DaemonInputs {
-            telegram_bot_token: "bot:1",
-            principal_chat_id: "42",
+            telegram: Some(TelegramInputs {
+                bot_token: "bot:1",
+                principal_chat_id: "42",
+            }),
             model: None,
             vision_model: None,
             provider_keys: &[],
@@ -363,8 +402,10 @@ mod tests {
             ),
         ];
         let inputs = DaemonInputs {
-            telegram_bot_token: "bot:1",
-            principal_chat_id: "42",
+            telegram: Some(TelegramInputs {
+                bot_token: "bot:1",
+                principal_chat_id: "42",
+            }),
             model: None,
             vision_model: None,
             provider_keys: &[],
@@ -393,8 +434,10 @@ mod tests {
                 _ => None,
             };
             let inputs = DaemonInputs {
-                telegram_bot_token: "bot:1",
-                principal_chat_id: "42",
+                telegram: Some(TelegramInputs {
+                    bot_token: "bot:1",
+                    principal_chat_id: "42",
+                }),
                 model: None,
                 vision_model: None,
                 provider_keys: &[],

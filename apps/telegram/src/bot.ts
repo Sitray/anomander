@@ -4,12 +4,13 @@
 
 import {
   type ButtonPress,
+  type DoorButton,
+  type DoorReply,
   type PrincipalReceipt,
   type PrincipalText,
   type ReceiptHandler,
   type ReceiptImage,
   type Reply,
-  type ReplyButton,
   strings,
 } from '@anomander/protocol';
 import { type Api, Bot, type Context, GrammyError, type Transformer } from 'grammy';
@@ -21,16 +22,11 @@ export interface TelegramLogger {
   error(message: string, fields?: Record<string, unknown>): void;
 }
 
-/** A button that opens `url` instead of coming back as a press, such as `Abrir` (R-27 AC2). */
-export interface LinkButton {
-  label: string;
-  url: string;
-}
+export type { LinkButton } from '@anomander/protocol';
 
-export type TelegramButton = ReplyButton | LinkButton;
-
-/** A `Reply` whose buttons may also be links. */
-export type TelegramReply = Omit<Reply, 'buttons'> & { buttons?: readonly TelegramButton[] };
+/** `DoorButton` and `DoorReply` of `@anomander/protocol`, which every front door shares. */
+export type TelegramButton = DoorButton;
+export type TelegramReply = DoorReply;
 
 /**
  * The daemon's answer to a text or a press. `null` sends nothing, such as a pasted login code

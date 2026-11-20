@@ -37,8 +37,9 @@ and keep its secrets in the operating system instead of a text file.
 
 ## 4. Principles it must keep
 
-- **One daemon.** The app starts the same daemon Docker runs, with its Telegram front door. It
-  never runs a second copy of the engine.
+- **One daemon.** The app starts the same daemon Docker runs, with its Telegram front door when
+  Telegram is set up; Telegram is optional in the app (DK-5 AC4). It never runs a second copy of
+  the engine.
 - **The app is a front door, not a second brain.** Rules, wording and writes stay in the
   daemon; the app sends what the principal types and shows what the daemon answers.
 - **Rust where the operating system is touched** (`docs/stack.md`): starting the daemon, the
@@ -76,14 +77,17 @@ and keep its secrets in the operating system instead of a text file.
   - AC4: the conversation is one: turns from Telegram and from the app are the same recent
     context (R-16 AC3).
   - AC5: what ANOMANDER sends unasked (reminders, the morning digest, the weekly summary) goes
-    to Telegram only, as today, whether or not the app's chat is open (decision 4).
+    to Telegram only, as today, whether or not the app's chat is open (decision 4). Without
+    Telegram (DK-5 AC4) it is not sent: a reminder waits and goes out late once Telegram is set
+    up, the digest and the summary are skipped, and the other unasked messages are logged as not
+    sent.
   - AC6: an input R-20 does not support gets the same reply as in Telegram: S-18 for a PDF,
     S-20 for an image over 20 MB.
   - AC7: `/login` and `/logout` stay in Telegram (R-27): their messages go out through the bot.
     The app has its own place for the same logins, the Suscripciones screen (DK-15); the chat
     does not offer them.
 - DK-5 Secrets in the Keychain.
-  - AC1: the Telegram bot token, the provider API keys and the subscription login are stored
+  - AC1: the Telegram bot token (optional, AC4), the provider API keys and the subscription login are stored
     in the macOS Keychain, entered once in the app's setup screen. The login is made from
     Telegram (`/login`, DK-4 AC7) or from the app's Suscripciones screen (DK-15) and kept by
     the daemon in memory: the app hands it over at
@@ -100,6 +104,12 @@ and keep its secrets in the operating system instead of a text file.
   - AC3: `.env` keeps working for Docker installs; the app does not read it, except once, when
     the principal asks: launched with `ANOMANDER_IMPORT_ENV=<path>`, it stores that file's bot
     token and provider keys in the Keychain and its chat ID and models in its settings.
+  - AC4: Telegram is optional (asked for launch, engineering audit Medium 9). The setup screen
+    shows it as "Telegram (opcional)"; saving with both of its fields empty starts ANOMANDER with
+    the app's chat as its only front door (no bot token or chat ID reaches the daemon), and half
+    of it, a token without a chat ID or the reverse, is refused with a plain message. A token kept
+    from before counts as typed. Without Telegram the app starts the daemon once a model is set;
+    with nothing set it stays "Falta configurarlo" and the setup opens by itself.
 - DK-6 Menu bar.
   - AC1: an icon shows whether ANOMANDER is running, stopped or failing.
   - AC2: its menu opens the chat, starts or stops ANOMANDER, and quits.
