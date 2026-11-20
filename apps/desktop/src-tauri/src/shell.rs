@@ -6,7 +6,7 @@ use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use crate::connection_secrets::sweep;
 use crate::connections::{self, Change, ConnectionsView, ServerInput, ServerView, Target};
 use crate::daemon::launch::{
-    child_env, daemon_entry, find_node, free_port, search_path, DaemonInputs,
+    child_env, daemon_entry, find_node, free_port, handover_line, search_path, DaemonInputs,
 };
 use crate::daemon::supervisor::{Credentials, Handed, LaunchSpec, Prepared, Update};
 use crate::data_dir::DataDir;
@@ -442,7 +442,8 @@ impl Core {
     }
 
     /// One start of the daemon (DK-1 AC1): `node <repo>/packages/daemon/src/main.ts`, with the
-    /// setup and its secrets in the environment (DK-5 AC2) and a fresh port.
+    /// setup in the environment, its secrets on the handover line to its stdin (DK-5 AC2) and a
+    /// fresh port.
     pub fn prepare(&self) -> Prepared {
         let settings = lock(&self.setup).settings.clone();
         let Some(chat_id) = settings.principal_chat_id.clone() else {
@@ -493,22 +494,23 @@ impl Core {
                 (self.environment)(name)
             }
         };
-        let env = child_env(
-            &parent,
-            &DaemonInputs {
-                telegram_bot_token: &bot_token,
-                principal_chat_id: &chat_id,
-                model: settings.model.as_deref(),
-                vision_model: settings.vision_model.as_deref(),
-                provider_keys: &secrets.provider_keys,
-                connection_secrets: &connection_secrets,
-                model_login: &serde_json::Value::Object(login.clone()).to_string(),
-                mcp_oauth: &serde_json::Value::Object(mcp_oauth.clone()).to_string(),
-                paths: &paths,
-                local_token: &self.token,
-                local_port: port,
-            },
-        );
+        let model_login = serde_json::Value::Object(login.clone()).to_string();
+        let mcp_oauth_json = serde_json::Value::Object(mcp_oauth.clone()).to_string();
+        let inputs = DaemonInputs {
+            telegram_bot_token: &bot_token,
+            principal_chat_id: &chat_id,
+            model: settings.model.as_deref(),
+            vision_model: settings.vision_model.as_deref(),
+            provider_keys: &secrets.provider_keys,
+            connection_secrets: &connection_secrets,
+            model_login: &model_login,
+            mcp_oauth: &mcp_oauth_json,
+            paths: &paths,
+            local_token: &self.token,
+            local_port: port,
+        };
+        let env = child_env(&parent, &inputs);
+        let handover = handover_line(&inputs);
         let mut redacted = vec![bot_token, self.token.clone()];
         redacted.extend(tokens_of(&login));
         redacted.extend(oauth_connect::secrets_of(&mcp_oauth));
@@ -527,6 +529,7 @@ impl Core {
             port,
             token: self.token.clone(),
             secrets: redacted,
+            handover: Some(handover),
             on_credentials: Some(self.login_handler()),
         })
     }
@@ -578,11 +581,16 @@ mod tests {
         (store, settings)
     }
 
+    /// DK-5 AC2: what a launch hands over on the daemon's stdin, by variable.
+    fn handed(spec: &LaunchSpec) -> BTreeMap<String, String> {
+        spec.handover
+            .as_deref()
+            .and_then(|line| serde_json::from_str(line).ok())
+            .unwrap_or_default()
+    }
+
     fn login_env(spec: &LaunchSpec) -> Option<String> {
-        spec.env
-            .iter()
-            .find(|(name, _)| name == "ANOMANDER_AUTH_JSON")
-            .map(|(_, json)| json.clone())
+        handed(spec).remove("ANOMANDER_AUTH_JSON")
     }
 
     fn ready(core: &Core) -> LaunchSpec {
@@ -667,10 +675,9 @@ mod tests {
     }
 
     fn oauth_env(spec: &LaunchSpec) -> Option<serde_json::Value> {
-        spec.env
-            .iter()
-            .find(|(name, _)| name == "ANOMANDER_MCP_OAUTH")
-            .and_then(|(_, json)| serde_json::from_str(json).ok())
+        handed(spec)
+            .get("ANOMANDER_MCP_OAUTH")
+            .and_then(|json| serde_json::from_str(json).ok())
     }
 
     /// `mcp.json` with `notes` at its address and a process server.
@@ -962,7 +969,8 @@ mod tests {
     }
 
     #[test]
-    fn a_launch_runs_this_repositorys_daemon_with_the_setup_in_its_environment() {
+    fn a_launch_runs_this_repositorys_daemon_with_the_setup_in_its_environment_and_its_secrets_on_stdin(
+    ) {
         let (store, settings) = configured();
         let f = fixture(store, settings);
         let Prepared::Ready(spec) = f.core.prepare() else {
@@ -974,12 +982,24 @@ mod tests {
         assert_eq!(spec.cwd, f.root);
         let env: BTreeMap<_, _> = spec.env.iter().cloned().collect();
         let get = |name: &str| env.get(name).map(String::as_str);
-        assert_eq!(get("TELEGRAM_BOT_TOKEN"), Some("bot:secret"));
-        assert_eq!(get("OPENAI_API_KEY"), Some("sk-secret"));
+        let handed = handed(&spec);
+        let on_stdin = |name: &str| handed.get(name).map(String::as_str);
+        assert_eq!(on_stdin("TELEGRAM_BOT_TOKEN"), Some("bot:secret"));
+        assert_eq!(on_stdin("OPENAI_API_KEY"), Some("sk-secret"));
+        assert_eq!(on_stdin("ANOMANDER_AUTH_JSON"), Some("{}"));
+        assert_eq!(on_stdin("ANOMANDER_MCP_OAUTH"), Some("{}"));
+        assert_eq!(
+            on_stdin("ANOMANDER_LOCAL_TOKEN"),
+            Some("t".repeat(64).as_str())
+        );
+        // None of them in the environment, which `ps eww` shows.
+        for name in handed.keys() {
+            assert_eq!(get(name), None, "{name} is in the environment");
+        }
+        assert_eq!(get("ANOMANDER_SECRETS_ON_STDIN"), Some("1"));
         assert_eq!(get("ANOMANDER_PRINCIPAL_CHAT_ID"), Some("42"));
         assert_eq!(get("ANOMANDER_MODEL"), Some("openai/gpt-4o-mini"));
         assert_eq!(get("ANOMANDER_VISION_MODEL"), None);
-        assert_eq!(get("ANOMANDER_LOCAL_TOKEN"), Some("t".repeat(64).as_str()));
         assert_eq!(
             get("ANOMANDER_LOCAL_PORT"),
             Some(spec.port.to_string().as_str())
@@ -1019,14 +1039,11 @@ mod tests {
             return Err("a configured setup was not ready".into());
         };
 
-        let sent = spec
-            .env
-            .iter()
-            .find(|(name, _)| name == "ANOMANDER_MCP_SECRETS")
-            .map(|(_, json)| json.as_str())
+        let sent = handed(&spec)
+            .remove("ANOMANDER_MCP_SECRETS")
             .ok_or("the secrets were not handed over")?;
         let sent: BTreeMap<String, String> =
-            serde_json::from_str(sent).map_err(|e| e.to_string())?;
+            serde_json::from_str(&sent).map_err(|e| e.to_string())?;
         assert_eq!(
             sent.get("mcp/notes/env/TOKEN").map(String::as_str),
             Some("tok-secret-1")
@@ -1058,9 +1075,9 @@ mod tests {
         let Prepared::Ready(again) = f.core.prepare() else {
             return Err("the second start was not ready".into());
         };
-        assert!(again.env.iter().any(|(name, json)| {
-            name == "ANOMANDER_MCP_SECRETS" && json.contains("tok-secret-1")
-        }));
+        assert!(handed(&again)
+            .get("ANOMANDER_MCP_SECRETS")
+            .is_some_and(|json| json.contains("tok-secret-1")));
         Ok(())
     }
 
@@ -1076,12 +1093,7 @@ mod tests {
         .map_err(|e| e.to_string())?;
         let settings_file =
             || std::fs::read_to_string(f.root.join("settings.json")).map_err(|e| e.to_string());
-        let handed_over = |spec: &LaunchSpec| {
-            spec.env
-                .iter()
-                .find(|(name, _)| name == "ANOMANDER_MCP_SECRETS")
-                .map(|(_, json)| json.clone())
-        };
+        let handed_over = |spec: &LaunchSpec| handed(spec).remove("ANOMANDER_MCP_SECRETS");
 
         f.core.save_connection(&input)?;
 
@@ -1187,6 +1199,7 @@ mod tests {
         let Prepared::Ready(spec) = f.core.prepare() else {
             panic!("a configured setup was not ready");
         };
+        assert!(!handed(&spec).contains_key("ANOMANDER_MCP_SECRETS"));
         assert!(!spec
             .env
             .iter()
@@ -1217,9 +1230,11 @@ mod tests {
         let Prepared::Ready(spec) = f.core.prepare() else {
             return Err("the saved setup was not ready".into());
         };
-        assert!(spec
-            .env
-            .contains(&("GEMINI_API_KEY".into(), "g-key".into())));
+        assert_eq!(
+            handed(&spec).get("GEMINI_API_KEY").map(String::as_str),
+            Some("g-key")
+        );
+        assert!(!spec.env.iter().any(|(name, _)| name == "GEMINI_API_KEY"));
         // The model is unset: the daemon starts its setup guide (R-28).
         assert!(!spec.env.iter().any(|(name, _)| name == "ANOMANDER_MODEL"));
         Ok(())

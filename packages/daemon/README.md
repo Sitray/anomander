@@ -492,7 +492,8 @@ error ends with 1 and prints only its code.
 ## The local channel (DK-3, DK-4)
 
 The desktop app talks to the daemon over a WebSocket (`src/local-channel/`). It starts only
-while `ANOMANDER_LOCAL_TOKEN` is set; unset, no port is opened. It always binds to `127.0.0.1`
+while `ANOMANDER_LOCAL_TOKEN` is set (the app hands it over on stdin, see "Configuration");
+unset, no port is opened. It always binds to `127.0.0.1`
 (DK-3 AC1), on `ANOMANDER_LOCAL_PORT`. `Anomander.localChannel` resolves with the address once
 it listens.
 
@@ -550,7 +551,7 @@ flow with PKCE. It listens on a free port of `127.0.0.1` for the redirect, takes
 `anomander oauth-done <json>` with the client and tokens, then `connected`, `denied` or
 `timed_out`; an error prints only its code.
 
-The daemon gets the set in `ANOMANDER_MCP_OAUTH` (`src/connections/oauth.ts`) and connects such a
+The daemon gets the set in `ANOMANDER_MCP_OAUTH`, on its stdin from the app (`src/connections/oauth.ts`) and connects such a
 server through the SDK's `authProvider`. A token refresh prints the whole set on one line,
 `anomander mcp-oauth <json>`, for the app to store; a refused refresh drops the server's tokens,
 and the server is left out. Tokens go to a server only at the URL the app kept with them. The daemon never opens a browser or registers a client. A server's
@@ -681,8 +682,8 @@ expired tokens itself. Sign in with ChatGPT also needs a stable installation ID,
 `<ANOMANDER_AUTH_PATH>.device-id`. Logs carry the provider ID and the outcome only, never a
 token, link or pasted text.
 
-Under the desktop app (DK-5 AC1) there is no such file: the app hands the login over in
-`ANOMANDER_AUTH_JSON` (the same shape), and `src/auth/shell-credential-store.ts` keeps it in
+Under the desktop app (DK-5 AC1) there is no such file: the app hands the login over as
+`ANOMANDER_AUTH_JSON` (the same shape) on the daemon's stdin (DK-5 AC2), and `src/auth/shell-credential-store.ts` keeps it in
 memory. After every change it prints the whole set on one line,
 `anomander credentials <json>`, before the change answers; the app stores it in the Keychain and
 never forwards that line. `credentialStoreFor` picks the store: the app's when the variable is
@@ -717,7 +718,8 @@ that opens the store, builds the text and receipt cycles and starts the Telegram
 polling. `startAnomander` takes the resolved `ANOMANDER_VISION_MODEL` as `visionModel`; without
 it, receipts are read with `model`. Model credentials come from a stored login (see "Model login"
 above) or from the provider's usual environment variable (for example `OPENAI_API_KEY`), as pi-ai
-resolves them.
+resolves them; under the desktop app that variable is the one handed over on stdin, which
+`handedAuthContext` (`src/supervised.ts`) gives pi-ai before the environment.
 
 **Migrations and backups.** At start `applyMigrations` (`src/store/database.ts`) applies the
 `migrations/*.sql` files not yet recorded in `schema_migrations`, each in its own transaction. A
@@ -733,6 +735,14 @@ place of the database file, removing its `-wal` and `-shm`.
 
 `loadConfig(process.env)` (`src/config.ts`) reads PRD §14.4. An empty value counts as unset.
 The error names every missing required variable.
+
+Docker and the CLI set every variable in the environment. The desktop app keeps the secrets out
+of it, where `ps eww` would show them (DK-5 AC2): it sets `ANOMANDER_SECRETS_ON_STDIN=1` and
+writes one line to the daemon's stdin, a JSON object with `TELEGRAM_BOT_TOKEN`, the provider
+keys, `ANOMANDER_AUTH_JSON`, `ANOMANDER_MCP_SECRETS`, `ANOMANDER_MCP_OAUTH` and
+`ANOMANDER_LOCAL_TOKEN`. `main.ts` reads it with `readHandover` (`src/supervised.ts`) and calls
+`loadConfig` with it laid over the environment; `process.env` never holds it. A line that is not
+a JSON object of strings, or none within 10 seconds, stops the daemon with exit code `1`.
 
 | Variable | Default |
 | --- | --- |
@@ -751,16 +761,17 @@ The error names every missing required variable.
 | `ANOMANDER_API_TOKEN` | unset: the read API is off (RA-2 AC1) |
 | `ANOMANDER_API_HOST` | `127.0.0.1`, an IP address |
 | `ANOMANDER_API_PORT` | `4311`, from 1 to 65535 |
-| `ANOMANDER_LOCAL_TOKEN` | unset: the local channel is off (DK-3). At least 32 characters |
+| `ANOMANDER_LOCAL_TOKEN` | unset: the local channel is off (DK-3). At least 32 characters. Handed over on stdin by the desktop app |
 | `ANOMANDER_LOCAL_PORT` | `4312`, from 1 to 65535 |
 | `ANOMANDER_MCP_CONFIG` | unset: no connections (DK-11). The path of `mcp.json` |
-| `ANOMANDER_AUTH_JSON` | unset. Set by the desktop app: the model login it keeps in the Keychain, in the shape of `auth.json`; while set, `ANOMANDER_AUTH_PATH` is not used (DK-5 AC1) |
-| `ANOMANDER_MCP_OAUTH` | unset. Set by the desktop app: the clients and tokens of the servers connected with OAuth, a JSON object by server name (DK-11 AC10) |
-| `ANOMANDER_MCP_SECRETS` | unset. Set by the desktop app: a JSON object with the values it keeps in the Keychain for `mcp.json`, by `mcp/<server>/<env or headers>/<name>`; each fills an `@keychain` in the file |
+| `ANOMANDER_AUTH_JSON` | unset. Handed over on stdin by the desktop app: the model login it keeps in the Keychain, in the shape of `auth.json`; while set, `ANOMANDER_AUTH_PATH` is not used (DK-5 AC1) |
+| `ANOMANDER_MCP_OAUTH` | unset. Handed over on stdin by the desktop app: the clients and tokens of the servers connected with OAuth, a JSON object by server name (DK-11 AC10) |
+| `ANOMANDER_SECRETS_ON_STDIN` | unset: every variable comes from the environment. `1`, set only by the desktop app: the secrets come first on stdin, as above (DK-5 AC2) |
+| `ANOMANDER_MCP_SECRETS` | unset. Handed over on stdin by the desktop app: a JSON object with the values it keeps in the Keychain for `mcp.json`, by `mcp/<server>/<env or headers>/<name>`; each fills an `@keychain` in the file |
 
 The read API's variables come from `docs/read-access-prd.md` §8 until it moves into PRD §14.4;
 `.env.example` lists both tables. The local channel's two variables are not in `.env.example`:
-the desktop app sets them when it starts the daemon (`docs/desktop-prd.md` §8). Any non-empty token turns the API on, so use a long random
+the desktop app sets the port and hands the token over on stdin when it starts the daemon (`docs/desktop-prd.md` §8). Any non-empty token turns the API on, so use a long random
 one, for example `openssl rand -hex 32`.
 
 `parseModelId` splits a model ID at its first `/`: `openrouter/anthropic/x` is provider

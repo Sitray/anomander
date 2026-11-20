@@ -5,7 +5,9 @@
 // One child at a time. Every launch gets a generation; anything that happens to an older one
 // (its output, its exit, a pending restart) is ignored, so a stop or a new start always wins.
 use std::ffi::OsString;
+use std::fs::File;
 use std::io::{BufRead, BufReader, Read, Write};
+use std::os::fd::AsFd;
 use std::os::unix::process::CommandExt;
 use std::path::PathBuf;
 use std::process::{Child, ChildStdin, Command, Stdio};
@@ -39,6 +41,9 @@ pub struct LaunchSpec {
     pub token: String,
     /// Every secret value, removed from the error line and the forwarded log.
     pub secrets: Vec<String>,
+    /// DK-5 AC2: the line written once, with its `\n`, to the daemon's stdin right after it
+    /// starts: the secrets, kept out of its environment. `None` writes nothing.
+    pub handover: Option<String>,
     /// Gets what the daemon hands over on a line of `HANDED_LINES`, which is never forwarded.
     /// Called from the output's own thread, one line after the other.
     pub on_credentials: Option<Credentials>,
@@ -411,7 +416,8 @@ impl Inner {
         (inner.notify)(update);
     }
 
-    /// Spawns the child and its three watchers: stdout, stderr and the exit.
+    /// Spawns the child, its three watchers (stdout, stderr and the exit) and, with a handover,
+    /// the thread that writes it.
     fn spawn(
         inner: &Arc<Inner>,
         generation: u64,
@@ -433,6 +439,16 @@ impl Inner {
             .spawn()
             .map_err(|error| format!("could not start {}: {error}", spec.program.display()))?;
         let stdin = child.stdin.take();
+        // DK-5 AC2: written on a copy of the pipe, from its own thread, so a daemon slow to read
+        // blocks neither the locks held here nor a stop, which closes `stdin`.
+        let handover = spec.handover.map(|line| {
+            let pipe = stdin
+                .as_ref()
+                .ok_or_else(|| std::io::Error::other("no stdin"))
+                .and_then(|stdin| stdin.as_fd().try_clone_to_owned())
+                .map(File::from);
+            (pipe, line)
+        });
         let stdout = child.stdout.take();
         let stderr = child.stderr.take();
         let running = Arc::new(Running {
@@ -448,9 +464,32 @@ impl Inner {
             last_error: Mutex::new(None),
         });
         let secrets = Arc::new(spec.secrets);
+        let handover = match handover {
+            None => None,
+            Some((Ok(pipe), line)) => Some((pipe, line)),
+            Some((Err(error), _)) => {
+                kill_group(&running, libc::SIGKILL);
+                return Err(format!("could not hand the secrets to the daemon: {error}"));
+            }
+        };
 
         let on_credentials = spec.on_credentials;
         let watchers = [
+            handover.map(|(mut pipe, line)| {
+                let running = Arc::clone(&running);
+                watcher("anomander-daemon-handover", move || {
+                    let mut bytes = line.into_bytes();
+                    bytes.push(b'\n');
+                    // A daemon that closed its stdin is exiting: it must not run without secrets.
+                    if let Err(error) = pipe.write_all(&bytes) {
+                        eprintln!(
+                            "could not hand the secrets to anomander daemon {}: {error}",
+                            running.pid
+                        );
+                        kill_group(&running, libc::SIGKILL);
+                    }
+                })
+            }),
             stdout.map(|stdout| {
                 let (inner, running, secrets) = (
                     Arc::clone(inner),
