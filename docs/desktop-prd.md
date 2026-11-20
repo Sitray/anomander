@@ -130,9 +130,13 @@ and keep its secrets in the operating system instead of a text file.
     the processor says so, when it says nothing, or when the code takes it for one whatever the
     processor says: a click on a control named as sending, sharing, paying, deleting, saving,
     accepting, continuing, installing, downloading, signing in or out or a password, or a
-    shortcut outside the harmless ones (reloading and pasting are not harmless). There is one
-    task at a time: starting another ends the one before. While a task runs by itself the app
-    stays out of the way (asked by the principal on 2026-11-10: "arregla lo de que se cierre y
+    shortcut outside the harmless ones (reloading and pasting are not harmless), Enter or Space,
+    with or without Shift (they press whatever has the focus, which the code cannot see),
+    Spotlight or the app switcher (Cmd+Space, Cmd+Tab: they change which app the next keys go
+    to), and every fifth step of a task, however routine it looks (corrected on 2026-11-20 after
+    the security audit, following how gentle-dot's `computer/risk.rs` treats Return and Space).
+    There is one task at a time: starting another ends the one before. While a task runs by
+    itself the app stays out of the way (asked by the principal on 2026-11-10: "arregla lo de que se cierre y
     abra la app") and comes back when a step needs permission or the task ends; the chat and the
     menu bar offer "Detener tarea": after it nothing more is performed, not even a step already
     planned, and the same holds for a task ended by a newer one. For a step of care the app shows the action and performs it
