@@ -1,7 +1,17 @@
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  chmodSync,
+  copyFileSync,
+  existsSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import type Database from 'better-sqlite3';
+import Database from 'better-sqlite3';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { applyMigrations, MIGRATIONS_DIR, openDatabase } from '../../src/store/database.ts';
 
@@ -32,6 +42,50 @@ const names = (db: Database.Database, type: string): string[] =>
 
 const versions = (db: Database.Database): unknown[] =>
   db.prepare('SELECT version, applied_at FROM schema_migrations ORDER BY version').all();
+
+const MIGRATION_FILES = readdirSync(MIGRATIONS_DIR)
+  .filter((file) => file.endsWith('.sql'))
+  .sort();
+const NEWEST = Number.parseInt(MIGRATION_FILES.at(-1) ?? '', 10);
+
+const BACKUP_NAME = /^anomander\.db\.backup-v(\d+)-\d{8}T\d{6}Z(-\d+)?$/;
+
+const backups = (): string[] =>
+  readdirSync(scratch)
+    .filter((file) => BACKUP_NAME.test(file))
+    .sort();
+
+// A database as an older build left it: only the first `count` migrations, plus an expense.
+const builtAt = (count: number, path = join(scratch, 'anomander.db')): void => {
+  const older = mkdtempSync(join(tmpdir(), 'anomander-older-'));
+  try {
+    for (const file of MIGRATION_FILES.slice(0, count)) {
+      copyFileSync(join(MIGRATIONS_DIR, file), join(older, file));
+    }
+    const db = openDatabase(path);
+    try {
+      applyMigrations(db, older);
+      db.exec(`INSERT INTO entities (id, kind, name, created_at)
+                 VALUES (100, 'merchant', 'Mercadona', '2026-01-02T10:00:00.000Z');
+               INSERT INTO expenses (id, merchant_id, occurred_on, total_cents, mode, status, created_at)
+                 VALUES (100, 100, '2026-01-02', 1234, 'declared', 'current', '2026-01-02T10:00:00.000Z');`);
+    } finally {
+      db.close();
+    }
+  } finally {
+    rmSync(older, { recursive: true, force: true });
+  }
+};
+
+const expense = (db: Database.Database): unknown =>
+  db
+    .prepare(
+      `SELECT e.total_cents, e.occurred_on, m.name AS merchant
+         FROM expenses e JOIN entities m ON m.id = e.merchant_id WHERE e.id = 100`,
+    )
+    .get();
+
+const KEPT_EXPENSE = { total_cents: 1234, occurred_on: '2026-01-02', merchant: 'Mercadona' };
 
 beforeEach(() => {
   scratch = mkdtempSync(join(tmpdir(), 'anomander-store-'));
@@ -78,6 +132,13 @@ describe('applyMigrations', () => {
     expect(applyMigrations(second)).toBe(0);
     expect(versions(second)).toEqual(before);
     expect(counts(second)).toEqual(seeded);
+    // Nothing was pending, so nothing was backed up.
+    expect(backups()).toEqual([]);
+  });
+
+  it('backs up nothing for a fresh database', () => {
+    expect(applyMigrations(open())).toBe(MIGRATION_FILES.length);
+    expect(backups()).toEqual([]);
   });
 
   it('rolls back a failing file and records no version for it', () => {
@@ -94,6 +155,129 @@ describe('applyMigrations', () => {
     expect((versions(db) as { version: string }[]).map((row) => row.version)).toEqual([
       '0001_good',
     ]);
+  });
+});
+
+describe('upgrading an existing database', () => {
+  it.each([
+    ['0001', 1],
+    ['an intermediate version', 4],
+  ])('upgrades a database from %s to the latest and keeps its data', (_label, count) => {
+    builtAt(count);
+    const db = open();
+    expect(applyMigrations(db)).toBe(MIGRATION_FILES.length - count);
+    expect((versions(db) as { version: string }[]).map((row) => row.version)).toEqual(
+      MIGRATION_FILES.map((file) => file.replace(/\.sql$/, '')),
+    );
+    expect(expense(db)).toEqual(KEPT_EXPENSE);
+    expect(names(db, 'table')).toContain('action_history');
+  });
+
+  it('first writes a dated backup, mode 600, of the database as it was', () => {
+    builtAt(4);
+    applyMigrations(open());
+
+    const [backup, ...others] = backups();
+    expect(others).toEqual([]);
+    expect(backup).toMatch(/^anomander\.db\.backup-v4-\d{8}T\d{6}Z$/);
+    const path = join(scratch, backup ?? '');
+    expect(statSync(path).mode & 0o777).toBe(0o600);
+    const copy = new Database(path, { readonly: true, fileMustExist: true });
+    try {
+      expect((versions(copy) as { version: string }[]).map((row) => row.version)).toEqual(
+        MIGRATION_FILES.slice(0, 4).map((file) => file.replace(/\.sql$/, '')),
+      );
+      expect(expense(copy)).toEqual(KEPT_EXPENSE);
+    } finally {
+      copy.close();
+    }
+  });
+
+  it('keeps the three newest backups and deletes only files named as backups', () => {
+    builtAt(4);
+    const old = [
+      'anomander.db.backup-v1-20200101T000000Z',
+      'anomander.db.backup-v2-20200102T000000Z',
+      'anomander.db.backup-v3-20200103T000000Z',
+    ];
+    const unrelated = [
+      'anomander.db.before-import-20200101-000000',
+      'anomander.db.backup-notes',
+      'other.db.backup-v1-20200101T000000Z',
+    ];
+    for (const file of [...old, ...unrelated]) writeFileSync(join(scratch, file), 'x');
+
+    applyMigrations(open());
+
+    const kept = backups();
+    expect(kept).toHaveLength(3);
+    expect(kept.slice(0, 2)).toEqual(old.slice(1));
+    expect(kept[2]).toMatch(/^anomander\.db\.backup-v4-/);
+    for (const file of unrelated) expect(existsSync(join(scratch, file))).toBe(true);
+  });
+
+  it('never deletes the backup it has just written, even beside backups stamped in the future', () => {
+    builtAt(4);
+    // A clock that was once ahead left these.
+    const future = [
+      'anomander.db.backup-v1-20300101T000000Z',
+      'anomander.db.backup-v2-20300102T000000Z',
+      'anomander.db.backup-v3-20300103T000000Z',
+    ];
+    for (const file of future) writeFileSync(join(scratch, file), 'x');
+
+    applyMigrations(open());
+
+    const kept = backups();
+    expect(kept).toHaveLength(3);
+    expect(kept.filter((file) => file.startsWith('anomander.db.backup-v4-'))).toHaveLength(1);
+  });
+
+  it('applies nothing when the backup cannot be written', () => {
+    builtAt(4);
+    const db = open();
+    chmodSync(scratch, 0o500);
+    try {
+      expect(() => applyMigrations(db)).toThrow(/backup before migrations failed/);
+    } finally {
+      chmodSync(scratch, 0o700);
+    }
+    expect(versions(db)).toHaveLength(4);
+    expect(names(db, 'table')).not.toContain('action_history');
+    expect(backups()).toEqual([]);
+  });
+
+  it('refuses a database newer than this build, naming both versions, and leaves it untouched', () => {
+    const path = join(scratch, 'anomander.db');
+    const first = open(path);
+    applyMigrations(first);
+    first
+      .prepare("INSERT INTO schema_migrations (version, applied_at) VALUES ('0099_future', 'x')")
+      .run();
+    first.close();
+    opened = [];
+    const bytes = readFileSync(path);
+
+    const db = open(path);
+    expect(() => applyMigrations(db)).toThrow(
+      `the database is at migration version 99, newer than this build knows (${NEWEST})`,
+    );
+    db.close();
+    opened = [];
+    expect(readFileSync(path).equals(bytes)).toBe(true);
+    expect(backups()).toEqual([]);
+  });
+
+  it('does not call a version it does not know newer when it is lower', () => {
+    const db = open();
+    applyMigrations(db);
+    db.prepare(
+      "UPDATE schema_migrations SET version = '0003_renamed' WHERE version LIKE '0003%'",
+    ).run();
+
+    expect(() => applyMigrations(db)).toThrow(
+      'the database records migration version 3, which this build does not know',
+    );
   });
 });
 
