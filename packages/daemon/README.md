@@ -170,8 +170,12 @@ abandoned: S-5, then its images are deleted and it becomes `unreadable` with `im
 (AC5). "Earlier run" means its `images_received` observation was created before
 `createRetention` was called; `received_at` cannot tell, because a photo sent while the daemon
 was down arrives after the restart, possibly while the startup run is going. The startup run
-finds them; later runs find none. It only changes `status` columns and deletes temporary
-images; a second run changes nothing (AC4).
+finds them; later runs find none. When S-5 or S-14 cannot be sent (no Telegram, or a failed
+send) the receipt stays as it is and the failure is logged once per receipt, not every minute.
+It erases the `action_history` rows that ended more than 30 days ago with
+`forgetActionsEndedBefore`, as long as an inference is kept (AC6, security audit L3). Apart from
+that erase it only changes `status` columns and deletes temporary images; a second run changes
+nothing (AC4).
 
 **Weekly summary (R-10).** `createWeeklySummary().send` (`src/summary/weekly-summary.ts`) covers
 the 7 days that end on the day it runs in `TZ` (today and the 6 days before; with the default
@@ -189,6 +193,13 @@ and the weekly summary at `ANOMANDER_WEEKLY_SUMMARY_CRON`, both in `TZ`, and the
 receipt watch every minute, so S-13's "lo borro en una hora" holds. The weekly summary never runs
 at startup. The jobs share one serial queue and never overlap. `stop()` waits for the job in
 progress.
+
+**Stopping.** `Anomander.stop` first refuses every new turn (a turn that waited gets the error
+`ANOMANDER is stopping`; only the turn that tells how a running task with connections ended
+still runs), stops the doors and the scheduler, and waits for the turns, task steps and job in
+progress, up to `SHUTDOWN_DEADLINE_MS` (5 s; `shutdownDeadlineMs` in tests), with
+`Promise.allSettled`. Past the deadline it logs a warning. Only then does it close the
+connections, the read API and the store; a step that failed is thrown after everything closed.
 
 ## Failures (R-22)
 
@@ -293,7 +304,7 @@ reading's kind; `done`, `cannot`, `too_many_steps` or the plan's kind; the task 
 `replaced`), `steps` for the computer and `calls_json` for connections. The calls come from the
 `decided` hook of `createConnectionTasks`: `{server, tool, allowed}` when code sends a call or
 the principal refuses it; never arguments or results. A failure to keep a row is logged with
-its kind and reason only.
+its kind and reason only. The retention job erases a row 30 days after it ended (PRD R-19 AC6).
 
 **Prompt (AC3).** The text handler puts `historyForPrompt` in the interpreter's user turn as
 `history`: at most 20 rows (`HISTORY_PROMPT_LIMIT`), none older than 7 days
@@ -566,15 +577,24 @@ Other applications, first the dashboard of the app of apps, read the ledger over
 never starts it. It binds to `ANOMANDER_API_HOST` (default `127.0.0.1`, AC3) and
 `ANOMANDER_API_PORT` (default `4311`); the port variable and its default are a choice of this
 build, still to be confirmed in the PRD. `Anomander.readApi` resolves with the address once it
-listens; `main.ts` logs it and stops the daemon when the port cannot be opened.
+listens; `main.ts` logs it and stops the daemon when the port cannot be opened. `loadConfig`
+refuses a token under 32 characters, and, while the token is set, a host outside `127.0.0.0/8`
+and `::1` unless `ANOMANDER_API_ALLOW_PLAIN_HTTP=1`: the API speaks plain HTTP only, so the
+token would travel readable (security audit M4).
 
 Every request is checked in this order:
 
-1. `Authorization` must be exactly `Bearer <ANOMANDER_API_TOKEN>`, compared through SHA-256
+1. An address that sent `AUTH_FAILURES_ALLOWED` (10) wrong tokens within
+   `AUTH_FAILURE_WINDOW_MS` (60 s) of its first one gets `429` `{"error":"too many failed
+   attempts"}` with `Retry-After` in seconds, even with the right token, until that window has
+   passed (`src/read-api/auth-backoff.ts`, security audit M4). Its address is logged once, when
+   it is refused; at most 1024 addresses are remembered.
+2. `Authorization` must be exactly `Bearer <ANOMANDER_API_TOKEN>`, compared through SHA-256
    digests with `timingSafeEqual`, so in constant time whatever its length. Otherwise `401`
-   `{"error":"unauthorized"}`, whatever the method or path (AC2).
-2. Any method but `GET` gets `405` `{"error":"method not allowed"}` with `Allow: GET` (AC4).
-3. The route:
+   `{"error":"unauthorized"}`, whatever the method or path (AC2), and one more failure for the
+   address. A right token clears its failures.
+3. Any method but `GET` gets `405` `{"error":"method not allowed"}` with `Allow: GET` (AC4).
+4. The route:
 
 | Request | Answer |
 | --- | --- |
@@ -588,7 +608,7 @@ required and both inclusive, calendar days in `TZ`; a missing, malformed or impo
 lines whose product equals it exactly, as printed on the receipt (case and accents included);
 nothing else is searched. Any other path gets `404`; a failing query gets `500` and logs the
 path only. Every answer is JSON with `Cache-Control: no-store`. There is no pagination, CORS or
-rate limiting: the API is for the principal's own machines.
+rate limiting beyond the back-off above: the API is for the principal's own machines.
 
 The queries live in `src/read-api/queries.ts` (`readGastos`, `readLineas`, `readPendientes`),
 the one place a later MCP server reuses (AC6). They read only the views of RA-1, never a table,
@@ -707,6 +727,10 @@ call is a gap (`src/setup/setup-guide.ts`), sent as S-70 with one line per gap:
 - **Connection gaps**, found on every message by `createConnectionGaps` with pi-ai's `checkAuth`:
   a provider of either model with no login and no API key (S-73). The full daemon replies the
   guide instead of calling the processor, so a `/login` completes setup without a restart.
+  `startAnomander` wraps the check in `cachedSetupGaps`: it runs before the message's turn, so a
+  slow provider never holds the chat; messages that arrive meanwhile share one check and keep
+  their order; a check that takes over 5 s is given up and counts as complete (logged); and a
+  complete setup is kept 30 s. A gap is checked again on every message.
 
 Either way the guide is logged in English and sent once when the bot starts; without Telegram it
 is only logged, and the app's chat answers every message with it. `/start` replies
@@ -725,8 +749,10 @@ polls Telegram or is sent there, `started` resolves once the store is ready and 
 `stop`. What only Telegram serves is absent: `/login` and `/logout` (the app logs in from its
 Suscripciones screen), `/mcp`, and the setup guide sent at start. The local channel only answers
 (DK-4 AC5), so the messages sent unasked have no door: the due reminders, the morning digest and
-the weekly summary are not run (a reminder then goes out late once Telegram is set up), and the
-rest (S-12, S-13, S-14, a queued receipt's reply) fail as a failed send does and are logged. `startAnomander` takes the resolved `ANOMANDER_VISION_MODEL` as `visionModel`; without
+the weekly summary are not run (a reminder then goes out late once Telegram is set up), nor is
+the budget queue: a queued receipt stays queued, unread, since its reply could not be told
+(R-8 AC5 still holds: it is never deleted unread without telling). The rest (S-12, S-13, S-14)
+fail as a failed send does and are logged, S-14 once per receipt. `startAnomander` takes the resolved `ANOMANDER_VISION_MODEL` as `visionModel`; without
 it, receipts are read with `model`. Model credentials come from a stored login (see "Model login"
 above) or from the provider's usual environment variable (for example `OPENAI_API_KEY`), as pi-ai
 resolves them; under the desktop app that variable is the one handed over on stdin, which
@@ -770,8 +796,9 @@ a JSON object of strings, or none within 10 seconds, stops the daemon with exit 
 | `ANOMANDER_INBOX_DIR` | `./data/inbox` |
 | `ANOMANDER_AUTH_PATH` | `./data/auth.json` |
 | `TZ` | `Europe/Madrid` |
-| `ANOMANDER_API_TOKEN` | unset: the read API is off (RA-2 AC1) |
-| `ANOMANDER_API_HOST` | `127.0.0.1`, an IP address |
+| `ANOMANDER_API_TOKEN` | unset: the read API is off (RA-2 AC1). At least 32 characters |
+| `ANOMANDER_API_HOST` | `127.0.0.1`, an IP address. While the token is set, one that is not this machine needs `ANOMANDER_API_ALLOW_PLAIN_HTTP` |
+| `ANOMANDER_API_ALLOW_PLAIN_HTTP` | unset. `1` lets the read API serve plain HTTP on a host that is not this machine (RA-2 AC3) |
 | `ANOMANDER_API_PORT` | `4311`, from 1 to 65535 |
 | `ANOMANDER_LOCAL_TOKEN` | unset: the local channel is off (DK-3). At least 32 characters. Handed over on stdin by the desktop app |
 | `ANOMANDER_LOCAL_PORT` | `4312`, from 1 to 65535 |
@@ -783,8 +810,8 @@ a JSON object of strings, or none within 10 seconds, stops the daemon with exit 
 
 The read API's variables come from `docs/read-access-prd.md` §8 until it moves into PRD §14.4;
 `.env.example` lists both tables. The local channel's two variables are not in `.env.example`:
-the desktop app sets the port and hands the token over on stdin when it starts the daemon (`docs/desktop-prd.md` §8). Any non-empty token turns the API on, so use a long random
-one, for example `openssl rand -hex 32`.
+the desktop app sets the port and hands the token over on stdin when it starts the daemon (`docs/desktop-prd.md` §8). Any token of 32 characters or more turns the API on; use a
+random one, for example `openssl rand -hex 32`.
 
 `parseModelId` splits a model ID at its first `/`: `openrouter/anthropic/x` is provider
 `openrouter` and model `anthropic/x`.

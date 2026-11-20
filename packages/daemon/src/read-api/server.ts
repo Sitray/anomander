@@ -2,6 +2,7 @@ import { createHash, timingSafeEqual } from 'node:crypto';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import type { Logger } from '../processor/text-interpreter.ts';
+import { createAuthBackoff } from './auth-backoff.ts';
 import { isDay, openReadOnly, readGastos, readLineas, readPendientes } from './queries.ts';
 
 // RA-2 (docs/read-access-prd.md): the views of RA-1 over HTTP, read only, behind a bearer token.
@@ -16,6 +17,8 @@ export interface ReadApiDeps {
   /** `0` lets the system pick a free port, as tests do. */
   port: number;
   logger: Logger;
+  /** Milliseconds since the epoch, for the back-off after failed tokens; tests pass their own. */
+  now?: () => number;
 }
 
 export interface ReadApiAddress {
@@ -49,6 +52,7 @@ export const startReadApi = (deps: ReadApiDeps): ReadApi => {
   // AC2: the whole header against `Bearer <token>`, in constant time.
   const authorized = (header: string | undefined): boolean =>
     header !== undefined && timingSafeEqual(digest(header), expected);
+  const backoff = createAuthBackoff(deps.now ?? Date.now);
 
   /** The rows a GET asks for, or the status and error it gets instead. */
   const answer = (url: URL): [number, unknown] => {
@@ -72,11 +76,23 @@ export const startReadApi = (deps: ReadApiDeps): ReadApi => {
   };
 
   const handle = (request: IncomingMessage, response: ServerResponse): void => {
+    // An address that guessed too often waits, whatever it sends now (security audit M4).
+    const address = request.socket.remoteAddress ?? 'unknown';
+    const wait = backoff.waitFor(address);
+    if (wait > 0) {
+      response.setHeader('retry-after', String(wait));
+      send(response, 429, { error: 'too many failed attempts' });
+      return;
+    }
     // The token is checked before anything else, so a caller without it learns nothing.
     if (!authorized(request.headers.authorization)) {
+      if (backoff.failed(address)) {
+        logger.warn('read API refuses an address for a while: too many wrong tokens', { address });
+      }
       send(response, 401, { error: 'unauthorized' });
       return;
     }
+    backoff.succeeded(address);
     // AC4: only GET; nothing else runs, and the connection is read-only anyway.
     if (request.method !== 'GET') {
       response.setHeader('allow', 'GET');

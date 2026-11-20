@@ -66,9 +66,15 @@ refuted expenses are never served as expenses; pending ones are counted apart (R
   - AC1: it is off by default: with no `ANOMANDER_API_TOKEN` in `.env`, the daemon opens no
     port.
   - AC2: every request without `Authorization: Bearer <ANOMANDER_API_TOKEN>`, or with another
-    token, gets `401` and no data. The token is compared in constant time and never logged.
+    token, gets `401` and no data. The token is compared in constant time and never logged. It
+    has at least 32 characters, or the daemon does not start. An address that sends 10 wrong
+    tokens within a minute gets `429` with `Retry-After` for every request, even with the right
+    token, until that minute has passed; a right token clears its failures (security audit M4,
+    2026-11-20).
   - AC3: it binds to `127.0.0.1` unless `ANOMANDER_API_HOST` names another address, such as
-    the private network's.
+    the private network's. The API has no TLS, so an address that is not this machine (outside
+    `127.0.0.0/8` and `::1`) also needs `ANOMANDER_API_ALLOW_PLAIN_HTTP=1`, or the daemon does
+    not start (security audit M4).
   - AC4: it offers only `GET`. Any other method gets `405`, and the database is unchanged.
   - AC5: `GET /v1/gastos?desde=YYYY-MM-DD&hasta=YYYY-MM-DD`,
     `GET /v1/lineas?desde=…&hasta=…&producto=…` and `GET /v1/pendientes` return the matching
@@ -98,8 +104,9 @@ These variables join the table of `PRD.md` §14.4 when this draft moves there. U
 
 | Variable | Purpose | Default |
 | --- | --- | --- |
-| `ANOMANDER_API_TOKEN` | Bearer token of the read API (RA-2 AC2); unset turns the API off (AC1) | unset |
+| `ANOMANDER_API_TOKEN` | Bearer token of the read API (RA-2 AC2), at least 32 characters; unset turns the API off (AC1) | unset |
 | `ANOMANDER_API_HOST` | Address the read API binds to (RA-2 AC3) | `127.0.0.1` |
+| `ANOMANDER_API_ALLOW_PLAIN_HTTP` | `1` lets the read API serve plain HTTP on an address that is not this machine (RA-2 AC3) | unset |
 | `ANOMANDER_API_PORT` | Port of the read API | `4311` |
 
 `ANOMANDER_API_PORT` and its default are a choice of the build, not of RA-2: to be confirmed.

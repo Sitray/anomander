@@ -347,7 +347,8 @@ and keep its secrets in the operating system instead of a text file.
     first, with when each ended in `TZ`: at most 20, none older than 7 days, bounded by code. It
     uses them only to answer what ANOMANDER did ("¿qué hiciste ayer?") in a conversation reply;
     an expense inference that rests on them is rejected like one that rests on a memory (R-23
-    AC4).
+    AC4). An action is kept 30 days after it ended; the retention job then erases it (PRD R-19
+    AC6, security audit L3, 2026-11-20).
   - AC4: when the principal asks to erase it ("borra tu historial"), code asks "¿Borro el
     historial de lo que he hecho por ti? Son N acciones y no podré recuperarlas." ("Es 1 acción" for one) with `Sí` and
     `No`, or replies "No tengo nada en mi historial." when it is empty. `Sí` erases every action

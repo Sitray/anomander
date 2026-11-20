@@ -12,6 +12,7 @@ describe('parseModelId', () => {
 });
 
 const LOCAL_TOKEN = 'local-channel-token-0123456789abcdef';
+const API_TOKEN = 'read-api-token-0123456789abcdef-x';
 
 describe('loadConfig', () => {
   it('reads Telegram and applies the §14.4 defaults', () => {
@@ -99,16 +100,66 @@ describe('loadConfig', () => {
     expect(
       loadConfig({
         ...required,
-        ANOMANDER_API_TOKEN: 's3cret',
+        ANOMANDER_API_TOKEN: API_TOKEN,
         ANOMANDER_API_HOST: '100.64.0.7',
+        ANOMANDER_API_ALLOW_PLAIN_HTTP: '1',
         ANOMANDER_API_PORT: '8080',
       }),
-    ).toMatchObject({ apiToken: 's3cret', apiHost: '100.64.0.7', apiPort: 8080 });
+    ).toMatchObject({ apiToken: API_TOKEN, apiHost: '100.64.0.7', apiPort: 8080 });
     expect(() =>
       loadConfig({ ...required, ANOMANDER_API_HOST: 'example.com', ANOMANDER_API_PORT: '70000' }),
     ).toThrow(
       'invalid configuration: ANOMANDER_API_HOST must be an IP address; ANOMANDER_API_PORT must be a port from 1 to 65535',
     );
+  });
+
+  // T14, security audit M4: a guessable token or plain HTTP off this machine.
+  describe('the read API token and host (RA-2 AC2, AC3)', () => {
+    const required = { TELEGRAM_BOT_TOKEN: '123:abc', ANOMANDER_PRINCIPAL_CHAT_ID: '4242' };
+
+    it('keeps a token of 32 characters or more on this machine, as before', () => {
+      expect(loadConfig({ ...required, ANOMANDER_API_TOKEN: API_TOKEN })).toMatchObject({
+        apiToken: API_TOKEN,
+        apiHost: '127.0.0.1',
+        apiPort: 4311,
+      });
+      for (const host of ['127.0.0.2', '::1']) {
+        expect(
+          loadConfig({ ...required, ANOMANDER_API_TOKEN: API_TOKEN, ANOMANDER_API_HOST: host }),
+        ).toMatchObject({ apiHost: host });
+      }
+    });
+
+    it('refuses a token shorter than 32 characters', () => {
+      expect(() =>
+        loadConfig({ ...required, ANOMANDER_API_TOKEN: API_TOKEN.slice(0, 31) }),
+      ).toThrow('invalid configuration: ANOMANDER_API_TOKEN must have at least 32 characters');
+    });
+
+    it('refuses a host off this machine unless plain HTTP is allowed on purpose', () => {
+      for (const host of ['100.64.0.7', '0.0.0.0', '::']) {
+        expect(() =>
+          loadConfig({ ...required, ANOMANDER_API_TOKEN: API_TOKEN, ANOMANDER_API_HOST: host }),
+        ).toThrow(
+          `invalid configuration: ANOMANDER_API_HOST ${host} is not this machine and the read API has no TLS: set ANOMANDER_API_ALLOW_PLAIN_HTTP=1 to send the token over plain HTTP anyway`,
+        );
+      }
+      expect(() =>
+        loadConfig({
+          ...required,
+          ANOMANDER_API_TOKEN: API_TOKEN,
+          ANOMANDER_API_HOST: '100.64.0.7',
+          ANOMANDER_API_ALLOW_PLAIN_HTTP: 'yes',
+        }),
+      ).toThrow('invalid configuration: ANOMANDER_API_ALLOW_PLAIN_HTTP must be 1 when set');
+    });
+
+    it('does not check the host while the read API is off', () => {
+      expect(loadConfig({ ...required, ANOMANDER_API_HOST: '100.64.0.7' })).toMatchObject({
+        apiToken: undefined,
+        apiHost: '100.64.0.7',
+      });
+    });
   });
 
   it('reads the secrets of the connections the app hands over (DK-11)', () => {

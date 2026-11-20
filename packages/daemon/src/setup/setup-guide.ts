@@ -4,7 +4,7 @@ import type { Config, ModelId } from '../config.ts';
 
 // R-28: what the daemon still needs from `.env` to reach a model. Model gaps are found once at
 // start, since only a restart rereads `.env`; connection gaps on every message, so a login
-// (R-27) completes setup without one.
+// (R-27) completes setup without one (a complete setup is kept 30 s, `cachedSetupGaps`).
 
 type ModelVariable = 'ANOMANDER_MODEL' | 'ANOMANDER_VISION_MODEL';
 
@@ -76,6 +76,61 @@ export const createConnectionGaps =
     }
     return gaps;
   };
+
+/** T14: a complete setup is not checked again for this long… */
+export const SETUP_CHECK_CACHE_MS = 30_000;
+/** …and a check that takes longer is given up: setup counts as complete, as when a check fails. */
+export const SETUP_CHECK_TIMEOUT_MS = 5_000;
+
+export interface CachedSetupGapsDeps {
+  /** The gaps as `createConnectionGaps` finds them. */
+  check: () => Promise<readonly SetupGap[]>;
+  /** Milliseconds since the epoch. */
+  now: () => number;
+  logger: { warn(message: string, fields?: Record<string, unknown>): void };
+  timeoutMs?: number;
+}
+
+/**
+ * `check`, bounded by a timeout and run once for every caller that asks while it runs. A result
+ * with no gaps is kept for `SETUP_CHECK_CACHE_MS`; a gap is checked again on the next message, so
+ * a login (R-27) still completes setup at once (R-28 AC4).
+ */
+export const cachedSetupGaps = ({
+  check,
+  now,
+  logger,
+  timeoutMs = SETUP_CHECK_TIMEOUT_MS,
+}: CachedSetupGapsDeps): (() => Promise<readonly SetupGap[]>) => {
+  let completeUntil = Number.NEGATIVE_INFINITY;
+  let running: Promise<readonly SetupGap[]> | undefined;
+  const bounded = async (): Promise<readonly SetupGap[]> => {
+    let timer: NodeJS.Timeout | undefined;
+    const late = new Promise<'late'>((resolve) => {
+      timer = setTimeout(() => resolve('late'), timeoutMs);
+    });
+    try {
+      const gaps = await Promise.race([check(), late]);
+      if (gaps !== 'late') return gaps;
+      logger.warn('Could not check the setup in time', { timeoutMs });
+      return [];
+    } finally {
+      clearTimeout(timer);
+    }
+  };
+  return () => {
+    if (now() < completeUntil) return Promise.resolve([]);
+    running ??= bounded()
+      .then((gaps) => {
+        if (gaps.length === 0) completeUntil = now() + SETUP_CHECK_CACHE_MS;
+        return gaps;
+      })
+      .finally(() => {
+        running = undefined;
+      });
+    return running;
+  };
+};
 
 const accountOf = (providerId: string) =>
   LOGIN_ACCOUNTS.find((account) => account.providerId === providerId)?.label ?? providerId;

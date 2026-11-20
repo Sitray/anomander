@@ -126,3 +126,13 @@ export const forgetHistory = (db: Database.Database, upToId: number): number => 
   if (changes > 0) db.pragma('wal_checkpoint(TRUNCATE)');
   return changes;
 };
+
+/**
+ * T14, security audit L3: the retention job (R-19 AC6) erases the actions that ended before
+ * `before`, and checkpoints the WAL as `forgetHistory` does. Returns how many were erased.
+ */
+export const forgetActionsEndedBefore = (db: Database.Database, before: string): number => {
+  const { changes } = db.prepare('DELETE FROM action_history WHERE ended_at < ?').run(before);
+  if (changes > 0) db.pragma('wal_checkpoint(TRUNCATE)');
+  return changes;
+};

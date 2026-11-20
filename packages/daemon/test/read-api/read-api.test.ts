@@ -8,12 +8,14 @@ import type Database from 'better-sqlite3';
 import { afterEach, beforeEach, describe, expect, it, type Mock, vi } from 'vitest';
 import { type Anomander, startAnomander } from '../../src/app.ts';
 import { loadConfig } from '../../src/config.ts';
-import { openDatabase } from '../../src/store/database.ts';
+import { AUTH_FAILURE_WINDOW_MS, AUTH_FAILURES_ALLOWED } from '../../src/read-api/auth-backoff.ts';
+import { type ReadApi, startReadApi } from '../../src/read-api/server.ts';
+import { applyMigrations, openDatabase } from '../../src/store/database.ts';
 
 // RA-2 (docs/read-access-prd.md): real HTTP requests against the read API of a started daemon,
 // with the fake Telegram API and a SQLite file in a `mkdtemp` folder, as in `test/e2e/`.
 const PRINCIPAL = 4242;
-const TOKEN = 'read-api-test-token-7Kq2';
+const TOKEN = 'read-api-test-token-7Kq2-0123456789abcdef';
 const NOW = '2026-11-10T10:00:00.000Z';
 
 let scratch: string;
@@ -356,5 +358,61 @@ describe('the read API (RA-2)', () => {
 
     expect(status).toBe(400);
     expect((await get(`${base.origin}/v1/pendientes`)).status).toBe(200);
+  });
+});
+
+// T14, security audit M4: a caller that keeps guessing the token is made to wait.
+describe('failed tokens (RA-2 AC2)', () => {
+  let clock: number;
+  let served: ReadApi | undefined;
+
+  afterEach(async () => {
+    await served?.stop();
+    served = undefined;
+  });
+
+  const serve = async (): Promise<string> => {
+    applyMigrations(store());
+    served = startReadApi({
+      dbPath: dbPath(),
+      token: TOKEN,
+      host: '127.0.0.1',
+      port: 0,
+      logger,
+      now: () => clock,
+    });
+    const { host, port } = await served.listening;
+    return `http://${host}:${port}/v1/pendientes`;
+  };
+
+  it('answers 429 to an address after too many failures in a window, even with the token, until it passes', async () => {
+    clock = Date.parse(NOW);
+    const url = await serve();
+
+    for (let attempt = 0; attempt < AUTH_FAILURES_ALLOWED; attempt += 1) {
+      expect((await get(url, 'Bearer wrong')).status).toBe(401);
+    }
+    const refused = await get(url);
+    expect(refused.status).toBe(429);
+    expect(refused.headers.get('retry-after')).toBe(String(AUTH_FAILURE_WINDOW_MS / 1000));
+    expect(await refused.json()).toEqual({ error: 'too many failed attempts' });
+    expect(logger.warn).toHaveBeenCalledTimes(1);
+    expect(logged()).not.toContain(TOKEN);
+
+    clock += AUTH_FAILURE_WINDOW_MS;
+    expect((await get(url)).status).toBe(200);
+  });
+
+  it('a right token clears the failures before it, as before', async () => {
+    clock = Date.parse(NOW);
+    const url = await serve();
+
+    for (let round = 0; round < 3; round += 1) {
+      for (let attempt = 0; attempt < AUTH_FAILURES_ALLOWED - 1; attempt += 1) {
+        expect((await get(url, 'Bearer wrong')).status).toBe(401);
+      }
+      expect((await get(url)).status).toBe(200);
+    }
+    expect(logger.warn).not.toHaveBeenCalled();
   });
 });
