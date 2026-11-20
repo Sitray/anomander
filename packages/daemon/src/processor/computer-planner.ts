@@ -162,8 +162,23 @@ export const describeAction = (action: ComputerAction): string => {
 const CAREFUL_TARGET =
   /envi|send|submit|respond|reply|forward|compart|share|tweet|pag[aou]|pay|compr|buy|purchas|pedido|order|tramit|checkout|finaliz|reserv|donar|donat|bizum|retir|withdraw|tarjeta|elimin|borr|delet|remov|erase|quit|vaci|empty|papelera|trash|descart|discard|guard|save|reemplaz|replac|sobrescrib|overwrit|acept|accept|confirm|confiar|trust|acuerdo|agree|continu|autoriz|authori|permit|allow|firmar|instal|descarg|download|ejecut|publi|post|contrasen|password|clave|sesion|log ?in|log ?out|sign ?(in|out|up)|registr|acced|transf|suscri|subscri|format|restabl|reset|apag|shut ?down|reinici|restart|\b(ok|si|yes|pin|run|baja|salir|entrar|aplicar|apply|sign)\b/;
 
-/** The shortcuts that only move around, find, copy or open: Cmd with one of these keys. */
-const HARMLESS_WITH_CMD = new Set(['a', 'c', 'f', 'l', 't', 'n', 'space', 'tab']);
+/**
+ * The shortcuts that only move around, find, copy or open: Cmd with one of these keys. Not
+ * Cmd+Space or Cmd+Tab: Spotlight and the app switcher change which app the next keys go to.
+ */
+const HARMLESS_WITH_CMD = new Set(['a', 'c', 'f', 'l', 't', 'n']);
+
+/**
+ * Keys that press whatever has the focus: a Send button, a dialog's default button, a message
+ * box that sends on Enter. The code cannot see which, so they are always of care.
+ */
+const PRESSING_KEYS = new Set(['enter', 'space']);
+
+/**
+ * At least one step in this many waits for the principal, however routine the others look: a
+ * run of routine steps cannot grow without the principal seeing where it went.
+ */
+const CHECKPOINT_EVERY = 5;
 
 /** DK-10 AC1: whether the code itself takes `action` for a step of care, whatever was said. */
 const looksCareful = (action: ComputerAction): boolean => {
@@ -176,6 +191,8 @@ const looksCareful = (action: ComputerAction): boolean => {
       return CAREFUL_TARGET.test(target);
     }
     case 'key': {
+      // Whatever is held with them: Shift+Enter still submits a form.
+      if (PRESSING_KEYS.has(action.key)) return true;
       const modifiers = new Set(action.modifiers);
       if (modifiers.size === 0) return false;
       if (modifiers.size > 1) return true;
@@ -266,6 +283,6 @@ export const createPiAiComputerPlanner =
       kind: 'action',
       action,
       text: describeAction(action),
-      confirm: careful || looksCareful(action),
+      confirm: careful || looksCareful(action) || (done.length + 1) % CHECKPOINT_EVERY === 0,
     };
   };

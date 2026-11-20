@@ -622,9 +622,11 @@ describe('a task on the computer (DK-10)', () => {
     expect(await confirms({ kind: 'type', text: 'tiempo en Madrid', sensitive: false })).toBe(
       false,
     );
-    expect(await confirms(key('enter'))).toBe(false);
+    expect(await confirms(key('tab'))).toBe(false);
+    expect(await confirms(key('escape'))).toBe(false);
+    expect(await confirms(key('down'))).toBe(false);
     expect(await confirms(key('l', ['cmd']))).toBe(false);
-    expect(await confirms(key('space', ['cmd']))).toBe(false);
+    expect(await confirms(key('t', ['cmd']))).toBe(false);
     expect(
       await confirms({ kind: 'scroll', x: 500, y: 500, direction: 'down', sensitive: false }),
     ).toBe(false);
@@ -694,10 +696,39 @@ describe('a task on the computer (DK-10)', () => {
     // Reloading can send a form again, and pasting writes what nobody was shown.
     expect(await confirms(key('r', ['cmd']))).toBe(true);
     expect(await confirms(key('v', ['cmd']))).toBe(true);
+    // Enter and Space press whatever has the focus: a Send button, a default button, a message
+    // box that sends on Enter. The code cannot see which, so it always asks.
+    expect(await confirms(key('enter'))).toBe(true);
+    expect(await confirms(key('space'))).toBe(true);
+    // With Shift held they still press it: Shift+Enter submits a form in a browser.
+    expect(await confirms(key('enter', ['shift']))).toBe(true);
+    expect(await confirms(key('space', ['shift']))).toBe(true);
+    expect(await confirms(key('enter', ['shift', 'shift']))).toBe(true);
+    // Spotlight and the app switcher change which app the next keys go to.
+    expect(await confirms(key('space', ['cmd']))).toBe(true);
+    expect(await confirms(key('tab', ['cmd']))).toBe(true);
     // A name that only looks like a word of care is still routine.
     for (const target of ['Aplicaciones', 'Centrar', 'Configuración', 'Tokio', 'Google Chrome']) {
       expect(await confirms(click(target)), target).toBe(false);
     }
+  });
+
+  it('AC1: every fifth step waits for the principal, however routine it looks', async () => {
+    const chat = await client(await start());
+    planned = async () =>
+      JSON.stringify({ kind: 'scroll', x: 500, y: 500, direction: 'down', sensitive: false });
+    const confirmsAfter = async (steps: number) =>
+      reply(
+        await ask(
+          chat,
+          Array.from({ length: steps }, (_, n) => `Paso ${n + 1}`),
+        ),
+      ).confirm;
+
+    expect(await confirmsAfter(3)).toBe(false);
+    expect(await confirmsAfter(4)).toBe(true);
+    expect(await confirmsAfter(5)).toBe(false);
+    expect(await confirmsAfter(9)).toBe(true);
   });
 
   it('ends a task in words, with no action, and that end is a recent turn', async () => {
