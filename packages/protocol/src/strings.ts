@@ -188,6 +188,9 @@ export const strings = {
   routedComputer: () => 'Me pongo con ello en tu ordenador.',
   routedConnect: () => 'Lo miro en tus conexiones.',
   routeInApp: () => 'Eso solo puedo hacerlo desde la app de ANOMANDER en tu Mac.',
+  /** T17: a lookup on the internet with no connection that searches; never the computer. */
+  webSearchMissing: () =>
+    'Para buscar en internet necesito la conexión de búsqueda web. Añádela en Conexiones, en la app de ANOMANDER, y vuelve a pedírmelo.',
   /** `/mcp` with no task after it, in Telegram. */
   connectionUsage: () => 'Dime qué quieres que haga con tus conexiones: /mcp y la tarea.',
   connectionNone: () =>

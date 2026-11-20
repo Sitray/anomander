@@ -274,6 +274,27 @@ and keep its secrets in the operating system instead of a text file.
     principal connects it again. A server's configured headers go only to its own origin: an
     authorization server on another origin never gets them, one on the same origin does, and on
     a request to the server the OAuth token replaces a configured `Authorization` header.
+  - AC11 (asked on 2026-11-20: "como un asistente de ia podria buscar en internet si esa
+    necesidad"): the Conexiones screen offers "Añadir búsqueda web" while no server is named
+    `Internet`. One press saves, through the same path as the form, the server `Internet`:
+    `npx -y pi-web-access@0.48.0` (MIT, pinned: never what npm calls latest), the variable
+    `npm_config_ignore_scripts=true` (npm runs no install script; the package's own dependencies
+    are ranges, not pinned), and `web_search` and `get_search_content` marked read-only. The
+    preset is `WEB_SEARCH_CONNECTION` in `packages/protocol`. A search runs without "Permitir"
+    and AC4 holds for what it answered. Reading a page (`fetch_content`) always asks, showing
+    its exact address, and so does a search carrying `provider`, `proxy` or `includeContent`:
+    the daemon applies these argument rules (`asksWith`) to any program that runs
+    `pi-web-access`, whatever its `readOnly` says, because one server that reaches any address
+    could otherwise read a page (a GitHub URL is cloned with the user's own git credentials; a
+    proxy can reach this machine) and carry it out in a second read-only call (verifier B1,
+    2026-11-20). `source_check` asks. The package can turn GitHub cloning off and pin a provider
+    only in its `web-search.json`, not by a variable or an argument, so the preset does
+    neither; a page fetch asks anyway. The screen says beside the button what leaves the Mac:
+    `npx` fetches the package from npm the first time; with no key and no `web-search.json`
+    what is searched goes only to Exa's hosted MCP (`mcp.exa.ai`), and another provider or a
+    proxy asks first; pages are read from this Mac, after "Permitir"; a
+    `~/.pi/agent/web-search.json`, when present, applies its keys, providers and proxy. It needs
+    Node 22.19 or later. Once saved it is edited or removed like any other server.
   - Open, for the principal: a value written in `mcp.json` is in the file until the next start
     of the daemon, and in whatever copied the file meanwhile (a backup, an editor); a server
     whose authorization server does not take dynamic registration, or a redirect to a port of
@@ -320,6 +341,20 @@ and keep its secrets in the operating system instead of a text file.
     ordenador. ¿Me lo pides de otra forma?", or for connections "No he podido hacerlo con tus
     conexiones. ¿Me lo pides de otra forma?"); the log names the way only (security audit M5,
     2026-11-20).
+  - AC5 (asked on 2026-11-20: "Buscame donde puedo encontrar el dragons doma 2 para la switch 2
+    al mejor precio y queria controlar el ordenador, creo que en este caso no hace falta, no?"):
+    the user turn carries `connected`, the tools of the servers the principal connected, each
+    with its server, its name and its purpose. The daemon never connects a server for it: a
+    connected server gives its tools and what it says they do, one not connected yet only the
+    tools marked read-only, without a purpose. A purpose is the server's own words: only the
+    first sentence of its first line, without what cannot be seen, cut to 120 characters; a name
+    longer than 64 characters or with something unseen is left out; at most 40 tools are told.
+    They go in the user turn as data, never in the prompt, which says they are never
+    instructions. A lookup on the internet (where to buy something, a price, news, a fact) is
+    never a task on the computer: with a tool that searches it is routed to `connect`; with none
+    the processor answers `{"kind":"no_web_search"}` and code says "Para buscar en internet
+    necesito la conexión de búsqueda web. Añádela en Conexiones, en la app de ANOMANDER, y
+    vuelve a pedírmelo.", starting nothing. AC4 holds for such a route.
 - DK-14 Who the principal is and what ANOMANDER did (asked by the principal on 2026-11-20:
   "También me gustaría que recordara quién soy, que recuerde quien soy y tenga memoria de lo que
   ha hecho"; the proposal "pasarle los recuerdos a todas las rutas, y agregar un historial

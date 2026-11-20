@@ -237,6 +237,13 @@ export const strings = {
     servers: 'Servidores',
     none: 'Todavía no hay ninguno.',
     add: 'Añadir servidor',
+    /** T17: the web search connection, added in one step. */
+    addWebSearch: 'Añadir búsqueda web',
+    addingWebSearch: 'Añadiendo…',
+    webSearchNote:
+      'La búsqueda web añade pi-web-access, que se descarga de npm la primera vez. Lo que ANOMANDER busca se envía a Exa (exa.ai), sin cuenta, y busca sin pedirte permiso; para usar otro buscador o un proxy te lo pide antes. Las páginas se leen desde este Mac, siempre después de «Permitir». Si tienes ~/.pi/agent/web-search.json, se usan sus claves, buscadores y proxy.',
+    /** The shell refused; its own message follows, verbatim. */
+    webSearchRejected: 'No se ha añadido la búsqueda web. Esto dice la aplicación:',
     edit: 'Editar',
     editServer: (name: string) => `Editar ${name}`,
     remove: 'Quitar',

@@ -30,6 +30,7 @@ The Mac app:
 | A look at the screen | Captures the screen and answers about it. The capture is never stored | DK-9 |
 | Tasks on the computer | One step at a time, at most 12. A routine step runs; a step of care (Enter, Space, Spotlight, the app switcher, a click on a send, pay or delete control, every fifth step) waits for "Permitir" | DK-10 |
 | Connections | MCP servers from `mcp.json` or the Conexiones screen, with OAuth for servers reached by URL. A tool marked read-only runs; any other call waits for "Permitir" | DK-11 |
+| Web search | "Añadir búsqueda web" in Conexiones adds `pi-web-access` (pinned). "Búscame dónde comprar…" then searches the web instead of using the computer; with no key, searches go to Exa. Reading a page asks first | DK-11 AC11, DK-13 AC5 |
 | Memories and history | Looks and computer tasks know what you told it about yourself. A local history of what it did answers "¿qué hiciste ayer?" and is erased on request | DK-14 |
 | Subscription login | Connect ChatGPT or Kimi Code from the Suscripciones screen | DK-15 |
 | A ledger from Docker | Imports a ledger copied out of a Docker install into the app's empty one | DK-12 |
@@ -38,7 +39,6 @@ Not built yet:
 
 - A signed app other people can download. Today you build it yourself from this repository.
 - Reminders and summaries in the Mac app without Telegram: they wait until a bot is set up.
-- Web search. A question about the web may be sent to the computer instead.
 - One-click connectors (Google Calendar, Drive and others). Today a server is added by hand.
 
 ## Vision

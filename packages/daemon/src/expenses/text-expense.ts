@@ -28,7 +28,12 @@ import { CAPABILITIES } from '../capabilities/registry.ts';
 import type { RecentTurn } from '../conversation/recent-turns.ts';
 import { type PatternOffers, thenOfferPattern } from '../patterns/pattern-offers.ts';
 import { checkedPhrasing, type ReplyPhraser } from '../processor/reply-phraser.ts';
-import type { Logger, MemoryFact, TextInterpreter } from '../processor/text-interpreter.ts';
+import type {
+  ConnectedTool,
+  Logger,
+  MemoryFact,
+  TextInterpreter,
+} from '../processor/text-interpreter.ts';
 import {
   openCreateCategoryDecision,
   openForgetHistoryDecision,
@@ -70,6 +75,8 @@ export interface TextExpenseDeps {
   capabilities?: readonly Capability[];
   /** The ways the message's front door can carry out a request (DK-13 AC1); none when absent. */
   routes?: (message: PrincipalText) => readonly RouteKind[];
+  /** The tools of the connected servers (T17), without connecting one; none when absent. */
+  connected?: () => Promise<readonly ConnectedTool[]>;
 }
 
 /** DK-13 AC2: what a routed request announces, in code. */
@@ -90,6 +97,7 @@ export const createTextExpenseHandler = (deps: TextExpenseDeps): TextHandler => 
   const recent = deps.recent ?? (() => []);
   const capabilities = deps.capabilities ?? CAPABILITIES;
   const routes = deps.routes ?? (() => []);
+  const connected = deps.connected ?? (async () => []);
   const env: CapabilityEnv = { db, timeZone, now, logger };
 
   return async (message) => {
@@ -131,6 +139,7 @@ export const createTextExpenseHandler = (deps: TextExpenseDeps): TextHandler => 
       memories: memoriesForPrompt(db, message.text),
       capabilities: capabilityContext(capabilities, env),
       routes: routes(message),
+      connected: await connected(),
       // DK-14 AC3: what ANOMANDER did lately, bounded by code.
       history: historyForPrompt(db, timeZone, now()),
     });
@@ -163,6 +172,8 @@ export const createTextExpenseHandler = (deps: TextExpenseDeps): TextHandler => 
     }
     // DK-13 AC1: a look or a task on the computer asked where it cannot be done.
     if (interpretation.kind === 'route_elsewhere') return { text: strings.routeInApp() };
+    // T17: a lookup on the internet never goes to the computer; code says how to add a search.
+    if (interpretation.kind === 'no_web_search') return { text: strings.webSearchMissing() };
     // R-24 AC3: a validated capability call is carried out by its capability's handler.
     if (interpretation.kind === 'capability') return interpretation.call.carryOut(message, env);
     // R-16: open conversation gets its reply; only its lasting facts are persisted.

@@ -3,6 +3,7 @@ import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
+import { WEB_SEARCH_CONNECTION } from '@anomander/protocol';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
@@ -206,6 +207,49 @@ describe('DK-11: the connections, made when a task first needs them', () => {
     expect(opened).toEqual(['notes', 'down', 'down']);
     expect(connections.unreachable()).toEqual([]);
     expect([...((await connections.get())[0]?.readOnly ?? [])]).toEqual(['search']);
+    await connections.close();
+  });
+
+  it('says what each server offers without connecting one: its read-only tools until it is connected, then its tools (T17)', async () => {
+    const opened: string[] = [];
+    const connections = createConnections({
+      config,
+      logger: logger(),
+      open: async (name) => {
+        opened.push(name);
+        if (name === 'down') throw new Error('ECONNREFUSED');
+        return (await serve()).transport;
+      },
+    });
+
+    expect(connections.known()).toEqual([{ server: 'notes', tool: 'search', purpose: '' }]);
+    expect(opened).toEqual([]);
+
+    await connections.get();
+    expect(connections.known()).toEqual([
+      { server: 'notes', tool: 'search', purpose: 'Searches the notes' },
+      { server: 'notes', tool: 'broken', purpose: 'Fails' },
+      { server: 'notes', tool: 'picture', purpose: 'A picture' },
+    ]);
+    await connections.close();
+  });
+
+  it('gives a server running pi-web-access the arguments that make its calls ask, and no other (T17)', async () => {
+    const connections = createConnections({
+      config: parseConnectionsConfig({
+        mcpServers: {
+          web: { command: 'npx', args: ['-y', 'pi-web-access@0.48.0'], readOnly: ['search'] },
+          notes: { command: 'notes-server', readOnly: ['search'] },
+        },
+      }),
+      logger: logger(),
+      open: async () => (await serve()).transport,
+    });
+
+    const [web, notes] = await connections.get();
+
+    expect(web?.asksWith).toEqual(WEB_SEARCH_CONNECTION.asksWith);
+    expect(notes?.asksWith).toEqual({});
     await connections.close();
   });
 

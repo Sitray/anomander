@@ -438,6 +438,14 @@ export const startAnomander = <M>(config: Config, deps: AnomanderDeps<M>): Anoma
       recent: turns.recent,
       patterns,
       routes: (message) => ROUTES[doorOf(message.channelRef)],
+      // T17: what the connected servers can do, so a search on the web goes to them and not to
+      // the computer. Never connects a server: one not connected yet offers its read-only tools.
+      connected: async () =>
+        deps.connections === undefined
+          ? (servers?.known() ?? [])
+          : (await deps.connections()).flatMap(({ name, tools }) =>
+              tools.map((tool) => ({ server: name, tool: tool.name, purpose: tool.description })),
+            ),
     }),
     now,
   });

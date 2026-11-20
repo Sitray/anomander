@@ -21,5 +21,10 @@ export interface Connection {
   tools: readonly ToolInfo[];
   /** The tools the principal marked as only reading: the only ones that may run unasked. */
   readOnly: ReadonlySet<string>;
+  /**
+   * By tool, the arguments that make a call ask even when the tool is read-only (T17); none when
+   * absent. A call carrying any of them, whatever its value, waits for "Permitir".
+   */
+  asksWith?: Readonly<Record<string, readonly string[]>>;
   call(tool: string, args: Record<string, unknown>): Promise<ToolResult>;
 }

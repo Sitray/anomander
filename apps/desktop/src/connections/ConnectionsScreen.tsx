@@ -4,6 +4,7 @@
 // A value (of a variable or a header) is typed into an uncontrolled field and kept in a ref, so
 // it never enters React state or a DOM attribute, and it is dropped once saved. The shell never
 // sends one back: of what is stored the screen only has the names.
+import { WEB_SEARCH_CONNECTION } from '@anomander/protocol';
 import { type FormEvent, useEffect, useId, useRef, useState } from 'react';
 import { Field } from '../setup/SetupScreen.tsx';
 import type { ConnectionInput, ConnectionServer, ConnectionsView, OAuthConnect } from '../shell.ts';
@@ -422,6 +423,9 @@ export function ConnectionsScreen({
   const [removing, setRemoving] = useState(false);
   const [rejection, setRejection] = useState<string | null>(null);
   const [oauth, setOAuth] = useState<OAuthNote | null>(null);
+  /** T17: the web search connection being added, and what the shell said when it refused. */
+  const [addingWebSearch, setAddingWebSearch] = useState(false);
+  const [webSearchRejection, setWebSearchRejection] = useState<string | null>(null);
   const heading = useRef<HTMLHeadingElement>(null);
   const question = useId();
 
@@ -482,12 +486,39 @@ export function ConnectionsScreen({
 
   const changeable = view !== null && view.invalid === null;
   /** One OAuth connection or forgetting at a time, and nothing else meanwhile. */
-  const busy = removing || oauth?.kind === 'authorizing' || oauth?.kind === 'forgetting';
+  const busy =
+    removing || addingWebSearch || oauth?.kind === 'authorizing' || oauth?.kind === 'forgetting';
   /**
    * The screen can be left while the browser waits: the shell keeps what it brings. Not while
    * a change of the file or the Keychain is halfway.
    */
-  const held = removing || oauth?.kind === 'forgetting';
+  const held = removing || addingWebSearch || oauth?.kind === 'forgetting';
+  /** T17: offered until a server has its name; it is then edited or removed like any other. */
+  const offersWebSearch =
+    changeable && !view.servers.some((server) => server.name === WEB_SEARCH_CONNECTION.name);
+
+  const addWebSearch = async () => {
+    if (busy) return;
+    const { name, command, args, env, readOnly } = WEB_SEARCH_CONNECTION;
+    setRejection(null);
+    setWebSearchRejection(null);
+    setAddingWebSearch(true);
+    try {
+      setView(
+        await onSave({
+          name,
+          kind: 'process',
+          command,
+          args: [...args],
+          values: Object.entries(env).map(([valueName, value]) => ({ name: valueName, value })),
+          readOnly: [...readOnly],
+        }),
+      );
+    } catch (error) {
+      setWebSearchRejection(messageOf(error));
+    }
+    setAddingWebSearch(false);
+  };
 
   const connect = async (name: string) => {
     if (onConnectOAuth === undefined || busy) return;
@@ -673,6 +704,11 @@ export function ConnectionsScreen({
             </ul>
           )}
         </div>
+        {offersWebSearch && (
+          <p className="field-note" id={`${question}-web`}>
+            {text.webSearchNote}
+          </p>
+        )}
       </div>
 
       <footer className="setup-footer">
@@ -699,10 +735,27 @@ export function ConnectionsScreen({
             <ErrorBlock label={strings.status.errorDetail}>{rejection}</ErrorBlock>
           </div>
         )}
+        {webSearchRejection !== null && (
+          <div className="setup-alert" role="alert">
+            <p>{text.webSearchRejected}</p>
+            <ErrorBlock label={strings.status.errorDetail}>{webSearchRejection}</ErrorBlock>
+          </div>
+        )}
         <div className="setup-actions">
           <button type="button" className="button" disabled={held} onClick={onClose}>
             {text.close}
           </button>
+          {offersWebSearch && (
+            <button
+              type="button"
+              className="button"
+              aria-describedby={`${question}-web`}
+              disabled={busy}
+              onClick={addWebSearch}
+            >
+              {addingWebSearch ? text.addingWebSearch : text.addWebSearch}
+            </button>
+          )}
           {changeable && (
             <button
               type="button"
