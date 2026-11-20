@@ -114,8 +114,9 @@ impl Session {
         Ok(Turn(self))
     }
 
-    /// Writes what the principal pasted as the one line the script waits for. Refused when no
-    /// login waits, or when the text could be more than one line.
+    /// Writes what the principal pasted as the one line the script waits for, once (DK-15 AC2):
+    /// the pipe is let go of after it. Refused when no login waits, or when the text could be
+    /// more than one line.
     pub fn answer(&self, text: &str) -> Result<(), String> {
         let text = text.trim();
         if text.is_empty() || text.chars().count() > LONGEST_ANSWER {
@@ -124,8 +125,7 @@ impl Session {
         if text.chars().any(char::is_control) {
             return Err("the answer holds a control character".into());
         }
-        let mut stdin = lock(&self.stdin);
-        let Some(pipe) = stdin.as_mut() else {
+        let Some(mut pipe) = lock(&self.stdin).take() else {
             return Err("no login is waiting for an answer".into());
         };
         pipe.write_all(format!("{text}\n").as_bytes())
@@ -300,7 +300,8 @@ pub fn run(
             } else if let Some(json) = line.strip_prefix(DONE_LINE) {
                 match serde_json::from_str(json) {
                     Ok(Value::Object(found))
-                        if found.contains_key(provider_id) && found.values().all(is_credential) =>
+                        if found.len() == 1
+                            && found.get(provider_id).is_some_and(is_credential) =>
                     {
                         credential = Some(found)
                     }
@@ -592,6 +593,8 @@ fi"#
             r#"{"other":{"type":"oauth"}}"#,
             r#"{"openai":{"note":"no type"}}"#,
             r#"{"openai":{"type":"oauth"},"other":"text"}"#,
+            // One account per login: another one could overwrite a stored login.
+            r#"{"openai":{"type":"oauth"},"anthropic":{"type":"oauth"}}"#,
         ] {
             let ran = run_fake(
                 &format!("echo 'anomander login-done {json}'\necho connected"),
@@ -796,5 +799,40 @@ fi"#
         assert!(std::fs::read_dir(dir.path())
             .map(|d| d.count() == 0)
             .unwrap_or(false));
+    }
+
+    #[test]
+    fn the_answer_is_written_once() -> Result<(), String> {
+        let fake = Fake::new();
+        let session = Arc::new(Session::default());
+        let answering = std::thread::spawn({
+            let session = Arc::clone(&session);
+            move || {
+                let started = Instant::now();
+                while lock(&session.stdin).is_none() {
+                    if started.elapsed() > Duration::from_secs(4) {
+                        return Err("never ran".to_string());
+                    }
+                    std::thread::sleep(Duration::from_millis(30));
+                }
+                session.answer("http://localhost:1455/auth/callback?code=c&state=s")?;
+                match session.answer("second") {
+                    Err(error) if error == "no login is waiting for an answer" => Ok(()),
+                    other => Err(format!("a second answer was taken: {other:?}")),
+                }
+            }
+        });
+        let ran = run_fake(
+            "echo 'anomander login-prompt'\nread -r a\nsleep 1\necho cancelled",
+            &fake,
+            &session,
+            "openai",
+        )?;
+        assert_eq!(
+            answering.join().unwrap_or_else(|_| Err("panicked".into())),
+            Ok(())
+        );
+        assert_eq!(ran.outcome.outcome, "cancelled");
+        Ok(())
     }
 }
