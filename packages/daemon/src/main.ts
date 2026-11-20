@@ -9,19 +9,24 @@ import { startAnomander, startSetupGuide } from './app.ts';
 import { createDeviceId } from './auth/device-id.ts';
 import { credentialStoreFor } from './auth/shell-credential-store.ts';
 import { loadConfig } from './config.ts';
+import { createScrubbingLogger } from './scrubbing-logger.ts';
 import { createConnectionGaps, resolveModels } from './setup/setup-guide.ts';
 import { DaemonAlreadyRunningError } from './store/daemon-lock.ts';
 import { stopsWithParent, stopWhenParentGoes } from './supervised.ts';
 
+// Security audit M3: nothing the daemon writes holds a secret of its configuration.
+let secrets: readonly string[] = [];
+const log = createScrubbingLogger(console, () => secrets);
+
 // The exit code tells whoever started the daemon why it stopped (`exitCodes`).
 const fail = (message: string, code: ExitCode = exitCodes.failed): never => {
-  console.error(`anomander daemon failed: ${message}`);
+  log.error(`anomander daemon failed: ${message}`);
   process.exit(code);
 };
 
 const reason = (error: unknown) => (error instanceof Error ? error.message : String(error));
 
-console.info('anomander daemon starting');
+log.info('anomander daemon starting');
 
 const config = (() => {
   try {
@@ -30,6 +35,7 @@ const config = (() => {
     return fail(reason(error));
   }
 })();
+secrets = [config.telegramBotToken, config.apiToken ?? '', config.localToken ?? ''];
 
 // DK-5 AC1: the login the desktop app keeps in the Keychain, or the file of a Docker install.
 const credentials = (() => {
@@ -52,17 +58,20 @@ const login = {
 
 const anomander = (() => {
   try {
-    if (!resolved.ready) return startSetupGuide(config, { gaps: resolved.gaps, login });
+    if (!resolved.ready) {
+      return startSetupGuide(config, { gaps: resolved.gaps, login, logger: log });
+    }
     return startAnomander(config, {
       complete: (target, context, signal) =>
         models.complete(target, context, signal === undefined ? {} : { signal }),
       model: resolved.model,
       visionModel: resolved.visionModel,
       login,
+      logger: log,
       setupGaps: createConnectionGaps({
         providerIds: resolved.providerIds,
         checkAuth: (providerId) => models.checkAuth(providerId),
-        logger: console,
+        logger: log,
       }),
     });
   } catch (error) {
@@ -75,7 +84,7 @@ const anomander = (() => {
 })();
 
 anomander.started.then(
-  () => console.info('anomander is listening on Telegram'),
+  () => log.info('anomander is listening on Telegram'),
   // Reported below, through `polling`.
   () => {},
 );
@@ -88,12 +97,12 @@ anomander.polling.catch((error: unknown) =>
 );
 // RA-2: logs the address only, never the token (AC2).
 anomander.readApi?.then(
-  ({ host, port }) => console.info(`anomander read API listening on ${host}:${port}`),
+  ({ host, port }) => log.info(`anomander read API listening on ${host}:${port}`),
   (error) => fail(`read API could not listen: ${reason(error)}`),
 );
 // DK-3: logs the address only, never the token (AC2).
 anomander.localChannel?.then(
-  ({ host, port }) => console.info(`anomander local channel listening on ${host}:${port}`),
+  ({ host, port }) => log.info(`anomander local channel listening on ${host}:${port}`),
   (error) => fail(`local channel could not listen: ${reason(error)}`),
 );
 
@@ -101,9 +110,9 @@ let stopping = false;
 const stop = (cause: string): void => {
   if (stopping) return;
   stopping = true;
-  console.info(`anomander daemon stopping (${cause})`);
+  log.info(`anomander daemon stopping (${cause})`);
   anomander.stop().then(
-    () => console.info('anomander daemon stopped'),
+    () => log.info('anomander daemon stopped'),
     (error) => fail(`could not stop cleanly: ${reason(error)}`),
   );
 };
