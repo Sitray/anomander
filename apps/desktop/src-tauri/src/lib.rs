@@ -685,7 +685,8 @@ pub fn run() {
         ])
         .setup(set_up)
         .on_window_event(|window, event| {
-            // Closing the window only hides it: the app lives in the menu bar (DK-6).
+            // Closing the window only hides it: the app lives in the menu bar, or in Windows's
+            // notification area (DK-6).
             if let WindowEvent::CloseRequested { api, .. } = event {
                 if window.label() == MAIN_WINDOW {
                     api.prevent_close();
@@ -710,7 +711,8 @@ pub fn run() {
         } => api.prevent_exit(),
         // A quit from the menu bar or Cmd-Q.
         RunEvent::ExitRequested { .. } | RunEvent::Exit => quit(app),
-        // A click on the Dock icon brings the chat back.
+        // A click on the Dock icon brings the chat back. Windows has no Dock: there a click on
+        // the icon in the notification area does it (`tray::opens_the_chat`).
         #[cfg(target_os = "macos")]
         RunEvent::Reopen { .. } => show_chat(app),
         _ => {}

@@ -20,7 +20,7 @@ and keep its secrets in the operating system instead of a text file.
 
 - DK-G1. Opening the app starts ANOMANDER; quitting it stops ANOMANDER.
 - DK-G2. Talk to ANOMANDER in the app, with the same rules and answers as in Telegram.
-- DK-G3. Secrets live in the macOS Keychain, never in a file.
+- DK-G3. Secrets live in the macOS Keychain (on Windows, the Credential Manager), never in a file.
 - DK-G4. Keep the daemon's guarantees: one ledger, the authority check in code (§8.1), no
   public port.
 
@@ -30,7 +30,10 @@ and keep its secrets in the operating system instead of a text file.
   so is acting on the computer one allowed step at a time (DK-10).
 - A task ANOMANDER performs alone from start to end whatever it does: steps of care are always
   asked (decision 7), and so is every call to a connected server that is not read-only (DK-11).
-- Windows and Linux. v1 is macOS, where the Keychain and the menu bar live (assumption).
+- Linux. v1 is macOS, where the Keychain and the menu bar live (assumption). Windows runs the
+  app from source too (README, "Run the app on Windows"): the chat, setup, connections, login,
+  Telegram, the tray and the drop; a look at the screen (DK-9) and tasks on the computer (DK-10)
+  are macOS-only for now.
 - Automatic updates, code signing and notarization. v1 is built and installed by the principal
   (assumption).
 - Running ANOMANDER while the app is closed. That is what Docker is for (decision 2).

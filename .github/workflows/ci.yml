@@ -93,6 +93,33 @@ jobs:
         working-directory: apps/desktop
         run: pnpm tauri build --debug --ci
 
+  # Smoke build of the Windows app: a debug, unsigned NSIS installer, not uploaded. Like the Mac
+  # job, it proves the frontend build and the bundled shell compile, with the Windows icon, not
+  # that the installer is distributable.
+  tauri-build-windows:
+    runs-on: windows-latest
+    timeout-minutes: 40
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: apps/desktop/src-tauri -> target
+
+      - name: tauri build (debug, unsigned NSIS installer)
+        working-directory: apps/desktop
+        run: pnpm tauri build --debug --ci --bundles nsis
+
   # The daemon's container image (Dockerfile, used by compose.yaml) still builds. Nothing is pushed.
   docker:
     runs-on: ubuntu-latest

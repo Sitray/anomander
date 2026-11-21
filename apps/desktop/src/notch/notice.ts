@@ -6,10 +6,15 @@
 /** `Say` of `notch.rs`. */
 export type Say = 'nothing' | 'done';
 
-/** `State` of `notch.rs`: `bar` is the menu bar's height the pill covers, 0 when it hangs under it. */
+/**
+ * `State` of `notch.rs`: `bar` is the menu bar's height the pill covers, 0 when it hangs under it;
+ * `floating` is a screen with no notch or menu bar to hang from (Windows), where the pill floats
+ * just below the top edge, rounded all round.
+ */
 export interface NoticeState {
   say: Say;
   bar: number;
+  floating: boolean;
 }
 
 /**
@@ -36,7 +41,7 @@ const MARK = `<svg class="mark" viewBox="0 0 16 16" width="14" height="14" role=
  * takes no focus, so a click is the only input it ever gets.
  */
 export function mountNotice(root: HTMLElement, onOpen: () => void): Notice {
-  root.innerHTML = `<button class="pill" type="button" data-up="false" aria-label="${noticeText.open}" style="--bar: 0px">
+  root.innerHTML = `<button class="pill" type="button" data-up="false" data-floating="false" aria-label="${noticeText.open}" style="--bar: 0px">
   <span class="pill-body">
     ${MARK}
     <span class="label" role="status" aria-live="polite"></span>
@@ -48,8 +53,9 @@ export function mountNotice(root: HTMLElement, onOpen: () => void): Notice {
   pill.addEventListener('click', onOpen);
 
   return {
-    show({ say, bar }) {
+    show({ say, bar, floating }) {
       pill.style.setProperty('--bar', `${bar}px`);
+      pill.dataset.floating = String(floating);
       if (say === 'nothing') {
         // The words stay while the pill retracts: it leaves saying what it said.
         pill.dataset.up = 'false';

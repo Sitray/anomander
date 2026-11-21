@@ -2,14 +2,15 @@
 // menu opens the chat, starts or stops ANOMANDER, and quits (AC2), and copies a diagnostic report
 // (AC4). While the chat waits for an answer, or a task on the computer goes by itself (DK-10),
 // the icon also shows that ANOMANDER is working. The texts are read by the principal, so they are
-// Spanish (es-ES); the icon is drawn here, as a template image.
+// Spanish (es-ES); the icon is drawn here: a template image in macOS's menu bar, and a light mark
+// with a dark rim in Windows's notification area.
 use std::f32::consts::TAU;
 use std::sync::atomic::{AtomicU8, Ordering};
-use std::sync::{Condvar, Mutex, OnceLock, PoisonError};
+use std::sync::{Arc, Condvar, Mutex, OnceLock, PoisonError};
 use std::time::Duration;
 use tauri::image::Image;
 use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
-use tauri::tray::TrayIconBuilder;
+use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 
 use tauri::{App, AppHandle, Manager, Wry};
 
@@ -22,6 +23,37 @@ pub const STOP_TASK: &str = "stop-task";
 /// DK-6 AC4: copies the diagnostic report to the clipboard.
 pub const COPY_DIAGNOSTICS: &str = "copy-diagnostics";
 pub const QUIT: &str = "quit";
+
+/// Where the icon sits. macOS's menu bar takes a template image, which it tints for a light or a
+/// dark bar, and opens the menu on a click. Windows's notification area takes a square icon in
+/// colour over a taskbar that may be light or dark; a click there opens the app, and the menu is
+/// on the right button.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Tray {
+    MenuBar,
+    Taskbar,
+}
+
+/// The tray of this build.
+pub const HERE: Tray = if cfg!(target_os = "macos") {
+    Tray::MenuBar
+} else {
+    Tray::Taskbar
+};
+
+/// Whether a click on the icon opens the chat: on the taskbar a left click does, as Windows apps
+/// do; in the menu bar a click opens the menu instead.
+pub fn opens_the_chat(tray: Tray, event: &TrayIconEvent) -> bool {
+    tray == Tray::Taskbar
+        && matches!(
+            event,
+            TrayIconEvent::Click {
+                button: MouseButton::Left,
+                button_state: MouseButtonState::Up,
+                ..
+            }
+        )
+}
 
 /// The texts of the menu for one status.
 #[derive(Debug, PartialEq, Eq)]
@@ -154,7 +186,9 @@ pub fn build(
         true,
         None::<&str>,
     )?;
-    let quit = MenuItem::with_id(app, QUIT, "Salir de ANOMANDER", true, Some("Cmd+Q"))?;
+    // Cmd-Q quits a Mac app; a menu of the notification area has no shortcut of its own.
+    let shortcut = (HERE == Tray::MenuBar).then_some("Cmd+Q");
+    let quit = MenuItem::with_id(app, QUIT, "Salir de ANOMANDER", true, shortcut)?;
     let separator = PredefinedMenuItem::separator(app)?;
     let menu = Menu::with_items(
         app,
@@ -169,13 +203,20 @@ pub fn build(
             &quit,
         ],
     )?;
+    let on_menu = Arc::new(on_menu);
+    let on_click = Arc::clone(&on_menu);
     TrayIconBuilder::with_id(TRAY_ID)
         .icon(icon(view.look(), 0))
-        .icon_as_template(true)
+        .icon_as_template(HERE == Tray::MenuBar)
         .tooltip(texts.status)
         .menu(&menu)
-        .show_menu_on_left_click(true)
+        .show_menu_on_left_click(HERE == Tray::MenuBar)
         .on_menu_event(move |app, event| on_menu(app, event.id().as_ref()))
+        .on_tray_icon_event(move |tray, event| {
+            if opens_the_chat(HERE, &event) {
+                on_click(tray.app_handle(), OPEN_CHAT);
+            }
+        })
         .build(app)?;
     app.manage(TrayMenu {
         status,
@@ -255,9 +296,10 @@ fn step(app: &AppHandle, menu: &TrayMenu) -> bool {
     true
 }
 
-/// Whether the principal asked macOS to reduce motion (System Settings › Accessibility ›
-/// Display). Read from the preference once per spell of work, off the main thread; a sandboxed
-/// or non-macOS build reads nothing and moves.
+/// Whether the principal asked the system to reduce motion: on macOS, System Settings ›
+/// Accessibility › Display; on Windows, Settings › Accessibility › Visual effects › Animation
+/// effects off. Read once per spell of work, off the main thread; a sandboxed build, or another
+/// system, reads nothing and moves.
 fn reduce_motion() -> bool {
     #[cfg(target_os = "macos")]
     {
@@ -268,7 +310,20 @@ fn reduce_motion() -> bool {
                 output.status.success() && String::from_utf8_lossy(&output.stdout).trim() == "1"
             })
     }
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(windows)]
+    {
+        use windows_sys::Win32::UI::WindowsAndMessaging::{
+            SystemParametersInfoW, SPI_GETCLIENTAREAANIMATION,
+        };
+        let mut animate: i32 = 1;
+        // SAFETY: SPI_GETCLIENTAREAANIMATION writes one BOOL through the pointer, which points at
+        // a live i32 (a BOOL) for the length of the call.
+        let read = unsafe {
+            SystemParametersInfoW(SPI_GETCLIENTAREAANIMATION, 0, (&raw mut animate).cast(), 0)
+        };
+        read != 0 && animate == 0
+    }
+    #[cfg(not(any(target_os = "macos", windows)))]
     {
         false
     }
@@ -278,7 +333,9 @@ fn draw(app: &AppHandle, look: Look, frame: u8) {
     let Some(tray) = app.tray_by_id(TRAY_ID) else {
         return;
     };
-    if let Err(error) = tray.set_icon_with_as_template(Some(icon(look, frame)), true) {
+    if let Err(error) =
+        tray.set_icon_with_as_template(Some(icon(look, frame)), HERE == Tray::MenuBar)
+    {
         eprintln!("could not update the menu bar icon: {error}");
     }
 }
@@ -340,21 +397,24 @@ fn show(app: &AppHandle, menu: &TrayMenu, view: &View) {
     }
 }
 
-/// 18 points at 2x, the menu bar's height.
+/// 18 points at 2x, the menu bar's height; Windows scales it to its own 16 pixels, or more on a
+/// denser screen.
 const SIZE: u32 = 36;
 /// Supersampling per axis, for smooth edges.
 const SAMPLES: u32 = 4;
 /// How a mark that is not running is dimmed, as macOS dims an inactive menu bar item.
 const DIMMED: f32 = 0.42;
 
-/// A template image: black, with the shape in the alpha channel, so macOS tints it for the light
-/// and dark menu bars. The mark is always ANOMANDER's "A", so the icon is recognised whatever the
+/// In the menu bar, a template image: black, with the shape in the alpha channel, so macOS tints
+/// it for the light and dark menu bars. On the taskbar, the same shape drawn light with a dark
+/// rim, so it reads on a light taskbar and on a dark one. The mark is always ANOMANDER's "A", so the icon is recognised whatever the
 /// state; the state is how it is drawn (DK-6 AC1):
 /// - running: the solid mark;
 /// - stopped: the mark dimmed;
 /// - starting: the mark dimmed, with a small ring that says something is on its way;
 /// - working: the solid mark and, beside it, three dots that rise and brighten one after another
-///   in a wave, as a chat shows the other side typing; `frame` is the moment of the turn;
+///   in a wave, as a chat shows the other side typing; `frame` is the moment of the turn. The
+///   taskbar's icon is square, so there the dots take the badge's corner;
 /// - failing: the solid mark with an exclamation badge.
 ///
 /// `SIZE` is 18 points at 2x: the tray scales the image to the menu bar's 18 points, so it is
@@ -362,9 +422,9 @@ const DIMMED: f32 = 0.42;
 pub fn icon(look: Look, frame: u8) -> Image<'static> {
     if look == Look::Working {
         let rgba: &'static [u8] = &working_frames()[usize::from(frame % FRAMES)];
-        return Image::new(rgba, width(look), SIZE);
+        return Image::new(rgba, width(HERE, look), SIZE);
     }
-    Image::new_owned(icon_rgba(look, frame), width(look), SIZE)
+    Image::new_owned(icon_rgba(HERE, look, frame), width(HERE, look), SIZE)
 }
 
 /// The frames of one turn of the working wave.
@@ -372,19 +432,47 @@ pub const FRAMES: u8 = 36;
 /// The room the dots take beside the mark.
 const DOTS_WIDTH: u32 = 30;
 
+/// Where the row of working dots goes, and how big they are.
+struct Row {
+    first: f32,
+    apart: f32,
+    line: f32,
+    rise: f32,
+    radius: f32,
+}
+
+/// In the menu bar the dots sit beside the mark, in the room `DOTS_WIDTH` adds.
+const BESIDE: Row = Row {
+    first: 41.0,
+    apart: 9.0,
+    line: 23.0,
+    rise: 5.0,
+    radius: 3.0,
+};
+/// On the taskbar the icon is square: the dots take the corner a badge would, smaller.
+const IN_THE_CORNER: Row = Row {
+    first: 23.5,
+    apart: 5.0,
+    line: 10.5,
+    rise: 4.0,
+    radius: 2.0,
+};
+/// How far around the badge's centre the mark gives way to the dots in the corner.
+const CORNER_CLEARING: f32 = 9.0;
+
 /// Every frame of the working wave, drawn once: a frame is then a lookup, not a render.
 fn working_frames() -> &'static [Vec<u8>] {
     static FRAMES_RGBA: OnceLock<Vec<Vec<u8>>> = OnceLock::new();
     FRAMES_RGBA.get_or_init(|| {
         (0..FRAMES)
-            .map(|frame| icon_rgba(Look::Working, frame))
+            .map(|frame| icon_rgba(HERE, Look::Working, frame))
             .collect()
     })
 }
 
-/// The icon's width: the dots sit beside the mark, so the working icon is wider.
-fn width(look: Look) -> u32 {
-    if look == Look::Working {
+/// The icon's width: in the menu bar the dots sit beside the mark, so the working icon is wider.
+fn width(tray: Tray, look: Look) -> u32 {
+    if tray == Tray::MenuBar && look == Look::Working {
         SIZE + DOTS_WIDTH
     } else {
         SIZE
@@ -413,18 +501,16 @@ fn dot_pose(frame: u8, dot: u8) -> (f32, f32) {
     (lift, WAITING + (1.0 - WAITING) * lift)
 }
 
-/// How opaque the dots are at a point.
-fn dots(frame: u8, x: f32, y: f32) -> f32 {
-    const FIRST: f32 = 41.0;
-    const APART: f32 = 9.0;
-    const LINE: f32 = 23.0;
-    const RISE: f32 = 5.0;
-    const RADIUS: f32 = 3.0;
+/// How opaque the dots of `row` are at a point.
+fn dots(row: &Row, frame: u8, x: f32, y: f32) -> f32 {
     (0..3u8)
         .map(|dot| {
             let (lift, alpha) = dot_pose(frame, dot);
-            let (cx, cy) = (FIRST + APART * f32::from(dot), LINE - RISE * lift);
-            if (x - cx).hypot(y - cy) <= RADIUS {
+            let (cx, cy) = (
+                row.first + row.apart * f32::from(dot),
+                row.line - row.rise * lift,
+            );
+            if (x - cx).hypot(y - cy) <= row.radius {
                 alpha
             } else {
                 0.0
@@ -433,9 +519,9 @@ fn dots(frame: u8, x: f32, y: f32) -> f32 {
         .fold(0.0, f32::max)
 }
 
-fn icon_rgba(look: Look, frame: u8) -> Vec<u8> {
-    let width = width(look);
-    let mut rgba = Vec::with_capacity((width * SIZE * 4) as usize);
+fn icon_rgba(tray: Tray, look: Look, frame: u8) -> Vec<u8> {
+    let width = width(tray, look);
+    let mut shape = Vec::with_capacity((width * SIZE) as usize);
     for y in 0..SIZE {
         for x in 0..width {
             let mut total = 0.0;
@@ -443,11 +529,52 @@ fn icon_rgba(look: Look, frame: u8) -> Vec<u8> {
                 for sx in 0..SAMPLES {
                     let px = x as f32 + (sx as f32 + 0.5) / SAMPLES as f32;
                     let py = y as f32 + (sy as f32 + 0.5) / SAMPLES as f32;
-                    total += opacity(look, frame, px, py);
+                    total += opacity(tray, look, frame, px, py);
                 }
             }
-            let alpha = (total / (SAMPLES * SAMPLES) as f32 * 255.0).round() as u8;
-            rgba.extend_from_slice(&[0, 0, 0, alpha]);
+            shape.push((total / (SAMPLES * SAMPLES) as f32 * 255.0).round() as u8);
+        }
+    }
+    match tray {
+        Tray::MenuBar => shape.iter().flat_map(|alpha| [0, 0, 0, *alpha]).collect(),
+        Tray::Taskbar => rimmed(&shape, width),
+    }
+}
+
+/// How far the dark rim reaches around the shape, in pixels: about one pixel once Windows scales
+/// the icon to 16.
+const RIM: i32 = 2;
+
+/// The shape, given as one alpha per pixel, drawn white over a black rim: the white reads on a
+/// dark taskbar and the rim on a light one. The rim's strength at a pixel is the strongest shape
+/// within `RIM` of it, so a dimmed mark has a dimmed rim.
+fn rimmed(shape: &[u8], width: u32) -> Vec<u8> {
+    let (width, height) = (width as i32, SIZE as i32);
+    let at = |x: i32, y: i32| {
+        if (0..width).contains(&x) && (0..height).contains(&y) {
+            shape[(y * width + x) as usize]
+        } else {
+            0
+        }
+    };
+    let mut rgba = Vec::with_capacity(shape.len() * 4);
+    for y in 0..height {
+        for x in 0..width {
+            let mut rim = 0u8;
+            for dy in -RIM..=RIM {
+                for dx in -RIM..=RIM {
+                    if dx * dx + dy * dy <= RIM * RIM {
+                        rim = rim.max(at(x + dx, y + dy));
+                    }
+                }
+            }
+            let fill = f32::from(at(x, y)) / 255.0;
+            let rim = f32::from(rim) / 255.0;
+            // White over black: the colour is the fill's share of what covers the pixel.
+            let alpha = fill + rim * (1.0 - fill);
+            let light = if alpha > 0.0 { fill / alpha } else { 0.0 };
+            let channel = (light * 255.0).round() as u8;
+            rgba.extend_from_slice(&[channel, channel, channel, (alpha * 255.0).round() as u8]);
         }
     }
     rgba
@@ -476,7 +603,7 @@ fn in_mark(point: (f32, f32)) -> bool {
 }
 
 /// How opaque the icon is at a point, from 0 to 1.
-fn opacity(look: Look, frame: u8, x: f32, y: f32) -> f32 {
+fn opacity(tray: Tray, look: Look, frame: u8, x: f32, y: f32) -> f32 {
     // The badge sits in the corner the mark leaves empty, where a notification badge goes, with
     // a clear gap around it so it reads at 18 points and the mark stays whole.
     const BADGE: (f32, f32) = (29.0, 7.5);
@@ -495,7 +622,15 @@ fn opacity(look: Look, frame: u8, x: f32, y: f32) -> f32 {
     match look {
         Look::Running => mark(1.0),
         Look::Stopped => mark(DIMMED),
-        Look::Working => mark(1.0).max(dots(frame, x, y)),
+        Look::Working if tray == Tray::MenuBar => mark(1.0).max(dots(&BESIDE, frame, x, y)),
+        Look::Working => {
+            let dots = dots(&IN_THE_CORNER, frame, x, y);
+            if from_badge <= CORNER_CLEARING {
+                dots
+            } else {
+                mark(1.0).max(dots)
+            }
+        }
         Look::Starting => {
             if (BADGE_RADIUS - 2.3..=BADGE_RADIUS).contains(&from_badge) {
                 1.0
@@ -682,9 +817,15 @@ mod tests {
             Look::Starting,
             Look::Failing,
         ];
-        let icons: Vec<Vec<u8>> = looks.iter().map(|look| icon_rgba(*look, 0)).collect();
+        let icons: Vec<Vec<u8>> = looks
+            .iter()
+            .map(|look| icon_rgba(Tray::MenuBar, *look, 0))
+            .collect();
         for (index, rgba) in icons.iter().enumerate() {
-            assert_eq!(rgba.len(), (width(looks[index]) * SIZE * 4) as usize);
+            assert_eq!(
+                rgba.len(),
+                (width(Tray::MenuBar, looks[index]) * SIZE * 4) as usize
+            );
             // Template images: only the alpha channel carries the shape.
             assert!(rgba.chunks(4).all(|pixel| pixel[..3] == [0, 0, 0]));
             for other in &icons[index + 1..] {
@@ -695,12 +836,12 @@ mod tests {
 
     #[test]
     fn a_stopped_mark_is_dimmed_and_a_running_one_is_solid() {
-        assert_eq!(strongest(&icon_rgba(Look::Running, 0)), 255);
-        let dimmed = strongest(&icon_rgba(Look::Stopped, 0));
+        assert_eq!(strongest(&icon_rgba(Tray::MenuBar, Look::Running, 0)), 255);
+        let dimmed = strongest(&icon_rgba(Tray::MenuBar, Look::Stopped, 0));
         assert!((90..=120).contains(&dimmed), "dimmed alpha was {dimmed}");
         // The badges are solid even on a dimmed mark, so they are what the eye finds.
-        assert_eq!(strongest(&icon_rgba(Look::Starting, 0)), 255);
-        assert_eq!(strongest(&icon_rgba(Look::Failing, 0)), 255);
+        assert_eq!(strongest(&icon_rgba(Tray::MenuBar, Look::Starting, 0)), 255);
+        assert_eq!(strongest(&icon_rgba(Tray::MenuBar, Look::Failing, 0)), 255);
     }
 
     /// Fails unless the icon's outermost rows and columns are clear.
@@ -719,21 +860,32 @@ mod tests {
     #[test]
     fn the_mark_stays_inside_the_icon_with_a_clear_edge() {
         for look in [Look::Running, Look::Failing, Look::Starting, Look::Stopped] {
-            assert_clear_edge(&icon_rgba(look, 0), width(look));
+            assert_clear_edge(
+                &icon_rgba(Tray::MenuBar, look, 0),
+                width(Tray::MenuBar, look),
+            );
         }
     }
 
     #[test]
     fn every_frame_of_the_wave_is_a_template_image_of_the_working_size() {
-        let wide = width(Look::Working);
+        let wide = width(Tray::MenuBar, Look::Working);
+        for frame in 0..FRAMES {
+            let rgba = icon_rgba(Tray::MenuBar, Look::Working, frame);
+            assert_eq!(rgba.len(), (wide * SIZE * 4) as usize);
+            assert!(rgba.chunks(4).all(|pixel| pixel[..3] == [0, 0, 0]));
+            assert_clear_edge(&rgba, wide);
+        }
+    }
+
+    #[test]
+    fn the_icon_hands_out_the_cached_frames_of_this_tray() {
+        let wide = width(HERE, Look::Working);
         let frames = working_frames();
         assert_eq!(frames.len(), usize::from(FRAMES));
         for (index, rgba) in frames.iter().enumerate() {
-            assert_eq!(rgba.len(), (wide * SIZE * 4) as usize);
-            assert!(rgba.chunks(4).all(|pixel| pixel[..3] == [0, 0, 0]));
-            assert_clear_edge(rgba, wide);
             // The cache is the drawing, frame for frame.
-            assert_eq!(*rgba, icon_rgba(Look::Working, index as u8));
+            assert_eq!(*rgba, icon_rgba(HERE, Look::Working, index as u8));
         }
         // The icon hands out the cached frame, and turns over after the last.
         let image = icon(Look::Working, FRAMES + 2);
@@ -751,29 +903,35 @@ mod tests {
 
     #[test]
     fn working_keeps_the_mark_whole_and_puts_the_dots_beside_it() {
-        let wide = width(Look::Working);
+        let wide = width(Tray::MenuBar, Look::Working);
         assert!(wide > SIZE);
-        let running = icon_rgba(Look::Running, 0);
+        let running = icon_rgba(Tray::MenuBar, Look::Running, 0);
         for frame in 0..FRAMES {
-            let working = icon_rgba(Look::Working, frame);
+            let working = icon_rgba(Tray::MenuBar, Look::Working, frame);
             assert_eq!(
                 columns(&working, wide, 0, SIZE),
                 columns(&running, SIZE, 0, SIZE)
             );
         }
         // Somewhere in the turn a dot is solid, and at rest none is.
-        let (first, peak) = (icon_rgba(Look::Working, 0), icon_rgba(Look::Working, 9));
+        let (first, peak) = (
+            icon_rgba(Tray::MenuBar, Look::Working, 0),
+            icon_rgba(Tray::MenuBar, Look::Working, 9),
+        );
         assert!(columns(&peak, wide, SIZE, wide).contains(&255));
         assert!(!columns(&first, wide, SIZE, wide).contains(&255));
         assert_ne!(first, peak);
         // The frame after the last is the first again.
-        assert_eq!(icon_rgba(Look::Working, FRAMES), first);
+        assert_eq!(icon_rgba(Tray::MenuBar, Look::Working, FRAMES), first);
     }
 
     #[test]
     fn the_idle_looks_do_not_move() {
         for look in [Look::Running, Look::Stopped, Look::Starting, Look::Failing] {
-            assert_eq!(icon_rgba(look, 0), icon_rgba(look, 17));
+            assert_eq!(
+                icon_rgba(Tray::MenuBar, look, 0),
+                icon_rgba(Tray::MenuBar, look, 17)
+            );
         }
     }
 
@@ -808,5 +966,113 @@ mod tests {
         let at_rest = |frame: u8| (0..3).all(|dot| dot_pose(frame, dot).0 == 0.0);
         assert!(at_rest(FRAMES - 1) && at_rest(0));
         assert!(!at_rest(FRAMES / 2));
+    }
+
+    /// How light each pixel of `rgba` looks over a background of grey `background`, 0 to 255.
+    fn over(rgba: &[u8], background: u8) -> Vec<u8> {
+        rgba.chunks(4)
+            .map(|pixel| {
+                let alpha = f32::from(pixel[3]) / 255.0;
+                let blended = f32::from(pixel[0]) * alpha + f32::from(background) * (1.0 - alpha);
+                blended.round() as u8
+            })
+            .collect()
+    }
+
+    #[test]
+    fn on_the_taskbar_every_icon_is_square_and_reads_on_a_light_and_a_dark_taskbar() {
+        for look in [
+            Look::Running,
+            Look::Working,
+            Look::Stopped,
+            Look::Starting,
+            Look::Failing,
+        ] {
+            assert_eq!(width(Tray::Taskbar, look), SIZE);
+            let rgba = icon_rgba(Tray::Taskbar, look, 9);
+            assert_eq!(rgba.len(), (SIZE * SIZE * 4) as usize);
+            // Something light on a black taskbar, and something dark on a white one.
+            let on_dark = over(&rgba, 0).into_iter().max().unwrap_or(0);
+            let on_light = over(&rgba, 255).into_iter().min().unwrap_or(255);
+            if look == Look::Stopped {
+                assert!(on_dark >= 90 && on_light <= 165, "{look:?}");
+            } else {
+                assert!(on_dark >= 250 && on_light <= 5, "{look:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn on_the_taskbar_the_mark_is_light_inside_a_dark_rim() {
+        let rgba = icon_rgba(Tray::Taskbar, Look::Running, 0);
+        let pixel = |x: u32, y: u32| &rgba[((y * SIZE + x) * 4) as usize..][..4];
+        // The middle of the crossbar is the mark: white and solid.
+        assert_eq!(pixel(18, 22), [255, 255, 255, 255]);
+        // Just under it is the rim: black and solid.
+        assert_eq!(pixel(18, 25), [0, 0, 0, 255]);
+        // Further off, nothing.
+        assert_eq!(pixel(18, 28)[3], 0);
+        // The same shapes as the menu bar's, with the rim around them.
+        let template = icon_rgba(Tray::MenuBar, Look::Running, 0);
+        for (drawn, shape) in rgba.chunks(4).zip(template.chunks(4)) {
+            assert!(drawn[3] >= shape[3]);
+        }
+    }
+
+    #[test]
+    fn on_the_taskbar_the_dots_wave_in_the_corner_and_the_mark_gives_way_to_them() {
+        let at_rest = icon_rgba(Tray::Taskbar, Look::Working, 0);
+        let peak = icon_rgba(Tray::Taskbar, Look::Working, 9);
+        assert_ne!(at_rest, peak);
+        // Only the corner moves: the rest of the icon is the mark at every frame.
+        let corner = |x: u32, y: u32| {
+            (x as f32 + 0.5 - 29.0).hypot(y as f32 + 0.5 - 7.5) <= CORNER_CLEARING + RIM as f32
+        };
+        let running = icon_rgba(Tray::Taskbar, Look::Running, 0);
+        for frame in 0..FRAMES {
+            let working = icon_rgba(Tray::Taskbar, Look::Working, frame);
+            for y in 0..SIZE {
+                for x in 0..SIZE {
+                    if !corner(x, y) {
+                        let index = ((y * SIZE + x) * 4) as usize;
+                        assert_eq!(working[index..index + 4], running[index..index + 4]);
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn the_menu_bar_stays_a_template_image() {
+        assert_eq!(HERE == Tray::MenuBar, cfg!(target_os = "macos"));
+        assert!(icon_rgba(Tray::MenuBar, Look::Failing, 0)
+            .chunks(4)
+            .all(|pixel| pixel[..3] == [0, 0, 0]));
+    }
+
+    fn click(button: MouseButton, button_state: MouseButtonState) -> TrayIconEvent {
+        TrayIconEvent::Click {
+            id: TRAY_ID.into(),
+            position: tauri::PhysicalPosition::new(0.0, 0.0),
+            rect: tauri::Rect::default(),
+            button,
+            button_state,
+        }
+    }
+
+    #[test]
+    fn a_left_click_on_the_taskbar_icon_opens_the_chat_and_the_menu_bar_keeps_its_menu() {
+        let left = click(MouseButton::Left, MouseButtonState::Up);
+        assert!(opens_the_chat(Tray::Taskbar, &left));
+        assert!(!opens_the_chat(Tray::MenuBar, &left));
+        // The press is not the click, and the right button is the menu's.
+        assert!(!opens_the_chat(
+            Tray::Taskbar,
+            &click(MouseButton::Left, MouseButtonState::Down)
+        ));
+        assert!(!opens_the_chat(
+            Tray::Taskbar,
+            &click(MouseButton::Right, MouseButtonState::Up)
+        ));
     }
 }
