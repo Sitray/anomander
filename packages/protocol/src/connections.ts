@@ -37,3 +37,18 @@ export const WEB_SEARCH_CONNECTION = {
   readOnly: readonly string[];
   asksWith: Readonly<Record<string, readonly string[]>>;
 };
+
+/**
+ * DK-11 AC12 (T8): remote MCP servers connected with one press. Each is saved by its address and
+ * then connected with OAuth: the app registers itself with the server's authorization server
+ * (dynamic client registration), as "Conectar con OAuth" does for any server. Atlassian is its
+ * v2 endpoint, the one that publishes its protected-resource metadata. No tool is marked
+ * read-only: every call waits for "Permitir" until the principal marks one by hand.
+ */
+export const OAUTH_CONNECTIONS = [
+  { name: 'Notion', url: 'https://mcp.notion.com/mcp' },
+  { name: 'Linear', url: 'https://mcp.linear.app/mcp' },
+  { name: 'Atlassian', url: 'https://mcp.atlassian.com/v2/mcp' },
+] as const satisfies readonly { name: string; url: string }[];
+
+export type OAuthConnectionName = (typeof OAUTH_CONNECTIONS)[number]['name'];

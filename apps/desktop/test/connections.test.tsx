@@ -36,7 +36,17 @@ const saved = async (onSave: ReturnType<typeof vi.fn>): Promise<ConnectionInput>
   await waitFor(() => expect(onSave).toHaveBeenCalledOnce());
   return onSave.mock.calls[0]?.[0] as ConnectionInput;
 };
+const card = (title: string): HTMLElement =>
+  within(screen.getByRole('list', { name: text.connectors }))
+    .getAllByRole('listitem')
+    .find((item) => item.textContent?.startsWith(title)) as HTMLElement;
 const servers = () => screen.getByRole('list', { name: text.servers });
+/** The form is behind "Avanzado" (T8). */
+const openForm = (): void => {
+  click(text.advanced);
+  click(text.add);
+};
+const connectWebSearch = text.connectFor(text.webSearch);
 /** Nothing on screen holds the value: no text, no attribute, no field. */
 const nowhere = (secret: string): void => {
   expect(document.body.innerHTML).not.toContain(secret);
@@ -60,7 +70,8 @@ describe('what it shows', () => {
     await renderScreen(NO_CONNECTIONS);
 
     expect(screen.getByText(text.none)).toBeTruthy();
-    expect(screen.getByRole('button', { name: text.add })).toBeTruthy();
+    expect(screen.getByRole('button', { name: connectWebSearch })).toBeTruthy();
+    expect(screen.getByRole('button', { name: text.advanced })).toBeTruthy();
   });
 
   it('says a file the daemon would not read is so, and offers no change', async () => {
@@ -115,7 +126,7 @@ describe('adding a server', () => {
       invalid: null,
     };
     const { onSave } = await renderScreen(NO_CONNECTIONS, async () => after);
-    click(text.add);
+    openForm();
     fill(text.name, ' files ');
     fill(text.command, 'npx');
     fill(text.args, '-y\nfiles-mcp\n');
@@ -146,7 +157,7 @@ describe('adding a server', () => {
 
   it('sends a server over HTTP, with a header typed and not added', async () => {
     const { onSave } = await renderScreen(NO_CONNECTIONS);
-    click(text.add);
+    openForm();
     fill(text.name, 'remote');
     fill(text.kind, 'http');
     fill(text.url, 'https://example.com/mcp');
@@ -165,7 +176,7 @@ describe('adding a server', () => {
 
   it('explains what the daemon would refuse, and saves nothing', async () => {
     const { onSave } = await renderScreen();
-    click(text.add);
+    openForm();
     fill(text.name, '_notes');
     click(text.save);
     expect(screen.getByText(text.nameInvalid)).toBeTruthy();
@@ -205,7 +216,7 @@ describe('adding a server', () => {
     const { onSave } = await renderScreen(NO_CONNECTIONS, async () => {
       throw 'could not store mcp/files/env/API_KEY in the Keychain (status -25293)';
     });
-    click(text.add);
+    openForm();
     fill(text.name, 'files');
     fill(text.command, 'npx');
     fill(text.envName, 'API_KEY');
@@ -225,9 +236,24 @@ describe('adding a server', () => {
     });
   });
 
+  it('says in plain words what the values and the read-only tools are', async () => {
+    await renderScreen(NO_CONNECTIONS);
+    openForm();
+    expect(screen.getByRole('group', { name: text.env })).toBeTruthy();
+    expect(screen.getByText(text.envHelp)).toBeTruthy();
+    expect(screen.getByText(text.readOnlyHelp)).toBeTruthy();
+
+    fill(text.kind, 'http');
+    expect(screen.getByRole('group', { name: text.headers })).toBeTruthy();
+    expect(screen.getByText(text.headersHelp)).toBeTruthy();
+    for (const jargon of ['Variables de entorno', 'Cabeceras', 'Herramientas de solo lectura']) {
+      expect(screen.queryByText(jargon), jargon).toBeNull();
+    }
+  });
+
   it('goes back to the list without saving', async () => {
     const { onSave, onClose } = await renderScreen();
-    click(text.add);
+    openForm();
     fill(text.name, 'other');
     click(text.cancel);
 
@@ -264,22 +290,26 @@ describe('the web search connection (T17)', () => {
     const { onSave } = await renderScreen(NO_CONNECTIONS, async () => added);
     expect(screen.getByText(text.webSearchNote)).toBeTruthy();
 
-    click(text.addWebSearch);
+    click(connectWebSearch);
 
     expect(await saved(onSave)).toEqual(WEB_SEARCH);
     await waitFor(() =>
       expect(servers().textContent).toContain('Internetnpx -y pi-web-access@0.48.0'),
     );
-    expect(screen.queryByRole('button', { name: text.addWebSearch })).toBeNull();
+    // Its card now says it is there instead of offering it again.
+    expect(screen.queryByRole('button', { name: connectWebSearch })).toBeNull();
+    expect(within(card(text.webSearch)).getByText(text.connectorConnected)).toBeTruthy();
   });
 
   it('is not offered once there is a server by that name, nor while the file cannot be changed', async () => {
     await renderScreen(added);
-    expect(screen.queryByRole('button', { name: text.addWebSearch })).toBeNull();
+    expect(screen.queryByRole('button', { name: connectWebSearch })).toBeNull();
+    expect(within(card(text.webSearch)).getByText(text.connectorConnected)).toBeTruthy();
     cleanup();
 
     await renderScreen({ servers: [], invalid: 'mcp.json is not as the daemon reads it' });
-    expect(screen.queryByRole('button', { name: text.addWebSearch })).toBeNull();
+    expect(screen.queryByRole('list', { name: text.connectors })).toBeNull();
+    expect(screen.queryByRole('button', { name: text.advanced })).toBeNull();
   });
 
   it('shows what the shell says when it refuses, and stays on the list', async () => {
@@ -287,12 +317,12 @@ describe('the web search connection (T17)', () => {
       throw 'the daemon would not read the server';
     });
 
-    click(text.addWebSearch);
+    click(connectWebSearch);
 
     const alert = await screen.findByRole('alert');
-    expect(alert.textContent).toContain(text.webSearchRejected);
+    expect(alert.textContent).toContain(text.connectorRejected(text.webSearch));
     expect(alert.textContent).toContain('the daemon would not read the server');
-    expect(screen.getByRole('button', { name: text.addWebSearch })).toBeTruthy();
+    expect(screen.getByRole('button', { name: connectWebSearch })).toBeTruthy();
   });
 });
 

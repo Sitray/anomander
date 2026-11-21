@@ -294,7 +294,24 @@ and keep its secrets in the operating system instead of a text file.
     what is searched goes only to Exa's hosted MCP (`mcp.exa.ai`), and another provider or a
     proxy asks first; pages are read from this Mac, after "Permitir"; a
     `~/.pi/agent/web-search.json`, when present, applies its keys, providers and proxy. It needs
-    Node 22.19 or later. Once saved it is edited or removed like any other server.
+    Node 22.19 or later. Once saved it is edited or removed like any other server. Since AC12
+    it is one more card, "Búsqueda web", with the same press.
+  - AC12 (asked on 2026-11-11: "Quiero algo parecido, que tenga como conectores bases que al
+    darle a un botón de connect ya me conecte el MCP"; "Pero me gustaría que la parte de
+    connectar a un MCP fuera más sencilla"; Google left out on 2026-11-21: "no hagas lo del oauth
+    de google"): the Conexiones screen opens on "Conectores", one card per ready-made
+    connection with one "Conectar": Notion (`https://mcp.notion.com/mcp`), Linear
+    (`https://mcp.linear.app/mcp`), Atlassian (`https://mcp.atlassian.com/v2/mcp`, the endpoint
+    that publishes its protected-resource metadata; v1 does not) and "Búsqueda web" (AC11). Each
+    remote one was checked on 2026-11-21 to publish an authorization server with a
+    `registration_endpoint`, so the app registers itself as AC10 does. A press saves the server
+    by its address through the same path as the form, with nothing marked read-only (every call
+    waits for "Permitir" until the principal marks a tool by hand), and then runs AC10's OAuth
+    connection. A server already in the file at that address is only authorized, whatever its
+    name; one authorized shows "Conectado" instead of "Conectar". The presets are
+    `OAUTH_CONNECTIONS` in `packages/protocol`. The form of AC9 waits behind "Avanzado",
+    unchanged, and its words are plain: "Claves y ajustes del programa" (`env`), "Claves de
+    acceso" (`headers`) and "Herramientas que solo leen" (`readOnly`), each with a one-line hint.
   - Open, for the principal: a value written in `mcp.json` is in the file until the next start
     of the daemon, and in whatever copied the file meanwhile (a backup, an editor); a server
     whose authorization server does not take dynamic registration, or a redirect to a port of

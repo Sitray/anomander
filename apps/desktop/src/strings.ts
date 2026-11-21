@@ -5,6 +5,8 @@
 // Two voices: the status and the setup describe ANOMANDER from outside, plainly; the chat's own
 // lines speak as the bot does in `packages/protocol/src/strings.ts`: first person, warm, short.
 
+import type { OAuthConnectionName } from '@anomander/protocol';
+
 /** DK-4: how many files one message carries, as the daemon accepts. */
 export const MAX_ATTACHMENTS = 10;
 
@@ -237,13 +239,27 @@ export const strings = {
     servers: 'Servidores',
     none: 'Todavía no hay ninguno.',
     add: 'Añadir servidor',
-    /** T17: the web search connection, added in one step. */
-    addWebSearch: 'Añadir búsqueda web',
-    addingWebSearch: 'Añadiendo…',
+
+    /** DK-11 AC12 (T8): the ready-made connections, one press each. */
+    connectors: 'Conectores',
+    connectorsIntro:
+      'Un botón por servicio. Si el servicio pide permiso, se abre tu navegador para que se lo des.',
+    connect: 'Conectar',
+    connectFor: (title: string) => `Conectar ${title}`,
+    connecting: 'Conectando…',
+    connectorConnected: 'Conectado',
+    /** The shell refused to save it; its own message follows, verbatim. */
+    connectorRejected: (title: string) => `No se ha añadido «${title}». Esto dice la aplicación:`,
+    connectorAbout: {
+      Notion: 'Tus páginas y bases de datos de Notion.',
+      Linear: 'Las incidencias y los proyectos de Linear.',
+      Atlassian: 'Jira y Confluence.',
+    } satisfies Record<OAuthConnectionName, string>,
+    /** T17: the web search connection. */
+    webSearch: 'Búsqueda web',
+    webSearchAbout: 'Busca en internet sin usar el ordenador.',
     webSearchNote:
       'La búsqueda web añade pi-web-access, que se descarga de npm la primera vez. Lo que ANOMANDER busca se envía a Exa (exa.ai), sin cuenta, y busca sin pedirte permiso; para usar otro buscador o un proxy te lo pide antes. Las páginas se leen desde este Mac, siempre después de «Permitir». Si tienes ~/.pi/agent/web-search.json, se usan sus claves, buscadores y proxy.',
-    /** The shell refused; its own message follows, verbatim. */
-    webSearchRejected: 'No se ha añadido la búsqueda web. Esto dice la aplicación:',
     edit: 'Editar',
     editServer: (name: string) => `Editar ${name}`,
     remove: 'Quitar',
@@ -256,6 +272,10 @@ export const strings = {
     /** The shell refused; its own message follows, verbatim. */
     removeRejected: 'No se ha quitado. Esto dice la aplicación:',
     close: 'Cerrar',
+    /** The form, for any other server. */
+    advanced: 'Avanzado',
+    advancedNote:
+      'Para cualquier otro servidor MCP: un programa de este Mac o una dirección, escritos a mano.',
 
     oauthConnected: 'Conectado con OAuth',
     connectOAuth: 'Conectar con OAuth',
@@ -295,9 +315,13 @@ export const strings = {
     url: 'URL',
     urlHelp: 'Con https. Solo vale http si el servidor está en este Mac.',
     urlInvalid: 'Tiene que empezar por https://, o por http:// si es localhost.',
-    env: 'Variables de entorno',
-    headers: 'Cabeceras',
-    valuesHelp: 'Sus valores se guardan en el llavero de macOS. Aquí solo se ve el nombre.',
+    /** A program's `env` and a URL's `headers`, in plain words. */
+    env: 'Claves y ajustes del programa',
+    envHelp:
+      'Lo que el programa lee al arrancar, como una clave de API (sus variables de entorno). Los valores se guardan en el llavero de macOS; aquí solo se ve el nombre.',
+    headers: 'Claves de acceso',
+    headersHelp:
+      'Lo que se envía con cada petición, como un token en Authorization (sus cabeceras). Los valores se guardan en el llavero de macOS; aquí solo se ve el nombre.',
     envNone: 'Todavía no hay ninguna.',
     valueStored: 'Guardado',
     valueEmpty: 'Sin valor',
@@ -307,14 +331,15 @@ export const strings = {
     removeValue: (name: string) => `Quitar ${name}`,
     undoValue: (name: string) => `No quitar ${name}`,
     undoValueChange: (name: string) => `No cambiar ${name}`,
-    envName: 'Nombre de la variable',
-    headerName: 'Nombre de la cabecera',
+    envName: 'Nombre, como API_KEY',
+    headerName: 'Nombre, como Authorization',
     valueNameMissing: 'Falta el nombre.',
     value: 'Valor',
     valueMissing: 'Falta el valor.',
     addValue: 'Añadir',
-    readOnly: 'Herramientas de solo lectura',
-    readOnlyHelp: 'Una por línea. Solo estas se usan sin pedirte permiso.',
+    readOnly: 'Herramientas que solo leen',
+    readOnlyHelp:
+      'Una por línea. Solo estas se usan sin pedirte permiso; cualquier otra espera a que pulses «Permitir». Pon solo las que no cambian nada.',
 
     save: 'Guardar',
     saving: 'Guardando…',

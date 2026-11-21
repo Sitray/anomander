@@ -1,10 +1,14 @@
 // DK-11: the connections screen: the servers of `mcp.json`, added, edited and removed one at a
 // time. Presentational: the shell's view in, one `ConnectionInput` or a name out.
 //
+// AC12 (T8): the ready-made connections come first, one "Conectar" each; the form for any other
+// server waits behind "Avanzado". A ready-made one goes through the same `onSave` as the form,
+// and a remote one then through the same `onConnectOAuth` as its row.
+//
 // A value (of a variable or a header) is typed into an uncontrolled field and kept in a ref, so
 // it never enters React state or a DOM attribute, and it is dropped once saved. The shell never
 // sends one back: of what is stored the screen only has the names.
-import { WEB_SEARCH_CONNECTION } from '@anomander/protocol';
+import { OAUTH_CONNECTIONS, WEB_SEARCH_CONNECTION } from '@anomander/protocol';
 import { type FormEvent, useEffect, useId, useRef, useState } from 'react';
 import { Field } from '../setup/SetupScreen.tsx';
 import type { ConnectionInput, ConnectionServer, ConnectionsView, OAuthConnect } from '../shell.ts';
@@ -36,6 +40,15 @@ type OAuthNote =
   | { kind: 'failed'; what: 'connect' | 'forget'; message: string };
 
 const { connections: text } = strings;
+
+/** One card of the ready-made connections. */
+interface Connector {
+  title: string;
+  about: string;
+  /** Its server is in the file, and authorized when it asks for OAuth. */
+  connected: boolean;
+  connect: () => Promise<void>;
+}
 
 type FieldName = 'name' | 'command' | 'url' | 'valueName' | 'value';
 type Errors = Partial<Record<FieldName, string>>;
@@ -172,6 +185,7 @@ function ServerForm({ server, taken, onSave, onSaved, onCancel }: FormProps) {
   const valueError = errors.valueName ?? errors.value;
   const hasErrors = Object.keys(errors).length > 0;
   const valuesLabel = kind === 'process' ? text.env : text.headers;
+  const valuesHelp = kind === 'process' ? text.envHelp : text.headersHelp;
 
   return (
     <form
@@ -272,7 +286,7 @@ function ServerForm({ server, taken, onSave, onSaved, onCancel }: FormProps) {
 
         <fieldset>
           <legend>{valuesLabel}</legend>
-          <p className="fieldset-note">{text.valuesHelp}</p>
+          <p className="fieldset-note">{valuesHelp}</p>
           {valueNames.length === 0 ? (
             <p className="keys-none">{text.envNone}</p>
           ) : (
@@ -423,9 +437,15 @@ export function ConnectionsScreen({
   const [removing, setRemoving] = useState(false);
   const [rejection, setRejection] = useState<string | null>(null);
   const [oauth, setOAuth] = useState<OAuthNote | null>(null);
-  /** T17: the web search connection being added, and what the shell said when it refused. */
-  const [addingWebSearch, setAddingWebSearch] = useState(false);
-  const [webSearchRejection, setWebSearchRejection] = useState<string | null>(null);
+  /** AC12: a ready-made server being saved, the card whose "Conectar" runs, and a refusal. */
+  const [adding, setAdding] = useState(false);
+  const [connecting, setConnecting] = useState<string | null>(null);
+  const [connectorRejection, setConnectorRejection] = useState<{
+    title: string;
+    message: string;
+  } | null>(null);
+  /** Whether "Avanzado" shows the way to the form. */
+  const [advanced, setAdvanced] = useState(false);
   const heading = useRef<HTMLHeadingElement>(null);
   const question = useId();
 
@@ -486,39 +506,12 @@ export function ConnectionsScreen({
 
   const changeable = view !== null && view.invalid === null;
   /** One OAuth connection or forgetting at a time, and nothing else meanwhile. */
-  const busy =
-    removing || addingWebSearch || oauth?.kind === 'authorizing' || oauth?.kind === 'forgetting';
+  const busy = removing || adding || oauth?.kind === 'authorizing' || oauth?.kind === 'forgetting';
   /**
    * The screen can be left while the browser waits: the shell keeps what it brings. Not while
    * a change of the file or the Keychain is halfway.
    */
-  const held = removing || addingWebSearch || oauth?.kind === 'forgetting';
-  /** T17: offered until a server has its name; it is then edited or removed like any other. */
-  const offersWebSearch =
-    changeable && !view.servers.some((server) => server.name === WEB_SEARCH_CONNECTION.name);
-
-  const addWebSearch = async () => {
-    if (busy) return;
-    const { name, command, args, env, readOnly } = WEB_SEARCH_CONNECTION;
-    setRejection(null);
-    setWebSearchRejection(null);
-    setAddingWebSearch(true);
-    try {
-      setView(
-        await onSave({
-          name,
-          kind: 'process',
-          command,
-          args: [...args],
-          values: Object.entries(env).map(([valueName, value]) => ({ name: valueName, value })),
-          readOnly: [...readOnly],
-        }),
-      );
-    } catch (error) {
-      setWebSearchRejection(messageOf(error));
-    }
-    setAddingWebSearch(false);
-  };
+  const held = removing || adding || oauth?.kind === 'forgetting';
 
   const connect = async (name: string) => {
     if (onConnectOAuth === undefined || busy) return;
@@ -555,6 +548,80 @@ export function ConnectionsScreen({
     heading.current?.focus();
   };
 
+  /** Saves a ready-made server as the form would; `false` when the shell refused. */
+  const addConnector = async (title: string, server: ConnectionInput): Promise<boolean> => {
+    setRejection(null);
+    setConnectorRejection(null);
+    setAdding(true);
+    try {
+      setView(await onSave(server));
+      return true;
+    } catch (error) {
+      setConnectorRejection({ title, message: messageOf(error) });
+      return false;
+    } finally {
+      setAdding(false);
+    }
+  };
+
+  /** Runs one card's "Conectar", and nothing else meanwhile. */
+  const run = (title: string, work: () => Promise<unknown>) => async () => {
+    if (busy) return;
+    setConnecting(title);
+    await work();
+    setConnecting(null);
+  };
+
+  const connectors: Connector[] = !changeable
+    ? []
+    : [
+        // A remote one needs the OAuth connection of the shell.
+        ...(onConnectOAuth === undefined ? [] : OAUTH_CONNECTIONS).map((preset) => {
+          // Found by its address: the principal may have named it otherwise.
+          const server = view.servers.find(
+            (candidate) => candidate.kind === 'http' && candidate.url === preset.url,
+          );
+          return {
+            title: preset.name,
+            about: text.connectorAbout[preset.name],
+            connected: server?.oauth === true,
+            connect: run(preset.name, async () => {
+              // Saved before and not authorized, as when the browser was left: authorize only.
+              const saved =
+                server !== undefined ||
+                (await addConnector(preset.name, {
+                  name: preset.name,
+                  kind: 'http',
+                  url: preset.url,
+                  values: [],
+                  readOnly: [],
+                }));
+              if (saved) await connect(server?.name ?? preset.name);
+            }),
+          };
+        }),
+        {
+          title: text.webSearch,
+          about: text.webSearchAbout,
+          // T17: once a server has its name, it is edited or removed like any other.
+          connected: view.servers.some((server) => server.name === WEB_SEARCH_CONNECTION.name),
+          connect: run(text.webSearch, () => {
+            const { name, command, args, env, readOnly } = WEB_SEARCH_CONNECTION;
+            return addConnector(text.webSearch, {
+              name,
+              kind: 'process',
+              command,
+              args: [...args],
+              values: Object.entries(env).map(([valueName, value]) => ({ name: valueName, value })),
+              readOnly: [...readOnly],
+            });
+          }),
+        },
+      ];
+  const offersWebSearch = connectors.some(
+    (connector) => connector.title === text.webSearch && !connector.connected,
+  );
+
   const said =
     oauth === null || oauth.kind === 'failed'
       ? ''
@@ -582,7 +649,48 @@ export function ConnectionsScreen({
           <p>{text.intro}</p>
         </div>
 
+        {connectors.length > 0 && (
+          <section className="connectors" aria-labelledby={`${question}-connectors`}>
+            <h3 id={`${question}-connectors`}>{text.connectors}</h3>
+            <p className="fieldset-note">{text.connectorsIntro}</p>
+            <ul className="connector-list" aria-label={text.connectors}>
+              {connectors.map((connector) => (
+                <li key={connector.title} className="connector">
+                  <span className="connector-name">{connector.title}</span>
+                  <span className="connector-about">{connector.about}</span>
+                  {connector.connected ? (
+                    <span className="connector-state">{text.connectorConnected}</span>
+                  ) : (
+                    <button
+                      type="button"
+                      className="button"
+                      aria-label={
+                        connecting === connector.title
+                          ? text.connecting
+                          : text.connectFor(connector.title)
+                      }
+                      aria-describedby={
+                        connector.title === text.webSearch ? `${question}-web` : undefined
+                      }
+                      disabled={busy}
+                      onClick={connector.connect}
+                    >
+                      {connecting === connector.title ? text.connecting : text.connect}
+                    </button>
+                  )}
+                </li>
+              ))}
+            </ul>
+            {offersWebSearch && (
+              <p className="field-note" id={`${question}-web`}>
+                {text.webSearchNote}
+              </p>
+            )}
+          </section>
+        )}
+
         <div className="servers">
+          {changeable && <h3>{text.servers}</h3>}
           {loadError !== null ? (
             <div className="setup-alert" role="alert">
               <p>{text.loadFailed}</p>
@@ -704,10 +812,32 @@ export function ConnectionsScreen({
             </ul>
           )}
         </div>
-        {offersWebSearch && (
-          <p className="field-note" id={`${question}-web`}>
-            {text.webSearchNote}
-          </p>
+
+        {changeable && (
+          <div className="advanced">
+            <button
+              type="button"
+              className="link disclosure"
+              aria-expanded={advanced}
+              aria-controls={`${question}-advanced`}
+              onClick={() => setAdvanced(!advanced)}
+            >
+              {text.advanced}
+            </button>
+            {advanced && (
+              <div className="advanced-body" id={`${question}-advanced`}>
+                <p className="field-note">{text.advancedNote}</p>
+                <button
+                  type="button"
+                  className="button"
+                  disabled={busy}
+                  onClick={() => setEditing(null)}
+                >
+                  {text.add}
+                </button>
+              </div>
+            )}
+          </div>
         )}
       </div>
 
@@ -735,37 +865,16 @@ export function ConnectionsScreen({
             <ErrorBlock label={strings.status.errorDetail}>{rejection}</ErrorBlock>
           </div>
         )}
-        {webSearchRejection !== null && (
+        {connectorRejection !== null && (
           <div className="setup-alert" role="alert">
-            <p>{text.webSearchRejected}</p>
-            <ErrorBlock label={strings.status.errorDetail}>{webSearchRejection}</ErrorBlock>
+            <p>{text.connectorRejected(connectorRejection.title)}</p>
+            <ErrorBlock label={strings.status.errorDetail}>{connectorRejection.message}</ErrorBlock>
           </div>
         )}
         <div className="setup-actions">
           <button type="button" className="button" disabled={held} onClick={onClose}>
             {text.close}
           </button>
-          {offersWebSearch && (
-            <button
-              type="button"
-              className="button"
-              aria-describedby={`${question}-web`}
-              disabled={busy}
-              onClick={addWebSearch}
-            >
-              {addingWebSearch ? text.addingWebSearch : text.addWebSearch}
-            </button>
-          )}
-          {changeable && (
-            <button
-              type="button"
-              className="button primary"
-              disabled={busy}
-              onClick={() => setEditing(null)}
-            >
-              {text.add}
-            </button>
-          )}
         </div>
       </footer>
     </section>
