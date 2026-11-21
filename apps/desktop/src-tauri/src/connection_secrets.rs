@@ -179,6 +179,7 @@ mod tests {
     use super::*;
     use crate::secure_store::MemoryStore;
     use serde_json::json;
+    #[cfg(unix)]
     use std::os::unix::fs::PermissionsExt;
 
     type Outcome = Result<(), String>;
@@ -264,11 +265,14 @@ mod tests {
         let text = f.text()?;
         assert!(!text.contains("tok-1") && !text.contains("b-2"), "{text}");
         assert!(text.find("zeta") < text.find("alpha"), "{text}");
-        let mode = std::fs::metadata(f.path())
-            .map_err(|e| e.to_string())?
-            .permissions()
-            .mode();
-        assert_eq!(mode & 0o777, 0o600);
+        #[cfg(unix)]
+        {
+            let mode = std::fs::metadata(f.path())
+                .map_err(|e| e.to_string())?
+                .permissions()
+                .mode();
+            assert_eq!(mode & 0o777, 0o600);
+        }
         Ok(())
     }
 
@@ -462,6 +466,8 @@ mod tests {
         Ok(())
     }
 
+    // Making a symbolic link on Windows needs a privilege the test runner may lack.
+    #[cfg(unix)]
     #[test]
     fn a_file_that_is_a_link_is_left_as_it_is() -> Outcome {
         let f = Fixture::new()?;

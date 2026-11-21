@@ -8,6 +8,7 @@ pub mod connections;
 pub mod daemon;
 pub mod data_dir;
 pub mod diagnostics;
+pub mod file_mode;
 pub mod ledger_import;
 pub mod login;
 pub mod notch;
@@ -368,8 +369,21 @@ fn notify_reply(app: AppHandle, text: String) -> Result<(), String> {
 /// How long the app the principal was using takes to come back to the front once ours hides.
 const APP_LEAVES: Duration = Duration::from_millis(450);
 
+/// The whole app steps aside, so the screen shows the app the principal was using. Hiding the
+/// app is macOS's; elsewhere each window hides.
+fn step_aside(app: &AppHandle) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    return app.hide().map_err(|error| error.to_string());
+    #[cfg(not(target_os = "macos"))]
+    app.webview_windows()
+        .values()
+        .try_for_each(|window| window.hide())
+        .map_err(|error| error.to_string())
+}
+
 /// Brings the app and the chat back after a capture or an action.
 fn come_back(app: &AppHandle) {
+    #[cfg(target_os = "macos")]
     if let Err(error) = app.show() {
         eprintln!("could not show the app again: {error}");
     }
@@ -411,7 +425,7 @@ async fn capture_screen(app: AppHandle, keep_hidden: bool) -> Result<tauri::ipc:
     }
     // The whole app steps aside, as for an action (DK-10): the capture shows the screen the
     // principal was looking at, with that app in front, which is the screen a step acts on.
-    app.hide().map_err(|error| error.to_string())?;
+    step_aside(&app)?;
     let captured = blocking(app.clone(), |shell| {
         std::thread::sleep(APP_LEAVES);
         screen::capture(shell.core.data_root())
@@ -442,7 +456,7 @@ async fn perform_action(
     if !screen::allowed() {
         return Err(screen::NO_PERMISSION.into());
     }
-    app.hide().map_err(|error| error.to_string())?;
+    step_aside(&app)?;
     let captured = blocking(app.clone(), move |shell| {
         std::thread::sleep(APP_LEAVES);
         // Read after the app stepped aside: the screen the input goes to.
@@ -510,7 +524,7 @@ fn copy_diagnostics(app: &AppHandle, shell: &Shell) {
     let secrets: Vec<&str> = secrets.iter().map(String::as_str).collect();
     let facts = Facts {
         app_version: &app.package_info().version.to_string(),
-        macos_version: &report::macos_version(),
+        os_version: &report::os_version(),
         daemon: tray::labels(&view).status,
     };
     let text = report::report(&facts, &lines, &secrets);
@@ -569,7 +583,7 @@ fn set_up(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     let token = launch_token()?;
     diagnostics::remember([&token]);
     let logins = Logins {
-        store: Arc::new(secure_store::Keychain),
+        store: Arc::new(secure_store::SystemStore),
         auth_path: data.daemon_paths().auth,
         session: login::Session::default(),
     };
@@ -581,7 +595,7 @@ fn set_up(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     });
     let core = Arc::new(Core::new(
         data,
-        Box::new(secure_store::Keychain),
+        Box::new(secure_store::SystemStore),
         environment,
         settings,
         token,

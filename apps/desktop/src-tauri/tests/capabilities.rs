@@ -1,3 +1,7 @@
+// On Windows a test binary has no app manifest, so the Tauri app cannot load (comctl32 v6,
+// STATUS_ENTRYPOINT_NOT_FOUND). The access check is the same code on every platform; it runs here on
+// macOS.
+#![cfg(not(windows))]
 // Security L1, end to end through Tauri's own check: with the app's commands declared in
 // `build.rs`, a window may call only what its capability grants (`capabilities/*.json`). The app is
 // the mock runtime with this crate's real configuration and capabilities; the commands are stand-ins

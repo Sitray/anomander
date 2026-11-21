@@ -15,6 +15,7 @@ use std::time::{Duration, Instant};
 use serde::Serialize;
 use serde_json::{Map, Value};
 
+use crate::daemon::launch::system_env;
 use crate::oauth_connect::openable;
 use crate::secure_store::SecretStore;
 use crate::shell::MODEL_LOGIN;
@@ -234,6 +235,7 @@ pub fn run(
         // Nothing of the app's environment: the script needs none of its secrets. The auth path
         // only places the device ID; the script writes no `auth.json`.
         .env_clear()
+        .envs(system_env(&|name| std::env::var(name).ok()))
         .env("PATH", path)
         .env("ANOMANDER_AUTH_PATH", auth_path)
         .stdin(Stdio::piped())
@@ -379,11 +381,13 @@ mod tests {
     use crate::daemon::launch::{daemon_entry, find_node, search_path};
     use crate::secure_store::MemoryStore;
     use serde_json::json;
+    #[cfg(unix)]
     use std::os::unix::fs::PermissionsExt;
 
     const OAUTH: &str =
         r#"{"type":"oauth","access":"access-secret","refresh":"refresh-secret","expires":1}"#;
 
+    #[cfg(unix)]
     /// A fake `node` that runs `body` with `/bin/sh`.
     fn fake_node(dir: &Path, body: &str) -> PathBuf {
         let node = dir.join("node");
@@ -394,11 +398,13 @@ mod tests {
         node
     }
 
+    #[cfg(unix)]
     struct Fake {
         opened: Mutex<Vec<String>>,
         steps: Mutex<Vec<Step>>,
     }
 
+    #[cfg(unix)]
     impl Fake {
         fn new() -> Self {
             Self {
@@ -414,6 +420,7 @@ mod tests {
         }
     }
 
+    #[cfg(unix)]
     fn run_fake(body: &str, fake: &Fake, session: &Session, provider: &str) -> Result<Ran, String> {
         let dir = tempfile::tempdir().unwrap_or_else(|e| panic!("no temp dir: {e}"));
         let node = fake_node(dir.path(), body);
@@ -441,6 +448,7 @@ mod tests {
         )
     }
 
+    #[cfg(unix)]
     #[test]
     fn a_device_code_login_opens_the_page_shows_the_code_and_keeps_the_credential(
     ) -> Result<(), String> {
@@ -473,6 +481,7 @@ echo connected"#
         Ok(())
     }
 
+    #[cfg(unix)]
     #[test]
     fn the_answer_goes_to_the_waiting_script_and_is_refused_when_none_waits() -> Result<(), String>
     {
@@ -537,6 +546,7 @@ fi"#
         Ok(())
     }
 
+    #[cfg(unix)]
     #[test]
     fn a_late_or_cancelled_login_keeps_no_credential() -> Result<(), String> {
         for word in ["timed_out", "cancelled"] {
@@ -553,6 +563,7 @@ fi"#
         Ok(())
     }
 
+    #[cfg(unix)]
     #[test]
     fn only_an_account_offered_for_login_is_run() {
         let fake = Fake::new();
@@ -565,6 +576,7 @@ fi"#
         }
     }
 
+    #[cfg(unix)]
     #[test]
     fn an_address_that_is_not_a_web_page_is_never_opened_and_ends_the_run() {
         let fake = Fake::new();
@@ -585,6 +597,7 @@ fi"#
         assert!(fake.steps().is_empty());
     }
 
+    #[cfg(unix)]
     #[test]
     fn a_credential_that_is_not_one_for_the_account_is_refused() {
         let fake = Fake::new();
@@ -619,6 +632,7 @@ fi"#
         .is_err());
     }
 
+    #[cfg(unix)]
     #[test]
     fn an_error_says_what_the_script_said() {
         let fake = Fake::new();
@@ -634,6 +648,7 @@ fi"#
         );
     }
 
+    #[cfg(unix)]
     #[test]
     fn a_run_that_hangs_is_ended() {
         let dir = tempfile::tempdir().unwrap_or_else(|e| panic!("no temp dir: {e}"));
@@ -801,6 +816,7 @@ fi"#
             .unwrap_or(false));
     }
 
+    #[cfg(unix)]
     #[test]
     fn the_answer_is_written_once() -> Result<(), String> {
         let fake = Fake::new();

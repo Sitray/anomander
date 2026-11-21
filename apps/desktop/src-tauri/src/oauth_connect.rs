@@ -12,6 +12,7 @@ use std::time::{Duration, Instant};
 use serde::Serialize;
 use serde_json::{Map, Value};
 
+use crate::daemon::launch::system_env;
 use crate::secure_store::SecretStore;
 
 /// The script, from the daemon package's folder.
@@ -81,6 +82,7 @@ pub fn openable(address: &str) -> bool {
 }
 
 /// Opens `address` in the principal's browser, by the system's own `open`.
+#[cfg(not(windows))]
 pub fn open_in_browser(address: &str) -> Result<(), String> {
     let status = Command::new("/usr/bin/open")
         .arg(address)
@@ -93,6 +95,32 @@ pub fn open_in_browser(address: &str) -> Result<(), String> {
         Ok(())
     } else {
         Err(format!("could not open the browser ({status})"))
+    }
+}
+
+/// Opens `address` in the principal's browser, by the shell's own handler for web addresses.
+#[cfg(windows)]
+pub fn open_in_browser(address: &str) -> Result<(), String> {
+    use windows_sys::Win32::UI::Shell::ShellExecuteW;
+    use windows_sys::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
+    let wide = |text: &str| text.encode_utf16().chain([0]).collect::<Vec<u16>>();
+    let (verb, file) = (wide("open"), wide(address));
+    // SAFETY: both strings are NUL-terminated UTF-16 that outlive the call; the rest is null.
+    let result = unsafe {
+        ShellExecuteW(
+            std::ptr::null_mut(),
+            verb.as_ptr(),
+            file.as_ptr(),
+            std::ptr::null(),
+            std::ptr::null(),
+            SW_SHOWNORMAL,
+        )
+    };
+    // Above 32 is success; anything else is an error code.
+    if result as usize > 32 {
+        Ok(())
+    } else {
+        Err(format!("could not open the browser ({})", result as usize))
     }
 }
 
@@ -111,6 +139,7 @@ pub fn run(
         .arg(url)
         // Nothing of the app's environment: the script needs none of its secrets.
         .env_clear()
+        .envs(system_env(&|name| std::env::var(name).ok()))
         .env("PATH", path)
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
@@ -299,8 +328,10 @@ mod tests {
     use crate::daemon::launch::{daemon_entry, find_node, search_path};
     use crate::secure_store::MemoryStore;
     use serde_json::json;
+    #[cfg(unix)]
     use std::os::unix::fs::PermissionsExt;
 
+    #[cfg(unix)]
     /// A fake `node` that runs `body` with `/bin/sh`.
     fn fake_node(dir: &Path, body: &str) -> PathBuf {
         let node = dir.join("node");
@@ -311,6 +342,7 @@ mod tests {
         node
     }
 
+    #[cfg(unix)]
     fn run_fake(body: &str, opened: &Mutex<Vec<String>>) -> Result<Ran, String> {
         let dir = tempfile::tempdir().unwrap_or_else(|e| panic!("no temp dir: {e}"));
         let node = fake_node(dir.path(), body);
@@ -330,6 +362,7 @@ mod tests {
         )
     }
 
+    #[cfg(unix)]
     #[test]
     fn it_opens_the_address_and_keeps_the_tokens_of_a_connection() -> Result<(), String> {
         let opened = Mutex::new(Vec::new());
@@ -351,6 +384,7 @@ echo connected"#,
         Ok(())
     }
 
+    #[cfg(unix)]
     #[test]
     fn a_refusal_or_a_late_principal_keeps_no_tokens() -> Result<(), String> {
         let opened = Mutex::new(Vec::new());
@@ -362,6 +396,7 @@ echo connected"#,
         Ok(())
     }
 
+    #[cfg(unix)]
     #[test]
     fn an_address_that_is_not_a_web_page_is_never_opened_and_ends_the_run() {
         let opened = Mutex::new(Vec::new());
@@ -373,6 +408,7 @@ echo connected"#,
         assert!(opened.lock().map(|o| o.is_empty()).unwrap_or(false));
     }
 
+    #[cfg(unix)]
     #[test]
     fn an_error_says_what_the_script_said_and_an_unknown_end_is_an_error() {
         let opened = Mutex::new(Vec::new());
@@ -390,6 +426,7 @@ echo connected"#,
         assert!(run_fake("echo 'anomander oauth-done [1]'\necho connected", &opened).is_err());
     }
 
+    #[cfg(unix)]
     #[test]
     fn a_long_error_output_does_not_hold_the_run() {
         let opened = Mutex::new(Vec::new());
@@ -403,6 +440,7 @@ echo connected"#,
         assert_eq!(ran.err(), Some("y".repeat(300)));
     }
 
+    #[cfg(unix)]
     #[test]
     fn a_run_that_hangs_is_ended() {
         let dir = tempfile::tempdir().unwrap_or_else(|e| panic!("no temp dir: {e}"));
@@ -420,6 +458,7 @@ echo connected"#,
         assert!(started.elapsed() < Duration::from_secs(10));
     }
 
+    #[cfg(unix)]
     #[test]
     fn a_run_that_hangs_after_closing_its_output_is_ended() {
         let dir = tempfile::tempdir().unwrap_or_else(|e| panic!("no temp dir: {e}"));

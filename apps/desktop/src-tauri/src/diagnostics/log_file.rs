@@ -2,11 +2,11 @@
 // (`anomander.1.log` the newest of them). Folder `700`, files `600`, as the data folder (DK-8).
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, Write};
-use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::daemon::output::scrub;
+use crate::file_mode;
 
 pub const FILE_NAME: &str = "anomander.log";
 /// The size at which the file is set aside and a new one begun.
@@ -37,7 +37,7 @@ impl LogFile {
     /// they already existed wider.
     pub fn open(dir: &Path, max_bytes: u64, files: usize) -> io::Result<Self> {
         fs::create_dir_all(dir)?;
-        fs::set_permissions(dir, fs::Permissions::from_mode(0o700))?;
+        file_mode::restrict(dir, 0o700)?;
         let file = open_current(dir)?;
         let size = file.metadata()?.len();
         Ok(Self {
@@ -83,13 +83,10 @@ impl LogFile {
 
 fn open_current(dir: &Path) -> io::Result<File> {
     let path = path_of(dir, 0);
-    let file = OpenOptions::new()
-        .create(true)
-        .append(true)
-        .mode(0o600)
-        .open(&path)?;
+    let file =
+        file_mode::create_with(OpenOptions::new().create(true).append(true), 0o600).open(&path)?;
     // `mode` applies only to a new file: one left wider is narrowed.
-    file.set_permissions(fs::Permissions::from_mode(0o600))?;
+    file_mode::restrict(&path, 0o600)?;
     Ok(file)
 }
 
@@ -136,7 +133,9 @@ mod tests {
 
     const SECRET: &str = "sk-live-0123456789";
 
+    #[cfg(unix)]
     fn mode(path: &Path) -> io::Result<u32> {
+        use std::os::unix::fs::PermissionsExt;
         Ok(fs::metadata(path)?.permissions().mode() & 0o777)
     }
 
@@ -181,8 +180,10 @@ mod tests {
         assert_eq!(timestamp(951_782_400), "2000-02-29T00:00:00Z");
     }
 
+    #[cfg(unix)]
     #[test]
     fn the_folder_is_700_and_the_files_600() -> io::Result<()> {
+        use std::os::unix::fs::PermissionsExt;
         let parent = tempfile::tempdir()?;
         let dir = parent.path().join("Logs");
         fs::create_dir(&dir)?;

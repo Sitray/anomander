@@ -181,7 +181,8 @@ describe('upgrading an existing database', () => {
     expect(others).toEqual([]);
     expect(backup).toMatch(/^anomander\.db\.backup-v4-\d{8}T\d{6}Z$/);
     const path = join(scratch, backup ?? '');
-    expect(statSync(path).mode & 0o777).toBe(0o600);
+    // File modes are POSIX: on Windows the user profile's access list keeps the file private.
+    if (process.platform !== 'win32') expect(statSync(path).mode & 0o777).toBe(0o600);
     const copy = new Database(path, { readonly: true, fileMustExist: true });
     try {
       expect((versions(copy) as { version: string }[]).map((row) => row.version)).toEqual(
@@ -233,19 +234,23 @@ describe('upgrading an existing database', () => {
     expect(kept.filter((file) => file.startsWith('anomander.db.backup-v4-'))).toHaveLength(1);
   });
 
-  it('applies nothing when the backup cannot be written', () => {
-    builtAt(4);
-    const db = open();
-    chmodSync(scratch, 0o500);
-    try {
-      expect(() => applyMigrations(db)).toThrow(/backup before migrations failed/);
-    } finally {
-      chmodSync(scratch, 0o700);
-    }
-    expect(versions(db)).toHaveLength(4);
-    expect(names(db, 'table')).not.toContain('action_history');
-    expect(backups()).toEqual([]);
-  });
+  // A read-only folder is POSIX: Windows ignores the read-only mark on a folder.
+  it.skipIf(process.platform === 'win32')(
+    'applies nothing when the backup cannot be written',
+    () => {
+      builtAt(4);
+      const db = open();
+      chmodSync(scratch, 0o500);
+      try {
+        expect(() => applyMigrations(db)).toThrow(/backup before migrations failed/);
+      } finally {
+        chmodSync(scratch, 0o700);
+      }
+      expect(versions(db)).toHaveLength(4);
+      expect(names(db, 'table')).not.toContain('action_history');
+      expect(backups()).toEqual([]);
+    },
+  );
 
   it('refuses a database newer than this build, naming both versions, and leaves it untouched', () => {
     const path = join(scratch, 'anomander.db');

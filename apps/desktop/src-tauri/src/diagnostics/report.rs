@@ -1,10 +1,9 @@
 // "Copiar diagnóstico": what the principal can paste when something goes wrong. The app's
-// version, the macOS version, the daemon's state and the last lines of the log, nothing else.
+// version, the system's version, the daemon's state and the last lines of the log, nothing else.
 // The daemon never logs what the principal writes (§16): only references, reasons and amounts.
 use std::fs;
 use std::io;
 use std::path::Path;
-use std::process::Command;
 
 use super::log_file::path_of;
 use crate::daemon::output::scrub;
@@ -15,7 +14,8 @@ pub const LINES: usize = 200;
 /// What the report says besides the log.
 pub struct Facts<'a> {
     pub app_version: &'a str,
-    pub macos_version: &'a str,
+    /// The version of the system (`OS_NAME`).
+    pub os_version: &'a str,
     /// The menu bar's own words for the daemon's state (`tray::labels`).
     pub daemon: &'a str,
 }
@@ -44,9 +44,9 @@ pub fn tail(dir: &Path, count: usize) -> io::Result<Vec<String>> {
 /// covers a line written before its secret was known.
 pub fn report(facts: &Facts, lines: &[String], secrets: &[&str]) -> String {
     let mut text = format!(
-        "ANOMANDER: diagnóstico\nVersión de la app: {}\nmacOS: {}\nEstado: {}\n\nÚltimas {} líneas del registro:\n",
+        "ANOMANDER: diagnóstico\nVersión de la app: {}\n{OS_NAME}: {}\nEstado: {}\n\nÚltimas {} líneas del registro:\n",
         facts.app_version,
-        facts.macos_version,
+        facts.os_version,
         facts.daemon,
         lines.len()
     );
@@ -57,9 +57,13 @@ pub fn report(facts: &Facts, lines: &[String], secrets: &[&str]) -> String {
     text
 }
 
+/// The system the report names.
+pub const OS_NAME: &str = if cfg!(windows) { "Windows" } else { "macOS" };
+
 /// The version of macOS, as `sw_vers` gives it, or "desconocida".
-pub fn macos_version() -> String {
-    Command::new("/usr/bin/sw_vers")
+#[cfg(not(windows))]
+pub fn os_version() -> String {
+    std::process::Command::new("/usr/bin/sw_vers")
         .arg("-productVersion")
         .output()
         .ok()
@@ -68,6 +72,26 @@ pub fn macos_version() -> String {
         .map(|version| version.trim().to_owned())
         .filter(|version| !version.is_empty())
         .unwrap_or_else(|| "desconocida".to_owned())
+}
+
+/// The version of Windows, such as `10.0.26100` (Windows 11 24H2). `RtlGetVersion` gives the
+/// real one, where `GetVersionEx` answers what the app's manifest declares.
+#[cfg(windows)]
+pub fn os_version() -> String {
+    use windows_sys::Wdk::System::SystemServices::RtlGetVersion;
+    use windows_sys::Win32::System::SystemInformation::OSVERSIONINFOW;
+    let mut info = OSVERSIONINFOW {
+        dwOSVersionInfoSize: std::mem::size_of::<OSVERSIONINFOW>() as u32,
+        ..Default::default()
+    };
+    // SAFETY: `info` is an `OSVERSIONINFOW` with its size set, which is all the call writes.
+    if unsafe { RtlGetVersion(&mut info) } != 0 {
+        return "desconocida".to_owned();
+    }
+    format!(
+        "{}.{}.{}",
+        info.dwMajorVersion, info.dwMinorVersion, info.dwBuildNumber
+    )
 }
 
 #[cfg(test)]
@@ -79,7 +103,7 @@ mod tests {
     fn facts() -> Facts<'static> {
         Facts {
             app_version: "0.0.0",
-            macos_version: "26.4",
+            os_version: "26.4",
             daemon: "ANOMANDER está en marcha",
         }
     }
@@ -90,7 +114,7 @@ mod tests {
         let text = report(&facts(), &lines, &[]);
         let mut expected = String::from("ANOMANDER: diagnóstico\n");
         expected.push_str("Versión de la app: 0.0.0\n");
-        expected.push_str("macOS: 26.4\n");
+        expected.push_str(&format!("{OS_NAME}: 26.4\n"));
         expected.push_str("Estado: ANOMANDER está en marcha\n");
         expected.push_str("\nÚltimas 2 líneas del registro:\n");
         expected.push_str("2026-11-20T01:02:03Z first\nsecond\n");

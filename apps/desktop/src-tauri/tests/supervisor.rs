@@ -1,5 +1,7 @@
 // DK-1 AC1-AC2 and DK-2 AC3, end to end: the supervisor runs a fake daemon (a `sh` script in a
 // temporary folder) that behaves as `packages/daemon/src/main.ts` does at its edges.
+// Unix only: the fake daemon is a `sh` script and the checks use process groups and signals.
+#![cfg(unix)]
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
