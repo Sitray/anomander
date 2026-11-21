@@ -1,7 +1,7 @@
 import { createHash, timingSafeEqual } from 'node:crypto';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
-import type { Logger } from '../processor/text-interpreter.ts';
+import type { Logger } from '../processor/ports.ts';
 import { createAuthBackoff } from './auth-backoff.ts';
 import { isDay, openReadOnly, readGastos, readLineas, readPendientes } from './queries.ts';
 

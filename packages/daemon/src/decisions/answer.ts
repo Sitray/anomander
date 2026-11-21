@@ -1,6 +1,6 @@
 import { type ButtonHandler, strings } from '@anomander/protocol';
 import type Database from 'better-sqlite3';
-import type { Logger } from '../processor/text-interpreter.ts';
+import type { Logger } from '../processor/ports.ts';
 import { asOpenDecision, loadDecision, reopenStaleAwaiting } from '../store/decisions.ts';
 import {
   createRegisterExpenseDecision,

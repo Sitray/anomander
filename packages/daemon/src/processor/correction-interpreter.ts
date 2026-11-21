@@ -1,38 +1,18 @@
-import { type ProcessorInference, validateProcessorOutput } from '@anomander/core';
+import { validateProcessorOutput } from '@anomander/core';
 import type { AssistantMessage, Context } from '@earendil-works/pi-ai';
 import { z } from 'zod';
 import { AiBudgetExhaustedError } from '../budget/ai-budget.ts';
-import type { Complete, Logger } from './text-interpreter.ts';
+import type { Complete, CorrectionInterpretation, CorrectionInterpreter, Logger } from './ports.ts';
+
+export type {
+  CorrectionInterpretation,
+  CorrectionInterpreter,
+  CorrectionInterpreterInput,
+} from './ports.ts';
 
 // R-7 AC2: the processor reads the principal's correction of one expense and points at the
 // values written in it, as inferences only. It never writes (R-14 AC1); code accepts a value
 // only if the principal actually wrote it.
-
-export interface CorrectionInterpreterInput {
-  text: string;
-  /** The expense being corrected, as stored. */
-  expense: {
-    total_cents: number;
-    merchant: string | null;
-    category: string | null;
-    occurred_on: string;
-  };
-  categories: string[];
-  /** Today in `TZ`, so a named date ("el 28", "ayer") can be resolved. */
-  today: string;
-}
-
-export type CorrectionInterpretation =
-  | { kind: 'correction'; inferences: ProcessorInference[] }
-  | { kind: 'invalid'; reason: string }
-  /** The processor failed or did not answer in time (R-22 AC1). */
-  | { kind: 'failed'; reason: string }
-  /** The daily AI budget is spent, so the processor was not called (R-12 AC4). */
-  | { kind: 'budget_exhausted' };
-
-export type CorrectionInterpreter = (
-  input: CorrectionInterpreterInput,
-) => Promise<CorrectionInterpretation>;
 
 export const CORRECTION_INTERPRETER_PROMPT = `You read one message in which the user corrects an expense that a personal assistant was about to record. You can only answer; you have no tools and you never store anything.
 

@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { z } from 'zod';
-import type { Logger } from '../processor/text-interpreter.ts';
+import type { Logger } from '../processor/ports.ts';
 
 // DK-11: the servers the principal connected, from `mcp.json` in the data folder. The format is
 // the `mcpServers` object other MCP clients read, plus `readOnly`: the tools of that server the

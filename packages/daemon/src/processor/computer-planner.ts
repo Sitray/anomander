@@ -8,9 +8,14 @@ import {
 import type { AssistantMessage, Context } from '@earendil-works/pi-ai';
 import { z } from 'zod';
 import { AiBudgetExhaustedError } from '../budget/ai-budget.ts';
-import type { MemoryNote } from '../store/memory.ts';
+import type { Complete, ComputerPlan, ComputerPlanner, Logger } from './ports.ts';
 import { isProviderLimit } from './provider-limit.ts';
-import type { Complete, Logger } from './text-interpreter.ts';
+
+export type {
+  ComputerPlan,
+  ComputerPlanner,
+  ComputerPlannerInput,
+} from './ports.ts';
 
 // DK-10: a task on the principal's computer, one step at a time. The vision processor sees the
 // screen as it is now and proposes ONE action. It never performs it and gets no tools (R-14
@@ -19,30 +24,6 @@ import type { Complete, Logger } from './text-interpreter.ts';
 // the code asks anyway for what looks like one, so a processor that is wrong, or was told
 // otherwise by a text on the screen, cannot wave such a step through by its word alone.
 // What the action is, is said by code from the validated action (AC3), never by the processor.
-
-export interface ComputerPlannerInput {
-  task: string;
-  image: { mimeType: string; data: Uint8Array };
-  /** The steps already performed, as they were described, oldest first. */
-  done: readonly string[];
-  /** What the principal said about themselves (DK-14 AC1), `declared` only; none when absent. */
-  memories?: readonly MemoryNote[];
-}
-
-export type ComputerPlan =
-  /**
-   * One action to propose, what it is in the principal's language, and whether they must allow
-   * it first.
-   */
-  | { kind: 'action'; action: ComputerAction; text: string; confirm: boolean }
-  /** The task is over: the processor's own words, and whether it says the task was done. */
-  | { kind: 'end'; text: string; completed: boolean }
-  | { kind: 'failed' }
-  | { kind: 'budget_exhausted' }
-  /** The provider's own quota or rate limit is spent. */
-  | { kind: 'provider_limit' };
-
-export type ComputerPlanner = (input: ComputerPlannerInput) => Promise<ComputerPlan>;
 
 export const COMPUTER_PLANNER_PROMPT = `You help a user do one task on their own Mac, one step at a time. The user turn is a JSON object with "task" (what they asked, in Spanish), "done" (the steps already performed, oldest first) and "memories", followed by one capture of their screen as it is now.
 

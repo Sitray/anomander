@@ -1,56 +1,28 @@
-import { isCalendarDate, type ProcessorInference, validateProcessorOutput } from '@anomander/core';
+import { isCalendarDate, validateProcessorOutput } from '@anomander/core';
 import type { AssistantMessage, Context, ImageContent } from '@earendil-works/pi-ai';
 import { z } from 'zod';
-import type { Complete, Logger } from './text-interpreter.ts';
+import type {
+  Complete,
+  Inferred,
+  Logger,
+  ReceiptLine,
+  ReceiptReader,
+  ReceiptReading,
+} from './ports.ts';
+
+export type {
+  Inferred,
+  ReceiptLine,
+  ReceiptRead,
+  ReceiptReader,
+  ReceiptReaderImage,
+  ReceiptReaderInput,
+  ReceiptReading,
+} from './ports.ts';
 
 // PRD §10 step 2 and R-3 AC2: the vision processor reads a receipt and returns inferences only.
 // It never writes (R-14 AC1) and gets no tools (R-14 AC3); the receipt cycle decides what to
 // store.
-
-export interface ReceiptReaderImage {
-  mimeType: string;
-  data: Uint8Array;
-}
-
-export interface ReceiptReaderInput {
-  /** Every image of the receipt, read together in one call (R-3 AC4). */
-  images: readonly ReceiptReaderImage[];
-  /** The principal's caption, a declaration sent with the images (R-3 AC5). */
-  caption: string | null;
-  /** Today as `YYYY-MM-DD` in `TZ`. */
-  today: string;
-  /** The existing categories; the processor may only pick one of them (R-5 AC2). */
-  categories: string[];
-}
-
-export interface ReceiptLine {
-  name: string;
-  quantity: number;
-  amount_cents: number;
-}
-
-/** A validated inference and its typed value. */
-export interface Inferred<T> {
-  inference: ProcessorInference;
-  value: T;
-}
-
-export interface ReceiptRead {
-  kind: 'read';
-  merchant: Inferred<string>;
-  occurredOn: Inferred<string>;
-  total: Inferred<number>;
-  lines: Inferred<ReceiptLine>[];
-  category: Inferred<string> | null;
-  /** Read from the caption, not from the receipt (R-3 AC5). */
-  declaredCategory: Inferred<string> | null;
-  declaredMerchant: Inferred<string> | null;
-}
-
-export type ReceiptReading = ReceiptRead | { kind: 'unreadable'; reason: string };
-
-/** The vision processor port. */
-export type ReceiptReader = (input: ReceiptReaderInput) => Promise<ReceiptReading>;
 
 export const RECEIPT_READER_PROMPT = `You read the images of one shop receipt for a personal assistant. You can only answer; you have no tools and you never store anything.
 

@@ -1,6 +1,6 @@
 import type { ButtonPress, DoorReply, PrincipalText, ReceiptHandler } from '@anomander/protocol';
 import type { TelegramConfig } from './config.ts';
-import type { Logger } from './processor/text-interpreter.ts';
+import type { Logger } from './processor/ports.ts';
 
 // The Telegram front door (R-1), only while `TELEGRAM_BOT_TOKEN` and its chat ID are set:
 // `@anomander/telegram` is imported then, never otherwise. Without it nothing polls Telegram and

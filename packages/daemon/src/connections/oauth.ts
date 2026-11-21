@@ -6,7 +6,7 @@ import type {
 } from '@modelcontextprotocol/sdk/shared/auth.js';
 import type { FetchLike } from '@modelcontextprotocol/sdk/shared/transport.js';
 import { z } from 'zod';
-import type { Logger } from '../processor/text-interpreter.ts';
+import type { Logger } from '../processor/ports.ts';
 
 // DK-11 OAuth: an HTTP server the principal connected with OAuth in the app. The app keeps the
 // client and its tokens in the Keychain and hands them over at the daemon's start in

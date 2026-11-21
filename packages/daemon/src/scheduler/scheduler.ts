@@ -1,5 +1,5 @@
 import { Cron } from 'croner';
-import type { Logger } from '../processor/text-interpreter.ts';
+import type { Logger } from '../processor/ports.ts';
 
 // The daemon's clock (PRD §14.3). R-19: retention runs once at startup and then at
 // `ANOMANDER_RETENTION_CRON` in `TZ`. Every minute, the budget queue is read once the day has

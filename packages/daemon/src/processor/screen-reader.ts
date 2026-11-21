@@ -1,30 +1,17 @@
 import type { AssistantMessage, Context } from '@earendil-works/pi-ai';
 import { AiBudgetExhaustedError } from '../budget/ai-budget.ts';
-import type { MemoryNote } from '../store/memory.ts';
+import type { Complete, Logger, ScreenReader, ScreenReading } from './ports.ts';
 import { isProviderLimit } from './provider-limit.ts';
-import type { Complete, Logger } from './text-interpreter.ts';
+
+export type {
+  ScreenReader,
+  ScreenReaderInput,
+  ScreenReading,
+} from './ports.ts';
 
 // The principal asks about what is on their screen, and the app sends the capture it took at
 // that moment. The vision processor looks at it and answers in words. It never writes and gets
 // no tools (R-14 AC1, AC3): looking at the screen cannot change anything, here or on the screen.
-
-export interface ScreenReaderInput {
-  /** What the principal asks. */
-  question: string;
-  image: { mimeType: string; data: Uint8Array };
-  /** What the principal said about themselves (DK-14 AC1), `declared` only; none when absent. */
-  memories?: readonly MemoryNote[];
-}
-
-export type ScreenReading =
-  | { kind: 'answer'; text: string }
-  | { kind: 'failed' }
-  | { kind: 'budget_exhausted' }
-  /** The provider's own quota or rate limit is spent. */
-  | { kind: 'provider_limit' };
-
-/** The vision processor port for the screen. */
-export type ScreenReader = (input: ScreenReaderInput) => Promise<ScreenReading>;
 
 export const SCREEN_READER_PROMPT = `You are a personal assistant that talks to its user in Spanish (es-ES). The user turn is a JSON object with "question" (what the user asks) and "memories", followed by one capture of the user's own screen, taken when they asked.
 

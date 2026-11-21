@@ -5,7 +5,7 @@ import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
 import { ErrorCode, McpError } from '@modelcontextprotocol/sdk/types.js';
-import type { ConnectedTool, Logger } from '../processor/text-interpreter.ts';
+import type { ConnectedTool, Logger } from '../processor/ports.ts';
 import type { ConnectionsConfig, ServerConfig } from './config.ts';
 import type { Connection, ToolInfo } from './connection.ts';
 import { type OAuthKeeper, originScopedFetch } from './oauth.ts';

@@ -1,109 +1,25 @@
 import { type ProcessorInference, validateProcessorOutput } from '@anomander/core';
-import { ROUTE_KINDS, type RouteKind } from '@anomander/protocol';
+import { ROUTE_KINDS } from '@anomander/protocol';
 import type { AssistantMessage, Context } from '@earendil-works/pi-ai';
 import { z } from 'zod';
 import { AiBudgetExhaustedError } from '../budget/ai-budget.ts';
-import { type Capability, type CapabilityCall, capabilityFor } from '../capabilities/capability.ts';
+import { type Capability, capabilityFor } from '../capabilities/capability.ts';
 import { CAPABILITIES } from '../capabilities/registry.ts';
-import type { RecentTurn } from '../conversation/recent-turns.ts';
-import type { HistoryEntry } from '../store/history.ts';
-import { type Memory, quotedFrom } from '../store/memory.ts';
+import { quotedFrom } from '../store/memory.ts';
+import type { Complete, ConnectedTool, Logger, MemoryFact, TextInterpreter } from './ports.ts';
+
+export type {
+  Complete,
+  ConnectedTool,
+  Interpretation,
+  Logger,
+  MemoryFact,
+  TextInterpreter,
+  TextInterpreterInput,
+} from './ports.ts';
 
 // R-17 AC5 and R-2 AC6: the processor classifies a text and returns inferences only. It never
 // writes (R-14 AC1); the expense cycle decides what to store.
-
-export type Logger = Pick<Console, 'info' | 'warn' | 'error'>;
-
-export interface TextInterpreterInput {
-  text: string;
-  /** Today as `YYYY-MM-DD` in `TZ`, so the processor can resolve "ayer" (R-2 AC7). */
-  today: string;
-  /** The existing categories; the processor may only pick one of them (R-5 AC2). */
-  categories: string[];
-  /** The recent turns, oldest first (R-16 AC3). */
-  recent: RecentTurn[];
-  /** The current memories, for conversation replies only (R-23 AC4). */
-  memories: Memory[];
-  /** What each capability adds to the user turn, under its name (R-24 AC1, R-25 AC1). */
-  capabilities?: Record<string, unknown>;
-  /** The ways this front door can carry out a request (DK-13 AC1); none when absent. */
-  routes?: readonly RouteKind[];
-  /** What ANOMANDER did lately, oldest first (DK-14 AC3); none when absent. */
-  history?: readonly HistoryEntry[];
-  /** The tools of the servers the principal connected (DK-11, T17); none when absent. */
-  connected?: readonly ConnectedTool[];
-}
-
-/**
- * A tool of a connected server, so the processor can tell what a task with connections can do
- * (T17). `purpose` is the server's own description, empty when it is not known yet.
- */
-export interface ConnectedTool {
-  server: string;
-  tool: string;
-  purpose: string;
-}
-
-/** A lasting fact about the principal the processor found in the message (R-23 AC1). */
-export interface MemoryFact {
-  text: string;
-  /** The words of the message it rests on. */
-  quote: string;
-  /** Whether the principal said it; code still checks the quote before calling it declared. */
-  said: boolean;
-  confidence: number;
-  /** The id of the current memory it replaces (R-23 AC3). */
-  replaces: number | null;
-}
-
-export type Interpretation =
-  | { kind: 'expense'; inferences: ProcessorInference[]; memories: MemoryFact[] }
-  | { kind: 'conversation'; reply: string; memories: MemoryFact[] }
-  /** The principal asks what ANOMANDER remembers; code lists it (R-23 AC5). */
-  | { kind: 'memory_list' }
-  /**
-   * The principal asks to forget something: the ids of the matching memories among the ones the
-   * processor was given, possibly none. Code asks before erasing anything (R-23 AC6).
-   */
-  | { kind: 'forget'; ids: number[] }
-  /** The principal asks to erase what ANOMANDER did; code asks before erasing (DK-14 AC4). */
-  | { kind: 'forget_history' }
-  /**
-   * The principal asks to create a category (R-18 AC1): the name as written, and S-36 worded by
-   * the processor, sent only if the category already exists and the wording keeps the facts
-   * (R-21). Code proposes the category; the processor never creates one (R-5 AC3).
-   */
-  | { kind: 'category'; name: string; reply: string | null }
-  /**
-   * The principal states a rule, "Mercadona es supermercado" (R-13 AC1): the merchant and the
-   * category as written, and a conversational reply sent only when that rule is already active.
-   * Code asks S-11 before storing anything; the processor never stores a policy (§13).
-   */
-  | { kind: 'policy'; merchant: string; category: string; reply: string | null }
-  /** A capability call, validated against its capability's schema (R-24 AC2). */
-  | { kind: 'capability'; call: CapabilityCall }
-  /** DK-13 AC1: the request goes one of the ways the door offers; code starts it. */
-  | { kind: 'route'; to: RouteKind; task: string }
-  /** DK-13 AC1: the request needs a way this door does not offer; nothing is started. */
-  | { kind: 'route_elsewhere'; to: RouteKind }
-  /** T17: a lookup on the internet, and no connection can search; nothing is started. */
-  | { kind: 'no_web_search' }
-  | { kind: 'invalid'; reason: string }
-  /** The processor failed or did not answer in time: nothing to interpret (R-22 AC1). */
-  | { kind: 'failed'; reason: string }
-  /** The daily AI budget is spent, so the processor was not called (R-12 AC4). */
-  | { kind: 'budget_exhausted' };
-
-/** The processor port. */
-export type TextInterpreter = (input: TextInterpreterInput) => Promise<Interpretation>;
-
-/** `models.complete` of pi-ai, or a recorded response in tests. */
-/** `signal` aborts the call when its timeout passes (R-22 AC2). */
-export type Complete<M> = (
-  model: M,
-  context: Context,
-  signal?: AbortSignal,
-) => Promise<AssistantMessage>;
 
 // R-24 AC1: the prompt is these built-in kinds, then each registered capability's section.
 const BUILT_IN_KINDS = `You interpret one message the user wrote to a personal assistant. You can only answer; you have no tools and you never store anything.

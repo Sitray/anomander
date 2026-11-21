@@ -20,6 +20,7 @@ import {
 } from '@anomander/protocol';
 import type Database from 'better-sqlite3';
 import type { AiBudget } from '../budget/ai-budget.ts';
+import type { Logger } from '../processor/ports.ts';
 import type {
   Inferred,
   ReceiptRead,
@@ -27,7 +28,6 @@ import type {
   ReceiptReaderImage,
 } from '../processor/receipt-reader.ts';
 import type { ReplyPhraser } from '../processor/reply-phraser.ts';
-import type { Logger } from '../processor/text-interpreter.ts';
 import { findWaitingReceipt, queueReceipt } from '../retention/queued-receipts.ts';
 import {
   listActivePolicies,

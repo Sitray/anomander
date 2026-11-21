@@ -4,7 +4,7 @@ import type Database from 'better-sqlite3';
 import { textValue, writtenIn } from '../expenses/declarations.ts';
 import { type PatternOffers, thenOfferPattern } from '../patterns/pattern-offers.ts';
 import type { CorrectionInterpreter } from '../processor/correction-interpreter.ts';
-import type { Logger } from '../processor/text-interpreter.ts';
+import type { Logger } from '../processor/ports.ts';
 import {
   answerDecision,
   awaitText,

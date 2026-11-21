@@ -996,11 +996,24 @@ describe('a request the chat routes by itself (DK-13)', () => {
     routed = route('connect', 'qué tengo mañana');
     tooled = [says('Mañana tienes dentista a las 10.')];
 
+    let release = (): void => {};
+    held = new Promise<void>((resolveHeld) => {
+      release = resolveHeld;
+    });
+
     api.push(updates.text({ chatId: PRINCIPAL }, '¿qué tengo mañana?'));
 
-    // The way is announced at once, and the answer follows when the task ends.
-    const sent = (await api.waitForSent(2)).map(({ text }) => text);
-    expect(sent.sort()).toEqual(['Lo miro en tus conexiones.', 'Mañana tienes dentista a las 10.']);
+    // The way is announced at once, while the task still runs, and the answer follows when the
+    // task ends: in that order.
+    expect((await api.waitForSent(1)).map(({ text }) => text)).toEqual([
+      'Lo miro en tus conexiones.',
+    ]);
+    await vi.waitFor(() => expect(tasked).toHaveLength(1));
+    release();
+    expect((await api.waitForSent(2)).map(({ text }) => text)).toEqual([
+      'Lo miro en tus conexiones.',
+      'Mañana tienes dentista a las 10.',
+    ]);
     expect(interpreted.at(-1)?.routes).toEqual(['connect']);
   });
 
@@ -1209,6 +1222,29 @@ describe('a task with connections (DK-11)', () => {
     expect(interpreted.at(-1)?.recent).toEqual([
       { principal: `[conexiones] ${task}`, reply: 'No hay ninguna nota de Lisboa.' },
     ]);
+  });
+
+  // T15: the turn that tells a running step's end is let in after a stop began (`ends`).
+  it('a step that runs when the daemon stops is still told and kept before the store closes', async () => {
+    const daemon = await start();
+    const chat = await client(daemon);
+    tooled = [says('No hay ninguna nota de Lisboa.')];
+    let release = (): void => {};
+    held = new Promise<void>((resolveStep) => {
+      release = resolveStep;
+    });
+    void chat.ask({ type: 'connect', task }).catch(() => {});
+    await vi.waitFor(() => expect(tasked).toHaveLength(1));
+
+    const stopped = daemon.stop();
+    anomander = undefined;
+    setTimeout(release, 50);
+    await stopped;
+
+    expect(query('SELECT task, outcome FROM action_history')).toEqual([
+      { task, outcome: 'answer' },
+    ]);
+    expect(logger.error.mock.calls.map(([message]) => message)).toEqual([]);
   });
 
   it('asks before a call that is not read-only, and makes it once on "Permitir"', async () => {

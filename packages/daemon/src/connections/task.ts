@@ -7,8 +7,8 @@ import type {
   ToolResultMessage,
 } from '@earendil-works/pi-ai';
 import { AiBudgetExhaustedError } from '../budget/ai-budget.ts';
+import type { Complete, Logger } from '../processor/ports.ts';
 import { isProviderLimit } from '../processor/provider-limit.ts';
-import type { Complete, Logger } from '../processor/text-interpreter.ts';
 import type { Connection, ToolInfo } from './connection.ts';
 
 // DK-11: a task that uses the tools of the servers the principal connected. The processor is
