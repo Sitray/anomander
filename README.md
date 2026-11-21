@@ -4,7 +4,7 @@
 
 A personal assistant that understands your world, knows what is true, knows what it may do, and carries a matter to a verifiable result.
 
-> Status: in development, not released. Milestones M0 to M6 of the [PRD](PRD.md) roadmap (§17) are built: see [What works today](#what-works-today). The design is in [`docs/`](docs).
+> Status: version 0.1.0, run from source (no packaged download). Milestones M0 to M6 of the [PRD](PRD.md) roadmap (§17) are built: see [What works today](#what-works-today) and the [CHANGELOG](CHANGELOG.md). The design is in [`docs/`](docs).
 
 The Mac app's interface is in Spanish only, and the app runs on macOS only. Telegram replies are in Spanish too (PRD §12).
 
@@ -37,7 +37,7 @@ The Mac app:
 
 Not built yet:
 
-- A signed app other people can download. Today you build it yourself from this repository.
+- A signed app to download. You build it yourself from this repository; a packaged, notarized app is not planned for now.
 - Reminders and summaries in the Mac app without Telegram: they wait until a bot is set up.
 - Google Calendar and Drive connectors.
 

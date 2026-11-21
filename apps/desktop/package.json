@@ -1,6 +1,6 @@
 {
   "name": "@anomander/desktop",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "private": true,
   "type": "module",
   "description": "Desktop app: starts and supervises the daemon, with a chat and the Keychain (M6).",

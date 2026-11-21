@@ -1,6 +1,6 @@
 {
   "name": "@anomander/protocol",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "private": true,
   "type": "module",
   "description": "Types shared by the daemon and its front doors.",
