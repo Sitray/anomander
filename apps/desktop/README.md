@@ -8,6 +8,12 @@ ends a pill drops from the notch saying "Ha terminado", holds and retracts (`src
 and the page in `src/notch/`). It drops after every task on the computer, and after an answer only
 when the chat is not in front.
 
+On Windows the same shell keeps the secrets in the Credential Manager and lives in the
+notification area: the icon is drawn light with a dark rim (no template images there), a left
+click opens the chat and the right button the menu. With no notch or menu bar, the pill floats at
+the top centre of the main screen's work area (`data-floating` in `src/notch/`). Build and run it
+as the root README's "Run the app on Windows" says.
+
 This file covers the window. The two halves meet in `src/shell.ts`: every command and event they
 exchange, mirrored by the Rust side. Change both together.
 

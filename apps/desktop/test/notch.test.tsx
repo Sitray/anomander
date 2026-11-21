@@ -29,7 +29,7 @@ describe('the notice from the notch', () => {
 
   it('drops over the menu bar it is given to say the work has ended', () => {
     const { notice, pill, label } = mount();
-    notice.show({ say: 'done', bar: 37 });
+    notice.show({ say: 'done', bar: 37, floating: false });
     expect(pill.dataset['up']).toBe('true');
     expect(pill.style.getPropertyValue('--bar')).toBe('37px');
     expect(label.textContent).toBe('Ha terminado');
@@ -43,24 +43,33 @@ describe('the notice from the notch', () => {
 
   it('hangs from under a menu bar without a notch', () => {
     const { notice, pill } = mount();
-    notice.show({ say: 'done', bar: 0 });
+    notice.show({ say: 'done', bar: 0, floating: false });
+    expect(pill.style.getPropertyValue('--bar')).toBe('0px');
+  });
+
+  it('floats, rounded, where there is no notch or menu bar to hang from', () => {
+    const { notice, pill } = mount();
+    expect(pill.dataset['floating']).toBe('false');
+    notice.show({ say: 'done', bar: 0, floating: true });
+    expect(pill.dataset['floating']).toBe('true');
+    expect(pill.dataset['up']).toBe('true');
     expect(pill.style.getPropertyValue('--bar')).toBe('0px');
   });
 
   it('retracts when told to say nothing, keeping its words while it does', () => {
     const { notice, pill, label } = mount();
-    notice.show({ say: 'done', bar: 37 });
-    notice.show({ say: 'nothing', bar: 37 });
+    notice.show({ say: 'done', bar: 37, floating: false });
+    notice.show({ say: 'nothing', bar: 37, floating: false });
     expect(pill.dataset['up']).toBe('false');
     expect(label.textContent).toBe('Ha terminado');
     // The next end drops it again.
-    notice.show({ say: 'done', bar: 37 });
+    notice.show({ say: 'done', bar: 37, floating: false });
     expect(pill.dataset['up']).toBe('true');
   });
 
   it('opens the chat on a click', () => {
     const { notice, onOpen, pill } = mount();
-    notice.show({ say: 'done', bar: 37 });
+    notice.show({ say: 'done', bar: 37, floating: false });
     pill.click();
     expect(onOpen).toHaveBeenCalledTimes(1);
   });

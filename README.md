@@ -6,9 +6,9 @@ A personal assistant that understands your world, knows what is true, knows what
 
 > Status: version 0.1.0, run from source (no packaged download). Milestones M0 to M6 of the [PRD](PRD.md) roadmap (§17) are built: see [What works today](#what-works-today) and the [CHANGELOG](CHANGELOG.md). The design is in [`docs/`](docs).
 
-The Mac app's interface is in Spanish only, and the app runs on macOS only. Telegram replies are in Spanish too (PRD §12).
+The Mac app's interface is in Spanish only. It runs on macOS and, without a look at the screen or tasks on the computer for now, on Windows. Telegram replies are in Spanish too (PRD §12).
 
-To run your own, see [Getting started](#getting-started) (Docker and Telegram) or [Run the Mac app](#run-the-mac-app).
+To run your own, see [Getting started](#getting-started) (Docker and Telegram), [Run the Mac app](#run-the-mac-app) or [Run the app on Windows](#run-the-app-on-windows).
 
 <!-- screenshot: TODO -->
 
@@ -172,7 +172,7 @@ You need:
 
 | What | Why |
 | --- | --- |
-| macOS | The app uses the Keychain, the menu bar and the notch. There is no Windows or Linux app |
+| macOS | The app uses the Keychain, the menu bar and the notch. For Windows, see [Run the app on Windows](#run-the-app-on-windows); there is no Linux app |
 | Node 24 and pnpm | The app runs the daemon with the first `node` on `PATH` (plus `/opt/homebrew/bin` and `/usr/local/bin`) |
 | Rust 1.85 or later and the Xcode Command Line Tools | To build the Tauri shell |
 | A code-signing identity | macOS ties each Keychain entry to the app's signature. An unsigned build gets a new one each time, so after every rebuild macOS asks for your login keychain password |
@@ -198,6 +198,38 @@ Good to know:
 | You moved or deleted this checkout | Build again. The app runs the daemon from `packages/daemon/src/main.ts` of the checkout it was built in |
 | You want to work on the window | `pnpm --dir apps/desktop tauri dev`, or the window alone in a browser. See [`apps/desktop/README.md`](apps/desktop/README.md) |
 | macOS asks for the keychain password once | Entries stored by an unsigned build ask once. [`apps/desktop/README.md`](apps/desktop/README.md#signing-the-build) says how to clear them |
+
+## Run the app on Windows
+
+The same app, built from this repository on your Windows PC, with the chat, the setup, connections, subscription login and Telegram. A look at the screen and tasks on the computer are macOS-only for now: on Windows the app answers them with its macOS permission message. As on the Mac, stop a Docker install first (DK-2 AC2).
+
+You need:
+
+| What | Why |
+| --- | --- |
+| Windows 10 or 11, 64-bit, with the WebView2 runtime | The window is drawn by WebView2. Windows 11 has it; on Windows 10 the installer fetches it |
+| Node 24 and pnpm | The app runs the daemon with the first `node.exe` on `PATH` |
+| Rust 1.85 or later with the MSVC toolchain (`rustup default stable-x86_64-pc-windows-msvc`) and the Visual Studio Build Tools with "Desktop development with C++" | To build the Tauri shell |
+| A model | An API key, or a ChatGPT or Kimi Code subscription |
+
+Steps, in a terminal (PowerShell or Git Bash):
+
+1. **Install.** From the repository root: `pnpm install`.
+2. **Build.**
+   ```bash
+   pnpm --dir apps/desktop tauri build --bundles nsis
+   ```
+   The installer is `apps/desktop/src-tauri/target/release/bundle/nsis/ANOMANDER_0.1.0_x64-setup.exe`. It is not signed, so SmartScreen asks before it runs: choose "More info" › "Run anyway". `apps/desktop/src-tauri/target/release/anomander-desktop.exe` runs the app without installing it. A `--debug` build is quicker to make but opens a console window beside the app.
+3. **Set it up.** As on the Mac (step 4 above). The secrets go to the Windows Credential Manager.
+
+Good to know:
+
+| Situation | What to do |
+| --- | --- |
+| Where the app is | In the notification area of the taskbar (it may be under the "^" arrow). A click opens the chat; the right button opens the menu. Closing the window leaves the app there |
+| Where its files are | The data in `%APPDATA%\ANOMANDER`, the log in `%LOCALAPPDATA%\dev.anomander.desktop\logs\anomander.log` |
+| You moved or deleted this checkout | Build again, as on the Mac |
+| Checking it by hand | [`docs/windows-check.md`](docs/windows-check.md) lists what to try |
 
 ## Connecting a model
 

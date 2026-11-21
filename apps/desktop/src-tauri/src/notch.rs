@@ -3,7 +3,8 @@
 // follows the signals the menu bar icon takes (DK-6, DK-10): the chat waiting for an answer, and a
 // task on the computer going by itself. While the work goes on only the menu bar's wave shows it;
 // when it ends the pill drops to say so, holds, and retracts. On a screen without a notch the pill
-// hangs from under the menu bar instead.
+// hangs from under the menu bar instead. Where there is no menu bar (Windows) the window sits at
+// the top centre of the main screen's work area, and the pill floats just below its edge.
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Mutex, PoisonError};
 use std::time::Duration;
@@ -32,6 +33,11 @@ const NOTCHED_BAR: f64 = 30.0;
 const RETRACT: Duration = Duration::from_millis(400);
 /// How long the pill stays down saying the work has ended.
 const HOLD: Duration = Duration::from_millis(2400);
+/// Where there is no menu bar to hang from, how far below the work area's top edge the pill
+/// floats: `--gap` of `notch.css`.
+pub const GAP: f64 = 12.0;
+/// Whether this build has no menu bar or notch to hang the pill from, so it floats.
+const FLOATS: bool = !cfg!(target_os = "macos");
 
 /// What ANOMANDER is doing: nothing, an answer owed, or a task going by itself.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -56,6 +62,9 @@ pub struct State {
     /// The menu bar's height, in points, when the pill covers it from the notch down; 0 when the
     /// pill hangs from under the bar.
     pub bar: f64,
+    /// The pill floats, rounded all round, `GAP` below the window's top edge: there is no notch
+    /// or menu bar to hang from.
+    pub floating: bool,
 }
 
 /// The two signals the notice follows.
@@ -124,6 +133,7 @@ impl Spell {
 struct Notice {
     spell: Mutex<Spell>,
     bar: f64,
+    floating: bool,
     /// Counts the changes, so a hide ordered at one change does not take down later work.
     changes: AtomicU64,
 }
@@ -151,6 +161,17 @@ pub fn place(screen_x: f64, screen_y: f64, screen_width: f64, bar: f64) -> Place
     }
 }
 
+/// Where the window goes where the pill floats, in points: centred at the top of the main screen's
+/// work area, which leaves out the taskbar wherever it is docked.
+pub fn place_floating(area_x: f64, area_y: f64, area_width: f64) -> Place {
+    Place {
+        x: area_x + (area_width - WIDTH) / 2.0,
+        y: area_y,
+        height: GAP + DROP + MARGIN,
+        bar: 0.0,
+    }
+}
+
 /// Creates the window, hidden, over the main screen's notch. Without a main screen there is no
 /// notice, and the app goes on without it.
 pub fn build(app: &App) -> tauri::Result<()> {
@@ -160,15 +181,23 @@ pub fn build(app: &App) -> tauri::Result<()> {
     };
     let scale = screen.scale_factor();
     let (position, size, work_area) = (screen.position(), screen.size(), screen.work_area());
-    // The work area starts under the menu bar.
-    let bar = f64::from(work_area.position.y - position.y) / scale;
-    let place = place(
-        f64::from(position.x) / scale,
-        f64::from(position.y) / scale,
-        f64::from(size.width) / scale,
-        bar,
-    );
-    let window = WebviewWindowBuilder::new(app, WINDOW, WebviewUrl::App("notch.html".into()))
+    let place = if FLOATS {
+        place_floating(
+            f64::from(work_area.position.x) / scale,
+            f64::from(work_area.position.y) / scale,
+            f64::from(work_area.size.width) / scale,
+        )
+    } else {
+        // The work area starts under the menu bar.
+        let bar = f64::from(work_area.position.y - position.y) / scale;
+        place(
+            f64::from(position.x) / scale,
+            f64::from(position.y) / scale,
+            f64::from(size.width) / scale,
+            bar,
+        )
+    };
+    let builder = WebviewWindowBuilder::new(app, WINDOW, WebviewUrl::App("notch.html".into()))
         .title("ANOMANDER")
         .decorations(false)
         .transparent(true)
@@ -182,16 +211,21 @@ pub fn build(app: &App) -> tauri::Result<()> {
         // A click opens the chat without first activating the app.
         .accept_first_mouse(true)
         // Kept out of other processes' screen captures, so the app's own capture of the screen
-        // (`screen.rs`, through `screencapture`) does not show it.
+        // (`screen.rs`, through `screencapture`) does not show it. On Windows this is
+        // `WDA_EXCLUDEFROMCAPTURE`.
         .content_protected(true)
         .visible(false)
         .position(place.x, place.y)
-        .inner_size(WIDTH, place.height)
-        .build()?;
+        .inner_size(WIDTH, place.height);
+    // Not an app window of its own on the taskbar.
+    #[cfg(not(target_os = "macos"))]
+    let builder = builder.skip_taskbar(true);
+    let window = builder.build()?;
     raise_over_the_menu_bar(&window);
     app.manage(Notice {
         spell: Mutex::new(Spell::default()),
         bar: place.bar,
+        floating: FLOATS,
         changes: AtomicU64::new(0),
     });
     Ok(())
@@ -273,6 +307,7 @@ fn say(app: &AppHandle, notice: &Notice, say: Say) {
     let state = State {
         say,
         bar: notice.bar,
+        floating: notice.floating,
     };
     if let Err(error) = app.emit_to(WINDOW, STATE_EVENT, state) {
         eprintln!("could not tell the notice from the notch: {error}");
@@ -410,13 +445,29 @@ mod tests {
     }
 
     #[test]
+    fn without_a_menu_bar_the_window_sits_at_the_top_centre_of_the_work_area() {
+        // A 1920-pixel screen at 125%, its taskbar docked at the top: the work area starts
+        // under it.
+        let place = place_floating(0.0, 38.4, 1536.0);
+        assert_eq!(place.x, (1536.0 - WIDTH) / 2.0);
+        assert_eq!(place.y, 38.4);
+        assert_eq!(place.bar, 0.0);
+        assert_eq!(place.height, GAP + DROP + MARGIN);
+        // On a second screen to the left, with the taskbar at the bottom.
+        let place = place_floating(-1280.0, 0.0, 1280.0);
+        assert_eq!(place.x, -1280.0 + (1280.0 - WIDTH) / 2.0);
+        assert_eq!(place.y, 0.0);
+    }
+
+    #[test]
     fn the_page_is_told_what_to_say_in_snake_case() {
         let json = serde_json::to_string(&State {
             say: Say::Done,
             bar: 37.0,
+            floating: false,
         })
         .unwrap();
-        assert_eq!(json, r#"{"say":"done","bar":37.0}"#);
+        assert_eq!(json, r#"{"say":"done","bar":37.0,"floating":false}"#);
         assert_eq!(
             serde_json::to_string(&Say::Nothing).unwrap(),
             r#""nothing""#

@@ -808,7 +808,7 @@ Migrations are versioned SQL files applied at startup. Seed data: the principal 
 | Tests | Vitest, fast-check |
 | Lint and format | Biome |
 | Containers | Docker and Docker Compose |
-| Desktop (M6) | Tauri 2 with Rust, as in gentle-dot; macOS only |
+| Desktop (M6) | Tauri 2 with Rust, as in gentle-dot; macOS, and Windows without screen and computer control for now |
 
 ### 14.2 Repository layout
 
@@ -938,7 +938,7 @@ Checks every feature document should run:
 | M5e Setup guide | `/start` and a guide to what `.env` still needs | R-17 AC8, R-28 |
 | M5f Opt-in weekly summary | The weekly summary sent only after the principal asks for it, the third capability | R-10 AC5-AC8 |
 | M5b Ledger read access | Read-only views and a token-guarded, GET-only HTTP API for other applications; an MCP server comes later | `docs/read-access-prd.md` (RA-1, RA-2), built |
-| M6 Desktop | Tauri 2 Mac app with Rust, talking to the same daemon: chat, setup, menu bar and notch, a look at the screen, tasks on the computer, connections with OAuth, routing from the chat, memories and history, subscription login | `docs/desktop-prd.md` (DK-1 to DK-15), built; its status says what is still to try against real services. Not yet: a signed app others can download, the app without Telegram |
+| M6 Desktop | Tauri 2 Mac app with Rust (on Windows too, without a look at the screen or tasks on the computer for now), talking to the same daemon: chat, setup, menu bar and notch, a look at the screen, tasks on the computer, connections with OAuth, routing from the chat, memories and history, subscription login | `docs/desktop-prd.md` (DK-1 to DK-15), built; its status says what is still to try against real services. Not yet: a signed app others can download, the app without Telegram |
 
 ## 18. Suggested ODD feature documents
 

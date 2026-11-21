@@ -12,9 +12,10 @@
   --bone: #ebe7df;
   --ember: #d47a3a;
 
-  /* `PILL_WIDTH` and `DROP` of `notch.rs`. */
+  /* `PILL_WIDTH`, `DROP` and `GAP` of `notch.rs`. */
   --pill: 176px;
   --drop: 44px;
+  --gap: 12px;
 
   --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
   --font: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
@@ -55,6 +56,13 @@ body {
   /* It grows out of the notch: the top edge never moves. */
   transform-origin: 50% 0;
   cursor: pointer;
+}
+
+/* With no notch or menu bar to hang from (Windows), the pill floats a little below the top of the
+ * screen, rounded all round, and still grows from its top edge. */
+.pill[data-floating="true"] {
+  margin-top: var(--gap);
+  border-radius: calc(var(--drop) / 2);
 }
 
 /* Retracted: squashed into the notch and gone. Leaving is quicker than arriving. */
