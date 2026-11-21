@@ -78,7 +78,11 @@ describe('connecting a server with OAuth', () => {
         .disabled,
     ).toBe(true);
     // Nothing else changes the file meanwhile: a save would start the daemon again.
-    for (const name of [text.editServer('remote'), text.removeServer('notes'), text.add]) {
+    for (const name of [
+      text.editServer('remote'),
+      text.removeServer('notes'),
+      text.connectFor('Notion'),
+    ]) {
       expect((screen.getByRole('button', { name }) as HTMLButtonElement).disabled).toBe(true);
     }
     answer({ outcome: 'connected' });

@@ -87,7 +87,7 @@ src/
     SetupScreen.tsx   presentational
   connections/
     validation.ts     the shell's checks, made before saving
-    ConnectionsScreen.tsx   presentational: the list of servers, and the form of one
+    ConnectionsScreen.tsx   presentational: the ready-made cards, the list of servers, and the form of one
   login/
     accounts.ts       the names of the accounts a subscription login is made with
     SubscriptionsScreen.tsx   presentational: one row per account, Conectar or Desconectar
@@ -215,8 +215,16 @@ is framework-free, so it is tested against a fake `WebSocket` (`test/fake-web-so
   above. A save starts the daemon again, which reads the file at its start, and so ends a task
   that was running; a daemon that is stopped stays stopped and reads the file when it is next
   started.
+- **Ready-made connections** (DK-11 AC12): the screen opens on "Conectores", one card with one
+  "Conectar" each: Notion (`https://mcp.notion.com/mcp`), Linear (`https://mcp.linear.app/mcp`),
+  Atlassian (`https://mcp.atlassian.com/v2/mcp`) and web search (below). A remote one
+  (`OAUTH_CONNECTIONS` in `packages/protocol`) is saved by its address through `save_connection`,
+  with no tool read-only, and then connected with `connect_oauth`, as its row's "Conectar con
+  OAuth" would: each server's authorization server takes dynamic client registration (checked
+  on 2026-11-21). A server already in the file at that address is only authorized; one
+  authorized shows "Conectado". The form for any other server is behind "Avanzado", unchanged.
 - **Web search** (DK-11 AC11, DK-13 AC5): while no server is named `Internet`, the connections
-  screen offers "Añadir búsqueda web". One press saves, through the same `save_connection` as
+  screen offers the "Búsqueda web" card. One press saves, through the same `save_connection` as
   the form, `WEB_SEARCH_CONNECTION` from `packages/protocol`:
 
   ```json
