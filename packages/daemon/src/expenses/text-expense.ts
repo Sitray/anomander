@@ -27,13 +27,8 @@ import {
 import { CAPABILITIES } from '../capabilities/registry.ts';
 import type { RecentTurn } from '../conversation/recent-turns.ts';
 import { type PatternOffers, thenOfferPattern } from '../patterns/pattern-offers.ts';
+import type { ConnectedTool, Logger, MemoryFact, TextInterpreter } from '../processor/ports.ts';
 import { checkedPhrasing, type ReplyPhraser } from '../processor/reply-phraser.ts';
-import type {
-  ConnectedTool,
-  Logger,
-  MemoryFact,
-  TextInterpreter,
-} from '../processor/text-interpreter.ts';
 import {
   openCreateCategoryDecision,
   openForgetHistoryDecision,

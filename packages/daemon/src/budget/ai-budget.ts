@@ -1,6 +1,6 @@
 import { todayIn } from '@anomander/core';
 import type Database from 'better-sqlite3';
-import type { Complete } from '../processor/text-interpreter.ts';
+import type { Complete } from '../processor/ports.ts';
 
 // R-12: `ANOMANDER_DAILY_AI_CALL_LIMIT` caps processor calls per day in `TZ`. The count lives in
 // `ai_usage` (PRD §13), so a restart does not reset it.

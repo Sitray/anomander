@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import { todayIn } from '@anomander/core';
 import { buttons, decisionButtons, type Notify, strings } from '@anomander/protocol';
 import type Database from 'better-sqlite3';
-import type { Logger } from '../processor/text-interpreter.ts';
+import type { Logger } from '../processor/ports.ts';
 import { reopenStaleAwaiting } from '../store/decisions.ts';
 import { forgetActionsEndedBefore } from '../store/history.ts';
 import { finishReading, recordDecisionMessage } from '../store/receipts.ts';

@@ -17,7 +17,7 @@ import {
 } from '@anomander/protocol';
 import { type WebSocket, WebSocketServer } from 'ws';
 import { z } from 'zod';
-import type { Logger } from '../processor/text-interpreter.ts';
+import type { Logger } from '../processor/ports.ts';
 
 // DK-3, DK-4 (docs/desktop-prd.md): the desktop app's front door, a WebSocket on `127.0.0.1`
 // behind the token the app generated for this launch. Like `apps/telegram`, it decides who may

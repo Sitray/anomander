@@ -149,11 +149,6 @@ const logged = () =>
     ...logger.error.mock.calls,
   ]);
 
-const waitUntil = async (ready: () => boolean) => {
-  for (let i = 0; i < 100 && !ready(); i++) await new Promise((r) => setTimeout(r, 20));
-  expect(ready()).toBe(true);
-};
-
 describe('model login from Telegram (R-27)', () => {
   it('AC1, R-17 AC7: /login replies S-60 with one button per account and never reaches the processor', async () => {
     const reply = await next(updates.text(principal, '/login'));
@@ -267,9 +262,16 @@ describe('model login from Telegram (R-27)', () => {
     const again = await next(updates.text(principal, '/login'));
 
     expect(again.text).toBe('¿Con qué cuenta me conecto?');
-    await waitUntil(() => interactions[0]?.signal?.aborted === true);
-    // Abandoned by the principal, not failed: no S-65 follows.
-    await new Promise((r) => setTimeout(r, 100));
+    await vi.waitFor(() => expect(interactions[0]?.signal?.aborted).toBe(true), {
+      timeout: 2_000,
+      interval: 20,
+    });
+    // Abandoned by the principal, not failed: once the login has ended so, no S-65 follows. A
+    // reply asked for after that end goes out after anything the end sent.
+    await vi.waitFor(() =>
+      expect(logger.info).toHaveBeenCalledWith('Model login abandoned', { provider: 'openai' }),
+    );
+    await next(updates.text(principal, '/logout'));
     expect(api.sent.map(({ text }) => text)).not.toContain(
       'No he podido conectar con tu cuenta de ChatGPT. Puedes intentarlo otra vez con /login.',
     );

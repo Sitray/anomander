@@ -543,9 +543,9 @@ answers how to ask). A call that needs permission is asked at the door the task 
 door answers "Esa petición ya no está pendiente." and runs nothing.
 
 A task does not hold the chat's turn while it waits for a server or the processor
-(`connectionStep` in `src/app.ts`): each step, its start or one answered call, begins in a turn,
-runs outside it, and what it came to is said in a turn again, where its end becomes a recent
-turn. A text, a receipt or a button is answered meanwhile. There is one task at a time: while a
+(`createConnectionSession` in `src/connections/session.ts`, given the chat's turn lock by
+`src/app.ts`): each step, its start or one answered call, begins in a turn, runs outside it, and
+what it came to is said in a turn again, where its end becomes a recent turn. A text, a receipt or a button is answered meanwhile. There is one task at a time: while a
 step runs, another task is refused with "Todavía estoy con la tarea anterior. Pídeme otra cuando
 termine." and a press answers nothing; a task asked while one waits for the principal ends that
 one, as before. In the app the `reply` to `connect` (or to the press) arrives when the step is

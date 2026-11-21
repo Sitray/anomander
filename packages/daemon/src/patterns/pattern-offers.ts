@@ -7,7 +7,7 @@ import {
   strings,
 } from '@anomander/protocol';
 import type Database from 'better-sqlite3';
-import type { Logger } from '../processor/text-interpreter.ts';
+import type { Logger } from '../processor/ports.ts';
 import { findPattern, openCreatePolicyDecision } from '../store/policies.ts';
 import { recordDecisionMessage } from '../store/receipts.ts';
 

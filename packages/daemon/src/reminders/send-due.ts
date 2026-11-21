@@ -1,6 +1,6 @@
 import { formatWhenOnce, type Notify, strings } from '@anomander/protocol';
 import type Database from 'better-sqlite3';
-import type { Logger } from '../processor/text-interpreter.ts';
+import type { Logger } from '../processor/ports.ts';
 import { readReminder } from '../store/reminders.ts';
 import { latestOccurrence, localParts, nextOccurrence } from './when.ts';
 

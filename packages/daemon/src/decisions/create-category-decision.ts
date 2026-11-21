@@ -1,6 +1,6 @@
 import { buttons, strings } from '@anomander/protocol';
 import { z } from 'zod';
-import type { Logger } from '../processor/text-interpreter.ts';
+import type { Logger } from '../processor/ports.ts';
 import { assignDeclaredCategory, createCategory } from '../store/categories.ts';
 import { answerDecision, settleProposal } from '../store/decisions.ts';
 import { insertAction } from '../store/expenses.ts';

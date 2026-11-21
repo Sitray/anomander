@@ -1,8 +1,8 @@
 import { buttons, formatAmount, type Reply, strings, UNCATEGORIZED } from '@anomander/protocol';
 import type Database from 'better-sqlite3';
 import { type PatternOffers, thenOfferPattern } from '../patterns/pattern-offers.ts';
+import type { Logger } from '../processor/ports.ts';
 import type { ReplyPhraser } from '../processor/reply-phraser.ts';
-import type { Logger } from '../processor/text-interpreter.ts';
 import {
   answerDecision,
   awaitText,

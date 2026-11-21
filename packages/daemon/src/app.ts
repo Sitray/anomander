@@ -18,17 +18,11 @@ import { readConnections } from './connections/config.ts';
 import type { Connection } from './connections/connection.ts';
 import { createConnections } from './connections/mcp-client.ts';
 import { type OAuthSet, oauthKeeperFrom, printOAuthForShell } from './connections/oauth.ts';
-import {
-  type ConnectionProblems,
-  createConnectionTasks,
-  type DecidedCall,
-  MAX_CONNECTION_CALLS,
-  type TaskOutcome,
-} from './connections/task.ts';
+import { createConnectionSession, type Door, type Later } from './connections/session.ts';
+import { type ConnectionProblems, createConnectionTasks } from './connections/task.ts';
 import {
   buttonTurn,
   computerTurn,
-  connectionTurn,
   createRecentTurns,
   receiptTurn,
   recordingNotices,
@@ -57,15 +51,12 @@ import {
 import { createPatternOffers } from './patterns/pattern-offers.ts';
 import { createPiAiComputerPlanner } from './processor/computer-planner.ts';
 import { createPiAiCorrectionInterpreter } from './processor/correction-interpreter.ts';
+import type { Complete, Logger } from './processor/ports.ts';
 import { createPiAiReceiptReader } from './processor/receipt-reader.ts';
 import { createPiAiReplyPhraser } from './processor/reply-phraser.ts';
 import { withRetry } from './processor/retry.ts';
 import { createPiAiScreenReader } from './processor/screen-reader.ts';
-import {
-  type Complete,
-  createPiAiTextInterpreter,
-  type Logger,
-} from './processor/text-interpreter.ts';
+import { createPiAiTextInterpreter } from './processor/text-interpreter.ts';
 import { withTimeout } from './processor/timeout.ts';
 import { type ReadApiAddress, startReadApi } from './read-api/server.ts';
 import { createDueReminders } from './reminders/send-due.ts';
@@ -85,28 +76,6 @@ import { openTelegramDoor } from './telegram-door.ts';
 // §14.3): Telegram while it is configured, the desktop app's local channel while
 // `ANOMANDER_LOCAL_TOKEN` is set, at least one of them (`loadConfig`). `main.ts` passes pi-ai's
 // `models.complete`; the e2e test passes recorded responses and the fake Telegram API.
-
-/** The data of the buttons under a call that waits for the principal (DK-11). */
-const CONNECTION_BUTTON = 'connection:';
-const CONNECTION_PRESS = /^connection:([^:]+):(allow|refuse)$/;
-/** The longest text Telegram delivers in one message. */
-const TELEGRAM_MAX_TEXT = 4096;
-
-/** The front door a task with connections was asked at; its calls are answered there. */
-type Door = 'app' | 'telegram';
-/** A task with connections, from when it is asked until it ends. */
-interface Asked {
-  task: string;
-  door: Door;
-  /** The calls code decided so far (DK-14 AC2). */
-  calls: DecidedCall[];
-  /** It waits for "Permitir": a task asked meanwhile ends it. */
-  waiting: boolean;
-}
-/** A reply that comes after the chat's turn: the turn does not wait for it. */
-interface Later {
-  later: Promise<DoorReply | null>;
-}
 
 export interface AnomanderDeps<M> {
   /** The processor call: pi-ai's `models.complete` (R-14 AC3). It must honour `signal`. */
@@ -640,49 +609,8 @@ export const startAnomander = <M>(config: Config, deps: AnomanderDeps<M>): Anoma
       })),
     logger,
     // DK-14 AC2: which calls were sent or refused, never their arguments or results.
-    decided: (call) => {
-      asked.calls.push(call);
-    },
+    decided: (call) => connectionSession.decided(call),
   });
-  /** How a task was cut short, and that it had made calls by then: they are not undone. */
-  const cutShort = (text: string, performed: number): string =>
-    performed === 0 ? text : `${text} ${strings.connectionPerformed(performed)}`;
-  const connectionReply = (outcome: TaskOutcome, task: string): DoorReply => {
-    switch (outcome.kind) {
-      case 'answer':
-        // R-16 AC3: how the task ended is a recent turn; what the tools answered is not.
-        turns.add(connectionTurn(task), outcome.text);
-        return { text: outcome.text };
-      case 'ask':
-        return {
-          text: outcome.text,
-          buttons: [
-            { label: strings.connectionAllow(), data: `${CONNECTION_BUTTON}${outcome.id}:allow` },
-            { label: strings.connectionRefuse(), data: `${CONNECTION_BUTTON}${outcome.id}:refuse` },
-          ],
-        };
-      case 'stopped':
-        return { text: strings.connectionStopped() };
-      case 'gone':
-        return { text: strings.connectionGone() };
-      case 'no_connections':
-        if (outcome.invalid) return { text: strings.connectionFileInvalid() };
-        return {
-          text:
-            outcome.unreachable.length > 0
-              ? strings.connectionUnreachable(outcome.unreachable)
-              : strings.connectionNone(),
-        };
-      case 'too_many_calls':
-        return { text: strings.connectionTooManyCalls(MAX_CONNECTION_CALLS) };
-      case 'budget_exhausted':
-        return { text: cutShort(strings.textLimitReached(), outcome.performed) };
-      case 'provider_limit':
-        return { text: cutShort(strings.providerLimitReached(), outcome.performed) };
-      case 'failed':
-        return { text: cutShort(strings.connectionFailed(), outcome.performed) };
-    }
-  };
 
   // What every front door calls (DK-4 AC1). R-28: `/start`, and the guide while a provider is
   // not connected.
@@ -699,90 +627,26 @@ export const startAnomander = <M>(config: Config, deps: AnomanderDeps<M>): Anoma
     return async (input: I) => turn({ input, gaps: await setupGaps() });
   };
 
-  // A task waits on servers and on the processor, so it does not hold the chat's turn: a step
-  // (its start, or one answered call) begins in a turn, runs outside it, and what it came to is
-  // said in a turn again, where its end becomes a recent turn in order with the others.
-  /** The last task asked, and where: a call is answered at the door that asked for the task. */
-  let asked: Asked = { task: '', door: 'app', calls: [], waiting: false };
-  /** DK-14 AC2: a task that ended, as it is kept. */
-  const keepTask = (task: Asked, outcome: string): void => {
-    task.waiting = false;
-    keep({
-      kind: 'connect',
-      door: task.door,
-      task: task.task,
-      outcome,
-      steps: null,
-      calls: task.calls,
-    });
-  };
-  /** A step of that task runs: no other task starts and no press is taken until it is said. */
-  let working = false;
-  // It ends a step that already ran, so it is said even while the daemon stops.
-  const say = inTurn(
-    async ({ outcome, task }: { outcome: TaskOutcome; task: Asked }) => {
-      // A call that waits is not an end, nor is a press on one that no longer waits.
-      if (outcome.kind === 'ask') task.waiting = true;
-      else if (outcome.kind !== 'gone') keepTask(task, outcome.kind);
-      return connectionReply(outcome, task.task);
-    },
-    { ends: true },
-  );
-  const connectionStep = (task: Asked, step: () => Promise<TaskOutcome>): Later | null => {
-    const { door } = task;
-    working = true;
-    const reply = chatTurns.track(
-      step()
-        .then((outcome) => say({ outcome, task }))
-        .finally(() => {
-          working = false;
-        }),
-    );
-    if (door === 'app') return { later: reply };
-    // Telegram hands over one update at a time, so its handler ends now and the reply goes out
-    // by itself, cut to what one message holds.
-    reply
-      .catch((error: unknown) => {
-        logger.error('The daemon failed to run a task with connections', { error });
-        return { text: strings.processingFailed() };
-      })
-      .then((message) => send({ ...message, text: message.text.slice(0, TELEGRAM_MAX_TEXT) }))
-      .catch((error: unknown) => {
-        logger.error('Could not send what a task with connections came to', { error });
-      });
-    return null;
-  };
-  /** Called in a turn. One task at a time: a second one is refused while a step runs. */
-  const runConnections = (task: string, door: Door): DoorReply | Later | null => {
-    if (working) return { text: strings.connectionBusy() };
-    // DK-11 AC8: a task that waited for "Permitir" ends here.
-    if (asked.waiting) keepTask(asked, 'replaced');
-    asked = { task, door, calls: [], waiting: false };
-    return connectionStep(asked, () => connectionTasks.start(task));
-  };
-  /**
-   * Called in a turn: the answer to a press on "Permitir" or "Detener"; `undefined` for any
-   * other button. A press at the other door, or while a step of the task runs, answers nothing.
-   */
-  const answerConnection = (data: string, door: Door): DoorReply | Later | null | undefined => {
-    if (!data.startsWith(CONNECTION_BUTTON)) return undefined;
-    const pressed = CONNECTION_PRESS.exec(data);
-    if (pressed === null || door !== asked.door || working) {
-      return { text: strings.connectionGone() };
-    }
-    const [, id = '', answer] = pressed;
-    return connectionStep(asked, () => connectionTasks.answer(id, answer === 'allow'));
-  };
+  // DK-11: one task with connections at a time, its steps outside the chat's turn (session.ts).
+  const connectionSession = createConnectionSession({
+    tasks: connectionTasks,
+    turnLock: chatTurns,
+    turns,
+    keep,
+    send: (message) => send(message),
+    logger,
+  });
+
   const onButtonAt = (door: Door) => {
     const pressed = guided(async (press: ButtonPress) => {
-      const answer = answerConnection(press.data, door);
+      const answer = connectionSession.answer(press.data, door);
       return answer === undefined ? recordedButton(press) : answer;
     });
     return async (press: ButtonPress) => settled(await pressed(press));
   };
   const onConnectAt = (door: Door) => {
     const begun = guided(async (task: string) =>
-      task === '' ? { text: strings.connectionUsage() } : runConnections(task, door),
+      task === '' ? { text: strings.connectionUsage() } : connectionSession.run(task, door),
     );
     return async (task: string) => settled(await begun(task));
   };
@@ -795,7 +659,7 @@ export const startAnomander = <M>(config: Config, deps: AnomanderDeps<M>): Anoma
     const { route } = reply;
     if (route?.to !== 'connect') return reply;
     // Telegram's answer goes out by itself when the task ends: the announcement goes now.
-    return runConnections(route.task, doorOf(message.channelRef)) ?? { text: reply.text };
+    return connectionSession.run(route.task, doorOf(message.channelRef)) ?? { text: reply.text };
   });
 
   const chat: ChatHandlers = {

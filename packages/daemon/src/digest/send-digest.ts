@@ -1,6 +1,6 @@
 import { type Notify, strings } from '@anomander/protocol';
 import type Database from 'better-sqlite3';
-import type { Logger } from '../processor/text-interpreter.ts';
+import type { Logger } from '../processor/ports.ts';
 import { localParts, utcOf } from '../reminders/when.ts';
 import {
   activeDigestPermission,

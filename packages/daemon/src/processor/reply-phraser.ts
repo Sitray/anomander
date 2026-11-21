@@ -1,21 +1,14 @@
 import type { AssistantMessage, Context } from '@earendil-works/pi-ai';
-import type { Complete, Logger } from './text-interpreter.ts';
+import type { Complete, Logger, PhraseRequest, ReplyPhraser } from './ports.ts';
+
+export type {
+  PhraseRequest,
+  ReplyPhraser,
+} from './ports.ts';
 
 // R-21: the assistant words S-1, S-2, S-16 and S-21 in its own voice, and the text interpreter
 // words S-36, but the facts come from code. The phrased text is sent only if it keeps every fact
 // and adds none; otherwise the §12 string is sent unchanged.
-
-export interface PhraseRequest {
-  /** The §12 string: what the processor rewords, and the fallback (R-21 AC1, AC2). */
-  reference: string;
-  /** Facts read from the database, formatted as in §12, that the reply must contain. */
-  facts: string[];
-  /** The principal's message, so the reply can match its tone. */
-  message: string;
-}
-
-/** Always resolves to a text that can be sent: the phrased one or the reference. */
-export type ReplyPhraser = (request: PhraseRequest) => Promise<string>;
 
 export const REPLY_PHRASER_PROMPT = `You word the replies of a personal assistant that talks to its user in Spanish (es-ES). You can only answer; you have no tools.
 

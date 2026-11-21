@@ -1,6 +1,6 @@
 import type { Notify, Reply } from '@anomander/protocol';
 import type Database from 'better-sqlite3';
-import type { Logger } from '../processor/text-interpreter.ts';
+import type { Logger } from '../processor/ports.ts';
 import { closeKeepReceiptDecisions, listWaitingReceipts } from '../retention/queued-receipts.ts';
 
 // R-12 AC3: when the day changes in `TZ`, the receipts queued by the budget are read in arrival

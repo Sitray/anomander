@@ -1,7 +1,7 @@
 import type { PrincipalText, Reply } from '@anomander/protocol';
 import type Database from 'better-sqlite3';
 import type { z } from 'zod';
-import type { Logger } from '../processor/text-interpreter.ts';
+import type { Logger } from '../processor/ports.ts';
 
 // R-24: what ANOMANDER can do grows by adding capabilities. A capability declares the kinds of
 // request it handles, the instructions it adds to the text interpreter's prompt, the schema code
