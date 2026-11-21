@@ -41,14 +41,20 @@ security-framework = "3"
 keyring = { version = "=3.6.3", default-features = false, features = ["windows-native"] }
 # The daemon's `TZ`: Windows names its zones its own way; this maps them to IANA names.
 iana-time-zone = "=0.1.65"
-# The log's capture of stdout and stderr, the OS version of the diagnostics, opening a URL.
+# The log's capture of stdout and stderr, the OS version of the diagnostics, opening a URL, the
+# daemon's Job Object, the owner-only access lists of the data folder, the sweep of secret parts.
 windows-sys = { version = "=0.61.2", features = [
   "Wdk_System_SystemServices",
   "Win32_Foundation",
   "Win32_Security",
+  "Win32_Security_Authorization",
+  "Win32_Security_Credentials",
+  "Win32_Storage_FileSystem",
   "Win32_System_Console",
+  "Win32_System_JobObjects",
   "Win32_System_Pipes",
   "Win32_System_SystemInformation",
+  "Win32_System_Threading",
   "Win32_UI_Shell",
   "Win32_UI_WindowsAndMessaging",
 ] }

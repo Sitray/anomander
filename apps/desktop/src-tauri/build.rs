@@ -25,7 +25,21 @@ const COMMANDS: &[&str] = &[
     "set_task_running",
 ];
 
+/// Test binaries get no app manifest, so on Windows the Tauri app in `tests/capabilities.rs` could
+/// not load (comctl32 v6, STATUS_ENTRYPOINT_NOT_FOUND): the MSVC linker embeds this one in them.
+const TEST_MANIFEST: &str = "windows-test.manifest";
+
 fn main() {
+    let target = |name: &str| std::env::var(name).unwrap_or_default();
+    if target("CARGO_CFG_TARGET_OS") == "windows" && target("CARGO_CFG_TARGET_ENV") == "msvc" {
+        let manifest = std::path::Path::new(&target("CARGO_MANIFEST_DIR")).join(TEST_MANIFEST);
+        println!("cargo:rerun-if-changed={TEST_MANIFEST}");
+        println!("cargo:rustc-link-arg-tests=/MANIFEST:EMBED");
+        println!(
+            "cargo:rustc-link-arg-tests=/MANIFESTINPUT:{}",
+            manifest.display()
+        );
+    }
     tauri_build::try_build(
         tauri_build::Attributes::new()
             .app_manifest(tauri_build::AppManifest::new().commands(COMMANDS)),

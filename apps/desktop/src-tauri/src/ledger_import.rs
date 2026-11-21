@@ -7,6 +7,7 @@ use std::process::{Command, Stdio};
 use serde::Serialize;
 
 use crate::daemon::launch::system_env;
+use crate::daemon::process::WithoutConsole;
 
 /// The script, from the daemon package's folder.
 const SCRIPT: &str = "scripts/import-ledger.ts";
@@ -76,6 +77,7 @@ pub fn run(
         .env("PATH", path)
         .current_dir(folder)
         .stdin(Stdio::null())
+        .without_console()
         .output()
         .map_err(|error| format!("could not start {}: {error}", node.display()))?;
     let printed = String::from_utf8_lossy(&output.stdout);

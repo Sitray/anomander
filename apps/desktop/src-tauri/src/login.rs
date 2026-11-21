@@ -16,6 +16,7 @@ use serde::Serialize;
 use serde_json::{Map, Value};
 
 use crate::daemon::launch::system_env;
+use crate::daemon::process::WithoutConsole;
 use crate::oauth_connect::openable;
 use crate::secure_store::SecretStore;
 use crate::shell::MODEL_LOGIN;
@@ -241,6 +242,7 @@ pub fn run(
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
+        .without_console()
         .spawn()
         .map_err(|error| format!("could not start {}: {error}", node.display()))?;
     let stdout = child.stdout.take();

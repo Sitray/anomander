@@ -2,4 +2,5 @@
 pub mod launch;
 pub mod output;
 pub mod policy;
+pub mod process;
 pub mod supervisor;

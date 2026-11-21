@@ -13,6 +13,7 @@ use serde::Serialize;
 use serde_json::{Map, Value};
 
 use crate::daemon::launch::system_env;
+use crate::daemon::process::WithoutConsole;
 use crate::secure_store::SecretStore;
 
 /// The script, from the daemon package's folder.
@@ -144,6 +145,7 @@ pub fn run(
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
+        .without_console()
         .spawn()
         .map_err(|error| format!("could not start {}: {error}", node.display()))?;
     let stdout = child.stdout.take();

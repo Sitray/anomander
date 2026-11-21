@@ -87,7 +87,8 @@ mod keychain {
 /// A Credential Manager entry holds at most 2560 bytes (`CRED_MAX_CREDENTIAL_BLOB_SIZE`), and the
 /// model login with a ChatGPT account (two JWTs) or the OAuth tokens of a server can be longer.
 /// Such a value is kept in parts on a shelf of their own, `<name>#<generation>#<index>`, and its
-/// own entry, the head, names the generation and how many parts it has.
+/// own entry, the head, names the generation and how many parts it has. Parts a crash left behind
+/// go with the next save or removal of that name.
 #[cfg(any(windows, test))]
 mod parts {
     use super::StoreError;
@@ -111,6 +112,9 @@ mod parts {
         fn write(&self, shelf: Shelf, name: &str, blob: &[u8]) -> Result<(), StoreError>;
         /// Removing an entry that is not there is not an error.
         fn remove(&self, shelf: Shelf, name: &str) -> Result<(), StoreError>;
+        /// The names on `shelf` that start with `prefix`; may hold others too. Only used to find
+        /// what a crash left behind.
+        fn names(&self, shelf: Shelf, prefix: &str) -> Result<Vec<String>, StoreError>;
     }
 
     #[derive(Clone, Copy)]
@@ -153,6 +157,33 @@ mod parts {
         }
     }
 
+    /// The generation and index of `entry` when it is a part of `name`. A part's name ends in
+    /// exactly two numbers, so it is read from the right: `a#b#0#1` is a part of `a#b`, never of `a`.
+    fn part_of(name: &str, entry: &str) -> Option<(u64, usize)> {
+        let mut pieces = entry.rsplitn(3, '#');
+        let index = pieces.next()?.parse().ok()?;
+        let generation = pieces.next()?.parse().ok()?;
+        (pieces.next()? == name).then_some((generation, index))
+    }
+
+    /// Removes what a crash left of `name`: every part that is not one of `live`'s. Best effort:
+    /// a failure here leaves the leftovers for the next save or removal.
+    fn sweep(blobs: &impl Blobs, name: &str, live: Option<Head>) {
+        let Ok(found) = blobs.names(Shelf::Parts, &format!("{name}#")) else {
+            return;
+        };
+        for entry in found {
+            let Some((generation, index)) = part_of(name, &entry) else {
+                continue;
+            };
+            let is_live =
+                live.is_some_and(|head| head.generation == generation && index < head.count);
+            if !is_live {
+                let _ = blobs.remove(Shelf::Parts, &entry);
+            }
+        }
+    }
+
     pub fn get(blobs: &impl Blobs, name: &str) -> Result<Option<String>, StoreError> {
         let Some(entry) = blobs.read(Shelf::Secrets, name)? else {
             return Ok(None);
@@ -181,6 +212,7 @@ mod parts {
         let before = current(blobs, name)?;
         let bytes = value.as_bytes();
         // A short value that reads like a head is kept in parts too, so it is never taken for one.
+        let mut live = None;
         if bytes.len() <= MAX_BLOB && !bytes.starts_with(HEAD.as_bytes()) {
             blobs.write(Shelf::Secrets, name, bytes)?;
         } else {
@@ -198,10 +230,15 @@ mod parts {
                 discard(blobs, name, generation, chunks.len());
                 return Err(error);
             }
+            live = Some(Head {
+                generation,
+                count: chunks.len(),
+            });
         }
         if let Some(Head { generation, count }) = before {
             discard(blobs, name, generation, count);
         }
+        sweep(blobs, name, live);
         Ok(())
     }
 
@@ -213,16 +250,32 @@ mod parts {
                 blobs.remove(Shelf::Parts, &part(name, generation, index))?;
             }
         }
-        blobs.remove(Shelf::Secrets, name)
+        blobs.remove(Shelf::Secrets, name)?;
+        sweep(blobs, name, None);
+        Ok(())
     }
 }
 
 #[cfg(windows)]
 mod credential_manager {
+    use std::sync::{Mutex, MutexGuard, PoisonError};
+
     use keyring::{Entry, Error};
+    use windows_sys::Win32::Foundation::ERROR_NOT_FOUND;
+    use windows_sys::Win32::Security::Credentials::{
+        CredEnumerateW, CredFree, CREDENTIALW, CRED_TYPE_GENERIC,
+    };
 
     use super::parts::{self, Blobs, Shelf};
     use super::{SecretStore, StoreError, SERVICE};
+
+    /// One value in parts is several entries: a save, a removal and a read of this app never
+    /// interleave, so a read never meets half a save and a sweep never takes another save's parts.
+    static ONE_AT_A_TIME: Mutex<()> = Mutex::new(());
+
+    fn one_at_a_time() -> MutexGuard<'static, ()> {
+        ONE_AT_A_TIME.lock().unwrap_or_else(PoisonError::into_inner)
+    }
 
     /// The service of the parts of long values. Credentials are named `<name>.<service>`, so a
     /// part (`….ANOMANDER-parts`) never shares a name with a secret (`….ANOMANDER`).
@@ -238,12 +291,32 @@ mod credential_manager {
         ))
     }
 
-    fn entry(shelf: Shelf, name: &str) -> Result<Entry, StoreError> {
-        let service = match shelf {
+    fn service(shelf: Shelf) -> &'static str {
+        match shelf {
             Shelf::Secrets => SERVICE,
             Shelf::Parts => PARTS_SERVICE,
-        };
-        Entry::new(service, name).map_err(|error| failed("reach", name, &error))
+        }
+    }
+
+    fn entry(shelf: Shelf, name: &str) -> Result<Entry, StoreError> {
+        Entry::new(service(shelf), name).map_err(|error| failed("reach", name, &error))
+    }
+
+    /// A string the system handed over, up to its terminating zero.
+    ///
+    /// # Safety
+    /// `text` is null or points to a zero-terminated UTF-16 string.
+    unsafe fn from_wide(text: *const u16) -> String {
+        if text.is_null() {
+            return String::new();
+        }
+        let mut len = 0;
+        // SAFETY: the string ends with a zero, which stops the count.
+        while unsafe { *text.add(len) } != 0 {
+            len += 1;
+        }
+        // SAFETY: `len` characters were just read.
+        String::from_utf16_lossy(unsafe { std::slice::from_raw_parts(text, len) })
     }
 
     impl Blobs for CredentialManager {
@@ -267,18 +340,59 @@ mod credential_manager {
                 Err(error) => Err(failed("remove", name, &error)),
             }
         }
+
+        /// keyring names a credential `<name>.<service>`; the system filters by a prefix and `*`.
+        fn names(&self, shelf: Shelf, prefix: &str) -> Result<Vec<String>, StoreError> {
+            let suffix = format!(".{}", service(shelf));
+            let filter: Vec<u16> = format!("{prefix}*")
+                .encode_utf16()
+                .chain(std::iter::once(0))
+                .collect();
+            let mut count = 0u32;
+            let mut found: *mut *mut CREDENTIALW = std::ptr::null_mut();
+            // SAFETY: `filter` is zero-terminated; on success the system allocates `found`, which
+            // is freed below with `CredFree`.
+            if unsafe { CredEnumerateW(filter.as_ptr(), 0, &mut count, &mut found) } == 0 {
+                let error = std::io::Error::last_os_error();
+                if error.raw_os_error() == Some(ERROR_NOT_FOUND as i32) {
+                    return Ok(Vec::new());
+                }
+                return Err(StoreError(format!(
+                    "could not list the parts of {prefix} in the Credential Manager ({error})"
+                )));
+            }
+            let mut names = Vec::new();
+            for index in 0..count as usize {
+                // SAFETY: `found` holds `count` pointers to credentials, alive until `CredFree`.
+                let credential = unsafe { &**found.add(index) };
+                if credential.Type != CRED_TYPE_GENERIC {
+                    continue;
+                }
+                // SAFETY: a credential's target name is a zero-terminated string.
+                let target = unsafe { from_wide(credential.TargetName) };
+                if let Some(name) = target.strip_suffix(&suffix) {
+                    names.push(name.to_owned());
+                }
+            }
+            // SAFETY: allocated by `CredEnumerateW` above and not used after this.
+            unsafe { CredFree(found.cast()) };
+            Ok(names)
+        }
     }
 
     impl SecretStore for CredentialManager {
         fn get(&self, name: &str) -> Result<Option<String>, StoreError> {
+            let _one = one_at_a_time();
             parts::get(self, name)
         }
 
         fn set(&self, name: &str, value: &str) -> Result<(), StoreError> {
+            let _one = one_at_a_time();
             parts::set(self, name, value)
         }
 
         fn delete(&self, name: &str) -> Result<(), StoreError> {
+            let _one = one_at_a_time();
             parts::delete(self, name)
         }
     }
@@ -434,6 +548,80 @@ mod tests {
             entries.remove(&(shelf, name.to_owned()));
             Ok(())
         }
+        fn names(&self, shelf: Shelf, prefix: &str) -> Result<Vec<String>, StoreError> {
+            Ok(self
+                .all()
+                .into_keys()
+                .filter(|(on, name)| *on == shelf && name.starts_with(prefix))
+                .map(|(_, name)| name)
+                .collect())
+        }
+    }
+
+    /// Writes `name` on the parts shelf as a crash would have left it.
+    fn leave(entries: &Entries, name: &str) {
+        if let Ok(mut entries) = entries.entries.lock() {
+            entries.insert((Shelf::Parts, name.to_owned()), b"left".to_vec());
+        }
+    }
+
+    #[test]
+    fn parts_a_crash_left_are_removed_by_the_next_save_and_the_live_ones_stay() {
+        let entries = Entries::default();
+        let value = "a".repeat(2 * MAX_BLOB);
+        assert_eq!(parts::set(&entries, "model-login", &value), Ok(()));
+        // An older generation a crash did not discard, and a part past the live count.
+        for left in ["model-login#7#0", "model-login#7#1", "model-login#0#5"] {
+            leave(&entries, left);
+        }
+        // Parts of other names, one of them starting like this one's.
+        for other in ["model-login#x#0#0", "other#0#0"] {
+            leave(&entries, other);
+        }
+        let new = "b".repeat(2 * MAX_BLOB);
+        assert_eq!(parts::set(&entries, "model-login", &new), Ok(()));
+        assert_eq!(
+            names(&entries),
+            [
+                "secrets/model-login",
+                "parts/model-login#1#0",
+                "parts/model-login#1#1",
+                "parts/model-login#x#0#0",
+                "parts/other#0#0"
+            ]
+        );
+        assert_eq!(parts::get(&entries, "model-login"), Ok(Some(new)));
+        // A short value keeps no part at all.
+        leave(&entries, "model-login#1#2");
+        assert_eq!(parts::set(&entries, "model-login", "{}"), Ok(()));
+        assert_eq!(
+            names(&entries),
+            [
+                "secrets/model-login",
+                "parts/model-login#x#0#0",
+                "parts/other#0#0"
+            ]
+        );
+    }
+
+    #[test]
+    fn parts_a_crash_left_are_removed_by_the_next_delete_even_without_a_head() {
+        let entries = Entries::default();
+        for left in ["model-login#3#0", "model-login#4#2", "other#0#0"] {
+            leave(&entries, left);
+        }
+        assert_eq!(parts::delete(&entries, "model-login"), Ok(()));
+        assert_eq!(names(&entries), ["parts/other#0#0"]);
+    }
+
+    #[test]
+    fn a_sweep_that_fails_does_not_fail_the_save() {
+        let entries = Entries::default();
+        leave(&entries, "model-login#3#0");
+        // The save's own write passes; the sweep's removal is refused.
+        entries.fail_remove(1);
+        assert_eq!(parts::set(&entries, "model-login", "{}"), Ok(()));
+        assert_eq!(parts::get(&entries, "model-login"), Ok(Some("{}".into())));
     }
 
     #[test]
