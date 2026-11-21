@@ -735,6 +735,8 @@ mod tests {
         Ok(())
     }
 
+    // Making a symbolic link on Windows needs a privilege the test runner may lack.
+    #[cfg(unix)]
     #[test]
     fn tokens_are_not_handed_over_while_the_file_is_not_as_the_shell_reads_it() -> Result<(), String>
     {
@@ -952,6 +954,8 @@ mod tests {
         );
     }
 
+    // The fixture's paths and PATH are unix ones.
+    #[cfg(unix)]
     #[test]
     fn an_import_runs_node_of_the_setup_on_the_daemons_script() {
         let f = fixture(MemoryStore::default(), Settings::default());
@@ -1024,6 +1028,8 @@ mod tests {
         assert!(!without_telegram(&ready(&f.core)));
     }
 
+    // The fixture's paths and PATH are unix ones.
+    #[cfg(unix)]
     #[test]
     fn a_launch_runs_this_repositorys_daemon_with_the_setup_in_its_environment_and_its_secrets_on_stdin(
     ) {

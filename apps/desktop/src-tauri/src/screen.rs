@@ -6,6 +6,8 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use crate::file_mode;
+
 /// The error the window knows as "macOS does not let the app see the screen" (`shell.ts`).
 pub const NO_PERMISSION: &str = "screen_permission";
 
@@ -72,19 +74,17 @@ const PREFIX: &str = "screen-";
 const SUFFIX: &str = ".jpg";
 
 fn create_private(path: &Path) -> Result<(), String> {
-    use std::os::unix::fs::OpenOptionsExt;
-    std::fs::OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .mode(0o600)
-        .open(path)
-        .map(|_| ())
-        .map_err(|error| format!("the capture could not be created: {error}"))
+    file_mode::create_with(
+        std::fs::OpenOptions::new().write(true).create_new(true),
+        0o600,
+    )
+    .open(path)
+    .map(|_| ())
+    .map_err(|error| format!("the capture could not be created: {error}"))
 }
 
 fn private(path: &Path) -> Result<(), String> {
-    use std::os::unix::fs::PermissionsExt;
-    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))
+    file_mode::restrict(path, 0o600)
         .map_err(|error| format!("the capture could not be made private: {error}"))
 }
 
@@ -145,6 +145,7 @@ mod tests {
         assert_eq!(files_in(dir.path()), 0);
     }
 
+    #[cfg(unix)]
     #[test]
     fn the_capture_is_private_while_it_exists() {
         use std::os::unix::fs::PermissionsExt;

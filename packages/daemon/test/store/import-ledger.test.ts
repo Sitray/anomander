@@ -96,7 +96,8 @@ describe('importing a ledger', () => {
 
     expect(files(data)).toEqual(['anomander.db']);
     expect(readdirSync(join(scratch, 'docker'))).toEqual(['anomander.db']);
-    expect(statSync(own).mode & 0o777).toBe(0o600);
+    // File modes are POSIX: on Windows the user profile's access list keeps the file private.
+    if (process.platform !== 'win32') expect(statSync(own).mode & 0o777).toBe(0o600);
     expect(readFileSync(source).equals(before)).toBe(true);
     expect(expensesIn(own)).toEqual([100, 101, 102]);
     // The daemon opens it and migrates it as its own.
@@ -206,7 +207,8 @@ describe('what it refuses, leaving everything as it was', () => {
     await refused('missing', join(scratch, 'docker'));
   });
 
-  it('the app’s own ledger, also through a link', async () => {
+  // Making a symbolic link on Windows needs a privilege the test runner may lack.
+  it.skipIf(process.platform === 'win32')('the app’s own ledger, also through a link', async () => {
     ledger(own, 0);
     await refused('same_file', own);
     const link = join(scratch, 'link.db');

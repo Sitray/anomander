@@ -75,26 +75,33 @@ afterEach(() => {
 });
 
 describe('main.ts without Telegram', () => {
-  it('starts with the local channel alone and answers the app', async () => {
-    const port = await freePort();
-    const started = run({ ANOMANDER_LOCAL_TOKEN: TOKEN, ANOMANDER_LOCAL_PORT: String(port) });
-    await started.printed(`anomander local channel listening on 127.0.0.1:${port}`);
+  // Windows has no SIGTERM, so no clean exit to check: there the shell closes the daemon's stdin.
+  it.skipIf(process.platform === 'win32')(
+    'starts with the local channel alone and answers the app',
+    async () => {
+      const port = await freePort();
+      const started = run({ ANOMANDER_LOCAL_TOKEN: TOKEN, ANOMANDER_LOCAL_PORT: String(port) });
+      await started.printed(`anomander local channel listening on 127.0.0.1:${port}`);
 
-    // No model is set: the app's chat gets the setup guide (R-28).
-    const socket = new WebSocket(`ws://127.0.0.1:${port}`, [LOCAL_CHANNEL_PROTOCOL, TOKEN]);
-    const answer = new Promise<{ text: string }>((resolveAnswer) =>
-      socket.addEventListener('message', (event) => resolveAnswer(JSON.parse(String(event.data)))),
-    );
-    socket.addEventListener('open', () =>
-      socket.send(JSON.stringify({ type: 'text', id: 'm1', text: 'hola' })),
-    );
-    expect((await answer).text).toContain('ANOMANDER_MODEL');
-    socket.close();
+      // No model is set: the app's chat gets the setup guide (R-28).
+      const socket = new WebSocket(`ws://127.0.0.1:${port}`, [LOCAL_CHANNEL_PROTOCOL, TOKEN]);
+      const answer = new Promise<{ text: string }>((resolveAnswer) =>
+        socket.addEventListener('message', (event) =>
+          resolveAnswer(JSON.parse(String(event.data))),
+        ),
+      );
+      socket.addEventListener('open', () =>
+        socket.send(JSON.stringify({ type: 'text', id: 'm1', text: 'hola' })),
+      );
+      expect((await answer).text).toContain('ANOMANDER_MODEL');
+      socket.close();
 
-    daemon?.kill('SIGTERM');
-    expect(await started.exited).toBe(0);
-    expect(started.output()).not.toContain('Telegram');
-  }, 20_000);
+      daemon?.kill('SIGTERM');
+      expect(await started.exited).toBe(0);
+      expect(started.output()).not.toContain('Telegram');
+    },
+    20_000,
+  );
 
   it('refuses to start without any front door, naming both', async () => {
     const started = run({});

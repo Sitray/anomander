@@ -6,6 +6,8 @@ use std::process::{Command, Stdio};
 
 use serde::Serialize;
 
+use crate::daemon::launch::system_env;
+
 /// The script, from the daemon package's folder.
 const SCRIPT: &str = "scripts/import-ledger.ts";
 
@@ -70,6 +72,7 @@ pub fn run(
         .arg(own)
         // Nothing of the app's environment: the import needs none of its secrets.
         .env_clear()
+        .envs(system_env(&|name| std::env::var(name).ok()))
         .env("PATH", path)
         .current_dir(folder)
         .stdin(Stdio::null())
@@ -98,8 +101,10 @@ pub fn not_a_path() -> LedgerImport {
 mod tests {
     use super::*;
     use crate::daemon::launch::{daemon_entry, find_node, search_path};
+    #[cfg(unix)]
     use std::os::unix::fs::PermissionsExt;
 
+    #[cfg(unix)]
     /// A fake `node` that prints `stdout`, writes `stderr` and ends with `code`.
     fn fake_node(dir: &Path, stdout: &str, stderr: &str, code: i32) -> PathBuf {
         let node = dir.join("node");
@@ -110,6 +115,7 @@ mod tests {
         node
     }
 
+    #[cfg(unix)]
     fn run_fake(stdout: &str, stderr: &str, code: i32) -> Result<LedgerImport, String> {
         let dir = tempfile::tempdir().unwrap_or_else(|e| panic!("no temp dir: {e}"));
         let node = fake_node(dir.path(), stdout, stderr, code);
@@ -122,6 +128,7 @@ mod tests {
         )
     }
 
+    #[cfg(unix)]
     #[test]
     fn each_word_the_script_prints_reaches_the_window() {
         for word in OUTCOMES {
@@ -132,6 +139,7 @@ mod tests {
         }
     }
 
+    #[cfg(unix)]
     #[test]
     fn an_unknown_word_or_an_error_is_an_error_with_what_the_script_said() {
         assert_eq!(
@@ -142,6 +150,23 @@ mod tests {
         assert!(run_fake("imported\\n", "", 1).is_err());
     }
 
+    #[cfg(windows)]
+    #[test]
+    fn on_windows_a_full_path_has_a_drive_and_a_tilde_is_the_home_folder() {
+        assert_eq!(
+            source_path("  C:\\Users\\p\\anomander.db \n", None),
+            Some(PathBuf::from("C:\\Users\\p\\anomander.db"))
+        );
+        assert_eq!(
+            source_path("~/anomander.db", Some("C:\\Users\\p")),
+            Some(PathBuf::from("C:\\Users\\p").join("anomander.db"))
+        );
+        assert_eq!(source_path("/Users/p/anomander.db", None), None);
+        assert_eq!(source_path("anomander.db", Some("C:\\Users\\p")), None);
+    }
+
+    // Unix paths: on Windows a full path starts with a drive.
+    #[cfg(unix)]
     #[test]
     fn only_a_full_path_is_taken_and_a_tilde_is_the_home_folder() {
         assert_eq!(

@@ -42,7 +42,8 @@ describe('the file credential store (R-27 AC5)', () => {
     chmodSync(path, 0o644);
     await store.modify('openai', async () => ({ type: 'api_key', key: 'sk-secret' }));
 
-    expect(statSync(path).mode & 0o777).toBe(0o600);
+    // File modes are POSIX: on Windows the user profile's access list keeps the file private.
+    if (process.platform !== 'win32') expect(statSync(path).mode & 0o777).toBe(0o600);
     expect(readdirSync(join(scratch, 'nested'))).toEqual(['auth.json']);
     expect(JSON.parse(readFileSync(path, 'utf8'))).toEqual({
       anthropic: OAUTH,

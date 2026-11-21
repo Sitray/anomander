@@ -17,10 +17,23 @@ jobs:
   # Lint, typecheck and tests for the TypeScript workspace and the desktop shell (Rust).
   # One job, because the Rust tests run the real daemon scripts with `node` and the installed
   # workspace (`ledger_import.rs`, `oauth_connect.rs`), so they come after `pnpm install`.
+  # On macOS and on Windows: the shell builds from source on both.
   check:
-    runs-on: macos-15
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-15, windows-latest]
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 40
+    defaults:
+      run:
+        shell: bash
     steps:
+      # The files keep their LF endings on Windows, as Biome and the tests expect.
+      - name: git config core.autocrlf false
+        if: runner.os == 'Windows'
+        run: git config --global core.autocrlf false
+
       - uses: actions/checkout@v4
 
       # pnpm's version comes from `packageManager` in package.json.

@@ -100,7 +100,8 @@ describe('action history (DK-14)', () => {
         ended_at: NOW.toISOString(),
       },
     ]);
-    expect(statSync(path).mode & 0o777).toBe(0o600);
+    // File modes are POSIX: on Windows the user profile's access list keeps the file private.
+    if (process.platform !== 'win32') expect(statSync(path).mode & 0o777).toBe(0o600);
   });
 
   it('AC2: refuses a kind or a door it does not know', () => {
@@ -210,7 +211,7 @@ describe('migration 0008 (verifier probes)', () => {
     recordAction(old, action());
     expect(old.prepare('SELECT count(*) AS n FROM action_history').get()).toEqual({ n: 1 });
     old.close();
-    expect(statSync(oldPath).mode & 0o777).toBe(0o600);
+    if (process.platform !== 'win32') expect(statSync(oldPath).mode & 0o777).toBe(0o600);
   });
 
   it('never reuses an id a full erase freed: AC4 erases up to an id', () => {

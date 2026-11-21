@@ -1,8 +1,12 @@
 // Feeds the log from the app's own stdout and stderr: each descriptor becomes a pipe read by a
 // thread, which writes every byte on to where the descriptor went before (the terminal of
-// `tauri dev`, or nowhere when opened from the Finder) and hands every line to the log.
+// `tauri dev`, or nowhere when opened from the Finder) and hands every line to the log. On
+// Windows the same is done with the process's standard handles, which Rust's `print!` looks up
+// on every write.
+#[cfg(unix)]
 use std::fs::File;
 use std::io::{self, BufRead, BufReader, Read, Write};
+#[cfg(unix)]
 use std::os::fd::{AsRawFd, FromRawFd, RawFd};
 use std::panic::AssertUnwindSafe;
 use std::sync::{Arc, Mutex, PoisonError};
@@ -34,10 +38,23 @@ pub fn pump(reader: impl Read, mut terminal: impl Write, mut line: impl FnMut(&s
 
 /// From now on, everything this process prints on stdout and stderr also goes to `log`, each
 /// line scrubbed of the secrets known at that moment (`super::secrets`).
+#[cfg(unix)]
 pub fn start(log: LogFile) -> io::Result<()> {
     let log = Arc::new(Mutex::new(log));
     for fd in [libc::STDOUT_FILENO, libc::STDERR_FILENO] {
         redirect(fd, Arc::clone(&log))?;
+    }
+    Ok(())
+}
+
+/// From now on, everything this process prints on stdout and stderr also goes to `log`, each
+/// line scrubbed of the secrets known at that moment (`super::secrets`).
+#[cfg(windows)]
+pub fn start(log: LogFile) -> io::Result<()> {
+    use windows_sys::Win32::System::Console::{STD_ERROR_HANDLE, STD_OUTPUT_HANDLE};
+    let log = Arc::new(Mutex::new(log));
+    for which in [STD_OUTPUT_HANDLE, STD_ERROR_HANDLE] {
+        windows::redirect(which, Arc::clone(&log))?;
     }
     Ok(())
 }
@@ -53,6 +70,7 @@ pub fn to_log(log: Arc<Mutex<LogFile>>) -> impl FnMut(&str) {
     }
 }
 
+#[cfg(unix)]
 fn redirect(fd: RawFd, log: Arc<Mutex<LogFile>>) -> io::Result<()> {
     // SAFETY: `fcntl` on the process's own descriptor; the copy is checked and owned below.
     let terminal = check(unsafe { libc::fcntl(fd, libc::F_DUPFD_CLOEXEC, 0) })?;
@@ -76,6 +94,7 @@ fn redirect(fd: RawFd, log: Arc<Mutex<LogFile>>) -> io::Result<()> {
 }
 
 /// A pipe whose two ends close on `exec`: children inherit only the descriptor it is copied to.
+#[cfg(unix)]
 fn pipe() -> io::Result<(File, File)> {
     let mut ends = [0; 2];
     // SAFETY: `ends` has room for the two descriptors `pipe` writes.
@@ -89,11 +108,78 @@ fn pipe() -> io::Result<(File, File)> {
     Ok((read, write))
 }
 
+#[cfg(unix)]
 fn check(result: libc::c_int) -> io::Result<libc::c_int> {
     if result < 0 {
         Err(io::Error::last_os_error())
     } else {
         Ok(result)
+    }
+}
+
+#[cfg(windows)]
+mod windows {
+    use std::fs::File;
+    use std::io::{self, Write};
+    use std::os::windows::io::{
+        AsRawHandle, BorrowedHandle, FromRawHandle, IntoRawHandle, OwnedHandle,
+    };
+    use std::sync::{Arc, Mutex};
+
+    use windows_sys::Win32::Foundation::{HANDLE, INVALID_HANDLE_VALUE};
+    use windows_sys::Win32::System::Console::{GetStdHandle, SetStdHandle, STD_HANDLE};
+    use windows_sys::Win32::System::Pipes::CreatePipe;
+
+    use super::{pump, to_log, LogFile};
+
+    pub fn redirect(which: STD_HANDLE, log: Arc<Mutex<LogFile>>) -> io::Result<()> {
+        // SAFETY: reads one of the process's own standard handles.
+        let current = unsafe { GetStdHandle(which) };
+        // Opened without a console, the app has nowhere to write on to.
+        let terminal: Box<dyn Write + Send> =
+            if current.is_null() || current == INVALID_HANDLE_VALUE {
+                Box::new(io::sink())
+            } else {
+                // SAFETY: an open handle of this process, borrowed only to be duplicated.
+                let borrowed = unsafe { BorrowedHandle::borrow_raw(current) };
+                Box::new(File::from(borrowed.try_clone_to_owned()?))
+            };
+        let (reader, writer) = pipe()?;
+        // Raw handles are not `Send`; the address is.
+        let restore = current as usize;
+        // The pump starts before the handle moves: if it cannot, nothing has changed.
+        std::thread::Builder::new()
+            .name(format!("anomander-log-{which}"))
+            .spawn(move || {
+                pump(reader, terminal, to_log(log));
+                // The pipe failed: the handle goes back to where it went, so nobody blocks on it.
+                // SAFETY: sets one of the process's own standard handles to its former value.
+                unsafe { SetStdHandle(which, restore as HANDLE) };
+            })?;
+        // On failure `writer` is dropped, the pump sees the pipe close, and nothing has moved.
+        // SAFETY: `writer` is an open handle; from here on the process owns it as its standard
+        // handle, so it is never closed.
+        if unsafe { SetStdHandle(which, writer.as_raw_handle()) } == 0 {
+            return Err(io::Error::last_os_error());
+        }
+        let _ = writer.into_raw_handle();
+        Ok(())
+    }
+
+    /// A pipe whose handles children do not inherit.
+    fn pipe() -> io::Result<(File, OwnedHandle)> {
+        let (mut read, mut write): (HANDLE, HANDLE) = (std::ptr::null_mut(), std::ptr::null_mut());
+        // SAFETY: both pointers have room for a handle; no attributes, so neither is inherited.
+        if unsafe { CreatePipe(&mut read, &mut write, std::ptr::null(), 0) } == 0 {
+            return Err(io::Error::last_os_error());
+        }
+        // SAFETY: both are fresh handles nobody else owns.
+        Ok(unsafe {
+            (
+                File::from_raw_handle(read),
+                OwnedHandle::from_raw_handle(write),
+            )
+        })
     }
 }
 

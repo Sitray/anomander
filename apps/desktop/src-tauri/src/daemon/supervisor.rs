@@ -7,8 +7,6 @@
 use std::ffi::OsString;
 use std::fs::File;
 use std::io::{BufRead, BufReader, Read, Write};
-use std::os::fd::AsFd;
-use std::os::unix::process::CommandExt;
 use std::path::PathBuf;
 use std::process::{Child, ChildStdin, Command, Stdio};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError};
@@ -431,10 +429,11 @@ impl Inner {
             .current_dir(&spec.cwd)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            // Its own process group: a Ctrl-C in the terminal of `tauri dev` reaches the app, not
-            // the daemon, and a stop reaches whatever the daemon started.
-            .process_group(0);
+            .stderr(Stdio::piped());
+        // Its own process group: a Ctrl-C in the terminal of `tauri dev` reaches the app, not
+        // the daemon, and a stop reaches whatever the daemon started.
+        #[cfg(unix)]
+        std::os::unix::process::CommandExt::process_group(&mut command, 0);
         let mut child = command
             .spawn()
             .map_err(|error| format!("could not start {}: {error}", spec.program.display()))?;
@@ -445,8 +444,7 @@ impl Inner {
             let pipe = stdin
                 .as_ref()
                 .ok_or_else(|| std::io::Error::other("no stdin"))
-                .and_then(|stdin| stdin.as_fd().try_clone_to_owned())
-                .map(File::from);
+                .and_then(clone_pipe);
             (pipe, line)
         });
         let stdout = child.stdout.take();
@@ -468,7 +466,7 @@ impl Inner {
             None => None,
             Some((Ok(pipe), line)) => Some((pipe, line)),
             Some((Err(error), _)) => {
-                kill_group(&running, libc::SIGKILL);
+                kill_group(&running, Signal::Kill);
                 return Err(format!("could not hand the secrets to the daemon: {error}"));
             }
         };
@@ -486,7 +484,7 @@ impl Inner {
                             "could not hand the secrets to anomander daemon {}: {error}",
                             running.pid
                         );
-                        kill_group(&running, libc::SIGKILL);
+                        kill_group(&running, Signal::Kill);
                     }
                 })
             }),
@@ -551,7 +549,7 @@ impl Inner {
             }),
         ];
         if let Some(Err(error)) = watchers.into_iter().flatten().find(Result::is_err) {
-            kill_group(&running, libc::SIGKILL);
+            kill_group(&running, Signal::Kill);
             return Err(format!("could not watch the daemon: {error}"));
         }
         Ok(running)
@@ -627,7 +625,7 @@ impl Inner {
 
     fn end(&self, running: &Running) {
         drop(lock(&running.stdin).take());
-        kill_group(running, libc::SIGTERM);
+        kill_group(running, Signal::Term);
         if running.exited.wait(self.options.stop_timeout) {
             return;
         }
@@ -635,7 +633,7 @@ impl Inner {
             "anomander daemon {} did not stop within {:?}; killing it",
             running.pid, self.options.stop_timeout
         );
-        kill_group(running, libc::SIGKILL);
+        kill_group(running, Signal::Kill);
         if !running.exited.wait(KILL_GRACE) {
             eprintln!(
                 "anomander daemon {} is still there after SIGKILL",
@@ -663,8 +661,26 @@ impl Running {
     }
 }
 
+/// A second handle on the child's stdin, for the thread that writes the handover.
+fn clone_pipe(stdin: &ChildStdin) -> std::io::Result<File> {
+    #[cfg(unix)]
+    let pipe = std::os::fd::AsFd::as_fd(stdin).try_clone_to_owned();
+    #[cfg(windows)]
+    let pipe = std::os::windows::io::AsHandle::as_handle(stdin).try_clone_to_owned();
+    pipe.map(File::from)
+}
+
+#[derive(Clone, Copy)]
+enum Signal {
+    /// SIGTERM: the daemon may stop cleanly.
+    Term,
+    /// SIGKILL.
+    Kill,
+}
+
 /// Sends `signal` to the child's process group, while the child is not yet reaped.
-fn kill_group(running: &Running, signal: libc::c_int) {
+#[cfg(unix)]
+fn kill_group(running: &Running, signal: Signal) {
     let mut child = lock(&running.child);
     if !matches!(child.try_wait(), Ok(None)) {
         return;
@@ -672,12 +688,27 @@ fn kill_group(running: &Running, signal: libc::c_int) {
     let Ok(pid) = libc::pid_t::try_from(running.pid) else {
         return;
     };
+    let signal = match signal {
+        Signal::Term => libc::SIGTERM,
+        Signal::Kill => libc::SIGKILL,
+    };
     // SAFETY: `pid` is our unreaped child and the leader of its own group (`process_group(0)`),
     // so neither ID can belong to another process yet.
     let sent = unsafe { libc::kill(-pid, signal) } == 0;
     if !sent {
         // SAFETY: as above.
         unsafe { libc::kill(pid, signal) };
+    }
+}
+
+/// Windows has no SIGTERM: the daemon stops when its stdin closes, which `end` does first, so
+/// `Term` only gives it the time to. `Kill` ends the child alone; what it started is not reached
+/// yet.
+#[cfg(windows)]
+fn kill_group(running: &Running, signal: Signal) {
+    let mut child = lock(&running.child);
+    if matches!(signal, Signal::Kill) && matches!(child.try_wait(), Ok(None)) {
+        let _ = child.kill();
     }
 }
 

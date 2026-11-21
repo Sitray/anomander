@@ -69,8 +69,11 @@ describe('the daemon lock', () => {
     acquireDaemonLock(dbPath()).release();
     const lock = acquireDaemonLock(dbPath());
     try {
-      expect(statSync(`${dbPath()}.lock`).mode & 0o777).toBe(0o600);
-      expect(statSync(join(scratch, 'data')).mode & 0o777).toBe(0o700);
+      // File modes are POSIX: on Windows the user profile's access list keeps the data private.
+      if (process.platform !== 'win32') {
+        expect(statSync(`${dbPath()}.lock`).mode & 0o777).toBe(0o600);
+        expect(statSync(join(scratch, 'data')).mode & 0o777).toBe(0o700);
+      }
     } finally {
       lock.release();
     }

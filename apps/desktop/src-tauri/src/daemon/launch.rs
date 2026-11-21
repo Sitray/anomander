@@ -9,7 +9,35 @@ use std::path::{Path, PathBuf};
 /// principal's shell (such as a stray `OPENAI_API_KEY` or `NODE_OPTIONS`) reaches it.
 const INHERITED: [&str; 4] = ["PATH", "HOME", "TMPDIR", "LANG"];
 
+/// What Windows itself needs in a child's environment: without `SystemRoot`, for one, Node cannot
+/// open a socket. None elsewhere.
+#[cfg(windows)]
+const SYSTEM: &[&str] = &[
+    "SystemRoot",
+    "SystemDrive",
+    "windir",
+    "TEMP",
+    "TMP",
+    "USERPROFILE",
+    "APPDATA",
+    "LOCALAPPDATA",
+    "PATHEXT",
+    "ComSpec",
+];
+#[cfg(not(windows))]
+const SYSTEM: &[&str] = &[];
+
+/// The system's own variables of `parent` (`SYSTEM`), for a child started from a cleared
+/// environment; empty outside Windows.
+pub fn system_env(parent: &dyn Fn(&str) -> Option<String>) -> Vec<(String, String)> {
+    SYSTEM
+        .iter()
+        .filter_map(|name| parent(name).map(|value| ((*name).to_owned(), value)))
+        .collect()
+}
+
 /// Where macOS keeps the system clock's zone: a link into a `zoneinfo` folder.
+#[cfg(unix)]
 const LOCALTIME: &str = "/etc/localtime";
 
 /// The IANA zone a `zoneinfo` link points to, such as `Europe/Madrid`.
@@ -19,9 +47,18 @@ pub fn zone_of_link(target: &str) -> Option<String> {
 }
 
 /// The zone of this machine's clock, for the daemon's `TZ`: its dates are the principal's.
+#[cfg(unix)]
 pub fn system_time_zone() -> Option<String> {
     let target = std::fs::read_link(LOCALTIME).ok()?;
     zone_of_link(&target.to_string_lossy())
+}
+
+/// The zone of this machine's clock, for the daemon's `TZ`, as Windows maps it to an IANA name.
+#[cfg(windows)]
+pub fn system_time_zone() -> Option<String> {
+    iana_time_zone::get_timezone()
+        .ok()
+        .filter(|zone| is_time_zone(zone))
 }
 
 /// The shape of an IANA zone name. The daemon refuses to start with a `TZ` that is not one.
@@ -36,9 +73,19 @@ fn is_time_zone(zone: &str) -> bool {
         })
 }
 
-/// A GUI app gets a minimal `PATH`; Homebrew's `node` lives in one of these.
-const EXTRA_PATH: [&str; 2] = ["/opt/homebrew/bin", "/usr/local/bin"];
+/// A GUI app gets a minimal `PATH` on macOS; Homebrew's `node` lives in one of these. On Windows
+/// an app gets the principal's whole `PATH`, Node's installer folder included.
+#[cfg(unix)]
+const EXTRA_PATH: &[&str] = &["/opt/homebrew/bin", "/usr/local/bin"];
+#[cfg(unix)]
 const DEFAULT_PATH: &str = "/usr/bin:/bin:/usr/sbin:/sbin";
+#[cfg(windows)]
+const EXTRA_PATH: &[&str] = &[];
+#[cfg(windows)]
+const DEFAULT_PATH: &str = r"C:\Windows\system32;C:\Windows";
+
+/// The name of Node's executable.
+const NODE: &str = if cfg!(windows) { "node.exe" } else { "node" };
 
 /// v1 is built and run by the principal from this repository, so the entry point is found from the
 /// crate at compile time; `ANOMANDER_DAEMON_ENTRY` overrides it at run time.
@@ -94,6 +141,7 @@ pub fn child_env(
         .filter(|name| **name != "PATH")
         .filter_map(|name| parent(name).map(|value| ((*name).to_owned(), value)))
         .collect();
+    env.extend(system_env(parent));
     env.push(("PATH".into(), search_path(parent("PATH").as_deref())));
     // Without it the daemon takes its default zone, whatever this machine's is.
     if let Some(zone) = parent("TZ").filter(|zone| is_time_zone(zone)) {
@@ -160,16 +208,20 @@ pub fn handover_line(inputs: &DaemonInputs) -> String {
 
 /// The parent's `PATH` with Homebrew's folders after it, each folder once.
 pub fn search_path(parent: Option<&str>) -> String {
-    let mut folders: Vec<&str> = Vec::new();
+    let mut folders: Vec<PathBuf> = Vec::new();
     let parent = parent
         .filter(|path| !path.is_empty())
         .unwrap_or(DEFAULT_PATH);
-    for folder in parent.split(':').chain(EXTRA_PATH) {
-        if !folder.is_empty() && !folders.contains(&folder) {
+    let extra = EXTRA_PATH.iter().map(PathBuf::from);
+    for folder in std::env::split_paths(parent).chain(extra) {
+        if !folder.as_os_str().is_empty() && !folders.contains(&folder) {
             folders.push(folder);
         }
     }
-    folders.join(":")
+    // Only a folder holding the separator cannot be joined, and splitting removed every one.
+    std::env::join_paths(folders)
+        .map(|joined| joined.to_string_lossy().into_owned())
+        .unwrap_or_else(|_| parent.to_owned())
 }
 
 /// `ANOMANDER_NODE` when set, else the first executable `node` on `path`.
@@ -177,9 +229,9 @@ pub fn find_node(override_path: Option<&str>, path: &str) -> Option<PathBuf> {
     if let Some(node) = override_path.filter(|node| !node.is_empty()) {
         return Some(PathBuf::from(node));
     }
-    path.split(':')
-        .filter(|folder| !folder.is_empty())
-        .map(|folder| Path::new(folder).join("node"))
+    std::env::split_paths(path)
+        .filter(|folder| !folder.as_os_str().is_empty())
+        .map(|folder| folder.join(NODE))
         .find(|node| is_executable(node))
 }
 
@@ -189,7 +241,12 @@ pub fn daemon_entry(override_path: Option<&str>) -> PathBuf {
         Some(entry) => PathBuf::from(entry),
         None => {
             let built = PathBuf::from(BUILT_ENTRY);
-            built.canonicalize().unwrap_or(built)
+            // On Windows `canonicalize` gives a verbatim `\\?\` path; Node is handed a plain one.
+            #[cfg(windows)]
+            let resolved = std::path::absolute(&built);
+            #[cfg(not(windows))]
+            let resolved = built.canonicalize();
+            resolved.unwrap_or(built)
         }
     }
 }
@@ -208,6 +265,7 @@ pub fn free_port() -> std::io::Result<u16> {
     Ok(listener.local_addr()?.port())
 }
 
+#[cfg(unix)]
 fn is_executable(path: &Path) -> bool {
     use std::os::unix::fs::PermissionsExt;
     std::fs::metadata(path)
@@ -215,11 +273,26 @@ fn is_executable(path: &Path) -> bool {
         .unwrap_or(false)
 }
 
+/// Windows has no executable bit: the name (`node.exe`) says it.
+#[cfg(windows)]
+fn is_executable(path: &Path) -> bool {
+    path.is_file()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::collections::BTreeMap;
-    use std::os::unix::fs::PermissionsExt;
+
+    /// The parent's `PATH` in the tests, and what the daemon gets from it.
+    #[cfg(unix)]
+    const PARENT_PATH: &str = "/usr/bin:/bin";
+    #[cfg(unix)]
+    const SEARCHED_PATH: &str = "/usr/bin:/bin:/opt/homebrew/bin:/usr/local/bin";
+    #[cfg(windows)]
+    const PARENT_PATH: &str = r"C:\Windows\system32;C:\Program Files\nodejs";
+    #[cfg(windows)]
+    const SEARCHED_PATH: &str = PARENT_PATH;
 
     fn paths() -> DaemonPaths {
         DaemonPaths {
@@ -232,7 +305,7 @@ mod tests {
 
     fn parent(name: &str) -> Option<String> {
         match name {
-            "PATH" => Some("/usr/bin:/bin".into()),
+            "PATH" => Some(PARENT_PATH.into()),
             "HOME" => Some("/Users/p".into()),
             "TMPDIR" => Some("/tmp/x/".into()),
             "LANG" => Some("es_ES.UTF-8".into()),
@@ -268,7 +341,7 @@ mod tests {
             .into_iter()
             .collect();
         let expected: BTreeMap<String, String> = [
-            ("PATH", "/usr/bin:/bin:/opt/homebrew/bin:/usr/local/bin"),
+            ("PATH", SEARCHED_PATH),
             ("HOME", "/Users/p"),
             ("TMPDIR", "/tmp/x/"),
             ("LANG", "es_ES.UTF-8"),
@@ -382,10 +455,13 @@ mod tests {
         assert!(!env.contains_key("ANOMANDER_MODEL"));
         assert!(!env.contains_key("ANOMANDER_VISION_MODEL"));
         assert!(!env.contains_key("HOME"));
+        #[cfg(unix)]
         assert_eq!(
             env.get("PATH").map(String::as_str),
             Some("/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin:/usr/local/bin")
         );
+        #[cfg(windows)]
+        assert_eq!(env.get("PATH").map(String::as_str), Some(DEFAULT_PATH));
     }
 
     #[test]
@@ -482,6 +558,7 @@ mod tests {
         assert_eq!(zone_of_link("/usr/share/zoneinfo/"), None);
     }
 
+    #[cfg(unix)]
     #[test]
     fn homebrew_folders_already_on_path_are_not_repeated() {
         assert_eq!(
@@ -490,8 +567,35 @@ mod tests {
         );
     }
 
+    #[cfg(windows)]
+    #[test]
+    fn a_windows_path_is_split_at_its_semicolons_each_folder_once() {
+        assert_eq!(
+            search_path(Some(
+                r"C:\Program Files\nodejs;;C:\Windows;C:\Program Files\nodejs"
+            )),
+            r"C:\Program Files\nodejs;C:\Windows"
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn node_exe_is_found_on_the_path() -> std::io::Result<()> {
+        let dir = tempfile::tempdir()?;
+        let (empty, bin) = (dir.path().join("empty"), dir.path().join("bin"));
+        std::fs::create_dir_all(&empty)?;
+        std::fs::create_dir_all(&bin)?;
+        std::fs::write(bin.join("node.exe"), "")?;
+        let path = search_path(Some(&format!("{};{}", empty.display(), bin.display())));
+        assert_eq!(find_node(None, &path), Some(bin.join("node.exe")));
+        assert_eq!(find_node(None, &empty.display().to_string()), None);
+        Ok(())
+    }
+
+    #[cfg(unix)]
     #[test]
     fn node_is_found_on_the_path_and_must_be_executable() -> std::io::Result<()> {
+        use std::os::unix::fs::PermissionsExt;
         let dir = tempfile::tempdir()?;
         let plain = dir.path().join("plain");
         let bin = dir.path().join("bin");

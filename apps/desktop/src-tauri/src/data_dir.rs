@@ -2,10 +2,10 @@
 // files `600` (PRD §16). The daemon writes the database and the images; the shell, the settings.
 use std::fs;
 use std::io::Write;
-use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 
 use crate::daemon::launch::DaemonPaths;
+use crate::file_mode;
 
 pub const FOLDER_NAME: &str = "ANOMANDER";
 const SETTINGS_FILE: &str = "settings.json";
@@ -19,7 +19,7 @@ impl DataDir {
     /// Creates `root` if needed and narrows it to `700`, even when it already existed wider.
     pub fn open(root: PathBuf) -> std::io::Result<Self> {
         fs::create_dir_all(&root)?;
-        fs::set_permissions(&root, fs::Permissions::from_mode(0o700))?;
+        file_mode::restrict(&root, 0o700)?;
         Ok(Self { root })
     }
 
@@ -48,11 +48,9 @@ impl DataDir {
         // A leftover from a crash would make `create_new` fail.
         let _ = fs::remove_file(&partial);
         let written = (|| {
-            let mut file = fs::OpenOptions::new()
-                .write(true)
-                .create_new(true)
-                .mode(0o600)
-                .open(&partial)?;
+            let mut file =
+                file_mode::create_with(fs::OpenOptions::new().write(true).create_new(true), 0o600)
+                    .open(&partial)?;
             file.write_all(contents)?;
             file.sync_all()?;
             fs::rename(&partial, &target)
@@ -67,7 +65,10 @@ impl DataDir {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(unix)]
+    use std::os::unix::fs::PermissionsExt;
 
+    #[cfg(unix)]
     fn mode(path: &Path) -> std::io::Result<u32> {
         Ok(fs::metadata(path)?.permissions().mode() & 0o777)
     }
@@ -77,10 +78,12 @@ mod tests {
         let parent = tempfile::tempdir()?;
         let dir = DataDir::open(parent.path().join("Application Support").join(FOLDER_NAME))?;
         assert!(dir.root().is_dir());
+        #[cfg(unix)]
         assert_eq!(mode(dir.root())?, 0o700);
         Ok(())
     }
 
+    #[cfg(unix)]
     #[test]
     fn a_wider_existing_folder_is_narrowed_to_700() -> std::io::Result<()> {
         let parent = tempfile::tempdir()?;
@@ -99,6 +102,7 @@ mod tests {
         dir.write_private("settings.json", b"{\"a\":1}")?;
         dir.write_private("settings.json", b"{}")?;
         assert_eq!(fs::read(dir.settings_path())?, b"{}");
+        #[cfg(unix)]
         assert_eq!(mode(&dir.settings_path())?, 0o600);
         // No temporary file is left behind.
         assert_eq!(fs::read_dir(dir.root())?.count(), 1);

@@ -527,7 +527,6 @@ mod tests {
 
     #[test]
     fn settings_are_saved_as_camel_case_json_with_mode_600() -> Result<(), String> {
-        use std::os::unix::fs::PermissionsExt;
         let parent = tempfile::tempdir().map_err(|e| e.to_string())?;
         let dir = DataDir::open(parent.path().join("ANOMANDER")).map_err(|e| e.to_string())?;
         let settings = Settings {
@@ -550,11 +549,15 @@ mod tests {
                 "connectionSecrets": ["mcp/notes/env/TOKEN"]
             })
         );
-        let mode = std::fs::metadata(dir.settings_path())
-            .map_err(|e| e.to_string())?
-            .permissions()
-            .mode();
-        assert_eq!(mode & 0o777, 0o600);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = std::fs::metadata(dir.settings_path())
+                .map_err(|e| e.to_string())?
+                .permissions()
+                .mode();
+            assert_eq!(mode & 0o777, 0o600);
+        }
         assert_eq!(load_settings(&dir.settings_path())?, settings);
         Ok(())
     }

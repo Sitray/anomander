@@ -560,6 +560,52 @@ pub use ax::SystemScreen;
 #[cfg(target_os = "macos")]
 pub use system::{allowed, screen_size, SystemInput};
 
+/// Not ported yet: `allowed` says no, so the window shows its permission message and nothing
+/// reads the screen or sends input.
+#[cfg(not(target_os = "macos"))]
+mod unported {
+    use super::blocklist::AppIdentity;
+    use super::risk::{AxElement, Focus};
+    use super::{Input, Screen};
+
+    pub fn allowed() -> bool {
+        false
+    }
+
+    pub fn screen_size() -> (f64, f64) {
+        (0.0, 0.0)
+    }
+
+    pub struct SystemScreen;
+
+    impl Screen for SystemScreen {
+        fn elements_at(&self, _: f64, _: f64) -> Option<Vec<AxElement>> {
+            None
+        }
+        fn app_at(&self, _: f64, _: f64) -> Option<AppIdentity> {
+            None
+        }
+        fn focus(&self) -> Option<Focus> {
+            None
+        }
+        fn focused_app(&self) -> Option<AppIdentity> {
+            None
+        }
+    }
+
+    pub struct SystemInput;
+
+    impl Input for SystemInput {
+        fn click(&mut self, _: f64, _: f64, _: bool) {}
+        fn text(&mut self, _: &str) {}
+        fn key(&mut self, _: u16, _: u64) {}
+        fn scroll(&mut self, _: f64, _: f64, _: i32) {}
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+pub use unported::{allowed, screen_size, SystemInput, SystemScreen};
+
 #[cfg(test)]
 mod tests {
     use super::*;
