@@ -1,12 +1,12 @@
 // DK-4: binds the chat client to React. It owns the connection for as long as the chat is on
 // screen and turns what the client reports into the conversation.
 
-import { type ComputerAction, strings as said } from '@anomander/protocol';
 import { useCallback, useEffect, useReducer, useRef, useState } from 'react';
 import type { LocalChannel } from '../shell.ts';
 import { strings } from '../strings.ts';
 import { type Attachment, encodeAttachments, encodeJpeg } from './attachments.ts';
 import { type ChatClient, createChatClient, type NewRequest } from './chat-client.ts';
+import { type Computer, ComputerTaskSession } from './computer-task-session.ts';
 import {
   type BotMessage,
   type Conversation,
@@ -15,6 +15,8 @@ import {
   type Route,
   reduceConversation,
 } from './conversation.ts';
+
+export type { Computer } from './computer-task-session.ts';
 
 export interface Chat {
   conversation: Conversation;
@@ -36,20 +38,6 @@ export interface Chat {
   stop(): void;
 }
 
-/** The shell's side of a task on the computer; both reject with the shell's own error. */
-export interface Computer {
-  /** A JPEG of the screen as it is now; the app stays out of the way after it. */
-  capture(): Promise<ArrayBuffer>;
-  /**
-   * Performs `action` and answers with a JPEG of the screen as it left it; the app stays out of
-   * the way after it. `permitted` when the principal allowed it: without it the shell judges the
-   * screen itself and may answer `computer_careful` (T1b).
-   */
-  perform(action: ComputerAction, permitted: boolean): Promise<ArrayBuffer>;
-  /** Brings the app back: the task waits for the principal, or is over. */
-  reveal(): void;
-}
-
 export interface ChatOptions {
   /** Called with the text of every answer the daemon sends. */
   onReply?: (text: string) => void;
@@ -64,65 +52,8 @@ export interface ChatOptions {
   onProblem?: (text: string) => void;
 }
 
-/** A step of a task that is waiting for its answer, or for the principal. */
-interface Step {
-  /** The task it belongs to: only the latest one may act (see `run`). */
-  run: number;
-  task: string;
-  /** The steps already performed, as the daemon described them. */
-  done: string[];
-  captureUrl: string;
-}
-
-/** The task ended while its action waited for its turn: it was not performed. */
-const ENDED = Symbol('ended');
 /** A task started while a look waited for its turn: the screen is the task's. */
 const BUSY = Symbol('busy');
-
-/** Errors of the shell after which nothing was done: its permission checks come first. */
-const NOTHING_DONE: Record<string, string> = {
-  computer_permission: strings.chat.computerPermission,
-  screen_permission: strings.chat.screenPermission,
-};
-
-/**
- * T1b: the shell saw a step of care nobody allowed; nothing was done, and it is asked for. It
- * may say what it read there: `computer_careful:<role>:<name>`.
- */
-const CAREFUL = 'computer_careful';
-
-/** What an Accessibility role is, in the principal's words. */
-const ROLE_NOUNS: Record<string, string> = {
-  AXButton: 'botón',
-  AXMenuButton: 'botón',
-  AXPopUpButton: 'botón',
-  AXLink: 'enlace',
-  AXMenuItem: 'opción de menú',
-  AXMenuBarItem: 'opción de menú',
-  AXCheckBox: 'casilla',
-  AXRadioButton: 'opción',
-  AXTextField: 'campo',
-  AXTextArea: 'campo',
-  AXComboBox: 'campo',
-  AXWebArea: 'página',
-};
-
-/**
- * What the shell's `computer_careful` answer read on the screen, for the step that proposed
- * `action`: a click is said again with the control's own name (never the processor's), and any
- * other step gets a note on what the keys or the text would act on.
- */
-const reading = (reason: string, action: ComputerAction): { seen?: string; text?: string } => {
-  const [, role, ...name] = reason.split(':');
-  if (role === undefined) return {};
-  const label = name.join(':');
-  if (action.kind === 'click' && label !== '') {
-    return { text: said.computerClick(label, action.double) };
-  }
-  return { seen: strings.chat.computerSeen(ROLE_NOUNS[role] ?? 'elemento', label) };
-};
-/** T1b: the step targets an app ANOMANDER never acts on (`computer_blocked:<app>`). */
-const BLOCKED = 'computer_blocked:';
 
 const requestFor = async (text: string, attachments: Attachment[]): Promise<NewRequest> => {
   if (attachments.length === 0) return { type: 'text', text };
@@ -142,32 +73,24 @@ export const useChat = (channel: LocalChannel | null, options: ChatOptions = {})
   // The latest options, so new ones do not open the connection again.
   const latest = useRef(options);
   latest.current = options;
-  /** The steps whose answer has not arrived, by request. */
-  const asked = useRef(new Map<string, Step>());
   /** The plain texts whose answer has not arrived: only theirs may carry a route (DK-13). */
   const texts = useRef(new Set<string>());
-  /** The proposals the principal has not answered, by the reply that carries them. */
-  const proposed = useRef(new Map<string, Step & { action: ComputerAction; text: string }>());
-  const [running, show] = useState(false);
-  /** `running` as it is now, for what is decided between two renders. */
-  const going = useRef(false);
-  const setRunning = useCallback((next: boolean) => {
-    going.current = next;
-    show(next);
-  }, []);
-  /**
-   * One task at a time: starting a task or stopping one moves this on, and whatever belongs to
-   * an earlier number is over. Its answers are shown, and nothing more is performed for it.
-   */
-  const run = useRef(0);
-  /** What the shell is doing on the computer: one capture or action at a time, in order. */
-  const turns = useRef<Promise<unknown>>(Promise.resolve());
-  const busy = useRef(0);
-  /** `perform` of a routine step, which is defined below the client that calls it. */
-  const performing = useRef<(id: string) => void>(() => {});
-  /** `rest`, defined below as well. */
-  const rest = useRef<() => void>(() => {});
-  /** `launch`, defined below as well. */
+  const [running, setRunning] = useState(false);
+  /** The task on the computer (DK-10); it reads the options and the client as they are now. */
+  const [session] = useState(
+    () =>
+      new ComputerTaskSession({
+        dispatch,
+        send: (request) => client.current?.send(request) ?? null,
+        computer: () => latest.current.computer,
+        onProblem: (text) => latest.current.onProblem?.(text),
+        onRunning: setRunning,
+        encode: encodeJpeg,
+        captureUrl: (jpeg) => URL.createObjectURL(new Blob([jpeg], { type: 'image/jpeg' })),
+        release: (url) => URL.revokeObjectURL(url),
+      }),
+  );
+  /** `launch`, defined below the client that calls it. */
   const launching = useRef<(id: string, route: Route) => void>(() => {});
   /** The captures of looks shown in the conversation, let go of when the chat leaves. */
   const captures = useRef(new Set<string>());
@@ -182,35 +105,12 @@ export const useChat = (channel: LocalChannel | null, options: ChatOptions = {})
     const created = createChatClient({
       onConnection: (state) => dispatch({ type: 'connection', state }),
       onOutcome: (requestId, outcome) => {
-        // DK-10: an action is offered only in answer to a step the principal asked for.
-        const step = asked.current.get(requestId);
-        asked.current.delete(requestId);
         // DK-13: a route is followed only in the answer to a plain text.
         const plain = texts.current.delete(requestId);
-        const action = outcome.type === 'reply' ? outcome.reply.computer : undefined;
-        if (step !== undefined && outcome.type === 'reply' && action !== undefined) {
-          const { channelRef, text } = outcome.reply;
-          const ended = step.run !== run.current;
-          // DK-10 AC1: only a step the daemon calls routine goes without asking.
-          const routine = outcome.reply.confirm === false && !ended;
-          const proposal = { action, captureUrl: step.captureUrl, confirm: !routine, seen: null };
-          dispatch({ type: 'outcome', requestId, outcome, proposal });
-          if (ended) {
-            dispatch({ type: 'refused', id: channelRef });
-          } else {
-            proposed.current.set(channelRef, { ...step, action, text });
-            if (routine) {
-              performing.current(channelRef);
-              // A step on the way to the next one is not an answer to notify.
-              return;
-            }
-            rest.current();
-          }
-        } else {
-          if (step !== undefined) {
-            URL.revokeObjectURL(step.captureUrl);
-            if (step.run === run.current) rest.current();
-          }
+        const step = session.answer(requestId, outcome);
+        // A step on the way to the next one is not an answer to notify.
+        if (step === 'routine') return;
+        if (step === null) {
           const route = plain && outcome.type === 'reply' ? outcome.reply.route : undefined;
           const able = route !== undefined && startable(route, latest.current);
           dispatch({ type: 'outcome', requestId, outcome, ...(able ? { start: route } : {}) });
@@ -227,7 +127,7 @@ export const useChat = (channel: LocalChannel | null, options: ChatOptions = {})
       created.dispose();
       client.current = null;
     };
-  }, []);
+  }, [session]);
 
   // A new snapshot with the same channel must not reconnect: depend on its values, not the object.
   const url = channel?.url ?? null;
@@ -263,80 +163,6 @@ export const useChat = (channel: LocalChannel | null, options: ChatOptions = {})
     dispatch({ type: 'pressed', id: message.id, data, requestId });
   }, []);
 
-  /** Runs `work` on the computer once everything asked before it is over. */
-  const inTurn = useCallback(<T>(work: () => Promise<T>): Promise<T> => {
-    busy.current += 1;
-    const turn = turns.current.then(work);
-    turns.current = turn.then(
-      () => {},
-      () => {},
-    );
-    void turns.current.then(() => {
-      busy.current -= 1;
-    });
-    return turn;
-  }, []);
-
-  /** The task no longer goes by itself: the app comes back, after any action still going. */
-  rest.current = () => {
-    setRunning(false);
-    const reveal = () => latest.current.computer?.reveal();
-    if (busy.current === 0) reveal();
-    // By its turn another task may be going: then the app stays out of the way.
-    else
-      void inTurn(async () => {
-        if (!going.current) reveal();
-      });
-  };
-
-  /** Ends whatever task there is: its steps that waited for the principal are answered. */
-  const abandon = useCallback(() => {
-    run.current += 1;
-    for (const id of proposed.current.keys()) dispatch({ type: 'refused', id });
-    proposed.current.clear();
-  }, []);
-
-  /** Sends one step of `task` with the screen as `jpeg` shows it; `null` when it could not leave. */
-  const step = useCallback(async (of: number, task: string, done: string[], jpeg: ArrayBuffer) => {
-    const image = await encodeJpeg(jpeg);
-    // The task ended while the screen was read: its step does not leave.
-    if (of !== run.current) return null;
-    const requestId = client.current?.send({ type: 'computer', task, image, done }) ?? null;
-    if (requestId !== null) {
-      const captureUrl = URL.createObjectURL(new Blob([jpeg], { type: 'image/jpeg' }));
-      asked.current.set(requestId, { run: of, task, done, captureUrl });
-    }
-    return requestId;
-  }, []);
-
-  /** Starts the task the reply `id` announced (DK-10): its first step, with the screen as it is. */
-  const begin = useCallback(
-    async (id: string, text: string) => {
-      const { computer, onProblem } = latest.current;
-      // One task at a time: this one ends the one before.
-      abandon();
-      const mine = run.current;
-      let requestId: string | null = null;
-      setRunning(computer !== undefined);
-      try {
-        if (computer !== undefined) {
-          const jpeg = await inTurn(() => {
-            if (mine !== run.current) throw ENDED;
-            return computer.capture();
-          });
-          requestId = await step(mine, text, [], jpeg);
-        }
-      } catch (error) {
-        if (error !== ENDED && mine === run.current) {
-          onProblem?.(NOTHING_DONE[String(error)] ?? strings.chat.screenFailed);
-        }
-      }
-      if (requestId === null && mine === run.current) rest.current();
-      dispatch({ type: 'started', id, requestId });
-    },
-    [step, abandon, inTurn, setRunning],
-  );
-
   /**
    * Takes the look the reply `id` announced (DK-9): a capture once every action asked before it
    * is over, shown in the conversation and sent with `question`.
@@ -352,8 +178,8 @@ export const useChat = (channel: LocalChannel | null, options: ChatOptions = {})
       let jpeg: ArrayBuffer | null = null;
       try {
         // A task owns the screen while it goes: a look would bring the app back in its way.
-        jpeg = await inTurn(() => {
-          if (going.current) throw BUSY;
+        jpeg = await session.inTurn(() => {
+          if (session.running) throw BUSY;
           return look();
         });
       } catch (error) {
@@ -376,7 +202,7 @@ export const useChat = (channel: LocalChannel | null, options: ChatOptions = {})
       captures.current.add(captureUrl);
       dispatch({ type: 'started', id, requestId, captureUrl });
     },
-    [inTurn],
+    [session],
   );
 
   /** Starts the look or the task the reply `id` announced, or says why it cannot. */
@@ -385,10 +211,10 @@ export const useChat = (channel: LocalChannel | null, options: ChatOptions = {})
       if (!startable(route, latest.current)) {
         latest.current.onProblem?.(UNAVAILABLE[route.to]);
         dispatch({ type: 'started', id, requestId: null });
-      } else if (route.to === 'computer') void begin(id, route.task);
+      } else if (route.to === 'computer') void session.begin(id, route.task);
       else void glance(id, route.task);
     },
-    [begin, glance],
+    [session, glance],
   );
   launching.current = launch;
 
@@ -406,98 +232,11 @@ export const useChat = (channel: LocalChannel | null, options: ChatOptions = {})
     [launch],
   );
 
-  /**
-   * Performs the proposal of the reply `id`, once, then asks for the next step. `permitted` when
-   * the principal allowed it; a routine step goes without.
-   */
-  const perform = useCallback(
-    async (id: string, permitted: boolean) => {
-      const { computer, onProblem } = latest.current;
-      const proposal = proposed.current.get(id);
-      if (computer === undefined || proposal === undefined) return;
-      // Taken out first: a second press finds nothing to perform.
-      proposed.current.delete(id);
-      const mine = proposal.run;
-      setRunning(true);
-      dispatch({ type: 'allowed', id });
-      let jpeg: ArrayBuffer;
-      try {
-        jpeg = await inTurn(() => {
-          if (mine !== run.current) throw ENDED;
-          return computer.perform(proposal.action, permitted);
-        });
-      } catch (error) {
-        if (error === ENDED) {
-          dispatch({ type: 'refused', id });
-          return;
-        }
-        const current = mine === run.current;
-        if (current) rest.current();
-        const reason = String(error);
-        if (reason.startsWith(BLOCKED)) {
-          // Nothing was done, and nothing is: the task ends here.
-          dispatch({ type: 'refused', id });
-          if (current) onProblem?.(strings.chat.computerBlocked(reason.slice(BLOCKED.length)));
-          return;
-        }
-        if (reason === CAREFUL || reason.startsWith(`${CAREFUL}:`)) {
-          // Nothing was done: the step waits for the principal, as one of care.
-          if (current) {
-            proposed.current.set(id, proposal);
-            dispatch({ type: 'not_performed', id, ...reading(reason, proposal.action) });
-          } else {
-            dispatch({ type: 'refused', id });
-          }
-          return;
-        }
-        const nothingDone = NOTHING_DONE[reason];
-        if (nothingDone === undefined) {
-          // It may have been performed: it is never offered again.
-          dispatch({ type: 'performed', id, requestId: null });
-          return;
-        }
-        if (current) {
-          proposed.current.set(id, proposal);
-          dispatch({ type: 'not_performed', id });
-          onProblem?.(nothingDone);
-        } else {
-          dispatch({ type: 'refused', id });
-        }
-        return;
-      }
-      if (mine !== run.current) {
-        // Performed, and the task ended meanwhile: no next step is asked for.
-        dispatch({ type: 'performed_last', id });
-        return;
-      }
-      let requestId: string | null = null;
-      try {
-        requestId = await step(mine, proposal.task, [...proposal.done, proposal.text], jpeg);
-      } catch {
-        // The action was performed and the next step could not leave.
-      }
-      if (mine !== run.current) {
-        dispatch({ type: 'performed_last', id });
-        return;
-      }
-      if (requestId === null) rest.current();
-      dispatch({ type: 'performed', id, requestId });
-    },
-    [step, inTurn, setRunning],
-  );
-  performing.current = (id) => void perform(id, false);
+  const allow = useCallback((message: BotMessage) => void session.allow(message.id), [session]);
 
-  const allow = useCallback((message: BotMessage) => void perform(message.id, true), [perform]);
+  const refuse = useCallback((message: BotMessage) => session.refuse(message.id), [session]);
 
-  const refuse = useCallback((message: BotMessage) => {
-    if (!proposed.current.delete(message.id)) return;
-    dispatch({ type: 'refused', id: message.id });
-  }, []);
-
-  const stop = useCallback(() => {
-    abandon();
-    rest.current();
-  }, [abandon]);
+  const stop = useCallback(() => session.stop(), [session]);
 
   const retry = useCallback(
     (message: OwnMessage) => {

@@ -75,6 +75,7 @@ src/
     chat-client.ts    the local channel: socket, request ids, in-flight requests, reconnection
     conversation.ts   the conversation as a pure reducer
     attachments.ts    files waiting in the composer
+    computer-task-session.ts   a task on the computer, step by step, without React
     use-chat.ts       binds the client to React        use-draft.ts   the composer's draft
     ChatScreen.tsx    container                        MessageList.tsx, Composer.tsx   presentational
   status/
@@ -127,7 +128,7 @@ is framework-free, so it is tested against a fake `WebSocket` (`test/fake-web-so
 - **A task on the computer** (DK-10) starts when the daemon routes the words to one. Each step is a
   `computer` request with a fresh capture; the daemon answers one proposed action and whether
   it is routine (`confirm: false`). A routine step is performed at once and shown as done.
-  There is one task at a time (`run` in `use-chat.ts`): a new task or "Detener tarea" ends the
+  There is one task at a time (`run` in `computer-task-session.ts`): a new task or "Detener tarea" ends the
   one before, whose late answers are shown and never performed, and the shell is asked for one
   capture or action at a time. While a task goes by itself the app stays hidden
   (`keepHidden`), with "Detener tarea" in the menu bar; it comes back (`reveal`) when a step
