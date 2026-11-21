@@ -1,5 +1,6 @@
 // DK-8 AC1: the app's data folder, `~/Library/Application Support/ANOMANDER`: folder `700`,
-// files `600` (PRD §16). The daemon writes the database and the images; the shell, the settings.
+// files `600` (PRD §16); on Windows, `%APPDATA%\ANOMANDER`, the principal's and SYSTEM's alone.
+// The daemon writes the database and the images; the shell, the settings.
 use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -80,6 +81,8 @@ mod tests {
         assert!(dir.root().is_dir());
         #[cfg(unix)]
         assert_eq!(mode(dir.root())?, 0o700);
+        #[cfg(windows)]
+        assert!(file_mode::is_owner_only(dir.root())?);
         Ok(())
     }
 
@@ -104,6 +107,8 @@ mod tests {
         assert_eq!(fs::read(dir.settings_path())?, b"{}");
         #[cfg(unix)]
         assert_eq!(mode(&dir.settings_path())?, 0o600);
+        #[cfg(windows)]
+        assert!(file_mode::is_owner_only(&dir.settings_path())?);
         // No temporary file is left behind.
         assert_eq!(fs::read_dir(dir.root())?.count(), 1);
         Ok(())

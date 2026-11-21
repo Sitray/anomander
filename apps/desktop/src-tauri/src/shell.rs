@@ -552,6 +552,22 @@ mod tests {
     use serde_json::json;
     use std::collections::BTreeMap;
 
+    /// The fixture's environment, in this platform's shape, and the `PATH` the daemon gets from it.
+    #[cfg(unix)]
+    mod platform {
+        pub const PATH: &str = "/usr/bin:/bin";
+        pub const SEARCHED_PATH: &str = "/usr/bin:/bin:/opt/homebrew/bin:/usr/local/bin";
+        pub const HOME: &str = "/Users/p";
+        pub const NODE: &str = "/opt/node/bin/node";
+    }
+    #[cfg(windows)]
+    mod platform {
+        pub const PATH: &str = r"C:\Windows\system32;C:\Program Files\nodejs";
+        pub const SEARCHED_PATH: &str = PATH;
+        pub const HOME: &str = r"C:\Users\p";
+        pub const NODE: &str = r"C:\opt\node\node.exe";
+    }
+
     struct Fixture {
         _parent: tempfile::TempDir,
         core: Core,
@@ -563,9 +579,9 @@ mod tests {
         let root = parent.path().join("ANOMANDER");
         let data = DataDir::open(root.clone()).unwrap_or_else(|e| panic!("no data dir: {e}"));
         let environment: Environment = Box::new(|name| match name {
-            "PATH" => Some("/usr/bin:/bin".into()),
-            "HOME" => Some("/Users/p".into()),
-            "ANOMANDER_NODE" => Some("/opt/node/bin/node".into()),
+            "PATH" => Some(platform::PATH.into()),
+            "HOME" => Some(platform::HOME.into()),
+            "ANOMANDER_NODE" => Some(platform::NODE.into()),
             "OPENAI_API_KEY" => Some("from-the-shell".into()),
             _ => None,
         });
@@ -954,8 +970,6 @@ mod tests {
         );
     }
 
-    // The fixture's paths and PATH are unix ones.
-    #[cfg(unix)]
     #[test]
     fn an_import_runs_node_of_the_setup_on_the_daemons_script() {
         let f = fixture(MemoryStore::default(), Settings::default());
@@ -964,7 +978,7 @@ mod tests {
         assert!(
             answer
                 .as_ref()
-                .is_err_and(|error| error.contains("/opt/node/bin/node")),
+                .is_err_and(|error| error.contains(platform::NODE)),
             "{answer:?}"
         );
         assert!(!f.root.join("anomander.db").exists());
@@ -1028,8 +1042,6 @@ mod tests {
         assert!(!without_telegram(&ready(&f.core)));
     }
 
-    // The fixture's paths and PATH are unix ones.
-    #[cfg(unix)]
     #[test]
     fn a_launch_runs_this_repositorys_daemon_with_the_setup_in_its_environment_and_its_secrets_on_stdin(
     ) {
@@ -1038,7 +1050,7 @@ mod tests {
         let Prepared::Ready(spec) = f.core.prepare() else {
             panic!("a configured setup was not ready");
         };
-        assert_eq!(spec.program, std::path::PathBuf::from("/opt/node/bin/node"));
+        assert_eq!(spec.program, std::path::PathBuf::from(platform::NODE));
         assert_eq!(spec.args.len(), 1);
         assert!(std::path::Path::new(&spec.args[0]).ends_with("packages/daemon/src/main.ts"));
         assert_eq!(spec.cwd, f.root);
@@ -1071,11 +1083,8 @@ mod tests {
             get("ANOMANDER_DB_PATH"),
             Some(f.root.join("anomander.db").to_string_lossy().as_ref())
         );
-        assert_eq!(get("HOME"), Some("/Users/p"));
-        assert_eq!(
-            get("PATH"),
-            Some("/usr/bin:/bin:/opt/homebrew/bin:/usr/local/bin")
-        );
+        assert_eq!(get("HOME"), Some(platform::HOME));
+        assert_eq!(get("PATH"), Some(platform::SEARCHED_PATH));
         for secret in ["bot:secret", "sk-secret", "t".repeat(64).as_str()] {
             assert!(
                 spec.secrets.iter().any(|s| s == secret),

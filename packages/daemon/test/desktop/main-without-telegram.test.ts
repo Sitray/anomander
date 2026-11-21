@@ -10,6 +10,30 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 // only front door; without it too, the daemon refuses to start and says what it needs.
 const MAIN = resolve(import.meta.dirname, '../../src/main.ts');
 const TOKEN = 'main-without-telegram-token-0123456789abcdef';
+// Windows has no SIGTERM: there the daemon is started as the app starts it, with its secrets on
+// stdin, and stopped as the app stops it, by closing stdin.
+const AS_THE_APP = process.platform === 'win32';
+// What Windows itself needs in a child's environment, as the app passes it
+// (`apps/desktop/src-tauri/src/daemon/launch.rs`): without `SystemRoot` Node cannot open a socket.
+const SYSTEM = [
+  'SystemRoot',
+  'SystemDrive',
+  'windir',
+  'TEMP',
+  'TMP',
+  'USERPROFILE',
+  'APPDATA',
+  'LOCALAPPDATA',
+  'PATHEXT',
+  'ComSpec',
+];
+const systemEnv = (): Record<string, string> =>
+  Object.fromEntries(
+    SYSTEM.flatMap((name) => {
+      const value = process.env[name];
+      return value === undefined ? [] : [[name, value]];
+    }),
+  );
 
 let scratch: string;
 let daemon: ChildProcess | undefined;
@@ -28,11 +52,15 @@ const freePort = (): Promise<number> =>
     });
   });
 
-/** Starts `main.ts` with `env` and the data paths in the scratch folder; collects its output. */
-const run = (env: Record<string, string>) => {
+/**
+ * Starts `main.ts` with `env` and the data paths in the scratch folder; collects its output.
+ * `handed` goes as the app hands secrets over: one JSON line on stdin, which stays open.
+ */
+const run = (env: Record<string, string>, handed?: Record<string, string>) => {
   const child = spawn(process.execPath, [MAIN], {
     cwd: scratch,
     env: {
+      ...systemEnv(),
       PATH: process.env.PATH ?? '',
       HOME: scratch,
       ANOMANDER_DB_PATH: join(scratch, 'anomander.db'),
@@ -40,9 +68,10 @@ const run = (env: Record<string, string>) => {
       ANOMANDER_AUTH_PATH: join(scratch, 'auth.json'),
       ...env,
     },
-    stdio: ['ignore', 'pipe', 'pipe'],
+    stdio: [handed ? 'pipe' : 'ignore', 'pipe', 'pipe'],
   });
   daemon = child;
+  if (handed) child.stdin?.write(`${JSON.stringify(handed)}\n`);
   let output = '';
   child.stdout?.on('data', (chunk) => {
     output += chunk;
@@ -75,33 +104,36 @@ afterEach(() => {
 });
 
 describe('main.ts without Telegram', () => {
-  // Windows has no SIGTERM, so no clean exit to check: there the shell closes the daemon's stdin.
-  it.skipIf(process.platform === 'win32')(
-    'starts with the local channel alone and answers the app',
-    async () => {
-      const port = await freePort();
-      const started = run({ ANOMANDER_LOCAL_TOKEN: TOKEN, ANOMANDER_LOCAL_PORT: String(port) });
-      await started.printed(`anomander local channel listening on 127.0.0.1:${port}`);
+  it('starts with the local channel alone and answers the app', async () => {
+    const port = await freePort();
+    const started = AS_THE_APP
+      ? run(
+          {
+            ANOMANDER_LOCAL_PORT: String(port),
+            ANOMANDER_SECRETS_ON_STDIN: '1',
+            ANOMANDER_STOP_WITH_PARENT: '1',
+          },
+          { ANOMANDER_LOCAL_TOKEN: TOKEN },
+        )
+      : run({ ANOMANDER_LOCAL_TOKEN: TOKEN, ANOMANDER_LOCAL_PORT: String(port) });
+    await started.printed(`anomander local channel listening on 127.0.0.1:${port}`);
 
-      // No model is set: the app's chat gets the setup guide (R-28).
-      const socket = new WebSocket(`ws://127.0.0.1:${port}`, [LOCAL_CHANNEL_PROTOCOL, TOKEN]);
-      const answer = new Promise<{ text: string }>((resolveAnswer) =>
-        socket.addEventListener('message', (event) =>
-          resolveAnswer(JSON.parse(String(event.data))),
-        ),
-      );
-      socket.addEventListener('open', () =>
-        socket.send(JSON.stringify({ type: 'text', id: 'm1', text: 'hola' })),
-      );
-      expect((await answer).text).toContain('ANOMANDER_MODEL');
-      socket.close();
+    // No model is set: the app's chat gets the setup guide (R-28).
+    const socket = new WebSocket(`ws://127.0.0.1:${port}`, [LOCAL_CHANNEL_PROTOCOL, TOKEN]);
+    const answer = new Promise<{ text: string }>((resolveAnswer) =>
+      socket.addEventListener('message', (event) => resolveAnswer(JSON.parse(String(event.data)))),
+    );
+    socket.addEventListener('open', () =>
+      socket.send(JSON.stringify({ type: 'text', id: 'm1', text: 'hola' })),
+    );
+    expect((await answer).text).toContain('ANOMANDER_MODEL');
+    socket.close();
 
-      daemon?.kill('SIGTERM');
-      expect(await started.exited).toBe(0);
-      expect(started.output()).not.toContain('Telegram');
-    },
-    20_000,
-  );
+    if (AS_THE_APP) daemon?.stdin?.end();
+    else daemon?.kill('SIGTERM');
+    expect(await started.exited).toBe(0);
+    expect(started.output()).not.toContain('Telegram');
+  }, 20_000);
 
   it('refuses to start without any front door, naming both', async () => {
     const started = run({});

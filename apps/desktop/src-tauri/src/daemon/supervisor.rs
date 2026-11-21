@@ -14,6 +14,7 @@ use std::time::{Duration, Instant};
 
 use super::output::{listening_port, redact, scrub};
 use super::policy::{after_exit, AfterExit, ExitHistory};
+use super::process::WithoutConsole;
 use crate::snapshot::{DaemonState, DaemonStatus, LocalChannel, StopReason};
 
 /// How often the exit of the child is checked.
@@ -149,6 +150,10 @@ struct Running {
     stdout_done: Flag,
     /// The last non-empty stderr line, already redacted.
     last_error: Mutex<Option<String>>,
+    /// Windows: the child and what it starts, ended together. `None` if the job could not be
+    /// made: then a kill reaches the child alone.
+    #[cfg(windows)]
+    job: Option<super::process::Job>,
 }
 
 /// A one-way flag threads can wait on.
@@ -429,7 +434,8 @@ impl Inner {
             .current_dir(&spec.cwd)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
-            .stderr(Stdio::piped());
+            .stderr(Stdio::piped())
+            .without_console();
         // Its own process group: a Ctrl-C in the terminal of `tauri dev` reaches the app, not
         // the daemon, and a stop reaches whatever the daemon started.
         #[cfg(unix)]
@@ -437,6 +443,16 @@ impl Inner {
         let mut child = command
             .spawn()
             .map_err(|error| format!("could not start {}: {error}", spec.program.display()))?;
+        // Windows has no process group to signal: a job holds the daemon and what it starts.
+        #[cfg(windows)]
+        let job = super::process::Job::around(&child)
+            .inspect_err(|error| {
+                eprintln!(
+                    "could not hold anomander daemon {} in a job: {error}",
+                    child.id()
+                )
+            })
+            .ok();
         let stdin = child.stdin.take();
         // DK-5 AC2: written on a copy of the pipe, from its own thread, so a daemon slow to read
         // blocks neither the locks held here nor a stop, which closes `stdin`.
@@ -460,6 +476,8 @@ impl Inner {
             stderr_done: Flag::default(),
             stdout_done: Flag::default(),
             last_error: Mutex::new(None),
+            #[cfg(windows)]
+            job,
         });
         let secrets = Arc::new(spec.secrets);
         let handover = match handover {
@@ -539,6 +557,7 @@ impl Inner {
                 let (inner, running) = (Arc::clone(inner), Arc::clone(&running));
                 watcher("anomander-daemon-exit", move || {
                     let code = running.wait_for_exit();
+                    running.end_leftovers();
                     running.exited.raise();
                     // The last error line may still be in the pipe.
                     running.stderr_done.wait(STDERR_GRACE);
@@ -644,6 +663,15 @@ impl Inner {
 }
 
 impl Running {
+    /// Windows: what the daemon started and left running (an MCP server it did not close) ends
+    /// with it, as the SIGTERM to its group does elsewhere. Nothing elsewhere.
+    fn end_leftovers(&self) {
+        #[cfg(windows)]
+        if let Some(job) = &self.job {
+            job.terminate();
+        }
+    }
+
     /// Polls instead of blocking in `wait`, so a stop can signal the child under the same lock:
     /// a reaped process ID could otherwise be reused by another process before the signal.
     fn wait_for_exit(&self) -> Option<i32> {
@@ -702,12 +730,18 @@ fn kill_group(running: &Running, signal: Signal) {
 }
 
 /// Windows has no SIGTERM: the daemon stops when its stdin closes, which `end` does first, so
-/// `Term` only gives it the time to. `Kill` ends the child alone; what it started is not reached
-/// yet.
+/// `Term` only gives it the time to. `Kill` ends its job, the child and what it started.
 #[cfg(windows)]
 fn kill_group(running: &Running, signal: Signal) {
+    if !matches!(signal, Signal::Kill) {
+        return;
+    }
+    if let Some(job) = &running.job {
+        job.terminate();
+        return;
+    }
     let mut child = lock(&running.child);
-    if matches!(signal, Signal::Kill) && matches!(child.try_wait(), Ok(None)) {
+    if matches!(child.try_wait(), Ok(None)) {
         let _ = child.kill();
     }
 }

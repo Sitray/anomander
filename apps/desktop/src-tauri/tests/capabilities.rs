@@ -1,7 +1,5 @@
-// On Windows a test binary has no app manifest, so the Tauri app cannot load (comctl32 v6,
-// STATUS_ENTRYPOINT_NOT_FOUND). The access check is the same code on every platform; it runs here on
-// macOS.
-#![cfg(not(windows))]
+// On Windows the test binary carries `windows-test.manifest` (`build.rs`): without it the Tauri app
+// cannot load (comctl32 v6, STATUS_ENTRYPOINT_NOT_FOUND).
 // Security L1, end to end through Tauri's own check: with the app's commands declared in
 // `build.rs`, a window may call only what its capability grants (`capabilities/*.json`). The app is
 // the mock runtime with this crate's real configuration and capabilities; the commands are stand-ins
@@ -50,13 +48,20 @@ fn window(label: &str) -> WebviewWindow<tauri::test::MockRuntime> {
     }
 }
 
+/// Where the app's own pages are served from: Windows' webview cannot serve a custom scheme.
+const APP_URL: &str = if cfg!(windows) {
+    "http://tauri.localhost"
+} else {
+    "tauri://localhost"
+};
+
 /// Whether `window` may run `command`: Tauri answers "ran" or rejects it before the body runs.
 fn runs(window: &WebviewWindow<tauri::test::MockRuntime>, command: &str) -> bool {
     let request = InvokeRequest {
         cmd: command.into(),
         callback: CallbackFn(0),
         error: CallbackFn(1),
-        url: "tauri://localhost".parse().expect("a URL"),
+        url: APP_URL.parse().expect("a URL"),
         body: InvokeBody::default(),
         headers: Default::default(),
         invoke_key: INVOKE_KEY.to_string(),
