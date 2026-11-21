@@ -1,6 +1,6 @@
 {
   "name": "@anomander/core",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "private": true,
   "type": "module",
   "description": "Ontology, truth and authority. Imports no provider (R-15 AC2).",
