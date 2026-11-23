@@ -13,12 +13,44 @@ const wordsOf = (text: string): string[] =>
     .toLocaleLowerCase('es-ES')
     .match(/[\p{L}\p{N}]+/gu) ?? [];
 
-/** Words that turn a request around: a task that drops one asks for the opposite. */
-const NEGATIONS = ['no', 'nunca', 'jamas'];
+/**
+ * Words that turn a request around: a task that drops one asks for the opposite. In Spanish and
+ * in English, whatever language the daemon speaks: `t` is what is left of "don't" or "can't",
+ * and the contractions are also listed as written without their apostrophe.
+ */
+const NEGATIONS = [
+  'no',
+  'nunca',
+  'jamas',
+  'not',
+  'never',
+  't',
+  'cannot',
+  'dont',
+  'doesnt',
+  'didnt',
+  'cant',
+  'wont',
+  'isnt',
+  'arent',
+  'shouldnt',
+  'wouldnt',
+  'couldnt',
+  'hasnt',
+  'havent',
+  'hadnt',
+  'wasnt',
+  'werent',
+  'mustnt',
+  'neednt',
+  'nor',
+  'neither',
+  'without',
+];
 
 /**
  * Whether every word of `task` is a word of `message`, ignoring case, accents, punctuation and
- * order, and the task keeps every "no", "nunca" or "jamás" the message has. A task with no words
+ * order, and the task keeps every negation (`NEGATIONS`) the message has. A task with no words
  * is not. The processor may drop words and reorder them, but never add one nor drop a negation:
  * whatever the task says, the principal wrote. Words are compared as written, never stemmed.
  */
@@ -35,9 +67,9 @@ export const taskInMessage = (task: string, message: string): boolean => {
 
 /** What the principal reads instead of a route that was not started; it asks again in words. */
 const NOT_STARTED: Record<RouteKind, () => string> = {
-  screen: strings.computerFailed,
-  computer: strings.computerFailed,
-  connect: strings.connectionFailed,
+  screen: () => strings.computerFailed(),
+  computer: () => strings.computerFailed(),
+  connect: () => strings.connectionFailed(),
 };
 
 interface RouteLogger {

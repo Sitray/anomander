@@ -12,7 +12,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { type Anomander, startAnomander } from '../../src/app.ts';
 import { loadConfig } from '../../src/config.ts';
 import { digestCapability } from '../../src/digest/capability.ts';
-import { TEXT_INTERPRETER_PROMPT } from '../../src/processor/text-interpreter.ts';
+import { textInterpreterPrompt } from '../../src/processor/text-interpreter.ts';
 import { weeklySummaryCapability } from '../../src/summary/capability.ts';
 
 // End to end (PRD §15): turning the weekly summary on and off (R-10 AC5-AC7), the third
@@ -53,7 +53,7 @@ const start = async (cron = '0 20 * * 0') => {
   });
   const complete = async (_model: string, context: Context): Promise<AssistantMessage> => {
     const [turn] = context.messages;
-    if (context.systemPrompt === TEXT_INTERPRETER_PROMPT && typeof turn?.content === 'string') {
+    if (context.systemPrompt === textInterpreterPrompt() && typeof turn?.content === 'string') {
       const { message } = JSON.parse(turn.content);
       const interpretation = interpretations.get(message);
       if (interpretation === undefined) throw new Error(`no interpretation for ${message}`);
@@ -210,9 +210,9 @@ describe('turning the weekly summary on and off over Telegram (R-10)', () => {
   });
 
   it('R-24 AC1, AC8: the prompt holds the digest section, then the weekly summary section', () => {
-    const digest = TEXT_INTERPRETER_PROMPT.indexOf(digestCapability.prompt);
+    const digest = textInterpreterPrompt().indexOf(digestCapability.prompt);
     expect(digest).toBeGreaterThan(0);
-    expect(TEXT_INTERPRETER_PROMPT.indexOf(weeklySummaryCapability.prompt)).toBeGreaterThan(digest);
+    expect(textInterpreterPrompt().indexOf(weeklySummaryCapability.prompt)).toBeGreaterThan(digest);
     expect(weeklySummaryCapability.prompt).toContain(
       'a summary with no such word is the morning summary',
     );

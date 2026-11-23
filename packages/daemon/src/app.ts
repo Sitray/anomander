@@ -8,6 +8,7 @@ import {
   ROUTE_KINDS,
   type RouteKind,
   type ScreenQuestion,
+  setLocale,
   strings,
 } from '@anomander/protocol';
 import { createTelegramLogin, type TelegramLoginDeps } from './auth/telegram-login.ts';
@@ -263,6 +264,8 @@ export interface SetupGuideDeps {
  * processor, store, scheduled job or read API runs.
  */
 export const startSetupGuide = (config: Config, deps: SetupGuideDeps): Anomander => {
+  // Before any text is built: the guide below is written once, in this language.
+  setLocale(config.locale);
   const { gaps, logger = console } = deps;
   // DK-2 AC1: no store runs here, but the daemon is still the only one of its data folder.
   const lock = acquireDaemonLock(config.dbPath);
@@ -333,6 +336,8 @@ export const startSetupGuide = (config: Config, deps: SetupGuideDeps): Anomander
 };
 
 export const startAnomander = <M>(config: Config, deps: AnomanderDeps<M>): Anomander => {
+  // Before any text is built: one daemon speaks one language for its whole life.
+  setLocale(config.locale);
   const { complete, model, logger = console, now = () => new Date() } = deps;
   const textModel = config.model;
   const visionModel = config.visionModel;

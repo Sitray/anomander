@@ -126,12 +126,14 @@ pub fn open_in_browser(address: &str) -> Result<(), String> {
 }
 
 /// Runs the script for `url` with `node`, has `open` open the address it prints, and reads the
-/// tokens and the word it printed. A run longer than `deadline` is ended.
+/// tokens and the word it printed. `locale` (`ANOMANDER_LOCALE`) is the language of the page the
+/// browser shows at the end. A run longer than `deadline` is ended.
 pub fn run(
     node: &Path,
     script: &Path,
     url: &str,
     path: &str,
+    locale: Option<&str>,
     open: &dyn Fn(&str) -> Result<(), String>,
     deadline: Duration,
 ) -> Result<Ran, String> {
@@ -142,6 +144,7 @@ pub fn run(
         .env_clear()
         .envs(system_env(&|name| std::env::var(name).ok()))
         .env("PATH", path)
+        .envs(locale.map(|locale| ("ANOMANDER_LOCALE", locale)))
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -359,9 +362,48 @@ mod tests {
             Path::new("/x/mcp-oauth.ts"),
             "https://notes.example/mcp",
             "/usr/bin:/bin",
+            None,
             &open,
             Duration::from_secs(5),
         )
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn the_page_at_the_end_speaks_the_language_of_the_app_and_nothing_else_is_handed() {
+        let dir = tempfile::tempdir().unwrap_or_else(|e| panic!("no temp dir: {e}"));
+        let node = fake_node(
+            dir.path(),
+            r#"echo "anomander oauth-open https://auth.example/?lang=$ANOMANDER_LOCALE&key=$OPENAI_API_KEY"
+echo denied"#,
+        );
+        let opened_with = |locale: Option<&str>| -> Vec<String> {
+            let opened = Mutex::new(Vec::new());
+            let open = |address: &str| {
+                if let Ok(mut opened) = opened.lock() {
+                    opened.push(address.to_owned());
+                }
+                Ok(())
+            };
+            let ran = run(
+                &node,
+                Path::new("/x/mcp-oauth.ts"),
+                "https://notes.example/mcp",
+                "/usr/bin:/bin",
+                locale,
+                &open,
+                Duration::from_secs(5),
+            );
+            assert!(ran.is_ok(), "{locale:?}: {:?}", ran.err());
+            opened.into_inner().unwrap_or_default()
+        };
+        for locale in ["es", "en"] {
+            assert_eq!(
+                opened_with(Some(locale)),
+                [format!("https://auth.example/?lang={locale}&key=")]
+            );
+        }
+        assert_eq!(opened_with(None), ["https://auth.example/?lang=&key="]);
     }
 
     #[cfg(unix)]
@@ -453,6 +495,7 @@ echo connected"#,
             Path::new("/x/mcp-oauth.ts"),
             "https://notes.example/mcp",
             "/usr/bin:/bin",
+            None,
             &|_| Ok(()),
             Duration::from_millis(300),
         );
@@ -471,6 +514,7 @@ echo connected"#,
             Path::new("/x/mcp-oauth.ts"),
             "https://notes.example/mcp",
             "/usr/bin:/bin",
+            None,
             &|_| Ok(()),
             Duration::from_millis(300),
         );
@@ -567,6 +611,7 @@ echo connected"#,
             &script,
             "http://127.0.0.1:9/mcp",
             &path,
+            None,
             &|_| Err("nothing may be opened".into()),
             DEADLINE,
         );

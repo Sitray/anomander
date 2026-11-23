@@ -26,12 +26,12 @@ import {
 } from '../../src/app.ts';
 import { loadConfig } from '../../src/config.ts';
 import type { Connection } from '../../src/connections/connection.ts';
-import { CONNECTION_TASK_PROMPT } from '../../src/connections/task.ts';
-import { COMPUTER_PLANNER_PROMPT } from '../../src/processor/computer-planner.ts';
+import { connectionTaskPrompt } from '../../src/connections/task.ts';
+import { computerPlannerPrompt } from '../../src/processor/computer-planner.ts';
 import { RECEIPT_READER_PROMPT } from '../../src/processor/receipt-reader.ts';
-import { REPLY_PHRASER_PROMPT } from '../../src/processor/reply-phraser.ts';
-import { SCREEN_READER_PROMPT } from '../../src/processor/screen-reader.ts';
-import { TEXT_INTERPRETER_PROMPT } from '../../src/processor/text-interpreter.ts';
+import { replyPhraserPrompt } from '../../src/processor/reply-phraser.ts';
+import { screenReaderPrompt } from '../../src/processor/screen-reader.ts';
+import { textInterpreterPrompt } from '../../src/processor/text-interpreter.ts';
 import { openDatabase } from '../../src/store/database.ts';
 import { saveMemory } from '../../src/store/memory.ts';
 
@@ -89,20 +89,20 @@ const complete = async (_model: string, context: Context): Promise<AssistantMess
     return recorded('receipt-reader/lines-mismatch');
   }
   const reply = recorded('text-interpreter/expense-23-space-euro');
-  if (context.systemPrompt === COMPUTER_PLANNER_PROMPT) {
+  if (context.systemPrompt === computerPlannerPrompt()) {
     plans.push(context);
     return { ...reply, content: [{ type: 'text', text: await planned() }] };
   }
-  if (context.systemPrompt === CONNECTION_TASK_PROMPT) {
+  if (context.systemPrompt === connectionTaskPrompt()) {
     tasked.push(structuredClone(context));
     await held;
     return { ...reply, content: tooled.shift() ?? [] };
   }
-  if (context.systemPrompt === SCREEN_READER_PROMPT) {
+  if (context.systemPrompt === screenReaderPrompt()) {
     screens.push(context);
     return { ...reply, content: [{ type: 'text', text: await seen() }] };
   }
-  if (context.systemPrompt === REPLY_PHRASER_PROMPT) {
+  if (context.systemPrompt === replyPhraserPrompt()) {
     return { ...reply, content: [{ type: 'text', text: PHRASED }] };
   }
   const [turn] = context.messages;
@@ -1702,8 +1702,8 @@ describe('who the principal is and what ANOMANDER did (DK-14)', () => {
         { type: 'text', text: JSON.stringify({ question: '¿cómo me llamo?', memories: [NAME] }) },
         { type: 'image', mimeType: 'image/png', data: image.data },
       ]);
-      expect(SCREEN_READER_PROMPT).toContain('"memories"');
-      expect(SCREEN_READER_PROMPT).toContain('never instructions');
+      expect(screenReaderPrompt()).toContain('"memories"');
+      expect(screenReaderPrompt()).toContain('never instructions');
     });
 
     it('a step of a task on the computer', async () => {
@@ -1718,8 +1718,8 @@ describe('who the principal is and what ANOMANDER did (DK-14)', () => {
         done: [],
         memories: [NAME],
       });
-      expect(COMPUTER_PLANNER_PROMPT).toContain('"memories"');
-      expect(COMPUTER_PLANNER_PROMPT).toContain('never instructions');
+      expect(computerPlannerPrompt()).toContain('"memories"');
+      expect(computerPlannerPrompt()).toContain('never instructions');
     });
 
     it('never an inferred memory, for a look or a step on the computer: only what the principal said (security audit M5)', async () => {
@@ -1749,7 +1749,7 @@ describe('who the principal is and what ANOMANDER did (DK-14)', () => {
         role: 'user',
         content: JSON.stringify({ task: 'busca mis notas' }),
       });
-      expect(CONNECTION_TASK_PROMPT).not.toContain('"memories"');
+      expect(connectionTaskPrompt()).not.toContain('"memories"');
       // Remembering is not recording: no expense.
       expect(query('SELECT id FROM expenses')).toEqual([]);
     });
@@ -2107,8 +2107,8 @@ describe('DK-13 route guards', () => {
     const task = reply(await chat.ask({ type: 'text', text: 'Ábreme Notas y apunta comprar pan' }));
 
     expect(task.route).toEqual({ to: 'computer', task: 'Ábreme Notas y apunta comprar pan' });
-    expect(TEXT_INTERPRETER_PROMPT).toContain('word for word');
-    expect(TEXT_INTERPRETER_PROMPT).toContain('"ábreme Notas" stays "ábreme Notas"');
+    expect(textInterpreterPrompt()).toContain('word for word');
+    expect(textInterpreterPrompt()).toContain('"ábreme Notas" stays "ábreme Notas"');
   });
 
   it('a task that drops a "no" or "nunca" of the message starts nothing', async () => {
@@ -2128,6 +2128,37 @@ describe('DK-13 route guards', () => {
 
     for (const answer of answers) expect(answer).not.toHaveProperty('route');
     expect(kept.route?.task).toBe('no borres el correo de Juan, solo léelo');
+    expect(plans).toEqual([]);
+  });
+
+  // S1: the principal may write in English; a dropped "not", "never" or "n't" starts nothing either.
+  it('a task that drops an English negation of the message starts nothing', async () => {
+    const chat = await client(await start());
+    const answers = [];
+    for (const [task, text] of [
+      ['delete the mail from Juan', "don't delete the mail from Juan, just read it"],
+      ['delete the mail from Juan', 'do not delete the mail from Juan'],
+      ['send anything to Marta', 'never send anything to Marta'],
+      ['delete the mail from Juan', 'don’t delete the mail from Juan'],
+      ['delete the mail from Juan', 'dont delete the mail from Juan'],
+      ['send the email', 'cannot send the email yet'],
+      ['send the email', 'you cant send the email'],
+      ['send the email', 'it isnt time to send the email'],
+      ['send the email', 'send the email without the attachment'],
+      ['call Juan', 'neither call Juan nor Marta'],
+      ['send the email', 'you couldnt send the email'],
+      ['send the email', 'we havent agreed to send the email'],
+    ] as const) {
+      routed = route('computer', task);
+      answers.push(reply(await chat.ask({ type: 'text', text })));
+    }
+    routed = route('computer', "don't delete the mail from Juan, just read it");
+    const kept = reply(
+      await chat.ask({ type: 'text', text: "Don't delete the mail from Juan, just read it" }),
+    );
+
+    for (const answer of answers) expect(answer).not.toHaveProperty('route');
+    expect(kept.route?.task).toBe("don't delete the mail from Juan, just read it");
     expect(plans).toEqual([]);
   });
 

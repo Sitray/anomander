@@ -1,4 +1,4 @@
-import { buttons, formatAmount, type Reply, strings, UNCATEGORIZED } from '@anomander/protocol';
+import { buttons, formatAmount, type Reply, strings, uncategorized } from '@anomander/protocol';
 import type Database from 'better-sqlite3';
 import { type PatternOffers, thenOfferPattern } from '../patterns/pattern-offers.ts';
 import type { Logger } from '../processor/ports.ts';
@@ -79,7 +79,7 @@ export const createRegisterExpenseDecision =
 
     // R-9 AC1: the reply comes from the stored row, worded by the phraser (R-21).
     const stored = readExpense(db, expenseId);
-    const category = stored.category ?? UNCATEGORIZED;
+    const category = stored.category ?? uncategorized();
     const text =
       stored.merchant === null
         ? await phraser({

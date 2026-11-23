@@ -11,7 +11,7 @@ import Database from 'better-sqlite3';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { type Anomander, startAnomander } from '../../src/app.ts';
 import { loadConfig } from '../../src/config.ts';
-import { REPLY_PHRASER_PROMPT } from '../../src/processor/reply-phraser.ts';
+import { replyPhraserPrompt } from '../../src/processor/reply-phraser.ts';
 import { listMemories } from '../../src/store/memory.ts';
 
 // End to end (PRD §15): a message through the fake Telegram API, the real bot, the daemon and a
@@ -40,7 +40,7 @@ let unavailable: number;
 
 const complete = async (_model: string, context: Context) => {
   if (!processorAnswers) return new Promise<never>(() => {});
-  const phrasing = context.systemPrompt === REPLY_PHRASER_PROMPT;
+  const phrasing = context.systemPrompt === replyPhraserPrompt();
   if (phrasing) phrasings += 1;
   if (!phrasing && unavailable > 0) {
     unavailable -= 1;

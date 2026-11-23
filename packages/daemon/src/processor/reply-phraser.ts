@@ -1,4 +1,5 @@
 import type { AssistantMessage, Context } from '@earendil-works/pi-ai';
+import { replyLanguage } from './language.ts';
 import type { Complete, Logger, PhraseRequest, ReplyPhraser } from './ports.ts';
 
 export type {
@@ -10,10 +11,12 @@ export type {
 // words S-36, but the facts come from code. The phrased text is sent only if it keeps every fact
 // and adds none; otherwise the §12 string is sent unchanged.
 
-export const REPLY_PHRASER_PROMPT = `You word the replies of a personal assistant that talks to its user in Spanish (es-ES). You can only answer; you have no tools.
+/** The phraser's prompt, in the language the daemon chose at startup. */
+export const replyPhraserPrompt =
+  (): string => `You word the replies of a personal assistant that talks to its user in ${replyLanguage()}. You can only answer; you have no tools.
 
 The user turn is a JSON object with "reference" (the reply to send), "facts" and "message" (what the user wrote).
-Rewrite the reference as one short, warm reply in Spanish (es-ES) that says the same thing.
+Rewrite the reference as one short, warm reply in ${replyLanguage()} that says the same thing.
 Copy every item of "facts" exactly as written. Do not add any other number, amount or date, and do not change what the reference says happened.
 Reply with the text only, at most 280 characters.`;
 
@@ -85,7 +88,7 @@ export const createPiAiReplyPhraser =
   async (request) => {
     // R-21 AC4: one system prompt and one user turn; the context never carries `tools`.
     const context: Context = {
-      systemPrompt: REPLY_PHRASER_PROMPT,
+      systemPrompt: replyPhraserPrompt(),
       messages: [
         {
           role: 'user',

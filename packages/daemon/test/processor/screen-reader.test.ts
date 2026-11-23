@@ -1,7 +1,7 @@
 import type { AssistantMessage, Context } from '@earendil-works/pi-ai';
 import { describe, expect, it, vi } from 'vitest';
 import { AiBudgetExhaustedError } from '../../src/budget/ai-budget.ts';
-import { createPiAiScreenReader, SCREEN_READER_PROMPT } from '../../src/processor/screen-reader.ts';
+import { createPiAiScreenReader, screenReaderPrompt } from '../../src/processor/screen-reader.ts';
 
 // A look at the screen, on its own with a fake `complete`. The question through the local
 // channel is in `test/desktop/local-channel.test.ts`; this pins the function's own contract.
@@ -59,7 +59,7 @@ describe('the screen reader', () => {
 
     expect(contexts).toHaveLength(1);
     const [context] = contexts;
-    expect(context?.systemPrompt).toBe(SCREEN_READER_PROMPT);
+    expect(context?.systemPrompt).toBe(screenReaderPrompt());
     expect(context).not.toHaveProperty('tools');
     expect(context?.messages).toHaveLength(1);
     expect(context?.messages[0]?.content).toEqual([

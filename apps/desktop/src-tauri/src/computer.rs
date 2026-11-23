@@ -8,6 +8,8 @@
 // performed, whatever the daemon or the window said about it.
 use serde::Deserialize;
 
+use crate::locale;
+
 #[cfg(target_os = "macos")]
 mod ax;
 pub mod blocklist;
@@ -293,7 +295,7 @@ fn guard(step: &Step, permitted: bool, screen: &dyn Screen, own_pid: i32) -> Res
         .as_ref()
         .and_then(|app| blocklist::blocked(app, own_pid))
     {
-        return Err(format!("{BLOCKED}:{label}"));
+        return Err(format!("{BLOCKED}:{}", label.in_(locale::current())));
     }
     if permitted {
         return Ok(());

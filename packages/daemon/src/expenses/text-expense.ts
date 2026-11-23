@@ -16,7 +16,7 @@ import {
   type RouteKind,
   strings,
   type TextHandler,
-  UNCATEGORIZED,
+  uncategorized,
 } from '@anomander/protocol';
 import type Database from 'better-sqlite3';
 import {
@@ -74,11 +74,11 @@ export interface TextExpenseDeps {
   connected?: () => Promise<readonly ConnectedTool[]>;
 }
 
-/** DK-13 AC2: what a routed request announces, in code. */
+/** DK-13 AC2: what a routed request announces, in code, in the language chosen at startup. */
 const ROUTED: Record<RouteKind, () => string> = {
-  screen: strings.routedScreen,
-  computer: strings.routedComputer,
-  connect: strings.routedConnect,
+  screen: () => strings.routedScreen(),
+  computer: () => strings.routedComputer(),
+  connect: () => strings.routedConnect(),
 };
 
 const inferenceOf = (inferences: readonly ProcessorInference[], predicate: string) =>
@@ -407,12 +407,12 @@ export const createTextExpenseHandler = (deps: TextExpenseDeps): TextHandler => 
       stored.merchant === null
         ? await phrase(strings.registeredNoMerchant(stored.total_cents, stored.category), [
             formatAmount(stored.total_cents),
-            stored.category ?? UNCATEGORIZED,
+            stored.category ?? uncategorized(),
           ])
         : await phrase(strings.registered(stored.total_cents, stored.merchant, stored.category), [
             formatAmount(stored.total_cents),
             stored.merchant,
-            stored.category ?? UNCATEGORIZED,
+            stored.category ?? uncategorized(),
           ]);
 
     // R-9 AC2: the delivery of the expense reply verifies the action, without the S-15 after it.

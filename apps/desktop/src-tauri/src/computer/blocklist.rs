@@ -1,6 +1,7 @@
 // T1b: the apps no action may target, whoever allowed it: ANOMANDER itself, System Settings, the
 // login and authorization prompts, Keychain Access and the known password managers. After
 // gentle-dot's `computer/blocklist.rs` (MIT), macOS only.
+use crate::locale::Locale;
 
 /// The app an action targets: the one with the focus for keys and text, the one under the
 /// point for a click or a scroll.
@@ -12,9 +13,28 @@ pub struct AppIdentity {
     pub name: String,
 }
 
+/// How the principal knows a blocked app: the name macOS shows it by, in each language. Only
+/// shown: what blocks an app is its bundle id or its own name (`Entry::names`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Label {
+    es: &'static str,
+    en: &'static str,
+}
+
+impl Label {
+    /// A name that is the same in every language.
+    const fn same(name: &'static str) -> Label {
+        Label { es: name, en: name }
+    }
+
+    pub fn in_(self, locale: Locale) -> &'static str {
+        locale.pick(self.es, self.en)
+    }
+}
+
 struct Entry {
     /// How the principal knows it, in the chat's language.
-    label: &'static str,
+    label: Label,
     /// A bundle id also blocks its helpers (`com.apple.Passwords` blocks
     /// `com.apple.Passwords.MenuBarExtra`).
     bundles: &'static [&'static str],
@@ -26,93 +46,102 @@ const OWN_BUNDLE: &str = "dev.anomander.desktop";
 
 const BLOCKED: &[Entry] = &[
     Entry {
-        label: "ANOMANDER",
+        label: Label::same("ANOMANDER"),
         bundles: &[OWN_BUNDLE],
         names: &["ANOMANDER", "anomander-desktop"],
     },
     Entry {
-        label: "Ajustes del Sistema",
+        label: Label {
+            es: "Ajustes del Sistema",
+            en: "System Settings",
+        },
         bundles: &["com.apple.systempreferences", "com.apple.Settings"],
         names: &["System Settings", "System Preferences"],
     },
     Entry {
-        label: "SecurityAgent",
+        label: Label::same("SecurityAgent"),
         bundles: &["com.apple.SecurityAgent"],
         names: &["SecurityAgent"],
     },
     Entry {
-        label: "loginwindow",
+        label: Label::same("loginwindow"),
         bundles: &["com.apple.loginwindow"],
         names: &["loginwindow"],
     },
     // Permission (TCC) requests, Touch ID and password sheets, "open this app?" prompts.
     Entry {
-        label: "UserNotificationCenter",
+        label: Label::same("UserNotificationCenter"),
         bundles: &["com.apple.UserNotificationCenter"],
         names: &["UserNotificationCenter"],
     },
     Entry {
-        label: "LocalAuthentication",
+        label: Label::same("LocalAuthentication"),
         bundles: &["com.apple.LocalAuthentication.UIAgent"],
         names: &["LocalAuthenticationUIAgent"],
     },
     Entry {
-        label: "CoreServicesUIAgent",
+        label: Label::same("CoreServicesUIAgent"),
         bundles: &["com.apple.CoreServicesUIAgent"],
         names: &["CoreServicesUIAgent"],
     },
     Entry {
-        label: "Acceso a Llaveros",
+        label: Label {
+            es: "Acceso a Llaveros",
+            en: "Keychain Access",
+        },
         bundles: &["com.apple.keychainaccess"],
         names: &["Keychain Access"],
     },
     Entry {
-        label: "1Password",
+        label: Label::same("1Password"),
         bundles: &["com.1password", "com.agilebits"],
         names: &["1Password", "1Password 7", "1Password 8"],
     },
     Entry {
-        label: "Bitwarden",
+        label: Label::same("Bitwarden"),
         bundles: &["com.bitwarden"],
         names: &["Bitwarden"],
     },
     Entry {
-        label: "Dashlane",
+        label: Label::same("Dashlane"),
         bundles: &["com.dashlane"],
         names: &["Dashlane"],
     },
     Entry {
-        label: "LastPass",
+        label: Label::same("LastPass"),
         bundles: &["com.lastpass"],
         names: &["LastPass"],
     },
     Entry {
-        label: "Contraseñas",
+        label: Label {
+            es: "Contraseñas",
+            en: "Passwords",
+        },
         bundles: &["com.apple.Passwords"],
         names: &["Passwords"],
     },
     Entry {
-        label: "KeePassXC",
+        label: Label::same("KeePassXC"),
         bundles: &["org.keepassxc"],
         names: &["KeePassXC"],
     },
     Entry {
-        label: "Enpass",
+        label: Label::same("Enpass"),
         bundles: &["in.sinew"],
         names: &["Enpass"],
     },
     Entry {
-        label: "Proton Pass",
+        label: Label::same("Proton Pass"),
         bundles: &["me.proton.pass"],
         names: &["Proton Pass"],
     },
     Entry {
-        label: "NordPass",
+        label: Label::same("NordPass"),
         bundles: &["com.nordsec.nordpass"],
         names: &["NordPass"],
     },
     Entry {
-        label: "Keeper",
+        label: Label::same("Keeper"),
         bundles: &["com.keepersecurity"],
         names: &["Keeper", "Keeper Password Manager"],
     },
@@ -120,7 +149,7 @@ const BLOCKED: &[Entry] = &[
 
 /// Why `app` may not be targeted, or `None` when it may. `own_pid` catches ANOMANDER when it
 /// runs unbundled (`tauri dev` has no bundle id).
-pub fn blocked(app: &AppIdentity, own_pid: i32) -> Option<&'static str> {
+pub fn blocked(app: &AppIdentity, own_pid: i32) -> Option<Label> {
     if app.pid == own_pid {
         return Some(BLOCKED[0].label);
     }
@@ -155,6 +184,12 @@ fn bundle_matches(bundle: &str, listed: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::locale::Locale;
+
+    /// The Spanish name: the cases below read as the principal of a Spanish system does.
+    fn blocked(app: &AppIdentity, own_pid: i32) -> Option<&'static str> {
+        super::blocked(app, own_pid).map(|label| label.in_(Locale::Es))
+    }
 
     const OWN_PID: i32 = 4242;
 
@@ -197,6 +232,50 @@ mod tests {
                 Some(label),
                 "{bundle}"
             );
+        }
+    }
+
+    #[test]
+    fn the_names_macos_shows_follow_the_language_and_the_match_does_not() {
+        for (bundle, name, es, en) in [
+            (
+                "com.apple.systempreferences",
+                "System Settings",
+                "Ajustes del Sistema",
+                "System Settings",
+            ),
+            (
+                "com.apple.keychainaccess",
+                "Keychain Access",
+                "Acceso a Llaveros",
+                "Keychain Access",
+            ),
+            (
+                "com.apple.Passwords",
+                "Passwords",
+                "Contraseñas",
+                "Passwords",
+            ),
+            (
+                "com.1password.1password",
+                "1Password",
+                "1Password",
+                "1Password",
+            ),
+        ] {
+            for app in [app(Some(bundle), "x"), app(None, name)] {
+                let label = super::blocked(&app, OWN_PID);
+                assert_eq!(
+                    label.map(|label| label.in_(Locale::Es)),
+                    Some(es),
+                    "{app:?}"
+                );
+                assert_eq!(
+                    label.map(|label| label.in_(Locale::En)),
+                    Some(en),
+                    "{app:?}"
+                );
+            }
         }
     }
 

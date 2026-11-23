@@ -7,6 +7,7 @@ use std::path::Path;
 
 use super::log_file::path_of;
 use crate::daemon::output::scrub;
+use crate::locale::Locale;
 
 /// How many lines of the log the report carries.
 pub const LINES: usize = 200;
@@ -40,16 +41,23 @@ pub fn tail(dir: &Path, count: usize) -> io::Result<Vec<String>> {
     Ok(lines.split_off(lines.len().saturating_sub(count)))
 }
 
-/// The report, plain text. The lines are scrubbed again with the secrets known now, which
-/// covers a line written before its secret was known.
-pub fn report(facts: &Facts, lines: &[String], secrets: &[&str]) -> String {
-    let mut text = format!(
-        "ANOMANDER: diagnóstico\nVersión de la app: {}\n{OS_NAME}: {}\nEstado: {}\n\nÚltimas {} líneas del registro:\n",
+/// The report, plain text, in `locale`. The lines are scrubbed again with the secrets known now,
+/// which covers a line written before its secret was known.
+pub fn report(facts: &Facts, lines: &[String], secrets: &[&str], locale: Locale) -> String {
+    let (app_version, os_version, daemon, count) = (
         facts.app_version,
         facts.os_version,
         facts.daemon,
-        lines.len()
+        lines.len(),
     );
+    let mut text = match locale {
+        Locale::Es => format!(
+            "ANOMANDER: diagnóstico\nVersión de la app: {app_version}\n{OS_NAME}: {os_version}\nEstado: {daemon}\n\nÚltimas {count} líneas del registro:\n"
+        ),
+        Locale::En => format!(
+            "ANOMANDER: diagnostics\nApp version: {app_version}\n{OS_NAME}: {os_version}\nStatus: {daemon}\n\nLast {count} lines of the log:\n"
+        ),
+    };
     for line in lines {
         text.push_str(&scrub(line, secrets));
         text.push('\n');
@@ -60,9 +68,9 @@ pub fn report(facts: &Facts, lines: &[String], secrets: &[&str]) -> String {
 /// The system the report names.
 pub const OS_NAME: &str = if cfg!(windows) { "Windows" } else { "macOS" };
 
-/// The version of macOS, as `sw_vers` gives it, or "desconocida".
+/// The version of macOS, as `sw_vers` gives it, or "desconocida" ("unknown").
 #[cfg(not(windows))]
-pub fn os_version() -> String {
+pub fn os_version(locale: Locale) -> String {
     std::process::Command::new("/usr/bin/sw_vers")
         .arg("-productVersion")
         .output()
@@ -71,13 +79,13 @@ pub fn os_version() -> String {
         .and_then(|output| String::from_utf8(output.stdout).ok())
         .map(|version| version.trim().to_owned())
         .filter(|version| !version.is_empty())
-        .unwrap_or_else(|| "desconocida".to_owned())
+        .unwrap_or_else(|| unknown(locale))
 }
 
 /// The version of Windows, such as `10.0.26100` (Windows 11 24H2). `RtlGetVersion` gives the
 /// real one, where `GetVersionEx` answers what the app's manifest declares.
 #[cfg(windows)]
-pub fn os_version() -> String {
+pub fn os_version(locale: Locale) -> String {
     use windows_sys::Wdk::System::SystemServices::RtlGetVersion;
     use windows_sys::Win32::System::SystemInformation::OSVERSIONINFOW;
     let mut info = OSVERSIONINFOW {
@@ -86,7 +94,7 @@ pub fn os_version() -> String {
     };
     // SAFETY: `info` is an `OSVERSIONINFOW` with its size set, which is all the call writes.
     if unsafe { RtlGetVersion(&mut info) } != 0 {
-        return "desconocida".to_owned();
+        return unknown(locale);
     }
     format!(
         "{}.{}.{}",
@@ -94,9 +102,15 @@ pub fn os_version() -> String {
     )
 }
 
+/// A version that could not be read.
+fn unknown(locale: Locale) -> String {
+    locale.pick("desconocida", "unknown").to_owned()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::locale::Locale;
 
     const SECRET: &str = "oauth-access-0123456789";
 
@@ -111,7 +125,7 @@ mod tests {
     #[test]
     fn the_report_has_the_versions_the_state_and_the_tail() {
         let lines = vec!["2026-11-20T01:02:03Z first".to_owned(), "second".to_owned()];
-        let text = report(&facts(), &lines, &[]);
+        let text = report(&facts(), &lines, &[], Locale::Es);
         let mut expected = String::from("ANOMANDER: diagnóstico\n");
         expected.push_str("Versión de la app: 0.0.0\n");
         expected.push_str(&format!("{OS_NAME}: 26.4\n"));
@@ -122,9 +136,26 @@ mod tests {
     }
 
     #[test]
+    fn the_report_reads_in_english_on_any_other_system() {
+        let lines = vec!["first".to_owned(), "second".to_owned()];
+        let facts = Facts {
+            daemon: "ANOMANDER is running",
+            ..facts()
+        };
+        let text = report(&facts, &lines, &[], Locale::En);
+        let mut expected = String::from("ANOMANDER: diagnostics\n");
+        expected.push_str("App version: 0.0.0\n");
+        expected.push_str(&format!("{OS_NAME}: 26.4\n"));
+        expected.push_str("Status: ANOMANDER is running\n");
+        expected.push_str("\nLast 2 lines of the log:\n");
+        expected.push_str("first\nsecond\n");
+        assert_eq!(text, expected);
+    }
+
+    #[test]
     fn the_report_carries_no_secret() {
         let lines = vec![format!("Bearer {SECRET}")];
-        let text = report(&facts(), &lines, &[SECRET]);
+        let text = report(&facts(), &lines, &[SECRET], Locale::Es);
         assert!(!text.contains(SECRET), "{text}");
         assert!(text.contains("Bearer [secret]"));
     }

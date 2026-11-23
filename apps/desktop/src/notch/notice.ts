@@ -3,6 +3,8 @@
 // owns the window and tells this page what to show (`src-tauri/src/notch.rs`); the page owns the
 // motion (`notch.css`). One element, no React.
 
+import { perLocale } from '@anomander/protocol';
+
 /** `Say` of `notch.rs`. */
 export type Say = 'nothing' | 'done';
 
@@ -18,14 +20,21 @@ export interface NoticeState {
 }
 
 /**
- * The notice's words (es-ES). The mark says who; the label says what. "ANOMANDER ha terminado"
- * is wider than the pill, so the mark stands for the name.
+ * The notice's words, in the window's language (`../locale.ts`). The mark says who; the label
+ * says what. "ANOMANDER ha terminado" is wider than the pill, so the mark stands for the name.
  */
-export const noticeText = {
-  brand: 'ANOMANDER',
-  done: 'Ha terminado',
-  open: 'Abrir el chat de ANOMANDER',
-} as const;
+export const noticeText = perLocale<Record<'brand' | Exclude<Say, 'nothing'> | 'open', string>>({
+  es: {
+    brand: 'ANOMANDER',
+    done: 'Ha terminado',
+    open: 'Abrir el chat de ANOMANDER',
+  },
+  en: {
+    brand: 'ANOMANDER',
+    done: 'Finished',
+    open: 'Open the ANOMANDER chat',
+  },
+});
 
 export interface Notice {
   show(state: NoticeState): void;

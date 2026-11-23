@@ -400,7 +400,7 @@ same rule already active is kept as it is. The reply to `Sí` is S-38 (`policySa
 A capability (`src/capabilities/capability.ts`) declares its envelope `kinds`, the `prompt`
 section it adds to the text interpreter, the Zod `schema` of its call, an optional `context` for
 the interpreter's user turn and the `handle` that carries a call out. `src/capabilities/registry.ts`
-lists them; `TEXT_INTERPRETER_PROMPT` is `composeTextInterpreterPrompt(CAPABILITIES)`, so adding
+lists them; `textInterpreterPrompt()` is `composeTextInterpreterPrompt(CAPABILITIES)`, so adding
 one changes no routing code. A call that fails its schema becomes `failed`, which replies S-22
 (R-22 AC1). How to add one is in [docs/capabilities.md](../../docs/capabilities.md).
 

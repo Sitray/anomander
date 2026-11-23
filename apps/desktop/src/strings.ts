@@ -1,16 +1,20 @@
-// Every string the principal reads in the window (`es-ES`), in one place so they can be reviewed
-// together. Nothing else in `src/` may build text for the principal. The daemon's own answers
-// are not here: the chat shows them exactly as received (DK-4 AC1).
+// Every string the principal reads in the window, in Spanish (`es-ES`) and in English, in one
+// place so they can be reviewed together. Nothing else in `src/` may build text for the
+// principal. The daemon's own answers are not here: the chat shows them exactly as received
+// (DK-4 AC1).
 //
 // Two voices: the status and the setup describe ANOMANDER from outside, plainly; the chat's own
 // lines speak as the bot does in `packages/protocol/src/strings.ts`: first person, warm, short.
+//
+// The language is the window's (`locale.ts`): each section is read in it at the moment it is
+// read, so a section kept in a variable still follows it.
 
-import type { OAuthConnectionName } from '@anomander/protocol';
+import { type OAuthConnectionName, perLocale } from '@anomander/protocol';
 
 /** DK-4: how many files one message carries, as the daemon accepts. */
 export const MAX_ATTACHMENTS = 10;
 
-export const strings = {
+const es = {
   status: {
     loading: 'Abriendo…',
     starting: 'Arrancando…',
@@ -428,3 +432,401 @@ export const strings = {
     },
   },
 } as const;
+
+/** The shape of the text, the same in every language: the Spanish keys and parameters. */
+type Text<T> = T extends string
+  ? string
+  : T extends (...args: infer A) => infer R
+    ? (...args: A) => R
+    : { readonly [K in keyof T]: Text<T[K]> };
+
+export type Strings = Text<typeof es>;
+
+const en: Strings = {
+  status: {
+    loading: 'Opening…',
+    starting: 'Starting…',
+    running: 'Running',
+    stopped: 'Stopped',
+    failing: 'Closed unexpectedly',
+    notConfigured: 'Not set up yet',
+
+    failingDetail: 'ANOMANDER closed on its own. Starting it again…',
+    reasons: {
+      not_configured: 'To start, choose a model. Telegram is optional.',
+      already_running:
+        'Another ANOMANDER is already open with this same data. Close the other one and start this one.',
+      bot_in_use:
+        'Another ANOMANDER is using your Telegram bot, for example the one in Docker. Stop the other one and start this one.',
+      gave_up:
+        'It failed 3 times in 5 minutes and no longer retries on its own. Check the error and start it when you like.',
+      stopped_by_principal: 'You stopped it.',
+    },
+    failedToStart: 'It could not start.',
+
+    start: 'Start',
+    stop: 'Stop',
+    configure: 'Set up',
+    startBusy: 'Starting…',
+    stopBusy: 'Stopping…',
+    openSetup: 'Settings',
+    openConnections: 'Connections',
+    openSubscriptions: 'Subscriptions',
+    closeSetup: 'Back to chat',
+
+    lastError: 'Last error',
+    errorDetail: 'Error details',
+    showAll: 'Show all',
+    showLess: 'Show less',
+    startFailed: 'It could not start.',
+    stopFailed: 'It could not stop.',
+    dismiss: 'Dismiss',
+
+    shellUnreachable: 'The window cannot reach the app.',
+    retry: 'Try again',
+  },
+
+  chat: {
+    conversation: 'Conversation',
+    you: 'You',
+    bot: 'ANOMANDER',
+
+    emptyTitle: 'Tell me about an expense',
+    emptyBody:
+      'Write it however it comes to you, for example “€23 dinner”, or drop a photo of a receipt here.',
+
+    emptyStopped: {
+      title: 'ANOMANDER is stopped',
+      body: 'Start it to begin telling me your expenses.',
+      action: 'Start ANOMANDER',
+    },
+    emptyNotConfigured: {
+      title: 'Not set up yet',
+      body: 'Finish the setup and you can write to me here.',
+    },
+    emptyStarting: {
+      title: 'Starting…',
+      body: 'You can write to me in a moment.',
+    },
+    emptyFailing: {
+      title: 'Restarting',
+      body: 'ANOMANDER closed on its own and is starting again. Wait a moment.',
+    },
+
+    placeholder: 'Write something…',
+    message: 'Message',
+    send: 'Send',
+    attach: 'Attach photos',
+    attachments: 'Files to send',
+    removeAttachment: (name: string) => `Remove ${name}`,
+    file: 'File',
+    dropHere: 'Drop the receipt here',
+    tooMany: `A message holds ${MAX_ATTACHMENTS} files. I'm keeping the first ${MAX_ATTACHMENTS}.`,
+    tooHeavy: 'They are too heavy to go together. Send them in several messages.',
+
+    model: 'Model:',
+
+    screenCapture: 'Screenshot',
+    screenUnavailable: "I can't see your screen from this window.",
+    screenPermission:
+      "macOS won't let me see the screen. Turn me on in System Settings › Privacy & Security › Screen & System Audio Recording, and open ANOMANDER again.",
+    screenFailed: "I couldn't take a screenshot. Try again.",
+
+    lookNotSent: "I didn't get to look at your screen.",
+    taskNotSent: "I didn't get to start the task.",
+    startAgain: 'Try again',
+    startUnknown:
+      "The connection dropped and I don't know if it reached me. Ask me again if you still need it.",
+
+    computerUnavailable: "I can't use your computer from this window.",
+    computerAuto: 'Routine step: I do it without asking.',
+    computerRunning: "I'm using your computer…",
+    computerStop: 'Stop task',
+    computerBusy: "I'm using your computer. Stop the task or wait for it to finish.",
+    computerAllow: 'Allow',
+    computerRefuse: 'Stop',
+    computerPreview: "Where I'd do it",
+    computerRefused: "Stopped. I haven't done anything else.",
+    computerUnknown:
+      "I don't know if this step went through. Look at your screen before asking me again.",
+    computerSeen: (noun: string, label: string) =>
+      label === '' ? `On screen: an unnamed ${noun}.` : `On screen: the ${noun} “${label}”.`,
+    computerBlocked: (app: string) =>
+      `I don't act on ${app}: it's a protected app. I've stopped the task.`,
+    computerPermission:
+      "macOS won't let me use the computer. Turn me on in System Settings › Privacy & Security › Accessibility and open ANOMANDER again.",
+
+    thinking: 'ANOMANDER is thinking…',
+
+    notSent: 'Not sent.',
+    sendAgain: 'Send again',
+    unknown:
+      "The connection dropped and I don't know if it reached me. It may already be recorded: check before sending it again.",
+    pressNotSent: "Your answer wasn't sent. Press again.",
+    pressUnknown:
+      "The connection dropped and I don't know if your answer reached me. Press again: if it was already answered, I'll tell you.",
+    linkOnlyInTelegram: (label: string) => `“${label}” can only be opened from Telegram.`,
+
+    disabled: {
+      stopped: 'ANOMANDER is stopped. Start it to write to it.',
+      notConfigured: 'Finish the setup to start writing to it.',
+      starting: 'Starting… You can write in a moment.',
+      failing: 'ANOMANDER is restarting. Wait a moment.',
+      connecting: 'Connecting…',
+    },
+    heldBack: (reason: string): string => `It can't be sent yet. ${reason}`,
+  },
+
+  setup: {
+    title: 'Settings',
+    close: 'Back to chat',
+    sectionTelegram: 'Telegram (optional)',
+    sectionModels: 'Models',
+    intro: 'Keys are kept in the macOS Keychain, never in a file.',
+
+    required: 'Required',
+
+    botToken: 'Telegram bot token',
+    botTokenHelp: '@BotFather gives it to you in Telegram when you create the bot.',
+    botTokenStored: 'Saved. Leave it blank to keep it.',
+    botTokenMissing:
+      'The bot token is missing. Telegram needs the token and your chat ID; without Telegram, leave both blank.',
+
+    chatId: 'Your chat ID',
+    chatIdHelp: 'Message @userinfobot in Telegram and it tells you.',
+    chatIdInvalid: 'It has to be a number, like 4242.',
+    chatIdMissing:
+      'Your chat ID is missing. Telegram needs the token and your chat ID; without Telegram, leave both blank.',
+
+    model: 'Model',
+    modelHelp: 'It understands what you write. Its provider goes first.',
+    modelExample: 'openai/gpt-4o-mini',
+    modelPlaceholder: 'e.g. openai/gpt-4o-mini',
+    visionModel: 'Model for photos',
+    visionModelHelp: 'It reads the photos of receipts. Same format as the one above.',
+    modelInvalid: 'Write it with the provider first, like openai/gpt-4o-mini.',
+    modelMissing: "The model is missing. Without it ANOMANDER can't answer you.",
+
+    keys: 'Provider keys',
+    keysHelp: "The API key of each model's provider. It's in their developer dashboard.",
+    keysNone: 'None yet.',
+    keyStored: 'Saved',
+    keyNew: 'New, not saved',
+    keyReplaced: 'Changes on save',
+    keyRemoved: 'Removed on save',
+    removeKey: (name: string) => `Remove ${name}`,
+    undoKey: (name: string) => `Keep ${name}`,
+    undoKeyChange: (name: string) => `Don't change ${name}`,
+    remove: 'Remove',
+    undo: 'Undo',
+    provider: 'Provider',
+    otherProvider: 'Other…',
+    keyName: 'Variable name',
+    keyNameInvalid: 'It has to be like OPENAI_API_KEY: in capitals and ending in _API_KEY.',
+    keyValue: 'Key',
+    keyValueMissing: 'The key is missing.',
+    addKey: 'Add',
+
+    save: 'Save and start',
+    saving: 'Saving…',
+    cancel: 'Cancel',
+    fixFields: 'Check the marked fields.',
+    rejected: 'Not saved. This is what the app says:',
+    savedIncomplete: 'Saved. It still needs the model to start.',
+  },
+
+  connections: {
+    title: 'Connections',
+    intro:
+      'The MCP servers ANOMANDER uses in a task with connections. They are in the mcp.json file; their values, in the macOS Keychain.',
+    loading: 'Reading…',
+    loadFailed: 'The connections could not be read.',
+    invalid:
+      "The mcp.json file isn't as ANOMANDER reads it, so no server connects. Fix it by hand: nothing can be changed from here.",
+    servers: 'Servers',
+    none: 'None yet.',
+    add: 'Add server',
+
+    connectors: 'Connectors',
+    connectorsIntro:
+      'One button per service. If the service asks for permission, your browser opens so you can give it.',
+    connect: 'Connect',
+    connectFor: (title: string) => `Connect ${title}`,
+    connecting: 'Connecting…',
+    connectorConnected: 'Connected',
+    connectorRejected: (title: string) => `“${title}” was not added. This is what the app says:`,
+    connectorAbout: {
+      Notion: 'Your Notion pages and databases.',
+      Linear: 'Linear issues and projects.',
+      Atlassian: 'Jira and Confluence.',
+    },
+    webSearch: 'Web search',
+    webSearchAbout: 'Searches the internet without using the computer.',
+    webSearchNote:
+      'Web search adds pi-web-access, which is downloaded from npm the first time. What ANOMANDER searches for is sent to Exa (exa.ai), with no account, and it searches without asking you; to use another search engine or a proxy it asks you first. Pages are read from this Mac, always after “Allow”. If you have ~/.pi/agent/web-search.json, its keys, search engines and proxy are used.',
+    edit: 'Edit',
+    editServer: (name: string) => `Edit ${name}`,
+    remove: 'Remove',
+    removeServer: (name: string) => `Remove ${name}`,
+    confirmRemove: (name: string) =>
+      `Remove “${name}”? Its saved values will be deleted from the Keychain.`,
+    confirmRemoveYes: 'Yes, remove',
+    keepServer: "Don't remove",
+    removing: 'Removing…',
+    removeRejected: 'Not removed. This is what the app says:',
+    close: 'Close',
+    advanced: 'Advanced',
+    advancedNote: 'For any other MCP server: a program on this Mac or an address, written by hand.',
+
+    oauthConnected: 'Connected with OAuth',
+    connectOAuth: 'Connect with OAuth',
+    connectOAuthFor: (name: string) => `Connect ${name} with OAuth`,
+    reconnectOAuth: 'Reconnect',
+    reconnectOAuthFor: (name: string) => `Reconnect ${name} with OAuth`,
+    forgetOAuth: 'Forget OAuth',
+    forgetOAuthFor: (name: string) => `Forget the OAuth access of ${name}`,
+    authorizing:
+      'Your browser has opened: give ANOMANDER permission on that page. You have 5 minutes. You can close this screen in the meantime.',
+    oauthOutcome: {
+      connected: 'Connected with OAuth.',
+      denied: 'Not connected: permission was not given in the browser.',
+      timed_out: 'Not connected: the browser did not come back within 5 minutes.',
+    },
+    oauthFailed: 'Could not connect with OAuth. This is what the app says:',
+    forgetting: 'Forgetting…',
+    oauthForgotten: 'The OAuth access has been forgotten.',
+    forgetFailed: 'The OAuth access was not forgotten. This is what the app says:',
+
+    newTitle: 'Add server',
+    editTitle: (name: string) => `Edit “${name}”`,
+    name: 'Name',
+    nameHelp: "That's how you'll see it in the chat.",
+    nameInvalid:
+      'It starts with a letter or a number and has only letters, numbers, spaces, dots and hyphens: 40 characters at most.',
+    nameTaken: 'There is already a server with that name.',
+    kind: 'Type',
+    kindProcess: 'A program on this Mac',
+    kindHttp: 'A server over HTTP',
+    command: 'Command',
+    commandHelp: 'The program that starts the server, like npx.',
+    commandMissing: 'The command is missing.',
+    args: 'Arguments',
+    argsHelp: 'One per line.',
+    url: 'URL',
+    urlHelp: 'With https. Plain http only works if the server is on this Mac.',
+    urlInvalid: 'It has to start with https://, or with http:// if it is localhost.',
+    env: 'Program keys and settings',
+    envHelp:
+      'What the program reads when it starts, like an API key (its environment variables). The values are kept in the macOS Keychain; only the name shows here.',
+    headers: 'Access keys',
+    headersHelp:
+      'What is sent with each request, like a token in Authorization (its headers). The values are kept in the macOS Keychain; only the name shows here.',
+    envNone: 'None yet.',
+    valueStored: 'Saved',
+    valueEmpty: 'No value',
+    valueNew: 'New, not saved',
+    valueReplaced: 'Changes on save',
+    valueRemoved: 'Removed on save',
+    removeValue: (name: string) => `Remove ${name}`,
+    undoValue: (name: string) => `Keep ${name}`,
+    undoValueChange: (name: string) => `Don't change ${name}`,
+    envName: 'Name, like API_KEY',
+    headerName: 'Name, like Authorization',
+    valueNameMissing: 'The name is missing.',
+    value: 'Value',
+    valueMissing: 'The value is missing.',
+    addValue: 'Add',
+    readOnly: 'Tools that only read',
+    readOnlyHelp:
+      'One per line. Only these are used without asking you; any other waits until you press “Allow”. List only the ones that change nothing.',
+
+    save: 'Save',
+    saving: 'Saving…',
+    cancel: 'Cancel',
+    restartNote: 'On saving, ANOMANDER restarts to read the changes.',
+  },
+
+  subscriptions: {
+    title: 'Subscriptions',
+    intro:
+      'Connect your ChatGPT or Kimi Code subscription and ANOMANDER will use its models with it, with no API key. The account is kept in the macOS Keychain.',
+    open: 'Have a ChatGPT or Kimi Code subscription? Connect it',
+    loading: 'Reading…',
+    loadFailed: 'The accounts could not be read.',
+    accounts: 'Accounts',
+    connected: 'Connected',
+    notConnected: 'Not connected',
+    connect: 'Connect',
+    connectFor: (account: string) => `Connect ${account}`,
+    disconnect: 'Disconnect',
+    disconnectFor: (account: string) => `Disconnect ${account}`,
+    disconnecting: 'Disconnecting…',
+    disconnected: (account: string) => `Disconnected from ${account}.`,
+    disconnectFailed: 'Not disconnected. This is what the app says:',
+
+    starting: 'Opening your browser…',
+    opened: (account: string) =>
+      `Your browser has opened: sign in with your ${account} account on that page. You have 10 minutes, and you can close this screen in the meantime.`,
+    deviceCode: (account: string) =>
+      `Your browser has opened: type this code on that page to sign in with your ${account} account. You have 10 minutes.`,
+    deviceCodeLabel: 'Code',
+    pasteLabel: 'The address the browser took you to',
+    pasteHelp:
+      "Usually you don't need this: the page finishes on its own. If the browser ends up on an error page, copy its full address and paste it here.",
+    pasteMissing: 'Paste the full address.',
+    pasteSend: 'Send',
+    pasteFailed: 'The address could not be sent. This is what the app says:',
+    outcome: {
+      connected: (account: string) => `Connected with your ${account} account.`,
+      timed_out: 'Not connected: the browser did not come back within 10 minutes.',
+      cancelled: 'Not connected: the sign-in was cancelled.',
+    },
+    failed: 'Could not connect. This is what the app says:',
+    restartNote: 'When an account is connected or disconnected, ANOMANDER restarts to use it.',
+    close: 'Close',
+  },
+
+  ledger: {
+    title: 'Bring the ledger from Docker',
+    open: 'Coming from a Docker install? Bring your ledger',
+    intro:
+      'If you used ANOMANDER with Docker, copy its ledger to this Mac and write here where you left it. It is only imported into an ANOMANDER with no expenses; the ledger it has now is kept aside, never deleted.',
+    howIntro: 'To copy it, in the project folder, run one command and then the other:',
+    howCommands:
+      'docker compose stop\ndocker compose cp daemon:/app/data/anomander.db ~/Downloads/anomander.db',
+    path: 'Ledger file',
+    pathHelp: 'The full path of the file. You can paste it.',
+    pathMissing: 'Write the path of the file.',
+    pathNotFull: 'Write the full path: it starts with / or ~/.',
+    import: 'Import',
+    importing: 'Importing… ANOMANDER stops in the meantime.',
+    failed: "The ledger could not be imported. ANOMANDER's stays as it was.",
+    outcome: {
+      imported:
+        'Ledger imported: ANOMANDER now works with it. If there was another one, it is kept aside in the data folder.',
+      missing: 'There is no file at that path.',
+      same_file: 'That is the ledger ANOMANDER already uses.',
+      not_a_ledger: 'That file is not an ANOMANDER ledger. Nothing was imported.',
+      newer_ledger:
+        'That ledger is from a newer version of ANOMANDER than this app. Update the app and try again.',
+      damaged: 'That ledger is damaged. Nothing was imported.',
+      daemon_running: "Another ANOMANDER is using this app's ledger. Stop it and try again.",
+      own_has_expenses:
+        'This ANOMANDER already has expenses, so nothing is imported, so as not to lose them.',
+      not_a_path: 'Write the full path: it starts with / or ~/.',
+    },
+  },
+};
+
+/** The text of the window, each section in the window's language at the moment it is read. */
+export const strings: Strings = {
+  status: perLocale<Strings['status']>({ es: es.status, en: en.status }),
+  chat: perLocale<Strings['chat']>({ es: es.chat, en: en.chat }),
+  setup: perLocale<Strings['setup']>({ es: es.setup, en: en.setup }),
+  connections: perLocale<Strings['connections']>({ es: es.connections, en: en.connections }),
+  subscriptions: perLocale<Strings['subscriptions']>({
+    es: es.subscriptions,
+    en: en.subscriptions,
+  }),
+  ledger: perLocale<Strings['ledger']>({ es: es.ledger, en: en.ledger }),
+};

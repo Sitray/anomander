@@ -61,8 +61,8 @@ export {
   createPiAiReplyPhraser,
   type PhraseRequest,
   type PiAiReplyPhraserDeps,
-  REPLY_PHRASER_PROMPT,
   type ReplyPhraser,
+  replyPhraserPrompt,
   verbatimReplies,
 } from './processor/reply-phraser.ts';
 export {
@@ -71,9 +71,9 @@ export {
   type Interpretation,
   type Logger,
   type PiAiTextInterpreterDeps,
-  TEXT_INTERPRETER_PROMPT,
   type TextInterpreter,
   type TextInterpreterInput,
+  textInterpreterPrompt,
 } from './processor/text-interpreter.ts';
 export {
   type DayRange,

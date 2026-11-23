@@ -1,4 +1,6 @@
 // The notch window's script: listens to the shell and draws the notice (`src-tauri/src/notch.rs`).
+// The language first: every module after it reads text in the language it chose.
+import '../locale.ts';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { mountNotice, type NoticeState } from './notice.ts';

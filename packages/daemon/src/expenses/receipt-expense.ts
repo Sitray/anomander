@@ -16,7 +16,7 @@ import {
   type ReceiptHandler,
   type Reply,
   strings,
-  UNCATEGORIZED,
+  uncategorized,
 } from '@anomander/protocol';
 import type Database from 'better-sqlite3';
 import type { AiBudget } from '../budget/ai-budget.ts';
@@ -84,7 +84,8 @@ const mimeTypeOf = (fileName: string): string => {
 };
 const imageIndex = (fileName: string): number => Number(fileName.slice(0, fileName.indexOf('.')));
 
-const ALL_OPTIONS = [buttons.register, buttons.correct, buttons.discard];
+// Read when asked, in the language the daemon chose at startup.
+const allOptions = () => [buttons.register, buttons.correct, buttons.discard];
 
 /** The §12 question for an AskReason of `checkAuthority`, built from the stored row. */
 const questionFor = (
@@ -97,7 +98,7 @@ const questionFor = (
     case 'lines_mismatch':
       return {
         question: strings.linesMismatch(stored.lines_sum_cents, stored.total_cents),
-        options: ALL_OPTIONS,
+        options: allOptions(),
       };
     case 'duplicate': {
       // S-4 names the expense already recorded; it uses only "Apuntar" and "Descartar".
@@ -111,7 +112,7 @@ const questionFor = (
     case 'invalid_date':
       return {
         question: strings.futureReceipt(stored.total_cents, merchant, stored.occurred_on),
-        options: ALL_OPTIONS,
+        options: allOptions(),
       };
     case 'needs_confirmation':
       return {
@@ -121,7 +122,7 @@ const questionFor = (
           stored.occurred_on,
           stored.category,
         ),
-        options: ALL_OPTIONS,
+        options: allOptions(),
       };
   }
 };
@@ -317,7 +318,7 @@ export const createReceiptExpenseCycle = (deps: ReceiptExpenseDeps): ReceiptExpe
         facts: [
           formatAmount(stored.total_cents),
           ...(stored.merchant === null ? [] : [stored.merchant]),
-          stored.category ?? UNCATEGORIZED,
+          stored.category ?? uncategorized(),
         ],
         message: receipt.caption ?? '',
       });

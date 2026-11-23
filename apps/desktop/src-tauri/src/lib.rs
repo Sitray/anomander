@@ -10,6 +10,7 @@ pub mod data_dir;
 pub mod diagnostics;
 pub mod file_mode;
 pub mod ledger_import;
+pub mod locale;
 pub mod login;
 pub mod notch;
 pub mod notification;
@@ -511,6 +512,7 @@ fn on_menu(app: &AppHandle, id: &str) {
 /// DK-6 AC4: the report of `diagnostics::report` to the clipboard, and a notification that says
 /// whether it is there.
 fn copy_diagnostics(app: &AppHandle, shell: &Shell) {
+    let locale = locale::current();
     let view = tray::View {
         status: shell.supervisor.current().status,
         thinking: false,
@@ -524,18 +526,24 @@ fn copy_diagnostics(app: &AppHandle, shell: &Shell) {
     let secrets: Vec<&str> = secrets.iter().map(String::as_str).collect();
     let facts = Facts {
         app_version: &app.package_info().version.to_string(),
-        os_version: &report::os_version(),
-        daemon: tray::labels(&view).status,
+        os_version: &report::os_version(locale),
+        daemon: tray::labels(&view, locale).status,
     };
-    let text = report::report(&facts, &lines, &secrets);
+    let text = report::report(&facts, &lines, &secrets, locale);
     let handle = app.clone();
     // The pasteboard belongs to the main thread.
     let copied = app.run_on_main_thread(move || {
         let said = match handle.clipboard().write_text(text) {
-            Ok(()) => "Diagnóstico copiado. Pégalo donde lo necesites.",
+            Ok(()) => locale.pick(
+                "Diagnóstico copiado. Pégalo donde lo necesites.",
+                "Diagnostics copied. Paste them wherever you need them.",
+            ),
             Err(error) => {
                 eprintln!("could not copy the diagnostic report: {error}");
-                "No se ha podido copiar el diagnóstico."
+                locale.pick(
+                    "No se ha podido copiar el diagnóstico.",
+                    "The diagnostics could not be copied.",
+                )
             }
         };
         let shown = handle
@@ -587,12 +595,7 @@ fn set_up(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         auth_path: data.daemon_paths().auth,
         session: login::Session::default(),
     };
-    // `TZ` is the zone of this machine's clock, never the app's own variable: the daemon
-    // refuses one that is not an IANA name.
-    let environment: shell::Environment = Box::new(|name| match name {
-        "TZ" => daemon::launch::system_time_zone(),
-        _ => std::env::var(name).ok(),
-    });
+    let environment = environment(locale::current());
     let core = Arc::new(Core::new(
         data,
         Box::new(secure_store::SystemStore),
@@ -620,7 +623,12 @@ fn set_up(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         Box::new(move |update| publisher.publish(update)),
         Options::default(),
     );
-    tray::build(app, &supervisor.current().status, on_menu)?;
+    tray::build(
+        app,
+        &supervisor.current().status,
+        locale::current(),
+        on_menu,
+    )?;
     notch::build(app)?;
     app.manage(Shell {
         core,
@@ -632,6 +640,17 @@ fn set_up(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     // DK-1 AC1: opening the app starts the daemon.
     in_background(app.handle(), |shell| shell.supervisor.start());
     Ok(())
+}
+
+/// The app's own environment as the shell reads it. `TZ` is the zone of this machine's clock and
+/// `ANOMANDER_LOCALE` the system's language, never the app's own variables: the daemon refuses a
+/// zone that is not an IANA name, and speaks the language the window and the menu bar speak.
+fn environment(locale: locale::Locale) -> shell::Environment {
+    Box::new(move |name| match name {
+        "TZ" => daemon::launch::system_time_zone(),
+        "ANOMANDER_LOCALE" => Some(locale.as_str().to_owned()),
+        _ => std::env::var(name).ok(),
+    })
 }
 
 /// A one-time import of a Docker install's `.env`, asked for with `ANOMANDER_IMPORT_ENV=<path>` at
@@ -658,7 +677,12 @@ fn quit(app: &AppHandle) {
 }
 
 pub fn run() {
+    // Read once, before any text or webview: the window, the notch, the menu bar and the daemon
+    // speak the same language for the whole life of the app.
+    let locale = locale::system();
+    locale::choose(locale);
     let app = tauri::Builder::default()
+        .plugin(locale::plugin(locale))
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_clipboard_manager::init())
         .invoke_handler(tauri::generate_handler![
@@ -717,4 +741,20 @@ pub fn run() {
         RunEvent::Reopen { .. } => show_chat(app),
         _ => {}
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use locale::Locale;
+
+    #[test]
+    fn the_daemon_is_handed_the_language_the_shell_read_whatever_the_app_was_started_with() {
+        for locale in [Locale::Es, Locale::En] {
+            assert_eq!(
+                environment(locale)("ANOMANDER_LOCALE").as_deref(),
+                Some(locale.as_str())
+            );
+        }
+    }
 }

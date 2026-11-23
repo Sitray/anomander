@@ -2,12 +2,15 @@ import { isCalendarDate } from '@anomander/core';
 import {
   buttons,
   decisionButtons,
+  formatRecurrence,
+  formatWhenOnce,
   type PrincipalText,
   type Reply,
   strings,
 } from '@anomander/protocol';
 import { z } from 'zod';
 import { type CapabilityEnv, defineCapability } from '../capabilities/capability.ts';
+import { replyLanguage } from '../processor/language.ts';
 import { checkedPhrasing } from '../processor/reply-phraser.ts';
 import { openCancelReminderDecision } from '../store/decisions.ts';
 import { quotedFrom } from '../store/memory.ts';
@@ -72,14 +75,29 @@ const callSchema = z.discriminatedUnion('kind', [
 
 type CreateCall = z.infer<typeof createSchema>;
 
-const PROMPT = `If the user asks you to remind them of something ("recuérdame mañana llamar a mamá") or notes something they have to do, with or without a date ("tengo que comprar pilas"), reply:
-{"kind":"reminder_create","text":"<what to remember, copied word for word from the message>","at":"<YYYY-MM-DDTHH:mm, the local time to remind them>","recurrence":null,"unsupported_recurrence":false,"reply":"<a short, friendly reply in Spanish (es-ES), at most 280 characters, saying the same as: Te lo recuerdo <cuando>: <text>.>"}
+/** `{cuando}` as code writes it, so the processor writes it the same way, in the same language. */
+const whenExamples = (): string => {
+  const today = '2026-10-01';
+  const examples = [
+    formatWhenOnce(today, '09:00', today),
+    formatWhenOnce('2026-10-02', '09:00', today),
+    formatWhenOnce('2026-10-29', '09:00', today),
+    formatRecurrence({ freq: 'daily', time: '09:00' }),
+    formatRecurrence({ freq: 'weekly', days: [1, 4], time: '08:00' }),
+    formatRecurrence({ freq: 'monthly', day: 15, time: '09:00' }),
+  ].map((example) => `"${example}"`);
+  return `${examples.slice(0, -1).join(', ')} or ${examples.at(-1)}, and "${formatWhenOnce(today, '01:00', today)}" at one o'clock`;
+};
+
+const prompt =
+  () => `If the user asks you to remind them of something ("recuérdame mañana llamar a mamá") or notes something they have to do, with or without a date ("tengo que comprar pilas"), reply:
+{"kind":"reminder_create","text":"<what to remember, copied word for word from the message>","at":"<YYYY-MM-DDTHH:mm, the local time to remind them>","recurrence":null,"unsupported_recurrence":false,"reply":"<a short, friendly reply in ${replyLanguage()}, at most 280 characters, saying the same as: ${strings.reminderSet('<when>', '<text>')}>"}
 Work out "at" from the "now" and "weekday" fields of "reminders" ("mañana", "en dos horas", "el viernes"). A day without a time means 09:00.
 If it repeats every day, every week on some days, or every month on one day, always at one time, set "at" to null and "recurrence" to {"freq":"daily","time":"09:00"}, {"freq":"weekly","days":[<1 Monday to 7 Sunday>],"time":"09:00"} or {"freq":"monthly","day":<1 to 31>,"time":"09:00"}, with the time they asked for as HH:mm.
 If it repeats in any other way ("cada dos semanas", "el último viernes de cada mes"), set "unsupported_recurrence" to true.
-If it has no date at all, set "at" and "recurrence" to null, and "reply" says the same as: Apuntado en tus pendientes: <text>.
+If it has no date at all, set "at" and "recurrence" to null, and "reply" says the same as: ${strings.taskAdded('<text>')}
 If the user gives a time to a pending task, one whose "when" is null ("lo de las pilas, recuérdamelo el sábado"), add "id":<the "id" of that task> and copy its "text" exactly into "text".
-Write <cuando> as "hoy a las 9:00", "mañana a las 9:00", "el 29 de octubre a las 9:00", "todos los días a las 9:00", "todos los lunes y jueves a las 8:00" or "el día 15 de cada mes a las 9:00", and "a la 1:00" at one o'clock. Copy <text> exactly and add no other number.
+Write <when> as ${whenExamples()}. Copy <text> exactly and add no other number.
 You never store the reminder: the assistant does, and sends "reply" only if it keeps the facts.
 
 If the user asks what they have pending ("¿qué tengo pendiente?"), reply:
@@ -226,7 +244,7 @@ const markPickedDone = (ids: readonly number[], env: CapabilityEnv): Reply => {
 export const remindersCapability = defineCapability({
   name: 'reminders',
   kinds: ['reminder_create', 'reminder_list', 'reminder_cancel', 'reminder_done'],
-  prompt: PROMPT,
+  prompt,
   schema: callSchema,
   // R-25 AC1: the time in TZ and what is pending, so relative times and references can be read.
   context: ({ db, now, timeZone }) => {

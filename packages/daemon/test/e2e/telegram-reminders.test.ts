@@ -11,7 +11,7 @@ import Database from 'better-sqlite3';
 import { afterEach, beforeEach, describe, expect, it, type Mock, vi } from 'vitest';
 import { type Anomander, startAnomander } from '../../src/app.ts';
 import { loadConfig } from '../../src/config.ts';
-import { TEXT_INTERPRETER_PROMPT } from '../../src/processor/text-interpreter.ts';
+import { textInterpreterPrompt } from '../../src/processor/text-interpreter.ts';
 
 // End to end (PRD §15): reminders and tasks (R-25 AC1-AC6, AC8-AC10, AC12), the first capability
 // (R-24), through the fake Telegram API, the real bot and a SQLite file.
@@ -57,7 +57,7 @@ beforeEach(async () => {
   });
   const complete = async (_model: string, context: Context): Promise<AssistantMessage> => {
     const [turn] = context.messages;
-    if (context.systemPrompt === TEXT_INTERPRETER_PROMPT && typeof turn?.content === 'string') {
+    if (context.systemPrompt === textInterpreterPrompt() && typeof turn?.content === 'string') {
       const parsed = JSON.parse(turn.content);
       turns.push(parsed);
       const interpretation = interpretations.get(parsed.message);

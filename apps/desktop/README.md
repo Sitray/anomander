@@ -74,7 +74,9 @@ daemon's PDF reply; images are read as a receipt.
 ```
 src/
   shell.ts            the contract with the Rust shell
-  strings.ts          every string the principal reads (es-ES), in one place
+  locale.ts           the window's language: the system's, as the shell hands it, Spanish for a
+                      Spanish system and English for any other (the browser's with no shell)
+  strings.ts          every string the principal reads, in Spanish and English, in one place
   App.tsx             the container: status on top; chat, setup, connections or subscriptions under it
   styles.css          the one stylesheet: tokens, then each part
   chat/

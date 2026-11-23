@@ -233,7 +233,7 @@ Initial configuration, decided by the principal:
 - Starting permission: **register without asking if the lines sum to the total and the category comes from one of my policies.**
 - Initial categories: **supermercado** and **restaurantes**. Anything else is stored without a category until the principal creates one (R-18).
 - Receipt images are not stored.
-- Bot language: Spanish (`es-ES`). All user-facing strings live in one module so they can be translated.
+- Bot language: Spanish (`es-ES`) or English, chosen by `ANOMANDER_LOCALE` (`es` by default; the desktop app sets it from the system's language). All user-facing strings live in one module, with one table per language (`packages/protocol/src/strings.ts`).
 
 ### R-1 Principal-only access
 The bot processes messages only from the principal, in a private chat.
@@ -450,6 +450,8 @@ When something the daemon needs from `.env` is missing, it says what instead of 
 - AC5: The daemon needs at least one front door: Telegram (`TELEGRAM_BOT_TOKEN` with `ANOMANDER_PRINCIPAL_CHAT_ID`) or the desktop app's local channel (`ANOMANDER_LOCAL_TOKEN`, `docs/desktop-prd.md` DK-3). Without either, nobody can talk to it, so it exits and its log names both, with where to get the Telegram ones (@BotFather, @userinfobot). Half of Telegram, one variable without the other, is an error that names the missing one. Without Telegram nothing polls or is sent there, and what only Telegram serves (`/login`, `/logout`, `/mcp`, messages sent unasked) is absent.
 
 ## 12. User-facing strings (verbatim, `es-ES`)
+
+The table below is the Spanish reference. The English table in `packages/protocol/src/strings.ts` says the same with the same keys and placeholders; it is used when `ANOMANDER_LOCALE` is `en`, where amounts read `€23.40`, dates `29 October`, and a reminder's `{cuando}` reads `today at 9:00`, `on 29 October at 9:00` or `every Monday and Thursday at 8:00`.
 
 S-1, S-2, S-16, S-21, S-36, S-39, S-40 and S-41 are the reference and the fallback for the phrased replies of R-21; every other string is sent exactly as written.
 
@@ -886,6 +888,7 @@ One Node process (the daemon) and one SQLite file. The Telegram front door runs 
 | `ANOMANDER_RETENTION_CRON` | Retention job schedule (R-19) | `0 3 * * *` |
 | `ANOMANDER_INBOX_DIR` | Temporary folder for receipt images (R-8) | `./data/inbox` |
 | `ANOMANDER_AUTH_PATH` | Model login credentials (R-27 AC5) | `./data/auth.json` |
+| `ANOMANDER_LOCALE` | Language of the bot and of the model's replies: `es` or `en` | `es` |
 | `TZ` | Time zone | `Europe/Madrid` |
 
 Secrets live only in `.env`, which is git-ignored. `.env.example` lists every variable. Model credentials are not ANOMANDER variables: pi-ai reads each provider's own variable (for example `OPENAI_API_KEY` or `ANTHROPIC_API_KEY`), which also goes in `.env`.

@@ -1,49 +1,115 @@
-// PRD §12: every user-facing string, verbatim (`es-ES`). Nothing else may build bot text.
+// PRD §12: every user-facing string, verbatim, in Spanish (`es-ES`) and English (`en-GB`
+// amounts and dates). Nothing else may build bot text. Each phrase, button and formatter speaks
+// the language chosen with `setLocale` at the moment it is read; until then, Spanish.
 
-const amountFormat = new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'EUR' });
-const dateFormat = new Intl.DateTimeFormat('es-ES', {
-  day: 'numeric',
-  month: 'long',
-  timeZone: 'UTC',
-});
+import { getLocale, type Locale, perLocale } from './locale.ts';
 
-/** `2340` → `23,40 €`. */
-export const formatAmount = (cents: number): string => amountFormat.format(cents / 100);
-
-/** `2026-10-29` → `29 de octubre`. */
-export const formatDate = (isoDate: string): string =>
-  dateFormat.format(new Date(`${isoDate}T00:00:00Z`));
-
-/** R-25 AC11: `9:00 → a las 9:00`, but `1:00 → a la 1:00`. `time` is `HH:mm`. */
-const atTime = (time: string): string => {
-  const [hours = '0', minutes = '00'] = time.split(':');
-  const hour = Number(hours);
-  return `${hour === 1 ? 'a la' : 'a las'} ${hour}:${minutes}`;
+const amountFormats: Record<Locale, Intl.NumberFormat> = {
+  es: new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'EUR' }),
+  en: new Intl.NumberFormat('en-GB', { style: 'currency', currency: 'EUR' }),
+};
+const dateOptions: Intl.DateTimeFormatOptions = { day: 'numeric', month: 'long', timeZone: 'UTC' };
+const dateFormats: Record<Locale, Intl.DateTimeFormat> = {
+  es: new Intl.DateTimeFormat('es-ES', dateOptions),
+  en: new Intl.DateTimeFormat('en-GB', dateOptions),
 };
 
-/** R-26 AC5: S-57's `{hora}`, `07:30 → 7:30`. `time` is `HH:mm`. */
+/** `2340` → `23,40 €`, or `€23.40` in English. */
+export const formatAmount = (cents: number): string =>
+  amountFormats[getLocale()].format(cents / 100);
+
+/** `2026-10-29` → `29 de octubre`, or `29 October` in English. */
+export const formatDate = (isoDate: string): string =>
+  dateFormats[getLocale()].format(new Date(`${isoDate}T00:00:00Z`));
+
+/** `HH:mm` → `H:mm`: `07:30 → 7:30`. */
 const clock = (time: string): string => {
   const [hours = '0', minutes = '00'] = time.split(':');
   return `${Number(hours)}:${minutes}`;
 };
 
-/** `['a', 'b', 'c']` → `a, b y c`. */
+/** The words a `{cuando}` and a list are built from, in one language. */
+interface Calendar {
+  /** R-25 AC11: `9:00 → a las 9:00`, but `1:00 → a la 1:00`; `at 9:00` in English. */
+  at: (time: string) => string;
+  today: string;
+  tomorrow: string;
+  yesterday: string;
+  on: (date: string) => string;
+  daily: (at: string) => string;
+  /** `days` already joined. */
+  weekly: (days: string, at: string) => string;
+  monthly: (day: number | undefined, at: string) => string;
+  /** 1 Monday to 7 Sunday, as said after "every". */
+  weekdays: readonly string[];
+  /** Before the last item of a list. */
+  and: string;
+  /** `{categoria}` when there is no category. */
+  uncategorized: string;
+}
+
+/** `{categoria}` when there is no category, as the daemon stores and compares it. */
+export const UNCATEGORIZED = 'sin clasificar';
+
+const calendar = perLocale<Calendar>({
+  es: {
+    at: (time) => `${Number(time.split(':')[0] ?? '0') === 1 ? 'a la' : 'a las'} ${clock(time)}`,
+    today: 'hoy',
+    tomorrow: 'mañana',
+    yesterday: 'ayer',
+    on: (date) => `el ${date}`,
+    daily: (at) => `todos los días ${at}`,
+    weekly: (days, at) => `todos los ${days} ${at}`,
+    monthly: (day, at) => `el día ${day} de cada mes ${at}`,
+    weekdays: ['lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábados', 'domingos'],
+    and: 'y',
+    uncategorized: UNCATEGORIZED,
+  },
+  en: {
+    at: (time) => `at ${clock(time)}`,
+    today: 'today',
+    tomorrow: 'tomorrow',
+    yesterday: 'yesterday',
+    on: (date) => `on ${date}`,
+    daily: (at) => `every day ${at}`,
+    weekly: (days, at) => `every ${days} ${at}`,
+    monthly: (day, at) => `on day ${day} of every month ${at}`,
+    weekdays: ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'],
+    and: 'and',
+    uncategorized: 'uncategorized',
+  },
+});
+
+/** `{categoria}` when there is no category, in the language chosen: `uncategorized` in English. */
+export const uncategorized = (): string => calendar.uncategorized;
+
+const atTime = (time: string): string => calendar.at(time);
+
+/** `['a', 'b', 'c']` → `a, b y c`, or `a, b and c` in English. */
 const joined = (items: readonly string[]): string =>
-  items.length <= 1 ? (items[0] ?? '') : `${items.slice(0, -1).join(', ')} y ${items.at(-1)}`;
+  items.length <= 1
+    ? (items[0] ?? '')
+    : `${items.slice(0, -1).join(', ')} ${calendar.and} ${items.at(-1)}`;
 
 const DAY_MS = 86_400_000;
 
 /**
  * `{cuando}` of a one-time reminder (R-25 AC11), from its local date (`YYYY-MM-DD`) and time
  * (`HH:mm`) in `TZ` and today there: `hoy a las 9:00`, `mañana …`, `ayer …` or
- * `el 29 de octubre a las 9:00`.
+ * `el 29 de octubre a las 9:00`; in English `today at 9:00`, … or `on 29 October at 9:00`.
  */
 export const formatWhenOnce = (date: string, time: string, today: string): string => {
   const days = Math.round(
     (Date.parse(`${date}T00:00:00Z`) - Date.parse(`${today}T00:00:00Z`)) / DAY_MS,
   );
   const day =
-    days === 0 ? 'hoy' : days === 1 ? 'mañana' : days === -1 ? 'ayer' : `el ${formatDate(date)}`;
+    days === 0
+      ? calendar.today
+      : days === 1
+        ? calendar.tomorrow
+        : days === -1
+          ? calendar.yesterday
+          : calendar.on(formatDate(date));
   return `${day} ${atTime(time)}`;
 };
 
@@ -55,23 +121,19 @@ export interface RecurrenceWhen {
   time: string;
 }
 
-const WEEKDAYS = ['lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábados', 'domingos'];
-
 /**
  * `{cuando}` of a repeating reminder (R-25 AC11): `todos los días a las 9:00`,
- * `todos los lunes y jueves a las 8:00` or `el día 15 de cada mes a las 9:00`.
+ * `todos los lunes y jueves a las 8:00` or `el día 15 de cada mes a las 9:00`; in English
+ * `every day at 9:00`, `every Monday and Thursday at 8:00` or `on day 15 of every month at 9:00`.
  */
 export const formatRecurrence = ({ freq, days = [], day, time }: RecurrenceWhen): string => {
-  if (freq === 'daily') return `todos los días ${atTime(time)}`;
-  if (freq === 'monthly') return `el día ${day} de cada mes ${atTime(time)}`;
-  const names = [...new Set(days)].sort((a, b) => a - b).map((d) => WEEKDAYS[d - 1] ?? '');
-  return `todos los ${joined(names)} ${atTime(time)}`;
+  if (freq === 'daily') return calendar.daily(atTime(time));
+  if (freq === 'monthly') return calendar.monthly(day, atTime(time));
+  const names = [...new Set(days)].sort((a, b) => a - b).map((d) => calendar.weekdays[d - 1] ?? '');
+  return calendar.weekly(joined(names), atTime(time));
 };
 
-/** `{categoria}` when there is no category. */
-export const UNCATEGORIZED = 'sin clasificar';
-
-const category = (name: string | null): string => name ?? UNCATEGORIZED;
+const category = (name: string | null): string => name ?? uncategorized();
 
 /** S-9 writes each category name with a capital letter: `supermercado` → `Supermercado`. */
 const capitalized = (name: string): string => name.charAt(0).toUpperCase() + name.slice(1);
@@ -102,7 +164,7 @@ const pendingLines = (header: string, items: readonly PendingItem[]): string =>
     items.map(({ text, when }) => (when === null ? `· ${text}` : `· ${text} (${when})`)),
   );
 
-export const strings = {
+const es = {
   registered: (total: number, merchant: string, categoryName: string | null) =>
     `Apuntado: ${formatAmount(total)} en ${merchant} (${category(categoryName)}).`,
   registeredNoMerchant: (total: number, categoryName: string | null) =>
@@ -126,10 +188,10 @@ export const strings = {
     end: string,
     total: number,
     categories: readonly { name: string; cents: number }[],
-    uncategorized: number,
+    uncategorizedCents: number,
     pending: number,
   ) => {
-    const breakdown = [...categories, { name: UNCATEGORIZED, cents: uncategorized }]
+    const breakdown = [...categories, { name: uncategorized(), cents: uncategorizedCents }]
       .map(({ name, cents }) => `${capitalized(name)} ${formatAmount(cents)}`)
       .join(' · ');
     return `Semana del ${formatDate(start)} al ${formatDate(end)}: ${formatAmount(total)}. ${breakdown}. Pendientes de confirmar: ${pending}.`;
@@ -341,7 +403,7 @@ export const strings = {
  * PRD §12 button labels (R-6 AC3; S-11, S-12, S-13, S-15, S-29, S-46, S-53 and S-74 use `Sí` and `No`; S-60
  * and S-66 one account each, and S-66 also the accounts no longer offered for login; S-62 and S-63 `Abrir`, a link).
  */
-export const buttons = {
+const esButtons = {
   register: 'Apuntar',
   correct: 'Corregir',
   discard: 'Descartar',
@@ -352,4 +414,196 @@ export const buttons = {
   claude: 'Claude',
   gitHubCopilot: 'GitHub Copilot',
   open: 'Abrir',
-} as const;
+};
+
+const en: typeof es = {
+  registered: (total, merchant, categoryName) =>
+    `Logged: ${formatAmount(total)} at ${merchant} (${category(categoryName)}).`,
+  registeredNoMerchant: (total, categoryName) =>
+    `Logged: ${formatAmount(total)} (${category(categoryName)}).`,
+  linesMismatch: (sum, total) =>
+    `This doesn't add up: the lines come to ${formatAmount(sum)} and the total says ${formatAmount(total)}. What should I do?`,
+  duplicate: (total, merchant, date) =>
+    `Looks like a repeat: I already logged ${formatAmount(total)} at ${merchant} on ${formatDate(date)}. Shall I log it again?`,
+  unreadableReceipt: () => "I couldn't read the receipt. Can you write me the total and the shop?",
+  confirmCategory: (total, merchant, date, categoryName) =>
+    `${formatAmount(total)} at ${merchant}, on ${formatDate(date)}. I'd file it under ${category(categoryName)}. Shall I log it?`,
+  askCorrection: () => 'What should I change? Write it, for example: total 28.40',
+  corrected: (total, merchant, categoryName) =>
+    `Corrected: ${formatAmount(total)} at ${merchant} (${category(categoryName)}).`,
+  weeklySummary: (start, end, total, categories, uncategorizedCents, pending) => {
+    const breakdown = [...categories, { name: uncategorized(), cents: uncategorizedCents }]
+      .map(({ name, cents }) => `${capitalized(name)} ${formatAmount(cents)}`)
+      .join(' · ');
+    return `Week of ${formatDate(start)} to ${formatDate(end)}: ${formatAmount(total)}. ${breakdown}. Waiting for your confirmation: ${pending}.`;
+  },
+  aiLimitReached: () => "I've hit the daily AI limit. I'll read this receipt tomorrow.",
+  confirmPolicy: (merchant, categoryName) =>
+    `Shall I save the rule “${merchant} is ${categoryName}”?`,
+  proposePattern: (pattern) => `I've noticed that ${pattern}. Shall I make it a rule?`,
+  pattern: (merchant, categoryName) => `${merchant} is always ${categoryName}`,
+  keepUnreadReceipt: (date) =>
+    `I still haven't been able to read the receipt you sent me on ${formatDate(date)}. Shall I keep it until I can? If not, I'll delete it in an hour.`,
+  deletedUnreadReceipt: (date) =>
+    `I've deleted the receipt you sent me on ${formatDate(date)} without reading it.`,
+  confirmNewCategory: (categoryName) => `Shall I create the category “${categoryName}”?`,
+  unclearAmount: () => "I'm not sure about the amount. Can you write it for me? For example: 23.40",
+  unsupportedInput: () => 'For now I only understand text and photos of receipts.',
+  pdfNotSupported: () => "I can't read PDFs yet. Can you send me a photo of the receipt?",
+  decisionClosed: () => 'That question is no longer open.',
+  imageTooLarge: () => 'The image is too large. Can you send me a smaller photo?',
+  futureDate: (date) =>
+    `The date ${formatDate(date)} is after today. Can you tell me when the expense was?`,
+  processingFailed: () =>
+    "Something went wrong and I couldn't process your message. Can you send it again in a while?",
+  discarded: (total, merchant) =>
+    `Discarded: I haven't logged ${formatAmount(total)} at ${merchant}.`,
+  receiptKept: (lastDay) =>
+    `OK, I'll keep it until I can read it, until ${formatDate(lastDay)} at the latest.`,
+  receiptNotKept: () => "OK, if I can't read it before then, I'll delete it in an hour.",
+  computerClick: (target, double) =>
+    `I want to ${double ? 'double-click' : 'click'} on “${target}”.`,
+  computerType: (text) => `I want to type: “${text}”`,
+  computerKey: (keys) => `I want to press ${keys}.`,
+  computerScroll: (direction) =>
+    `I want to scroll the screen ${direction === 'up' ? 'up' : 'down'}.`,
+  computerTooManySteps: (steps) =>
+    `I've reached the maximum of ${steps} steps in a row, so I'm stopping here. If you want me to carry on, ask me again.`,
+  computerFailed: () =>
+    "I couldn't work out what to do on your computer. Can you ask me another way?",
+  connectionCall: (tool, server, args) => `I want to use “${tool}” from “${server}” with:\n${args}`,
+  connectionAllow: () => 'Allow',
+  connectionRefuse: () => 'Stop',
+  connectionStopped: () => "Stopped. I haven't done anything else.",
+  connectionGone: () => 'That request is no longer pending.',
+  connectionBusy: () => "I'm still on the previous task. Ask me for another one when it's done.",
+  routedScreen: () => "I'm looking at your screen.",
+  routedComputer: () => "I'm on it, on your computer.",
+  routedConnect: () => "I'll look it up in your connections.",
+  routeInApp: () => 'I can only do that from the ANOMANDER app on your Mac.',
+  webSearchMissing: () =>
+    'To search the internet I need the web search connection. Add it in Connections, in the ANOMANDER app, and ask me again.',
+  connectionUsage: () => 'Tell me what you want me to do with your connections: /mcp and the task.',
+  connectionNone: () =>
+    "I don't have any connections available. Add them to mcp.json, in ANOMANDER's data folder, and restart.",
+  connectionUnreachable: (servers) =>
+    `I couldn't connect to ${servers.map((server) => `“${server}”`).join(', ')}. Check them in mcp.json and ask me again.`,
+  connectionFileInvalid: () =>
+    "I can't use mcp.json: it isn't valid JSON or a server isn't written correctly. Fix it and restart.",
+  connectionPerformed: (calls) =>
+    calls === 1
+      ? 'Before stopping, 1 call was made to your connections.'
+      : `Before stopping, ${calls} calls were made to your connections.`,
+  connectionTooManyCalls: (calls) =>
+    `I've reached the maximum of ${calls} calls in a row, so I'm stopping here. If you want me to carry on, ask me again.`,
+  connectionFailed: () => "I couldn't do it with your connections. Can you ask me another way?",
+  providerLimitReached: () =>
+    "Your AI provider isn't taking any more requests for now: you've used up its quota. Try again later or check your plan.",
+  screenNotSeen: () => "I couldn't see your screen. Can you ask me again in a while?",
+  textLimitReached: () =>
+    "I've hit the daily AI limit and can't process any more messages today. Can you send it again tomorrow?",
+  remembered: (memories) =>
+    lines(
+      "Here's what I remember about you:",
+      memories.map(
+        ({ text, mode }) =>
+          `· ${text} (${mode === 'declared' ? 'you told me' : 'I worked it out'})`,
+      ),
+    ),
+  rememberNothing: () => "I don't remember anything about you yet.",
+  confirmForget: (texts) =>
+    lines(
+      'Shall I forget this?',
+      texts.map((text) => `· ${text}`),
+    ),
+  forgotten: () => "Done, I've forgotten it.",
+  notForgotten: () => "OK, I won't forget anything.",
+  nothingToForget: () => "I can't find anything like that in what I remember.",
+  confirmForgetHistory: (count) =>
+    `Shall I erase the history of what I've done for you? ${count === 1 ? "That's 1 action" : `That's ${count} actions`} and I won't be able to get them back.`,
+  historyForgotten: () => "Done, I've erased my history.",
+  historyNotForgotten: () => "OK, I won't erase anything.",
+  noHistory: () => "I don't have anything in my history.",
+  futureReceipt: (total, merchant, date) =>
+    `${formatAmount(total)} at ${merchant}, dated ${formatDate(date)}, which hasn't come yet. Shall I log it like that or correct the date?`,
+  categoryNotCreated: () => "OK, I won't create it.",
+  categoryExists: (categoryName) => `The category “${categoryName}” already exists.`,
+  categoryCreated: (categoryName) => `Done, I've created the category “${categoryName}”.`,
+  policyNotSaved: () => "OK, I won't save the rule.",
+  policySaved: (merchant, categoryName) =>
+    `Done, I've saved the rule “${merchant} is ${categoryName}”.`,
+  policyExists: (merchant, categoryName) =>
+    `I already have the rule “${merchant} is ${categoryName}”.`,
+  reminderSet: (when, text) => `I'll remind you ${when}: ${text}.`,
+  taskAdded: (text) => `Added to your pending list: ${text}.`,
+  recurrenceUnsupported: () =>
+    "I can't repeat reminders like that yet. I can do every day, every week or every month.",
+  timePassed: () => 'That time has already passed. When do you want it for?',
+  reminderDue: (text) => `Reminder: ${text}.`,
+  reminderLate: (when, text) => `Reminder (it was for ${when}): ${text}.`,
+  pending: (items) => pendingLines("Here's what you have pending:", items),
+  nothingPending: () => 'You have nothing pending.',
+  confirmCancel: (items) => pendingLines('Shall I cancel this?', items),
+  cancelled: () => 'Done, cancelled.',
+  notCancelled: () => "OK, I won't cancel anything.",
+  nothingPendingMatches: () => "I can't find anything like that in your pending list.",
+  markedDone: (texts) => `Done: ${joined(texts)}.`,
+  confirmDigest: (time) =>
+    `Shall I send you a summary every morning ${atTime(time)} with your reminders for the day, your pending items and the expenses to confirm?`,
+  digestOn: (time) => `Done: I'll send it to you every morning ${atTime(time)}.`,
+  digestNotOn: () => "OK, I won't send it.",
+  digestOff: () => "Done, I won't send you the morning summary any more.",
+  morningDigest: ({ today, tasks, pendingExpenses }) =>
+    [
+      'Good morning.',
+      ...(today.length === 0
+        ? []
+        : ['Today:', ...today.map(({ time, text }) => `· ${clock(time)} ${text}`)]),
+      ...(tasks.length === 0 ? [] : ['Pending:', ...tasks.map((text) => `· ${text}`)]),
+      ...(pendingExpenses === 0 ? [] : [`Expenses to confirm: ${pendingExpenses}`]),
+    ].join('\n'),
+  digestWasOff: () => "The morning summary wasn't on.",
+  digestAlreadyOn: (time) => `I already send it to you every morning ${atTime(time)}.`,
+  chooseLoginAccount: () => 'Which account shall I connect with?',
+  loginPasteAddress: () =>
+    'Open the link and accept. When the browser shows an error, copy the full address of that page and paste it here.',
+  loginDeviceCode: (code) => `Open the link and enter this code: ${code}`,
+  loginConnected: (account) => `Connected to your ${account} account.`,
+  loginFailed: (account) =>
+    `I couldn't connect to your ${account} account. You can try again with /login.`,
+  chooseLogoutAccount: () => 'Which account shall I disconnect?',
+  loggedOut: (account) => `Done, I've disconnected your ${account} account.`,
+  noAccountConnected: () => 'No account is connected.',
+  hello: () => 'Hi!',
+  setupGuide: (lines) => ['Hi! I still need:', ...lines].join('\n'),
+  setupModelUnset: () =>
+    '- The model and the vision model (ANOMANDER_MODEL and ANOMANDER_VISION_MODEL in the .env).',
+  setupModelUnknown: (variable, model) =>
+    `- A model that exists in ${variable}: I can't find ${model}.`,
+  setupProviderUnconnected: (provider) =>
+    `- Your ${provider} account connected (/login or its API key in the .env).`,
+  confirmWeeklySummary: () => 'Shall I send you a summary of your expenses every week?',
+  weeklySummaryOn: () => "Done: I'll send you a summary of your expenses every week.",
+  weeklySummaryAlreadyOn: () => 'I already send you a summary of your expenses every week.',
+  weeklySummaryOff: () => "Done, I won't send you the weekly summary any more.",
+  weeklySummaryWasOff: () => "The weekly summary wasn't on.",
+};
+
+/** Every bot phrase, in the language chosen when it is read. */
+export const strings = perLocale({ es, en });
+
+const enButtons: typeof esButtons = {
+  register: 'Log',
+  correct: 'Edit',
+  discard: 'Discard',
+  yes: 'Yes',
+  no: 'No',
+  chatGpt: 'ChatGPT',
+  kimiCode: 'Kimi Code',
+  claude: 'Claude',
+  gitHubCopilot: 'GitHub Copilot',
+  open: 'Open',
+};
+
+/** The button labels, in the language chosen when they are read. */
+export const buttons: Readonly<typeof esButtons> = perLocale({ es: esButtons, en: enButtons });

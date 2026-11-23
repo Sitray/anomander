@@ -2,7 +2,7 @@
 // menu opens the chat, starts or stops ANOMANDER, and quits (AC2), and copies a diagnostic report
 // (AC4). While the chat waits for an answer, or a task on the computer goes by itself (DK-10),
 // the icon also shows that ANOMANDER is working. The texts are read by the principal, so they are
-// Spanish (es-ES); the icon is drawn here: a template image in macOS's menu bar, and a light mark
+// in the system's language (`locale`): Spanish (es-ES) or English; the icon is drawn here: a template image in macOS's menu bar, and a light mark
 // with a dark rim in Windows's notification area.
 use std::f32::consts::TAU;
 use std::sync::atomic::{AtomicU8, Ordering};
@@ -14,6 +14,7 @@ use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent}
 
 use tauri::{App, AppHandle, Manager, Wry};
 
+use crate::locale::Locale;
 use crate::snapshot::{DaemonState, DaemonStatus, StopReason};
 
 pub const TRAY_ID: &str = "anomander";
@@ -64,11 +65,32 @@ pub struct Labels {
     pub toggle: &'static str,
 }
 
-const START: &str = "Iniciar ANOMANDER";
-const STOP: &str = "Detener ANOMANDER";
-/// Starting cannot help while the setup is incomplete; choosing it opens the window, which shows
-/// the setup screen by itself.
-const SET_UP: &str = "Configurar ANOMANDER…";
+/// The items whose text never changes, in one language.
+#[derive(Debug, PartialEq, Eq)]
+pub struct Items {
+    pub open_chat: &'static str,
+    /// Enabled while a task on the computer goes by itself (DK-10).
+    pub stop_task: &'static str,
+    pub copy_diagnostics: &'static str,
+    pub quit: &'static str,
+}
+
+pub fn items(locale: Locale) -> Items {
+    match locale {
+        Locale::Es => Items {
+            open_chat: "Abrir chat",
+            stop_task: "Detener tarea",
+            copy_diagnostics: "Copiar diagnóstico",
+            quit: "Salir de ANOMANDER",
+        },
+        Locale::En => Items {
+            open_chat: "Open chat",
+            stop_task: "Stop task",
+            copy_diagnostics: "Copy diagnostics",
+            quit: "Quit ANOMANDER",
+        },
+    }
+}
 
 /// What the menu bar shows: the daemon's status, and the work ANOMANDER has in hand.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -108,38 +130,86 @@ impl View {
     }
 }
 
-pub fn labels(view: &View) -> Labels {
+pub fn labels(view: &View, locale: Locale) -> Labels {
+    let say = |es, en| locale.pick(es, en);
+    let start = say("Iniciar ANOMANDER", "Start ANOMANDER");
+    let stop = say("Detener ANOMANDER", "Stop ANOMANDER");
+    // Starting cannot help while the setup is incomplete; choosing it opens the window, which
+    // shows the setup screen by itself.
+    let set_up = say("Configurar ANOMANDER…", "Set up ANOMANDER…");
     let status = &view.status;
     let (status, toggle) = match (status.state, status.reason) {
         // A task is the more telling of the two: the chat may be waiting for it as well.
-        (DaemonState::Running, _) if view.task => ("ANOMANDER está haciendo una tarea…", STOP),
-        (DaemonState::Running, _) if view.thinking => ("ANOMANDER está pensando…", STOP),
-        (DaemonState::Running, _) => ("ANOMANDER está en marcha", STOP),
-        (DaemonState::Starting, _) => ("ANOMANDER está arrancando…", STOP),
-        (DaemonState::Failing, _) => ("ANOMANDER se ha caído; reiniciando…", STOP),
-        (DaemonState::Stopped, Some(StopReason::NotConfigured)) => {
-            ("ANOMANDER está detenido: falta configurarlo", SET_UP)
-        }
+        (DaemonState::Running, _) if view.task => (
+            say(
+                "ANOMANDER está haciendo una tarea…",
+                "ANOMANDER is doing a task…",
+            ),
+            stop,
+        ),
+        (DaemonState::Running, _) if view.thinking => (
+            say("ANOMANDER está pensando…", "ANOMANDER is thinking…"),
+            stop,
+        ),
+        (DaemonState::Running, _) => (
+            say("ANOMANDER está en marcha", "ANOMANDER is running"),
+            stop,
+        ),
+        (DaemonState::Starting, _) => (
+            say("ANOMANDER está arrancando…", "ANOMANDER is starting…"),
+            stop,
+        ),
+        (DaemonState::Failing, _) => (
+            say(
+                "ANOMANDER se ha caído; reiniciando…",
+                "ANOMANDER crashed; restarting…",
+            ),
+            stop,
+        ),
+        (DaemonState::Stopped, Some(StopReason::NotConfigured)) => (
+            say(
+                "ANOMANDER está detenido: falta configurarlo",
+                "ANOMANDER is stopped: it is not set up yet",
+            ),
+            set_up,
+        ),
         (DaemonState::Stopped, Some(StopReason::AlreadyRunning)) => (
-            "ANOMANDER está detenido: ya hay otro en marcha con estos datos",
-            START,
+            say(
+                "ANOMANDER está detenido: ya hay otro en marcha con estos datos",
+                "ANOMANDER is stopped: another one is already running with this data",
+            ),
+            start,
         ),
         (DaemonState::Stopped, Some(StopReason::BotInUse)) => (
-            "ANOMANDER está detenido: otro ANOMANDER usa el bot de Telegram",
-            START,
+            say(
+                "ANOMANDER está detenido: otro ANOMANDER usa el bot de Telegram",
+                "ANOMANDER is stopped: another ANOMANDER is using the Telegram bot",
+            ),
+            start,
         ),
         (DaemonState::Stopped, Some(StopReason::GaveUp)) => (
-            "ANOMANDER está detenido: ha fallado 3 veces en 5 minutos",
-            START,
+            say(
+                "ANOMANDER está detenido: ha fallado 3 veces en 5 minutos",
+                "ANOMANDER is stopped: it failed 3 times in 5 minutes",
+            ),
+            start,
         ),
-        (DaemonState::Stopped, Some(StopReason::StoppedByPrincipal)) => {
-            ("ANOMANDER está detenido", START)
-        }
+        (DaemonState::Stopped, Some(StopReason::StoppedByPrincipal)) => (
+            say("ANOMANDER está detenido", "ANOMANDER is stopped"),
+            start,
+        ),
         // No reason and an error: it never got to run, for example Node was not found.
-        (DaemonState::Stopped, None) if status.last_error.is_some() => {
-            ("ANOMANDER no ha podido arrancar", START)
-        }
-        (DaemonState::Stopped, None) => ("ANOMANDER está detenido", START),
+        (DaemonState::Stopped, None) if status.last_error.is_some() => (
+            say(
+                "ANOMANDER no ha podido arrancar",
+                "ANOMANDER could not start",
+            ),
+            start,
+        ),
+        (DaemonState::Stopped, None) => (
+            say("ANOMANDER está detenido", "ANOMANDER is stopped"),
+            start,
+        ),
     };
     Labels { status, toggle }
 }
@@ -150,6 +220,8 @@ pub struct TrayMenu {
     toggle: MenuItem<Wry>,
     /// "Detener tarea": enabled while a task on the computer goes by itself (DK-10).
     stop_task: MenuItem<Wry>,
+    /// The language of every text of the menu.
+    locale: Locale,
     view: Mutex<View>,
     /// Wakes the animation thread when the view changes, so it sleeps through an idle app.
     woken: Condvar,
@@ -161,10 +233,11 @@ pub struct TrayMenu {
 /// calm pace at 25 frames a second.
 const FRAME: Duration = Duration::from_millis(40);
 
-/// Builds the icon and its menu; `on_menu` gets the ID of the chosen item.
+/// Builds the icon and its menu, in `locale`; `on_menu` gets the ID of the chosen item.
 pub fn build(
     app: &App,
     initial: &DaemonStatus,
+    locale: Locale,
     on_menu: impl Fn(&AppHandle, &str) + Send + Sync + 'static,
 ) -> tauri::Result<()> {
     let view = View {
@@ -172,23 +245,24 @@ pub fn build(
         thinking: false,
         task: false,
     };
-    let texts = labels(&view);
+    let texts = labels(&view, locale);
+    let fixed = items(locale);
     // The status reads as a heading: it cannot be chosen.
     let status = MenuItem::with_id(app, "status", texts.status, false, None::<&str>)?;
-    let open = MenuItem::with_id(app, OPEN_CHAT, "Abrir chat", true, None::<&str>)?;
+    let open = MenuItem::with_id(app, OPEN_CHAT, fixed.open_chat, true, None::<&str>)?;
     let toggle = MenuItem::with_id(app, TOGGLE, texts.toggle, true, None::<&str>)?;
     // The app is out of the way while a task goes by itself: this is how to stop it then.
-    let stop_task = MenuItem::with_id(app, STOP_TASK, "Detener tarea", false, None::<&str>)?;
+    let stop_task = MenuItem::with_id(app, STOP_TASK, fixed.stop_task, false, None::<&str>)?;
     let diagnostics = MenuItem::with_id(
         app,
         COPY_DIAGNOSTICS,
-        "Copiar diagnóstico",
+        fixed.copy_diagnostics,
         true,
         None::<&str>,
     )?;
     // Cmd-Q quits a Mac app; a menu of the notification area has no shortcut of its own.
     let shortcut = (HERE == Tray::MenuBar).then_some("Cmd+Q");
-    let quit = MenuItem::with_id(app, QUIT, "Salir de ANOMANDER", true, shortcut)?;
+    let quit = MenuItem::with_id(app, QUIT, fixed.quit, true, shortcut)?;
     let separator = PredefinedMenuItem::separator(app)?;
     let menu = Menu::with_items(
         app,
@@ -222,6 +296,7 @@ pub fn build(
         status,
         toggle,
         stop_task,
+        locale,
         view: Mutex::new(view),
         woken: Condvar::new(),
         frame: AtomicU8::new(0),
@@ -380,7 +455,7 @@ fn change(app: &AppHandle, update: impl FnOnce(&mut View)) {
 }
 
 fn show(app: &AppHandle, menu: &TrayMenu, view: &View) {
-    let texts = labels(view);
+    let texts = labels(view, menu.locale);
     menu.frame.store(0, Ordering::Relaxed);
     draw(app, view.look(), 0);
     if let Some(tray) = app.tray_by_id(TRAY_ID) {
@@ -658,6 +733,11 @@ fn opacity(tray: Tray, look: Look, frame: u8, x: f32, y: f32) -> f32 {
 mod tests {
     use super::*;
 
+    /// The Spanish menu: the cases below read as the principal of a Spanish system does.
+    fn labels(view: &View) -> Labels {
+        super::labels(view, Locale::Es)
+    }
+
     fn status(state: DaemonState, reason: Option<StopReason>) -> View {
         View {
             status: DaemonStatus {
@@ -801,6 +881,104 @@ mod tests {
         assert_eq!(
             labels(&status(DaemonState::Stopped, None)).status,
             "ANOMANDER está detenido"
+        );
+    }
+
+    #[test]
+    fn the_menu_reads_in_english_on_any_other_system() {
+        let english = |view: &View| super::labels(view, Locale::En);
+        let says = |state, reason| english(&status(state, reason));
+        let cases = [
+            (
+                english(&on_a_task(DaemonState::Running)),
+                "ANOMANDER is doing a task…",
+                "Stop ANOMANDER",
+            ),
+            (
+                english(&thinking(DaemonState::Running)),
+                "ANOMANDER is thinking…",
+                "Stop ANOMANDER",
+            ),
+            (
+                says(DaemonState::Running, None),
+                "ANOMANDER is running",
+                "Stop ANOMANDER",
+            ),
+            (
+                says(DaemonState::Starting, None),
+                "ANOMANDER is starting…",
+                "Stop ANOMANDER",
+            ),
+            (
+                says(DaemonState::Failing, None),
+                "ANOMANDER crashed; restarting…",
+                "Stop ANOMANDER",
+            ),
+            (
+                says(DaemonState::Stopped, Some(StopReason::NotConfigured)),
+                "ANOMANDER is stopped: it is not set up yet",
+                "Set up ANOMANDER…",
+            ),
+            (
+                says(DaemonState::Stopped, Some(StopReason::AlreadyRunning)),
+                "ANOMANDER is stopped: another one is already running with this data",
+                "Start ANOMANDER",
+            ),
+            (
+                says(DaemonState::Stopped, Some(StopReason::BotInUse)),
+                "ANOMANDER is stopped: another ANOMANDER is using the Telegram bot",
+                "Start ANOMANDER",
+            ),
+            (
+                says(DaemonState::Stopped, Some(StopReason::GaveUp)),
+                "ANOMANDER is stopped: it failed 3 times in 5 minutes",
+                "Start ANOMANDER",
+            ),
+            (
+                says(DaemonState::Stopped, Some(StopReason::StoppedByPrincipal)),
+                "ANOMANDER is stopped",
+                "Start ANOMANDER",
+            ),
+            (
+                says(DaemonState::Stopped, None),
+                "ANOMANDER is stopped",
+                "Start ANOMANDER",
+            ),
+        ];
+        for (texts, status, toggle) in cases {
+            assert_eq!(texts, Labels { status, toggle });
+        }
+        let never_ran = View {
+            status: DaemonStatus {
+                state: DaemonState::Stopped,
+                reason: None,
+                last_error: Some("node was not found".into()),
+            },
+            thinking: false,
+            task: false,
+        };
+        assert_eq!(english(&never_ran).status, "ANOMANDER could not start");
+    }
+
+    #[test]
+    fn the_fixed_items_follow_the_language() {
+        assert_eq!(
+            items(Locale::Es),
+            Items {
+                open_chat: "Abrir chat",
+                stop_task: "Detener tarea",
+                copy_diagnostics: "Copiar diagnóstico",
+                quit: "Salir de ANOMANDER",
+            }
+        );
+        assert_eq!(
+            items(Locale::En),
+            Items {
+                open_chat: "Open chat",
+                stop_task: "Stop task",
+                copy_diagnostics: "Copy diagnostics",
+                quit: "Quit ANOMANDER",
+            }
         );
     }
 

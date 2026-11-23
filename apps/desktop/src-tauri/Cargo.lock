@@ -51,6 +51,7 @@ dependencies = [
  "icu_properties",
  "keyring",
  "libc",
+ "objc2-foundation",
  "security-framework",
  "serde",
  "serde_json",
