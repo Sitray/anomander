@@ -3,11 +3,20 @@
 // (`src-tauri/src/login.rs`), which mirrors `LOGIN_ACCOUNTS` of the daemon.
 import { buttons } from '@anomander/protocol';
 
+// Read when used, never on import: the buttons follow the window's language (`../locale.ts`).
 export const ACCOUNT_LABELS = {
-  openai: buttons.chatGpt,
-  'kimi-coding': buttons.kimiCode,
-  anthropic: buttons.claude,
-  'github-copilot': buttons.gitHubCopilot,
+  get openai() {
+    return buttons.chatGpt;
+  },
+  get 'kimi-coding'() {
+    return buttons.kimiCode;
+  },
+  get anthropic() {
+    return buttons.claude;
+  },
+  get 'github-copilot'() {
+    return buttons.gitHubCopilot;
+  },
 } as const satisfies Record<string, string>;
 
 /** The account's name, or its provider ID for one the window does not know. */

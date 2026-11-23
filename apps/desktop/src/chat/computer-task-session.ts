@@ -2,7 +2,12 @@
 // conversation, the socket and the shell; it decides which step goes, which waits for the
 // principal, and when the task is over.
 
-import { type ChatImage, type ComputerAction, strings as said } from '@anomander/protocol';
+import {
+  type ChatImage,
+  type ComputerAction,
+  perLocale,
+  strings as said,
+} from '@anomander/protocol';
 import { strings } from '../strings.ts';
 import type { NewRequest, Outcome } from './chat-client.ts';
 import type { ConversationAction } from './conversation.ts';
@@ -55,8 +60,12 @@ const ENDED = Symbol('ended');
 
 /** Errors of the shell after which nothing was done: its permission checks come first. */
 const NOTHING_DONE: Record<string, string> = {
-  computer_permission: strings.chat.computerPermission,
-  screen_permission: strings.chat.screenPermission,
+  get computer_permission() {
+    return strings.chat.computerPermission;
+  },
+  get screen_permission() {
+    return strings.chat.screenPermission;
+  },
 };
 
 /**
@@ -65,21 +74,43 @@ const NOTHING_DONE: Record<string, string> = {
  */
 const CAREFUL = 'computer_careful';
 
-/** What an Accessibility role is, in the principal's words. */
-const ROLE_NOUNS: Record<string, string> = {
-  AXButton: 'botón',
-  AXMenuButton: 'botón',
-  AXPopUpButton: 'botón',
-  AXLink: 'enlace',
-  AXMenuItem: 'opción de menú',
-  AXMenuBarItem: 'opción de menú',
-  AXCheckBox: 'casilla',
-  AXRadioButton: 'opción',
-  AXTextField: 'campo',
-  AXTextArea: 'campo',
-  AXComboBox: 'campo',
-  AXWebArea: 'página',
-};
+/** What an Accessibility role is, in the principal's words, and what any other one is. */
+const NOUNS = perLocale<{ roles: Record<string, string>; other: string }>({
+  es: {
+    roles: {
+      AXButton: 'botón',
+      AXMenuButton: 'botón',
+      AXPopUpButton: 'botón',
+      AXLink: 'enlace',
+      AXMenuItem: 'opción de menú',
+      AXMenuBarItem: 'opción de menú',
+      AXCheckBox: 'casilla',
+      AXRadioButton: 'opción',
+      AXTextField: 'campo',
+      AXTextArea: 'campo',
+      AXComboBox: 'campo',
+      AXWebArea: 'página',
+    },
+    other: 'elemento',
+  },
+  en: {
+    roles: {
+      AXButton: 'button',
+      AXMenuButton: 'button',
+      AXPopUpButton: 'button',
+      AXLink: 'link',
+      AXMenuItem: 'menu item',
+      AXMenuBarItem: 'menu item',
+      AXCheckBox: 'checkbox',
+      AXRadioButton: 'option',
+      AXTextField: 'field',
+      AXTextArea: 'field',
+      AXComboBox: 'field',
+      AXWebArea: 'page',
+    },
+    other: 'item',
+  },
+});
 
 /**
  * What the shell's `computer_careful` answer read on the screen, for the step that proposed
@@ -93,7 +124,7 @@ const reading = (reason: string, action: ComputerAction): { seen?: string; text?
   if (action.kind === 'click' && label !== '') {
     return { text: said.computerClick(label, action.double) };
   }
-  return { seen: strings.chat.computerSeen(ROLE_NOUNS[role] ?? 'elemento', label) };
+  return { seen: strings.chat.computerSeen(NOUNS.roles[role] ?? NOUNS.other, label) };
 };
 /** T1b: the step targets an app ANOMANDER never acts on (`computer_blocked:<app>`). */
 const BLOCKED = 'computer_blocked:';
