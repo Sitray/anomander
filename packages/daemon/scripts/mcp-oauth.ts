@@ -7,8 +7,13 @@
 // principal authorized the app, `anomander oauth-done <json>` with the client and its tokens on
 // one line, which the shell stores in the Keychain and never shows. Then one word: `connected`,
 // `denied` or `timed_out`, and ends with 0. An error ends with 1 and prints only its code: a
-// message may quote the address. Without an `http` or `https` address it ends with 2.
+// message may quote the address. Without an `http` or `https` address it ends with 2. The page the
+// browser shows at the end speaks `ANOMANDER_LOCALE`, which the shell passes on.
+import { setLocale } from '@anomander/protocol';
+import { loadLocale } from '../src/config.ts';
 import { connectWithOAuth } from '../src/connections/oauth-login.ts';
+
+setLocale(loadLocale(process.env));
 
 const [url] = process.argv.slice(2);
 const isAddress = (text: string | undefined): text is string => {

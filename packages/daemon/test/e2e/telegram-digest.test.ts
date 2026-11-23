@@ -12,7 +12,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { type Anomander, startAnomander } from '../../src/app.ts';
 import { loadConfig } from '../../src/config.ts';
 import { digestCapability } from '../../src/digest/capability.ts';
-import { TEXT_INTERPRETER_PROMPT } from '../../src/processor/text-interpreter.ts';
+import { textInterpreterPrompt } from '../../src/processor/text-interpreter.ts';
 import { remindersCapability } from '../../src/reminders/capability.ts';
 
 // End to end (PRD §15): turning the morning digest on, changing its time and turning it off
@@ -55,7 +55,7 @@ beforeEach(async () => {
   });
   const complete = async (_model: string, context: Context): Promise<AssistantMessage> => {
     const [turn] = context.messages;
-    if (context.systemPrompt === TEXT_INTERPRETER_PROMPT && typeof turn?.content === 'string') {
+    if (context.systemPrompt === textInterpreterPrompt() && typeof turn?.content === 'string') {
       const { message } = JSON.parse(turn.content);
       const interpretation = interpretations.get(message);
       if (interpretation === undefined) throw new Error(`no interpretation for ${message}`);
@@ -210,8 +210,8 @@ describe('turning the morning digest on and off over Telegram (R-26)', () => {
   });
 
   it('R-24 AC1: the prompt holds the reminders section unchanged, then the digest section', () => {
-    const reminders = TEXT_INTERPRETER_PROMPT.indexOf(remindersCapability.prompt);
+    const reminders = textInterpreterPrompt().indexOf(remindersCapability.prompt);
     expect(reminders).toBeGreaterThan(0);
-    expect(TEXT_INTERPRETER_PROMPT.indexOf(digestCapability.prompt)).toBeGreaterThan(reminders);
+    expect(textInterpreterPrompt().indexOf(digestCapability.prompt)).toBeGreaterThan(reminders);
   });
 });

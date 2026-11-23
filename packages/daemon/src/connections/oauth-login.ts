@@ -1,6 +1,7 @@
 import { randomBytes } from 'node:crypto';
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
+import { getLocale, type Locale } from '@anomander/protocol';
 import {
   auth,
   type OAuthClientProvider,
@@ -42,12 +43,21 @@ export interface OAuthLoginOptions {
 
 export const OAUTH_TIMEOUT_MS = 5 * 60 * 1000;
 
-/** The pages the browser shows when it comes back (es-ES, as the app). */
-const PAGES = {
-  connected: 'Ya puedes cerrar esta pestaña y volver a ANOMANDER.',
-  refused: 'ANOMANDER no se ha conectado. Puedes cerrar esta pestaña.',
-  wrong: 'Esta dirección no es para ANOMANDER.',
-} as const;
+type Page = 'connected' | 'refused' | 'wrong';
+
+/** The pages the browser shows when it comes back, in the language of the app. */
+const PAGES: Record<Locale, Record<Page, string>> = {
+  es: {
+    connected: 'Ya puedes cerrar esta pestaña y volver a ANOMANDER.',
+    refused: 'ANOMANDER no se ha conectado. Puedes cerrar esta pestaña.',
+    wrong: 'Esta dirección no es para ANOMANDER.',
+  },
+  en: {
+    connected: 'You can close this tab and go back to ANOMANDER.',
+    refused: 'ANOMANDER did not connect. You can close this tab.',
+    wrong: 'This address is not for ANOMANDER.',
+  },
+};
 
 type Answer = { code: string } | { error: string } | { wrongIssuer: true };
 
@@ -110,8 +120,11 @@ const keepingMetadata = (keep: (metadata: RawMetadata) => void) => {
   };
 };
 
-const page = (text: string) =>
-  `<!doctype html><html lang="es"><meta charset="utf-8"><title>ANOMANDER</title><p>${text}</p></html>`;
+/** One page, in the language chosen when the browser comes back. */
+const page = (name: Page) => {
+  const locale = getLocale();
+  return `<!doctype html><html lang="${locale}"><meta charset="utf-8"><title>ANOMANDER</title><p>${PAGES[locale][name]}</p></html>`;
+};
 
 /**
  * Listens on a free port of `127.0.0.1` for the one redirect that carries `state`; `accepts`
@@ -123,42 +136,42 @@ const listenForRedirect = async (state: string, accepts: (iss: string | null) =>
     answered = resolve;
   });
   const server: Server = createServer((request, response) => {
-    const reply = (status: number, text: string) =>
+    const reply = (status: number, name: Page) =>
       response
         .writeHead(status, {
           'Content-Type': 'text/html; charset=utf-8',
           'Cache-Control': 'no-store',
           'Referrer-Policy': 'no-referrer',
         })
-        .end(page(text));
+        .end(page(name));
     // A request target that is not a URL must not end the wait.
     const url = URL.parse(request.url ?? '/', 'http://127.0.0.1');
     if (url === null) {
-      reply(400, PAGES.wrong);
+      reply(400, 'wrong');
       return;
     }
     if (request.method !== 'GET' || url.pathname !== '/callback') {
-      reply(404, PAGES.wrong);
+      reply(404, 'wrong');
       return;
     }
     // Any other page could send the browser here: only the right state counts.
     if (url.searchParams.get('state') !== state) {
-      reply(400, PAGES.wrong);
+      reply(400, 'wrong');
       return;
     }
     // The right state from the wrong server: the login is over, and its code is never used.
     if (!accepts(url.searchParams.get('iss'))) {
-      reply(400, PAGES.refused);
+      reply(400, 'refused');
       answered({ wrongIssuer: true });
       return;
     }
     const code = url.searchParams.get('code');
     if (code !== null && code !== '') {
-      reply(200, PAGES.connected);
+      reply(200, 'connected');
       answered({ code });
       return;
     }
-    reply(200, PAGES.refused);
+    reply(200, 'refused');
     answered({ error: url.searchParams.get('error') ?? 'no_code' });
   });
   await new Promise<void>((done, failed) => {

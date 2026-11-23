@@ -62,8 +62,9 @@ const SEND_ATTEMPTS = 3;
 const RETRY_DELAY_MS = 500;
 /** A longer `retry_after` gives up: the handler's turn would block for that long. */
 const MAX_RETRY_AFTER_S = 30;
-// R-22 AC1: the principal always gets an answer, even when the daemon fails.
-const FAILED: Reply = { text: strings.processingFailed() };
+// R-22 AC1: the principal always gets an answer, even when the daemon fails. Built when sent, so
+// it is in the language the daemon chose at startup, not the one of this module's import.
+const failed = (): Reply => ({ text: strings.processingFailed() });
 
 const channelRef = (messageId: number) => `telegram:${messageId}`;
 const receivedAt = (message: Message) => new Date(message.date * 1000).toISOString();
@@ -190,7 +191,7 @@ export const createTelegramBot = (options: TelegramBotOptions): Bot => {
         channelRef: receipt.channelRef,
         error,
       });
-      reply = FAILED;
+      reply = failed();
     }
     if (reply !== null) await deliver(chatId, reply);
   };
@@ -285,7 +286,7 @@ export const createTelegramBot = (options: TelegramBotOptions): Bot => {
         channelRef: channelRef(message.message_id),
         error,
       });
-      reply = FAILED;
+      reply = failed();
     }
     if (reply !== null) await deliver(ctx.chat.id, reply);
   });
@@ -304,7 +305,7 @@ export const createTelegramBot = (options: TelegramBotOptions): Bot => {
       reply = await onButton({ data, channelRef: ref, pressedAt: new Date().toISOString() });
     } catch (error) {
       logger.error('The daemon failed to handle a button press', { channelRef: ref, error });
-      reply = FAILED;
+      reply = failed();
     }
     if (reply !== null) await deliver(ctx.chat?.id ?? principalChatId, reply);
   });

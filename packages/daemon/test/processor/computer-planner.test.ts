@@ -2,7 +2,7 @@ import type { AssistantMessage, Context } from '@earendil-works/pi-ai';
 import { describe, expect, it, vi } from 'vitest';
 import { AiBudgetExhaustedError } from '../../src/budget/ai-budget.ts';
 import {
-  COMPUTER_PLANNER_PROMPT,
+  computerPlannerPrompt,
   createPiAiComputerPlanner,
 } from '../../src/processor/computer-planner.ts';
 
@@ -73,7 +73,7 @@ describe('the computer planner (DK-10)', () => {
 
     expect(contexts).toHaveLength(1);
     const [context] = contexts;
-    expect(context?.systemPrompt).toBe(COMPUTER_PLANNER_PROMPT);
+    expect(context?.systemPrompt).toBe(computerPlannerPrompt());
     expect(context).not.toHaveProperty('tools');
     expect(context?.messages).toHaveLength(1);
     expect(context?.messages[0]?.content).toEqual([

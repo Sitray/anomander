@@ -64,24 +64,34 @@ interface Account {
   answers: { select?: string; text?: string };
 }
 
+// The labels are read when shown, in the language the daemon chose at startup, not at import.
 const ACCOUNTS: readonly Account[] = [
   {
     providerId: 'openai',
-    label: buttons.chatGpt,
-    linkText: strings.loginPasteAddress,
+    get label() {
+      return buttons.chatGpt;
+    },
+    linkText: () => strings.loginPasteAddress(),
     answers: {},
   },
   {
     // Its device-code flow needs nothing pasted back.
     providerId: 'kimi-coding',
-    label: buttons.kimiCode,
+    get label() {
+      return buttons.kimiCode;
+    },
     answers: {},
   },
 ];
 
 /** The accounts that support login, for the terminal scripts (R-27 AC7). */
 export const LOGIN_ACCOUNTS: readonly { providerId: string; label: string }[] = ACCOUNTS.map(
-  ({ providerId, label }) => ({ providerId, label }),
+  (account) => ({
+    providerId: account.providerId,
+    get label() {
+      return account.label;
+    },
+  }),
 );
 
 /**
@@ -90,8 +100,18 @@ export const LOGIN_ACCOUNTS: readonly { providerId: string; label: string }[] = 
  */
 export const LOGOUT_ACCOUNTS: readonly { providerId: string; label: string }[] = [
   ...LOGIN_ACCOUNTS,
-  { providerId: 'anthropic', label: buttons.claude },
-  { providerId: 'github-copilot', label: buttons.gitHubCopilot },
+  {
+    providerId: 'anthropic',
+    get label() {
+      return buttons.claude;
+    },
+  },
+  {
+    providerId: 'github-copilot',
+    get label() {
+      return buttons.gitHubCopilot;
+    },
+  },
 ];
 
 const account = (providerId: string | undefined) =>

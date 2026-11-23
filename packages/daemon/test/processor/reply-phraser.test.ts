@@ -1,5 +1,6 @@
+import { formatAmount, setLocale, strings } from '@anomander/protocol';
 import type { AssistantMessage, Context } from '@earendil-works/pi-ai';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { checkedPhrasing, createPiAiReplyPhraser } from '../../src/processor/reply-phraser.ts';
 
 // R-21: the processor may word S-1, S-2, S-16 and S-21; code keeps the facts.
@@ -121,5 +122,40 @@ describe('R-21 phrased replies', () => {
     expect(contexts).toHaveLength(1);
     expect(Object.keys(contexts[0] ?? {}).sort()).toEqual(['messages', 'systemPrompt']);
     expect(contexts[0]?.messages.map(({ role }) => role)).toEqual(['user']);
+  });
+
+  // S5: the facts are checked in the amount format of the language the daemon speaks.
+  describe('in English', () => {
+    afterEach(() => {
+      setLocale('es');
+    });
+
+    const english = () => {
+      setLocale('en');
+      const facts = [formatAmount(2340), 'Mercadona', 'restaurants'];
+      return { reference: strings.registered(2340, 'Mercadona', 'restaurants'), facts };
+    };
+
+    it('AC1: sends a phrasing that keeps €23.40', async () => {
+      const request = english();
+      expect(request.facts[0]).toBe('€23.40');
+      const text = 'Done! I logged €23.40 at Mercadona, under restaurants. Enjoy!';
+
+      expect(
+        await phraserAnswering(async () => answer(text)).phrase({ ...request, message: '' }),
+      ).toBe(text);
+    });
+
+    it.each([
+      ['changes the amount', 'Done! I logged €24.40 at Mercadona, under restaurants.'],
+      ['writes it with a comma', 'Done! I logged €23,40 at Mercadona, under restaurants.'],
+      ['adds an amount', 'Done! I logged €23.40 at Mercadona (restaurants); €80.00 this week.'],
+    ])('AC2: sends the reference when the phrasing %s', async (_case, text) => {
+      const request = english();
+
+      expect(
+        await phraserAnswering(async () => answer(text)).phrase({ ...request, message: '' }),
+      ).toBe(request.reference);
+    });
   });
 });

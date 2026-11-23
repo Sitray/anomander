@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { loadConfig, parseModelId } from '../src/config.ts';
+import { loadConfig, loadLocale, parseModelId } from '../src/config.ts';
 
 // PRD §14.4 and R-15 AC1.
 describe('parseModelId', () => {
@@ -44,6 +44,7 @@ describe('loadConfig', () => {
       inboxDir: './data/inbox',
       authPath: './data/auth.json',
       timeZone: 'Europe/Madrid',
+      locale: 'es',
       apiToken: undefined,
       apiHost: '127.0.0.1',
       apiPort: 4311,
@@ -200,5 +201,28 @@ describe('loadConfig', () => {
         ANOMANDER_MCP_CONFIG: '/data/mcp.json',
       }).mcpConfigPath,
     ).toBe('/data/mcp.json');
+  });
+
+  // S3: the language of the daemon's text; Spanish unless `ANOMANDER_LOCALE` says English.
+  it('reads ANOMANDER_LOCALE, Spanish by default, and rejects any other language', () => {
+    const telegram = { TELEGRAM_BOT_TOKEN: '123:abc', ANOMANDER_PRINCIPAL_CHAT_ID: '4242' };
+    expect(loadConfig(telegram).locale).toBe('es');
+    expect(loadConfig({ ...telegram, ANOMANDER_LOCALE: '' }).locale).toBe('es');
+    expect(loadConfig({ ...telegram, ANOMANDER_LOCALE: 'es' }).locale).toBe('es');
+    expect(loadConfig({ ...telegram, ANOMANDER_LOCALE: 'en' }).locale).toBe('en');
+    expect(() => loadConfig({ ...telegram, ANOMANDER_LOCALE: 'fr' })).toThrow(
+      /invalid configuration: ANOMANDER_LOCALE /,
+    );
+  });
+});
+
+// The scripts the shell runs beside the daemon (the MCP OAuth page) read the language alone.
+describe('loadLocale', () => {
+  it('reads ANOMANDER_LOCALE, and is Spanish when it is unset, empty or unknown', () => {
+    expect(loadLocale({ ANOMANDER_LOCALE: 'en' })).toBe('en');
+    expect(loadLocale({ ANOMANDER_LOCALE: 'es' })).toBe('es');
+    expect(loadLocale({})).toBe('es');
+    expect(loadLocale({ ANOMANDER_LOCALE: '' })).toBe('es');
+    expect(loadLocale({ ANOMANDER_LOCALE: 'fr' })).toBe('es');
   });
 });

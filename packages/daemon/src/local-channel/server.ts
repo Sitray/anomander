@@ -65,8 +65,9 @@ const HOST = '127.0.0.1';
 const MAX_FILE_BYTES = 20 * 1024 * 1024;
 /** One frame: an album of large images in base64. A longer frame closes its connection. */
 const MAX_FRAME_BYTES = 64 * 1024 * 1024;
-// R-22 AC1: the principal always gets an answer, even when the daemon fails.
-const FAILED: DoorReply = { text: strings.processingFailed() };
+// R-22 AC1: the principal always gets an answer, even when the daemon fails. Built when sent, so
+// it is in the language the daemon chose at startup, not the one of this module's import.
+const failed = (): DoorReply => ({ text: strings.processingFailed() });
 
 const id = z.string().min(1).max(64);
 const requestSchema = z.discriminatedUnion('type', [
@@ -237,7 +238,7 @@ export const startLocalChannel = (deps: LocalChannelDeps): LocalChannel => {
       logger.error(`The daemon failed to handle a ${request.type} from the local channel`, {
         error,
       });
-      reply = FAILED;
+      reply = failed();
     }
     if (reply === null) {
       await send(socket, { type: 'done', inReplyTo: request.id });

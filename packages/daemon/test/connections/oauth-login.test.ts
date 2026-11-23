@@ -2,6 +2,7 @@ import { spawn } from 'node:child_process';
 import { connect } from 'node:net';
 import { resolve } from 'node:path';
 import { createInterface } from 'node:readline';
+import { setLocale } from '@anomander/protocol';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { connectWithOAuth } from '../../src/connections/oauth-login.ts';
 import { authorize, type OAuthFixture, startOAuthServer } from '../fixtures/oauth-server.ts';
@@ -18,6 +19,7 @@ beforeEach(async () => {
 afterEach(async () => {
   vi.restoreAllMocks();
   await fixture.close();
+  setLocale('es');
 });
 
 /** Adds `iss` to the redirect back, as an RFC 9207 authorization server does. */
@@ -113,6 +115,37 @@ describe('connecting with OAuth', () => {
       client_name: 'ANOMANDER',
     });
     expect(page).toEqual({ status: 200, text: expect.stringContaining('Ya puedes cerrar') });
+  });
+
+  // S1: the browser speaks the language the process chose.
+  it('shows the pages in English when the language is English', async () => {
+    setLocale('en');
+    let page: { status: number; text: string } | undefined;
+    const outcome = await connectWithOAuth({
+      url: fixture.mcpUrl,
+      open: async (address) => {
+        page = await authorize(address);
+      },
+    });
+
+    expect(outcome.kind).toBe('connected');
+    expect(page?.status).toBe(200);
+    expect(page?.text).toContain('<html lang="en">');
+    expect(page?.text).toContain('You can close this tab and go back to ANOMANDER.');
+
+    let refusedPage: { status: number; text: string } | undefined;
+    await connectWithOAuth({
+      url: fixture.mcpUrl,
+      open: async (address) => {
+        refusedPage = await authorize(address, (back) => {
+          const refused = new URL(back.origin + back.pathname);
+          refused.searchParams.set('error', 'access_denied');
+          refused.searchParams.set('state', back.searchParams.get('state') ?? '');
+          return refused;
+        });
+      },
+    });
+    expect(refusedPage?.text).toContain('ANOMANDER did not connect. You can close this tab.');
   });
 
   it('takes the redirect only with the state it sent, and keeps waiting for it', async () => {

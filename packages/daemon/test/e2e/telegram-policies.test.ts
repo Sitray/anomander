@@ -14,7 +14,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { type Anomander, startAnomander } from '../../src/app.ts';
 import { loadConfig } from '../../src/config.ts';
 import { RECEIPT_READER_PROMPT } from '../../src/processor/receipt-reader.ts';
-import { TEXT_INTERPRETER_PROMPT } from '../../src/processor/text-interpreter.ts';
+import { textInterpreterPrompt } from '../../src/processor/text-interpreter.ts';
 
 // End to end (PRD §15): policies (R-13 AC1), patterns noticed by code (R-13 AC2) and the
 // supermarket view (R-11 AC2), through the fake Telegram API, the real bot and a SQLite file. The
@@ -59,7 +59,7 @@ beforeEach(async () => {
   const complete = async (_model: string, context: Context): Promise<AssistantMessage> => {
     if (context.systemPrompt === RECEIPT_READER_PROMPT) return recorded('receipt-reader/adds-up');
     const [turn] = context.messages;
-    if (context.systemPrompt === TEXT_INTERPRETER_PROMPT && typeof turn?.content === 'string') {
+    if (context.systemPrompt === textInterpreterPrompt() && typeof turn?.content === 'string') {
       const { message } = JSON.parse(turn.content);
       const interpretation = interpretations.get(message);
       if (interpretation === undefined) throw new Error(`no interpretation for ${message}`);

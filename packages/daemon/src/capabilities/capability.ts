@@ -22,8 +22,11 @@ export interface CapabilitySpec<Call extends { kind: string }> {
   name: string;
   /** The envelope kinds the capability handles; no two capabilities share one. */
   kinds: readonly Call['kind'][];
-  /** Instructions and JSON shape added to the text interpreter's prompt (R-24 AC1). */
-  prompt: string;
+  /**
+   * Instructions and JSON shape added to the text interpreter's prompt (R-24 AC1); a function
+   * when they hold text in the language the daemon chose at startup, so it is read when used.
+   */
+  prompt: string | (() => string);
   /** Validates the processor's call (R-24 AC2). */
   schema: z.ZodType<Call>;
   /** What the processor needs to read the message, sent under `name` in the user turn. */
@@ -53,7 +56,9 @@ export const defineCapability = <Call extends { kind: string }>(
 ): Capability => ({
   name: spec.name,
   kinds: spec.kinds,
-  prompt: spec.prompt,
+  get prompt() {
+    return typeof spec.prompt === 'function' ? spec.prompt() : spec.prompt;
+  },
   ...(spec.context === undefined ? {} : { context: spec.context }),
   accept: (envelope) => {
     const parsed = spec.schema.safeParse(envelope);

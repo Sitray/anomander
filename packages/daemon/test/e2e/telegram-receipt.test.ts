@@ -13,7 +13,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { type Anomander, startAnomander } from '../../src/app.ts';
 import { loadConfig } from '../../src/config.ts';
 import { RECEIPT_READER_PROMPT } from '../../src/processor/receipt-reader.ts';
-import { TEXT_INTERPRETER_PROMPT } from '../../src/processor/text-interpreter.ts';
+import { textInterpreterPrompt } from '../../src/processor/text-interpreter.ts';
 
 // End to end (PRD §15): a receipt photo through the fake Telegram API, the real bot, the daemon
 // and a SQLite file, with hand-authored recorded vision responses instead of a live model.
@@ -54,7 +54,7 @@ beforeEach(async () => {
       return recorded(readerFixture);
     }
     const [turn] = context.messages;
-    if (context.systemPrompt === TEXT_INTERPRETER_PROMPT && typeof turn?.content === 'string') {
+    if (context.systemPrompt === textInterpreterPrompt() && typeof turn?.content === 'string') {
       interpreterRecent.push(JSON.parse(turn.content).recent);
     }
     // The phraser fails, so S-1 goes out exactly as written in §12 (R-21 AC2).

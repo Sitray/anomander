@@ -19,7 +19,7 @@ import { type Anomander, startAnomander } from '../../src/app.ts';
 import { createFileCredentialStore } from '../../src/auth/file-credential-store.ts';
 import type { ModelLogin } from '../../src/auth/telegram-login.ts';
 import { loadConfig } from '../../src/config.ts';
-import { TEXT_INTERPRETER_PROMPT } from '../../src/processor/text-interpreter.ts';
+import { textInterpreterPrompt } from '../../src/processor/text-interpreter.ts';
 
 // End to end (PRD §15): model login from Telegram (R-27 AC1-AC4, AC6, R-17 AC7) through the fake
 // Telegram API and the real bot. pi-ai's `models.login` is a fake that drives the same
@@ -84,7 +84,7 @@ beforeEach(async () => {
   store = createFileCredentialStore(config.authPath);
   const complete = async (_model: string, context: Context): Promise<AssistantMessage> => {
     const [turn] = context.messages;
-    if (context.systemPrompt === TEXT_INTERPRETER_PROMPT && typeof turn?.content === 'string') {
+    if (context.systemPrompt === textInterpreterPrompt() && typeof turn?.content === 'string') {
       interpreted.push(JSON.parse(turn.content));
       return CONVERSATION;
     }
