@@ -206,12 +206,6 @@ const plainHttpOffHost = (input: Partial<Record<EnvKey, string>>): string | unde
 export const loadAuthPath = (env: Record<string, string | undefined>): string =>
   envSchema.shape.ANOMANDER_AUTH_PATH.parse(env.ANOMANDER_AUTH_PATH || undefined);
 
-/** `ANOMANDER_LOCALE` alone, for the scripts the shell runs beside the daemon; `es` when unset or unknown. */
-export const loadLocale = (env: Record<string, string | undefined>): Locale => {
-  const read = envSchema.shape.ANOMANDER_LOCALE.safeParse(env.ANOMANDER_LOCALE || undefined);
-  return read.success ? read.data : 'es';
-};
-
 /** Reads §14.4 from `env`. An empty value counts as unset, so its default applies. */
 export const loadConfig = (env: Record<string, string | undefined>): Config => {
   const keys = Object.keys(envSchema.shape) as EnvKey[];

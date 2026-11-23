@@ -10,10 +10,10 @@
 // message may quote the address. Without an `http` or `https` address it ends with 2. The page the
 // browser shows at the end speaks `ANOMANDER_LOCALE`, which the shell passes on.
 import { setLocale } from '@anomander/protocol';
-import { loadLocale } from '../src/config.ts';
 import { connectWithOAuth } from '../src/connections/oauth-login.ts';
 
-setLocale(loadLocale(process.env));
+// Read by hand: the daemon's config would make this short script slow to start.
+setLocale(process.env.ANOMANDER_LOCALE === 'en' ? 'en' : 'es');
 
 const [url] = process.argv.slice(2);
 const isAddress = (text: string | undefined): text is string => {

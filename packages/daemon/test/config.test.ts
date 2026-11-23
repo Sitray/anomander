@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { loadConfig, loadLocale, parseModelId } from '../src/config.ts';
+import { loadConfig, parseModelId } from '../src/config.ts';
 
 // PRD §14.4 and R-15 AC1.
 describe('parseModelId', () => {
@@ -213,16 +213,5 @@ describe('loadConfig', () => {
     expect(() => loadConfig({ ...telegram, ANOMANDER_LOCALE: 'fr' })).toThrow(
       /invalid configuration: ANOMANDER_LOCALE /,
     );
-  });
-});
-
-// The scripts the shell runs beside the daemon (the MCP OAuth page) read the language alone.
-describe('loadLocale', () => {
-  it('reads ANOMANDER_LOCALE, and is Spanish when it is unset, empty or unknown', () => {
-    expect(loadLocale({ ANOMANDER_LOCALE: 'en' })).toBe('en');
-    expect(loadLocale({ ANOMANDER_LOCALE: 'es' })).toBe('es');
-    expect(loadLocale({})).toBe('es');
-    expect(loadLocale({ ANOMANDER_LOCALE: '' })).toBe('es');
-    expect(loadLocale({ ANOMANDER_LOCALE: 'fr' })).toBe('es');
   });
 });
