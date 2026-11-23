@@ -24,8 +24,12 @@ export interface WebSearchShell {
   saveConnection: (server: ConnectionInput) => Promise<ConnectionsView>;
 }
 
-/** Adds the web search, unless a server already has its name; rejects with the shell's message. */
-export const addWebSearch = async (shell: WebSearchShell): Promise<void> => {
-  if (hasWebSearch(await shell.connections())) return;
+/**
+ * Adds the web search, unless a server already has its name: `true` when it was saved, which
+ * starts the daemon again. Rejects with the shell's message.
+ */
+export const addWebSearch = async (shell: WebSearchShell): Promise<boolean> => {
+  if (hasWebSearch(await shell.connections())) return false;
   await shell.saveConnection(webSearchInput());
+  return true;
 };

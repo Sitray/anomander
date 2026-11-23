@@ -168,7 +168,10 @@ export const createTextExpenseHandler = (deps: TextExpenseDeps): TextHandler => 
     // DK-13 AC1: a look or a task on the computer asked where it cannot be done.
     if (interpretation.kind === 'route_elsewhere') return { text: strings.routeInApp() };
     // T17: a lookup on the internet never goes to the computer; code says how to add a search.
-    if (interpretation.kind === 'no_web_search') return { text: strings.webSearchMissing() };
+    // DK-11 AC13: the app offers to add it in one press.
+    if (interpretation.kind === 'no_web_search') {
+      return { text: strings.webSearchMissing(), offer: 'web_search' };
+    }
     // R-24 AC3: a validated capability call is carried out by its capability's handler.
     if (interpretation.kind === 'capability') return interpretation.call.carryOut(message, env);
     // R-16: open conversation gets its reply; only its lasting facts are persisted.

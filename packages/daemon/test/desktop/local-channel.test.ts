@@ -1157,9 +1157,12 @@ describe('a search on the web (T17)', () => {
 
     api.push(updates.text({ chatId: PRINCIPAL }, asked));
 
-    expect((await api.waitForSent(1)).at(-1)?.text).toBe(
+    const sent = (await api.waitForSent(1)).at(-1);
+    expect(sent?.text).toBe(
       'Para buscar en internet necesito la conexión de búsqueda web. Añádela en Conexiones, en la app de ANOMANDER, y vuelve a pedírmelo.',
     );
+    // DK-11 AC13: the press that adds it is the app's; the bot gets no button.
+    expect(sent?.payload.reply_markup).toBeUndefined();
     expect(interpreted.at(-1)?.routes).toEqual(['connect']);
     expect(tasked).toEqual([]);
   });
@@ -1174,6 +1177,8 @@ describe('a search on the web (T17)', () => {
       'Para buscar en internet necesito la conexión de búsqueda web. Añádela en Conexiones, en la app de ANOMANDER, y vuelve a pedírmelo.',
     );
     expect(answer).not.toHaveProperty('route');
+    // DK-11 AC13: the app offers to add it in one press.
+    expect(answer.offer).toBe('web_search');
     expect(interpreted.at(-1)?.connected).toEqual([]);
     expect(plans).toEqual([]);
     expect(tasked).toEqual([]);

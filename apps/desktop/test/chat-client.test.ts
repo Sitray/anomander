@@ -271,4 +271,20 @@ describe('requests', () => {
       false,
     );
   });
+  it('keeps the offer of a reply only as DK-11 AC13 sends it: the web search', () => {
+    const socket = connected();
+    const offers = ['web_search', 'notion', 42];
+    const ids = offers.map(() => sent(client.send({ type: 'text', text: 'busca' })));
+    offers.forEach((offer, index) => {
+      socket.receive({ ...reply(ids[index] as string), offer } as never);
+    });
+
+    const replies = outcomes.map(([, outcome]) =>
+      outcome.type === 'reply' ? outcome.reply : null,
+    );
+    expect(replies[0]?.offer).toBe('web_search');
+    expect(replies.slice(1).some((received) => received === null || 'offer' in received)).toBe(
+      false,
+    );
+  });
 });

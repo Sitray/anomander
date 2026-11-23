@@ -108,6 +108,7 @@ export function App() {
                 subscribeStop={shell.onStopTask}
                 model={snapshot.setup.model}
                 onStart={shell.start}
+                onAddWebSearch={onAddWebSearch}
               />
             </div>
             {open === 'setup' && (

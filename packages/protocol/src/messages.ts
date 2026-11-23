@@ -66,6 +66,9 @@ export interface Route {
   task: string;
 }
 
+/** DK-11 AC13: a connection the app adds in one press. */
+export type Offer = 'web_search';
+
 export interface Reply {
   text: string;
   /** Shown under `text`, in one row (R-6 AC3). */
@@ -79,6 +82,11 @@ export interface Reply {
    * computer only the app can start.
    */
   route?: Route;
+  /**
+   * DK-11 AC13: what `text` says is missing and the app can add in one press, then ask again.
+   * Only the app shows it; Telegram sends `text` alone.
+   */
+  offer?: Offer;
   /** Called once the front door has sent `text`, to record the delivery. */
   onDelivered?: (delivery: Delivery) => void;
 }

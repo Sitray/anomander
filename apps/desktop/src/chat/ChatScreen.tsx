@@ -39,6 +39,11 @@ export interface ChatScreenProps {
   model?: string | null;
   /** S5: starts the daemon, offered by the empty chat while it is stopped. */
   onStart?: () => void;
+  /**
+   * DK-11 AC13: adds the web search connection; `true` when saved, `false` when it was already
+   * there. Absent where the window cannot add one: the chat then only says it is missing.
+   */
+  onAddWebSearch?: () => Promise<boolean>;
 }
 
 /** Why there is no channel, in the principal's words. */
@@ -54,7 +59,7 @@ const carriesFiles = (event: DragEvent): boolean => event.dataTransfer.types.inc
 
 export function ChatScreen(props: ChatScreenProps) {
   const { daemon, channel, onThinking, onReply, onCaptureScreen, onPerformAction } = props;
-  const { onReveal, onTaskRunning, subscribeStop, model = null } = props;
+  const { onReveal, onTaskRunning, subscribeStop, model = null, onAddWebSearch } = props;
   const draft = useDraft();
   const computer = useMemo(
     () =>
@@ -75,6 +80,7 @@ export function ChatScreen(props: ChatScreenProps) {
     // DK-9: a look does not keep the app out of the way.
     ...(onCaptureScreen === undefined ? {} : { look: () => onCaptureScreen() }),
     onProblem: draft.warn,
+    ...(onAddWebSearch === undefined ? {} : { addWebSearch: onAddWebSearch }),
   });
   const [dropping, setDropping] = useState(false);
   /** `dragenter` minus `dragleave`: both also fire for every child the pointer crosses. */
@@ -151,6 +157,7 @@ export function ChatScreen(props: ChatScreenProps) {
         onPress={chat.press}
         onAllow={chat.allow}
         onRefuse={chat.refuse}
+        onAddWebSearch={onAddWebSearch === undefined ? undefined : chat.addWebSearch}
       />
       {chat.running && (
         <div className="task-bar">

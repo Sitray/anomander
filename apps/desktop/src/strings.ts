@@ -115,6 +115,12 @@ const es = {
     lookNotSent: 'No he llegado a mirar tu pantalla.',
     taskNotSent: 'No he llegado a empezar la tarea.',
     startAgain: 'Intentar otra vez',
+    /** DK-11 AC13: the web search, offered in one press when it is missing. */
+    addWebSearch: 'Añadir búsqueda web',
+    addingWebSearch: 'Añadiendo…',
+    webSearchAdded: 'Búsqueda web añadida. ANOMANDER vuelve a buscarlo en cuanto esté listo.',
+    webSearchFailed:
+      'No se ha podido añadir la búsqueda web. Inténtalo otra vez o añádela en Conexiones.',
     /** The connection was lost while a look or the first step of a task was on its way. */
     startUnknown:
       'Se cortó la conexión y no sé si me llegó. Pídemelo otra vez si aún lo necesitas.',
@@ -537,6 +543,11 @@ const en: Strings = {
     lookNotSent: "I didn't get to look at your screen.",
     taskNotSent: "I didn't get to start the task.",
     startAgain: 'Try again',
+    /** DK-11 AC13: the web search, offered in one press when it is missing. */
+    addWebSearch: 'Add web search',
+    addingWebSearch: 'Adding…',
+    webSearchAdded: 'Web search added. ANOMANDER searches again as soon as it is ready.',
+    webSearchFailed: "Web search couldn't be added. Try again, or add it in Connections.",
     startUnknown:
       "The connection dropped and I don't know if it reached me. Ask me again if you still need it.",
 

@@ -383,7 +383,13 @@ and keep its secrets in the operating system instead of a text file.
     never a task on the computer: with a tool that searches it is routed to `connect`; with none
     the processor answers `{"kind":"no_web_search"}` and code says "Para buscar en internet
     necesito la conexión de búsqueda web. Añádela en Conexiones, en la app de ANOMANDER, y
-    vuelve a pedírmelo.", starting nothing. AC4 holds for such a route.
+    vuelve a pedírmelo.", starting nothing. AC4 holds for such a route. In the app that reply
+    carries `offer: 'web_search'` (DK-11 AC13; Telegram gets the text alone), and the chat shows
+    under it AC11's note and a button "Añadir búsqueda web" when the request was a typed text.
+    One press adds AC11's server (a server already named `Internet` is kept), waits for the
+    daemon that reads it to be back and open, and sends the same text again; while it works the
+    button is disabled, and when the connection cannot be saved the chat says so and the button
+    stays.
 - DK-14 Who the principal is and what ANOMANDER did (asked by the principal on 2026-11-20:
   "También me gustaría que recordara quién soy, que recuerde quien soy y tenga memoria de lo que
   ha hecho"; the proposal "pasarle los recuerdos a todas las rutas, y agregar un historial

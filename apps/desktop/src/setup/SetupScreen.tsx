@@ -22,7 +22,7 @@ export interface SetupScreenProps {
    * DK-11 AC11: adds the web search connection; rejects with the shell's own message. Offered,
    * checked, on the first setup only.
    */
-  onAddWebSearch?: () => Promise<void>;
+  onAddWebSearch?: () => Promise<unknown>;
 }
 
 const { setup: text } = strings;
