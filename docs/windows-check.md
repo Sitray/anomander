@@ -26,7 +26,7 @@ Note what fails, with the step's number, and attach "Copiar diagnóstico" (step 
 
 ## 3. Chat
 
-- [ ] Write "hola" in the chat: it answers in Spanish.
+- [ ] Write "hello" in the chat: it answers in the system's language (Spanish on a Spanish Windows, English otherwise).
 - [ ] Write an expense ("He gastado 12,50 € en Mercadona"): it asks or records it as on the Mac.
 
 ## 4. Telegram (optional)
