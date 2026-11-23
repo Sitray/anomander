@@ -16,7 +16,7 @@ pub enum Locale {
 
 impl Locale {
     /// The language for a system language tag: Spanish for any Spanish one (`es`, `es-ES`,
-    /// `es-419`, `es_ES.UTF-8`), English for every other one, and for none.
+    /// `es-419`, `es_ES.UTF-8`, `es@euro`), English for every other one, and for none.
     pub fn of(tag: Option<&str>) -> Locale {
         let tag = tag.unwrap_or_default().trim();
         let spanish = tag
@@ -25,7 +25,7 @@ impl Locale {
             && tag[2..]
                 .chars()
                 .next()
-                .is_none_or(|next| matches!(next, '-' | '_' | '.'));
+                .is_none_or(|next| matches!(next, '-' | '_' | '.' | '@'));
         if spanish {
             Locale::Es
         } else {
@@ -133,6 +133,7 @@ mod tests {
             "Es-mx",
             " es-AR ",
             "es.UTF-8",
+            "es@euro",
         ] {
             assert_eq!(Locale::of(Some(tag)), Locale::Es, "{tag:?}");
         }

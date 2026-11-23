@@ -17,10 +17,10 @@ export const setLocale = (locale: Locale): void => {
 
 /**
  * The language for a system language tag: Spanish for any Spanish one (`es`, `es-ES`, `es-419`,
- * `es_ES.UTF-8`), English for every other one, and for none.
+ * `es_ES.UTF-8`, `es@euro`), English for every other one, and for none.
  */
 export const localeOf = (tag: string | null | undefined): Locale =>
-  /^es(?:[-_.]|$)/i.test(tag?.trim() ?? '') ? 'es' : 'en';
+  /^es(?:[-_.@]|$)/i.test(tag?.trim() ?? '') ? 'es' : 'en';
 
 /**
  * One table of text per language, read as one: each property is looked up in the table of the

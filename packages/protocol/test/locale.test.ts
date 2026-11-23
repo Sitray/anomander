@@ -11,7 +11,7 @@ describe('the language of the text', () => {
   });
 
   it('is Spanish for any Spanish system language and English for every other one', () => {
-    for (const tag of ['es', 'es-ES', 'es-419', 'ES_ar', 'es_ES.UTF-8', ' es-MX ']) {
+    for (const tag of ['es', 'es-ES', 'es-419', 'ES_ar', 'es_ES.UTF-8', ' es-MX ', 'es@euro']) {
       expect(localeOf(tag), tag).toBe('es');
     }
     for (const tag of ['en', 'en-US', 'fr-FR', 'pt-BR', 'eso', 'C', '', null, undefined]) {

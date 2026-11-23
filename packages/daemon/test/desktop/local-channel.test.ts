@@ -2146,6 +2146,8 @@ describe('DK-13 route guards', () => {
       ['send the email', 'it isnt time to send the email'],
       ['send the email', 'send the email without the attachment'],
       ['call Juan', 'neither call Juan nor Marta'],
+      ['send the email', 'you couldnt send the email'],
+      ['send the email', 'we havent agreed to send the email'],
     ] as const) {
       routed = route('computer', task);
       answers.push(reply(await chat.ask({ type: 'text', text })));
