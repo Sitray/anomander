@@ -6,8 +6,8 @@ use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use crate::connection_secrets::sweep;
 use crate::connections::{self, Change, ConnectionsView, ServerInput, ServerView, Target};
 use crate::daemon::launch::{
-    child_env, daemon_entry, find_node, free_port, handover_line, search_path, DaemonInputs,
-    TelegramInputs,
+    child_env, daemon_entry, find_node, free_port, handed_locale, handover_line, search_path,
+    DaemonInputs, TelegramInputs,
 };
 use crate::daemon::supervisor::{Credentials, Handed, LaunchSpec, Prepared, Update};
 use crate::data_dir::DataDir;
@@ -416,7 +416,16 @@ impl Core {
         let script = oauth_connect::script_of(&entry)
             .filter(|script| script.is_file())
             .ok_or_else(|| format!("the OAuth connection is not next to {}", entry.display()))?;
-        let ran = oauth_connect::run(&node, &script, &url, &path, open, oauth_connect::DEADLINE)?;
+        let locale = handed_locale(&*self.environment);
+        let ran = oauth_connect::run(
+            &node,
+            &script,
+            &url,
+            &path,
+            locale.as_deref(),
+            open,
+            oauth_connect::DEADLINE,
+        )?;
         Ok((ran, url))
     }
 

@@ -130,6 +130,12 @@ pub struct DaemonInputs<'a> {
     pub local_port: u16,
 }
 
+/// The `ANOMANDER_LOCALE` of `parent` (the system's language, as the shell read it), for a child
+/// that speaks to the principal; only `es` or `en`.
+pub fn handed_locale(parent: &dyn Fn(&str) -> Option<String>) -> Option<String> {
+    parent("ANOMANDER_LOCALE").filter(|locale| matches!(locale.as_str(), "es" | "en"))
+}
+
 /// The daemon's whole environment, for a child started from a cleared one. It holds no secret:
 /// those travel on the handover line (`handover_line`).
 pub fn child_env(
@@ -146,6 +152,10 @@ pub fn child_env(
     // Without it the daemon takes its default zone, whatever this machine's is.
     if let Some(zone) = parent("TZ").filter(|zone| is_time_zone(zone)) {
         env.push(("TZ".into(), zone));
+    }
+    // The system's language, as the shell read it; without it the daemon speaks Spanish.
+    if let Some(locale) = handed_locale(parent) {
+        env.push(("ANOMANDER_LOCALE".into(), locale));
     }
     let mut set = |name: &str, value: &str| env.push((name.to_owned(), value.to_owned()));
     if let Some(telegram) = &inputs.telegram {
@@ -541,6 +551,45 @@ mod tests {
             Some("Europe/Ma drid"),
         ] {
             assert!(!env_with(zone).contains_key("TZ"), "{zone:?}");
+        }
+    }
+
+    #[test]
+    fn the_daemon_speaks_the_language_the_shell_read_from_the_system() {
+        let paths = paths();
+        let env_with = |locale: Option<&'static str>| -> BTreeMap<String, String> {
+            let parent = move |name: &str| match name {
+                "ANOMANDER_LOCALE" => locale.map(str::to_owned),
+                _ => None,
+            };
+            let inputs = DaemonInputs {
+                telegram: None,
+                model: None,
+                vision_model: None,
+                provider_keys: &[],
+                connection_secrets: &[],
+                model_login: "{}",
+                mcp_oauth: "{}",
+                paths: &paths,
+                local_token: "t",
+                local_port: 1,
+            };
+            child_env(&parent, &inputs).into_iter().collect()
+        };
+        for locale in ["es", "en"] {
+            assert_eq!(
+                env_with(Some(locale))
+                    .get("ANOMANDER_LOCALE")
+                    .map(String::as_str),
+                Some(locale)
+            );
+        }
+        // Anything else is not the shell's answer: the daemon keeps its default, Spanish.
+        for locale in [None, Some(""), Some("fr"), Some("es-ES"), Some("EN")] {
+            assert!(
+                !env_with(locale).contains_key("ANOMANDER_LOCALE"),
+                "{locale:?}"
+            );
         }
     }
 
