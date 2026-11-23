@@ -18,6 +18,11 @@ export interface SetupScreenProps {
   onOpenLedger?: () => void;
   /** DK-15: opens the subscriptions screen, from the models section. */
   onOpenSubscriptions?: () => void;
+  /**
+   * DK-11 AC11: adds the web search connection; rejects with the shell's own message. Offered,
+   * checked, on the first setup only.
+   */
+  onAddWebSearch?: () => Promise<void>;
 }
 
 const { setup: text } = strings;
@@ -82,6 +87,7 @@ interface FormProps extends SetupScreenProps {
 
 function SetupForm(props: FormProps) {
   const { setup, incomplete, onSave, onSaved, onClose, onOpenLedger, onOpenSubscriptions } = props;
+  const { onAddWebSearch } = props;
   const [chatId, setChatId] = useState(setup.principalChatId ?? '');
   const [model, setModel] = useState(setup.model ?? '');
   const [visionModel, setVisionModel] = useState(setup.visionModel ?? '');
@@ -105,6 +111,10 @@ function SetupForm(props: FormProps) {
   // both its fields, or neither. A stored token may stay blank to keep it, and an empty chat ID
   // means "unset", as the shell takes it.
   const modelRequired = !isComplete(setup);
+  // On the first setup the web search comes checked, with what leaves the Mac beside it.
+  const offersWebSearch = modelRequired && onAddWebSearch !== undefined;
+  const [webSearch, setWebSearch] = useState(true);
+  const webSearchId = useId();
 
   const change = (name: string, to: KeyChange | undefined) => {
     setChanges(({ [name]: _dropped, ...rest }) =>
@@ -180,6 +190,8 @@ function SetupForm(props: FormProps) {
 
     setSaving(true);
     try {
+      // Before the setup: saving it starts the daemon, and saving a connection would restart it.
+      if (offersWebSearch && webSearch) await onAddWebSearch();
       const saved = await onSave(input);
       typedKeys.current.clear();
       onSaved(saved);
@@ -297,6 +309,27 @@ function SetupForm(props: FormProps) {
             </p>
           )}
         </fieldset>
+
+        {offersWebSearch && (
+          <fieldset>
+            <legend>{strings.connections.webSearch}</legend>
+            <div className="field">
+              <label className="check" htmlFor={webSearchId}>
+                <input
+                  id={webSearchId}
+                  type="checkbox"
+                  checked={webSearch}
+                  aria-describedby={`${webSearchId}-note`}
+                  onChange={(event) => setWebSearch(event.target.checked)}
+                />
+                {text.webSearch}
+              </label>
+              <p className="field-note" id={`${webSearchId}-note`}>
+                {strings.connections.webSearchNote}
+              </p>
+            </div>
+          </fieldset>
+        )}
 
         <fieldset>
           <legend>{text.keys}</legend>
@@ -431,7 +464,7 @@ function SetupForm(props: FormProps) {
 }
 
 export function SetupScreen(props: SetupScreenProps) {
-  const { setup, onSave, onClose, onOpenLedger, onOpenSubscriptions } = props;
+  const { setup, onSave, onClose, onOpenLedger, onOpenSubscriptions, onAddWebSearch } = props;
   // After a save the form starts over from what was stored, with every secret field empty.
   const [stored, setStored] = useState({ setup, saves: 0 });
   return (
@@ -443,6 +476,7 @@ export function SetupScreen(props: SetupScreenProps) {
       onClose={onClose}
       {...(onOpenLedger === undefined ? {} : { onOpenLedger })}
       {...(onOpenSubscriptions === undefined ? {} : { onOpenSubscriptions })}
+      {...(onAddWebSearch === undefined ? {} : { onAddWebSearch })}
       onSaved={(saved) => setStored({ setup: saved, saves: stored.saves + 1 })}
     />
   );

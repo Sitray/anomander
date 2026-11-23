@@ -1045,6 +1045,18 @@ button {
   color: var(--text);
 }
 
+/* DK-11 AC11: a choice that is a box to tick, with its words beside it. */
+.field label.check {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+}
+
+.check input {
+  margin: 0;
+  accent-color: var(--accent);
+}
+
 /* S5: beside the label of what a first run cannot do without. */
 .field-head {
   display: flex;

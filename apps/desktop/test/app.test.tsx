@@ -9,6 +9,7 @@ import {
   CONNECTIONS,
   EMPTY_SETUP,
   FILLED_SETUP,
+  NO_CONNECTIONS,
   replyTo,
   runningSnapshot,
   STARTING,
@@ -67,6 +68,8 @@ beforeEach(() => {
   mocked.setTaskRunning.mockResolvedValue(undefined);
   mocked.onStopTask.mockResolvedValue(() => {});
   mocked.onLoginStep.mockResolvedValue(() => {});
+  mocked.connections.mockResolvedValue(NO_CONNECTIONS);
+  mocked.saveConnection.mockResolvedValue(NO_CONNECTIONS);
 });
 
 afterEach(() => {
@@ -257,6 +260,52 @@ describe('the setup', () => {
       visionModel: '',
       providerKeys: {},
     });
+  });
+
+  it('adds the web search through the shell on the first setup, before saving it', async () => {
+    await open(stoppedSnapshot('not_configured'));
+    mocked.saveSetup.mockResolvedValue({
+      daemon: STARTING,
+      channel: null,
+      setup: { ...EMPTY_SETUP, model: 'openai/gpt-4o-mini' },
+    });
+    fireEvent.change(screen.getByLabelText(strings.setup.model), {
+      target: { value: 'openai/gpt-4o-mini' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: strings.setup.save }));
+
+    await waitFor(() => expect(setupHeading()).toBeNull());
+    expect(mocked.saveConnection).toHaveBeenCalledExactlyOnceWith({
+      name: 'Internet',
+      kind: 'process',
+      command: 'npx',
+      args: ['-y', 'pi-web-access@0.48.0'],
+      values: [{ name: 'npm_config_ignore_scripts', value: 'true' }],
+      readOnly: ['web_search', 'get_search_content'],
+    });
+    const [added] = mocked.saveConnection.mock.invocationCallOrder;
+    const [saved] = mocked.saveSetup.mock.invocationCallOrder;
+    expect(added).toBeLessThan(saved ?? 0);
+  });
+
+  it('leaves a server already named Internet as it is', async () => {
+    await open(stoppedSnapshot('not_configured'));
+    mocked.connections.mockResolvedValue({
+      servers: CONNECTIONS.servers.map((server) => ({ ...server, name: 'Internet' })),
+      invalid: null,
+    });
+    mocked.saveSetup.mockResolvedValue({
+      daemon: STARTING,
+      channel: null,
+      setup: { ...EMPTY_SETUP, model: 'openai/gpt-4o-mini' },
+    });
+    fireEvent.change(screen.getByLabelText(strings.setup.model), {
+      target: { value: 'openai/gpt-4o-mini' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: strings.setup.save }));
+
+    await waitFor(() => expect(setupHeading()).toBeNull());
+    expect(mocked.saveConnection).not.toHaveBeenCalled();
   });
 
   it('still goes back to the chat after a save with Telegram and no model', async () => {

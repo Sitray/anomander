@@ -299,6 +299,15 @@ and keep its secrets in the operating system instead of a text file.
     `~/.pi/agent/web-search.json`, when present, applies its keys, providers and proxy. It needs
     Node 22.19 or later. Once saved it is edited or removed like any other server. Since AC12
     it is one more card, "Búsqueda web", with the same press.
+  - AC13 (asked on 2026-11-23: "la busqueda web deberia estar on por defecto", then "pues ve
+    con la 2 y 3"): the web search comes on by default without leaving the principal unaware.
+    The first setup (while it cannot start the daemon yet) shows "Búsqueda web" as a checkbox,
+    checked, with AC11's note beside it; saving with it checked adds AC11's server through the
+    same path as the card, before the setup is saved, so the daemon starts once. A server
+    already named `Internet` is kept as it is; when the connection cannot be saved the setup is
+    not saved either, and the screen says why. Unchecked, nothing is added. A complete setup
+    opened again does not show it: Conexiones does. And when the web search is missing, the
+    chat offers it in one press (DK-13 AC5).
   - AC12 (asked on 2026-11-11: "Quiero algo parecido, que tenga como conectores bases que al
     darle a un botón de connect ya me conecte el MCP"; "Pero me gustaría que la parte de
     connectar a un MCP fuera más sencilla"; Google left out on 2026-11-21: "no hagas lo del oauth

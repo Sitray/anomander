@@ -228,6 +228,8 @@ const es = {
     /** The shell refused the setup; its own message follows, verbatim. */
     rejected: 'No se ha guardado. Esto dice la aplicación:',
     savedIncomplete: 'Guardado. Para arrancar aún falta el modelo.',
+    /** DK-11 AC11: the web search, checked on the first setup. */
+    webSearch: 'Añadir la búsqueda web: busca en internet sin usar el ordenador',
   },
 
   /** DK-11: the servers of `mcp.json`. */
@@ -633,6 +635,8 @@ const en: Strings = {
     fixFields: 'Check the marked fields.',
     rejected: 'Not saved. This is what the app says:',
     savedIncomplete: 'Saved. It still needs the model to start.',
+    /** DK-11 AC11: the web search, checked on the first setup. */
+    webSearch: 'Add web search: searches the internet without using the computer',
   },
 
   connections: {
