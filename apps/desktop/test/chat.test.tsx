@@ -1494,6 +1494,71 @@ describe('a missing web search (DK-11 AC13)', () => {
     await waitFor(() => expect(onAddWebSearch).toHaveBeenCalledTimes(2));
   });
 
+  /** A chat that asked `Q1` and `Q2` and was told twice the web search is missing. */
+  const toldMissingTwice = async (add: () => Promise<boolean>) => {
+    const chat = (daemon: DaemonStatus, channel: LocalChannel | null) => (
+      <ChatScreen daemon={daemon} channel={channel} onAddWebSearch={add} />
+    );
+    const view = render(chat(RUNNING, CHANNEL));
+    const first = FakeWebSocket.last;
+    act(() => first.open());
+    for (const [index, text] of ['Q1', 'Q2'].entries()) {
+      say(text);
+      const request = await sentRequest(first, index + 1);
+      act(() => first.receive(missing(request.id)));
+    }
+    const [press1, press2] = screen
+      .getAllByRole('button', { name: strings.chat.addWebSearch })
+      .map((button) => () => fireEvent.click(button));
+    return {
+      press1: press1 ?? (() => {}),
+      press2: press2 ?? (() => {}),
+      rerender: (...args: Parameters<typeof chat>) => view.rerender(chat(...args)),
+    };
+  };
+  const askedOnceBack = async () => {
+    const back = FakeWebSocket.last;
+    act(() => back.open());
+    await waitFor(() => expect(back.requests).toHaveLength(2));
+    return back.requests.map((request) => (request as { text: string }).text).sort();
+  };
+
+  it('asks a second offer again only once the daemon restarted for the first is back', async () => {
+    let saves = 0;
+    let added: (value: boolean) => void = () => {};
+    // As `addWebSearch`: the first press saves; a later one finds the server already there.
+    const { press1, press2, rerender } = await toldMissingTwice(() => {
+      saves += 1;
+      return saves === 1 ? new Promise((resolve) => (added = resolve)) : Promise.resolve(false);
+    });
+    const first = FakeWebSocket.last;
+    press1();
+    await act(async () => added(true));
+    rerender(STARTING, null);
+    press2();
+    await act(async () => {});
+    rerender(RUNNING, BACK);
+
+    expect(first.requests).toHaveLength(2);
+    expect(await askedOnceBack()).toEqual(['Q1', 'Q2']);
+  });
+
+  it('asks both again when two presses saved before the daemon restarted', async () => {
+    const saved: ((value: boolean) => void)[] = [];
+    const { press1, press2, rerender } = await toldMissingTwice(
+      () => new Promise((resolve) => saved.push(resolve)),
+    );
+    press1();
+    press2();
+    await act(async () => {
+      for (const resolve of saved) resolve(true);
+    });
+    rerender(STARTING, null);
+    rerender(RUNNING, BACK);
+
+    expect(await askedOnceBack()).toEqual(['Q1', 'Q2']);
+  });
+
   it('offers nothing where the window cannot add a connection', async () => {
     const socket = openChat();
     say(ASKED);

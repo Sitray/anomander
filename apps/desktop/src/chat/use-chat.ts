@@ -167,7 +167,8 @@ export const useChat = (channel: LocalChannel | null, options: ChatOptions = {})
   useEffect(() => {
     client.current?.setChannel(url === null || token === null ? null : { url, token });
   }, [url, token]);
-  const askAgain = useRef<AskAgain | null>(null);
+  /** In the order pressed; each waits for the daemon started after its own press. */
+  const askAgain = useRef<AskAgain[]>([]);
   const [recheck, setRecheck] = useState(0);
 
   const deliver = useCallback(async (id: string, text: string, attachments: Attachment[]) => {
@@ -284,13 +285,13 @@ export const useChat = (channel: LocalChannel | null, options: ChatOptions = {})
   const { connection } = conversation;
   // biome-ignore lint/correctness/useExhaustiveDependencies: runs as the channel changes.
   useEffect(() => {
-    const waiting = askAgain.current;
-    if (waiting === null || channelKey === null || connection !== 'open') return;
+    if (askAgain.current.length === 0 || channelKey === null || connection !== 'open') return;
     if (opened.current !== channelKey) return;
     const { channel: now, gone } = current.current;
-    if (now === waiting.channel && gone === waiting.gone) return;
-    askAgain.current = null;
-    say(waiting.text, []);
+    const back = (waiting: AskAgain) => now !== waiting.channel || gone !== waiting.gone;
+    const ready = askAgain.current.filter(back);
+    askAgain.current = askAgain.current.filter((waiting) => !back(waiting));
+    for (const waiting of ready) say(waiting.text, []);
   }, [channelKey, connection, recheck, say]);
 
   const addWebSearch = useCallback(
@@ -304,12 +305,18 @@ export const useChat = (channel: LocalChannel | null, options: ChatOptions = {})
       void add().then(
         (saved) => {
           dispatch({ type: 'offer', id: message.id, state: 'added' });
-          // Already there: no restart is coming, so it is asked again now.
-          if (!saved) {
+          // Already there: it waits for the restart an earlier press started, if one is coming;
+          // otherwise it is asked again now.
+          const earlier = askAgain.current.at(-1);
+          if (!saved && earlier === undefined) {
             say(offer.ask, []);
             return;
           }
-          askAgain.current = { text: offer.ask, ...before };
+          const waitFor = saved || earlier === undefined ? before : earlier;
+          askAgain.current = [
+            ...askAgain.current,
+            { text: offer.ask, channel: waitFor.channel, gone: waitFor.gone },
+          ];
           // The daemon may be back already, and the effect above only runs on a change.
           setRecheck((count) => count + 1);
         },
