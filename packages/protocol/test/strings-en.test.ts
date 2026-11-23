@@ -104,3 +104,19 @@ describe('the bot text in English', () => {
     expect(phrases.length).toBeGreaterThan(40);
   });
 });
+
+// Probes of the independent verifier: thousands in English, and one o'clock in Spanish.
+describe('two edge cases of the formats', () => {
+  afterEach(() => setLocale('es'));
+
+  it('writes thousands with a comma in English', () => {
+    setLocale('en');
+    expect(strings.registered(123456, 'Mercadona', null)).toBe(
+      'Logged: €1,234.56 at Mercadona (uncategorized).',
+    );
+  });
+
+  it('keeps "a la 1:00" in Spanish', () => {
+    expect(strings.digestOn('01:00')).toBe('Hecho: te lo mando cada mañana a la 1:00.');
+  });
+});

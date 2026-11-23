@@ -15,13 +15,33 @@ const wordsOf = (text: string): string[] =>
 
 /**
  * Words that turn a request around: a task that drops one asks for the opposite. In Spanish and
- * in English, whatever language the daemon speaks: `t` is what is left of "don't" or "can't".
+ * in English, whatever language the daemon speaks: `t` is what is left of "don't" or "can't",
+ * and the contractions are also listed as written without their apostrophe.
  */
-const NEGATIONS = ['no', 'nunca', 'jamas', 'not', 'never', 't'];
+const NEGATIONS = [
+  'no',
+  'nunca',
+  'jamas',
+  'not',
+  'never',
+  't',
+  'cannot',
+  'dont',
+  'doesnt',
+  'didnt',
+  'cant',
+  'wont',
+  'isnt',
+  'arent',
+  'shouldnt',
+  'nor',
+  'neither',
+  'without',
+];
 
 /**
  * Whether every word of `task` is a word of `message`, ignoring case, accents, punctuation and
- * order, and the task keeps every "no", "nunca", "jamás", "not", "never" or "n't" the message has. A task with no words
+ * order, and the task keeps every negation (`NEGATIONS`) the message has. A task with no words
  * is not. The processor may drop words and reorder them, but never add one nor drop a negation:
  * whatever the task says, the principal wrote. Words are compared as written, never stemmed.
  */

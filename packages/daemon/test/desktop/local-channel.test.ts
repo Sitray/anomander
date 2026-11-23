@@ -2139,6 +2139,13 @@ describe('DK-13 route guards', () => {
       ['delete the mail from Juan', "don't delete the mail from Juan, just read it"],
       ['delete the mail from Juan', 'do not delete the mail from Juan'],
       ['send anything to Marta', 'never send anything to Marta'],
+      ['delete the mail from Juan', 'don’t delete the mail from Juan'],
+      ['delete the mail from Juan', 'dont delete the mail from Juan'],
+      ['send the email', 'cannot send the email yet'],
+      ['send the email', 'you cant send the email'],
+      ['send the email', 'it isnt time to send the email'],
+      ['send the email', 'send the email without the attachment'],
+      ['call Juan', 'neither call Juan nor Marta'],
     ] as const) {
       routed = route('computer', task);
       answers.push(reply(await chat.ask({ type: 'text', text })));
