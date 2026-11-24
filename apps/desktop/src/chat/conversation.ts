@@ -1,6 +1,6 @@
-// DK-4: the conversation as the window shows it. A pure reducer: it lives in memory only and is
-// gone when the window is (never localStorage or disk).
-import type { ChatButton, ChatReply, ComputerAction } from '@anomander/protocol';
+// DK-4: the conversation as the window shows it. A pure reducer, in memory only (never
+// localStorage or disk): the daemon keeps what was said, and the window shows it again (DK-16).
+import type { ChatButton, ChatReply, ChatStoredMessage, ComputerAction } from '@anomander/protocol';
 import type { Attachment } from './attachments.ts';
 import type { ConnectionState, Outcome } from './chat-client.ts';
 
@@ -21,6 +21,8 @@ export interface OwnMessage {
   delivery: Delivery;
   /** `null` until it left through the socket. */
   requestId: string | null;
+  /** DK-16: a stored message that came through Telegram. */
+  door?: 'telegram';
 }
 
 /** DK-13: the look at the screen or the task on the computer a plain text was routed to. */
@@ -73,6 +75,8 @@ export interface BotMessage {
   start: Start | null;
   /** DK-11 AC13: the web search the reply says is missing; `null` when it says nothing so. */
   offer: Offer | null;
+  /** DK-16: a stored message that came through Telegram. */
+  door?: 'telegram';
 }
 
 /** DK-11 AC13: the web search offered in one press, and the request asked again once added. */
@@ -126,7 +130,11 @@ export type ConversationAction =
   /** The principal stopped at the proposal of the reply `id`. */
   | { type: 'refused'; id: string }
   /** DK-11 AC13: the web search offered by the reply `id` is being added, was, or was not. */
-  | { type: 'offer'; id: string; state: Offer['state'] };
+  | { type: 'offer'; id: string; state: Offer['state'] }
+  /** DK-16: the stored conversation, oldest first; shown only while nothing else is. */
+  | { type: 'history'; messages: ChatStoredMessage[] }
+  /** DK-16: the daemon erased the stored conversation. */
+  | { type: 'cleared' };
 
 export const emptyConversation: Conversation = { connection: 'offline', messages: [] };
 
@@ -156,6 +164,38 @@ const offerFor = (
   if (asked?.kind !== 'own' || asked.attachments.length > 0 || asked.text.trim() === '')
     return null;
   return { ask: asked.text, state: 'offered' };
+};
+
+/** DK-16: a stored message as the window shows it: handled, and nothing in it is armed again. */
+const fromStore = (stored: ChatStoredMessage): Message => {
+  const id = `stored:${stored.id}`;
+  const door = stored.door === 'telegram' ? { door: 'telegram' as const } : {};
+  if (stored.from === 'principal') {
+    const { text } = stored;
+    return {
+      kind: 'own',
+      id,
+      text,
+      attachments: [],
+      delivery: 'delivered',
+      requestId: null,
+      ...door,
+    };
+  }
+  const { channelRef, text } = stored;
+  return {
+    kind: 'bot',
+    id,
+    // A button without the reply it belongs to could not be answered.
+    channelRef: channelRef ?? '',
+    text,
+    buttons: channelRef === null ? [] : stored.buttons,
+    press: null,
+    proposal: null,
+    start: null,
+    offer: null,
+    ...door,
+  };
 };
 
 const settle = (message: Message, requestId: string, delivery: Delivery): Message => {
@@ -307,6 +347,12 @@ export const reduceConversation = (
       );
     case 'refused':
       return answered(action.id, { data: 'refuse', delivery: 'delivered', requestId: null });
+    case 'history':
+      // A daemon that restarted while the window shows the conversation: it is already here.
+      if (messages.length > 0) return conversation;
+      return { ...conversation, messages: action.messages.map(fromStore) };
+    case 'cleared':
+      return { ...conversation, messages: [] };
   }
 };
 

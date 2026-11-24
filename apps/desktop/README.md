@@ -62,12 +62,14 @@ local channel is a scripted socket. It is never part of a build. The URL picks t
 | `fail` | `start`, `stop`, `save`, `oauth`, `login`: the shell refuses that command |
 | `connections` | `none`, `invalid` (an `mcp.json` the daemon would not read); by default two servers |
 | `subscriptions` | `connected`: ChatGPT and Claude are connected; by default none |
+| `history` | `none`: nothing is kept of the conversation; by default four messages, two from Telegram (DK-16) |
 
 The scripted daemon answers by what is typed: `mercadona` asks a Sí/No question, `rechaza` is
 rejected, `corta` loses the connection, `lento` never answers, `largo` answers at length and
 `/login` answers with a link button, `pantalla` is routed to a look (the capture is a plain
 image) and `ordenador` to a task on the computer that ends at its first step. A PDF gets the
-daemon's PDF reply; images are read as a receipt.
+daemon's PDF reply; images are read as a receipt. It keeps the conversation as the daemon does,
+for as long as the page is open, and erases it on "Borrar conversación" (DK-16).
 
 ## How the window is built
 
@@ -108,8 +110,12 @@ is framework-free, so it is tested against a fake `WebSocket` (`test/fake-web-so
 
 - **The token** of the local channel (DK-3 AC3) goes from the snapshot to the chat client and to
   the socket's second subprotocol. It is never in a URL, the DOM, a log or storage.
-- **The conversation** lives in memory only and is gone with the window. Opening the setup hides
-  the chat without unmounting it.
+- **The conversation** is kept by the daemon, never by the window (DK-16): the window holds it in
+  memory only, never in storage. When its chat is empty and the connection opens, it asks for the
+  stored conversation (`history`) and shows it, Telegram included; a daemon that restarts while
+  the chat shows messages adds nothing. "Borrar conversación" asks first, sends `clear_history`
+  and empties the chat on `done`; otherwise the messages stay and the chat says why. Opening the
+  setup hides the chat without unmounting it.
 - **A reply is plain text** (DK-4 AC1): shown exactly as received, line breaks kept, never HTML
   or Markdown.
 - **Delivery honesty.** A `rejected` request did nothing: the window says it was not sent and

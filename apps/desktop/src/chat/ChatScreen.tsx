@@ -1,11 +1,13 @@
 // DK-4: the chat. The container: it owns the connection and the draft, and hands both to the
 // presentational list and composer.
 import type { ComputerAction } from '@anomander/protocol';
-import { type DragEvent, useEffect, useMemo, useRef, useState } from 'react';
+import { type DragEvent, useEffect, useId, useMemo, useRef, useState } from 'react';
 import type { DaemonStatus, LocalChannel } from '../shell.ts';
 import { strings } from '../strings.ts';
+import { AlertIcon } from '../ui/icons.tsx';
+import './chat.css';
 import { Composer } from './Composer.tsx';
-import { isWaiting } from './conversation.ts';
+import { type Conversation, isWaiting } from './conversation.ts';
 import { emptyStateFor, MessageList } from './MessageList.tsx';
 import { useChat } from './use-chat.ts';
 import { useDraft } from './use-draft.ts';
@@ -57,6 +59,13 @@ const withoutChannel = ({ state, reason }: DaemonStatus): string => {
 
 const carriesFiles = (event: DragEvent): boolean => event.dataTransfer.types.includes('Files');
 
+/** DK-16: where "Borrar conversación" is: asked, on its way, or why it did not erase. */
+type Erase = 'idle' | 'asking' | 'erasing' | 'not_done' | 'unknown';
+
+/** DK-10: an action waiting for Permitir, which erasing would leave unanswerable. */
+const proposing = ({ messages }: Conversation): boolean =>
+  messages.some((message) => message.kind === 'bot' && message.proposal !== null && !message.press);
+
 export function ChatScreen(props: ChatScreenProps) {
   const { daemon, channel, onThinking, onReply, onCaptureScreen, onPerformAction } = props;
   const { onReveal, onTaskRunning, subscribeStop, model = null, onAddWebSearch } = props;
@@ -83,6 +92,8 @@ export function ChatScreen(props: ChatScreenProps) {
     ...(onAddWebSearch === undefined ? {} : { addWebSearch: onAddWebSearch }),
   });
   const [dropping, setDropping] = useState(false);
+  const [erase, setErase] = useState<Erase>('idle');
+  const eraseQuestion = useId();
   /** `dragenter` minus `dragleave`: both also fire for every child the pointer crosses. */
   const dragDepth = useRef(0);
 
@@ -101,6 +112,15 @@ export function ChatScreen(props: ChatScreenProps) {
     : connecting
       ? strings.chat.disabled.connecting
       : null;
+
+  // DK-16: nothing is erased while the daemon owes an answer or a step waits for the principal.
+  const erasable =
+    !connecting && !waiting && !running && !proposing(chat.conversation) && erase !== 'erasing';
+  const eraseNow = async () => {
+    setErase('erasing');
+    const outcome = await chat.clear();
+    setErase(outcome === 'done' ? 'idle' : outcome);
+  };
 
   // DK-13: every message goes as it is; the daemon decides whether it is a look or a task.
   const submit = () => {
@@ -148,6 +168,52 @@ export function ChatScreen(props: ChatScreenProps) {
         if (!disabled) draft.addFiles(Array.from(event.dataTransfer.files));
       }}
     >
+      {chat.conversation.messages.length > 0 && (
+        <div className="chat-bar">
+          {erase === 'not_done' || erase === 'unknown' ? (
+            <p className="message-problem" role="alert">
+              <AlertIcon />
+              <span>
+                {erase === 'unknown' ? strings.chat.clearUnknown : strings.chat.clearFailed}
+              </span>
+            </p>
+          ) : null}
+          {erase === 'asking' || erase === 'erasing' ? (
+            <span className="chat-bar-confirm">
+              <span id={eraseQuestion}>{strings.chat.confirmClear}</span>
+              <button
+                type="button"
+                className="link"
+                aria-describedby={eraseQuestion}
+                disabled={!erasable}
+                onClick={() => void eraseNow()}
+              >
+                {erase === 'erasing' ? strings.chat.clearing : strings.chat.confirmClearYes}
+              </button>
+              <button
+                type="button"
+                className="link"
+                aria-describedby={eraseQuestion}
+                // biome-ignore lint/a11y/noAutofocus: the button it replaces had the focus.
+                autoFocus
+                disabled={erase === 'erasing'}
+                onClick={() => setErase('idle')}
+              >
+                {strings.chat.keepConversation}
+              </button>
+            </span>
+          ) : (
+            <button
+              type="button"
+              className="link"
+              disabled={!erasable}
+              onClick={() => setErase('asking')}
+            >
+              {strings.chat.clearConversation}
+            </button>
+          )}
+        </div>
+      )}
       <MessageList
         messages={chat.conversation.messages}
         waiting={waiting}

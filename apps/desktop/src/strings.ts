@@ -163,6 +163,19 @@ const es = {
     /** A `{label, url}` button: this window cannot open links. */
     linkOnlyInTelegram: (label: string) => `«${label}» solo se puede abrir desde Telegram.`,
 
+    /** DK-16: a stored message that came through Telegram. */
+    viaTelegram: 'Por Telegram',
+    /** DK-16: erasing the stored conversation, asked first. */
+    clearConversation: 'Borrar conversación',
+    confirmClear:
+      '¿Borrar la conversación? ANOMANDER la borra de este Mac y deja de tenerla en cuenta. Lo que hay en Telegram sigue en Telegram.',
+    confirmClearYes: 'Sí, borrar',
+    keepConversation: 'No borrar',
+    clearing: 'Borrando…',
+    clearFailed: 'No se ha borrado la conversación. Inténtalo otra vez.',
+    clearUnknown:
+      'Se cortó la conexión y no sé si se ha borrado. Inténtalo otra vez cuando vuelva a conectar.',
+
     /** Why the composer is disabled. */
     disabled: {
       stopped: 'ANOMANDER está parado. Arráncalo para escribirle.',
@@ -579,6 +592,17 @@ const en: Strings = {
     pressUnknown:
       "The connection dropped and I don't know if your answer reached me. Press again: if it was already answered, I'll tell you.",
     linkOnlyInTelegram: (label: string) => `“${label}” can only be opened from Telegram.`,
+
+    viaTelegram: 'Via Telegram',
+    clearConversation: 'Erase conversation',
+    confirmClear:
+      'Erase the conversation? ANOMANDER erases it from this Mac and stops taking it into account. What is in Telegram stays in Telegram.',
+    confirmClearYes: 'Yes, erase',
+    keepConversation: "Don't erase",
+    clearing: 'Erasing…',
+    clearFailed: "The conversation wasn't erased. Try again.",
+    clearUnknown:
+      "The connection dropped and I don't know if it was erased. Try again once it connects.",
 
     disabled: {
       stopped: 'ANOMANDER is stopped. Start it to write to it.',

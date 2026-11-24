@@ -1,4 +1,8 @@
-import { type ChatReply, LOCAL_CHANNEL_PROTOCOL } from '@anomander/protocol';
+import {
+  type ChatReply,
+  type ChatStoredMessage,
+  LOCAL_CHANNEL_PROTOCOL,
+} from '@anomander/protocol';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   type ChatClient,
@@ -286,5 +290,81 @@ describe('requests', () => {
     expect(replies.slice(1).some((received) => received === null || 'offer' in received)).toBe(
       false,
     );
+  });
+});
+
+describe('the stored conversation (DK-16)', () => {
+  const STORED: ChatStoredMessage[] = [
+    {
+      id: 7,
+      from: 'principal',
+      door: 'telegram',
+      text: '23 € cena',
+      buttons: [],
+      channelRef: null,
+      at: '2026-11-20T10:00:00.000Z',
+    },
+    {
+      id: 8,
+      from: 'anomander',
+      door: 'telegram',
+      text: 'Apuntado: 23,00 € en restaurantes.',
+      buttons: [{ label: 'Deshacer', data: 'undo:1' }],
+      channelRef: 'telegram:4242:99',
+      at: '2026-11-20T10:00:01.000Z',
+    },
+  ];
+
+  beforeEach(() => {
+    // Every frame is answered by hand here.
+    FakeWebSocket.history = null;
+  });
+
+  it('asks for it and resolves with its messages, oldest first, never as an outcome', async () => {
+    const socket = connected();
+    const asked = client.requestHistory();
+
+    const request = socket.lastRequest;
+    expect(request).toEqual({ type: 'history', id: request.id });
+    socket.receive({ type: 'history', inReplyTo: request.id, messages: STORED });
+
+    expect(await asked).toEqual(STORED);
+    expect(outcomes).toEqual([]);
+  });
+
+  it('resolves with nothing when it was rejected, lost, or could not be asked', async () => {
+    const socket = connected();
+    const rejected = client.requestHistory();
+    socket.receive({ type: 'rejected', inReplyTo: socket.lastRequest.id });
+    const lost = client.requestHistory();
+    socket.drop();
+
+    expect(await rejected).toBeNull();
+    expect(await lost).toBeNull();
+    expect(await client.requestHistory()).toBeNull();
+  });
+
+  it('erases it: done once the daemon says so, and never as an outcome', async () => {
+    const socket = connected();
+    const cleared = client.clearHistory();
+
+    const request = socket.lastRequest;
+    expect(request).toEqual({ type: 'clear_history', id: request.id });
+    socket.receive({ type: 'done', inReplyTo: request.id });
+
+    expect(await cleared).toBe('done');
+    expect(outcomes).toEqual([]);
+  });
+
+  it('says when it was not erased, and when it cannot know', async () => {
+    const socket = connected();
+    const rejected = client.clearHistory();
+    socket.receive({ type: 'rejected', inReplyTo: socket.lastRequest.id });
+    const lost = client.clearHistory();
+    socket.drop();
+
+    expect(await rejected).toBe('not_done');
+    expect(await lost).toBe('unknown');
+    expect(await client.clearHistory()).toBe('not_done');
   });
 });
