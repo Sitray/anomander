@@ -13,8 +13,8 @@ import {
 // "lo de antes". DK-16: every turn is kept in the local database as the stored conversation, so
 // the app shows it again and the turns survive a restart; the interpreter still gets only the
 // latest ones. They are never logged, and are erased on "Borrar conversación", on a confirmed
-// erase of the history and after 90 days; a forgotten or replaced memory takes the turns that hold
-// its words with it (R-23 AC3, AC6).
+// forget and after 90 days; a replaced memory takes the turns that hold its words with it
+// (R-23 AC3).
 
 export const RECENT_TURN_LIMIT = 10;
 export const RECENT_TURN_MAX_AGE_MS = 30 * 60 * 1000;
@@ -54,9 +54,10 @@ export interface RecentTurns {
   /** The last turns, oldest first, none older than 30 minutes. */
   recent(): RecentTurn[];
   /**
-   * Erases the stored conversation, and so the turns. "Borrar conversación" (DK-16) and the
-   * `forget_history` answer on `Sí` (DK-14 AC4) call it. A failure to erase throws: the caller
-   * says it failed. A forgotten memory erases only the turns that hold it (`forgetMemories`).
+   * Erases the stored conversation, and so the turns. "Borrar conversación" (DK-16), and the
+   * `forget_memory` and `forget_history` answers on `Sí` (R-23 AC6, DK-14 AC4) call it, so the
+   * forgotten fact and the question that showed it leave the context and the database. A failure
+   * to erase throws: the caller says it failed.
    */
   clear(): void;
 }

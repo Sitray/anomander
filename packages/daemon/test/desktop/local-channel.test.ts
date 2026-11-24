@@ -2159,7 +2159,7 @@ describe('who the principal is and what ANOMANDER did (DK-14)', () => {
     expect(interpreted.map(({ history: given }) => given)).toEqual([[entry], [entry]]);
   });
 
-  it('B48, R-23 AC6: "Sí" to a forget erases the turns that hold the fact, and only those', async () => {
+  it('R-23 AC6, DK-16 AC5: "Sí" to a forget erases the whole stored conversation and the recent turns', async () => {
     const chat = await client(await start());
     await chat.ask({ type: 'text', text: '23 € cena' });
     rememberName();
@@ -2177,16 +2177,19 @@ describe('who the principal is and what ANOMANDER did (DK-14)', () => {
     );
 
     expect(done.text).toBe('Hecho, lo he olvidado.');
+    // Only the press and S-30, which name no fact, are stored after the erase.
     expect(query('SELECT text FROM conversation ORDER BY id')).toEqual([
-      { text: '23 € cena' },
-      { text: PHRASED },
       { text: '[botón: Sí]' },
       { text: 'Hecho, lo he olvidado.' },
     ]);
     const path = join(scratch, 'anomander.db');
-    expect([path, `${path}-wal`].some((file) => readFileSync(file).includes('llamo Eric'))).toBe(
-      false,
-    );
+    for (const words of ['llamo Eric', '23 € cena']) {
+      expect([path, `${path}-wal`].some((file) => readFileSync(file).includes(words))).toBe(false);
+    }
+    await chat.ask({ type: 'text', text: '23 € comida' });
+    expect(interpreted.at(-1)?.recent).toEqual([
+      { principal: '[botón: Sí]', reply: 'Hecho, lo he olvidado.' },
+    ]);
   });
 
   describe('AC4: the principal can erase it, after "Sí"', () => {

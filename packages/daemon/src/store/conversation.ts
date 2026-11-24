@@ -4,9 +4,8 @@ import type Database from 'better-sqlite3';
 // DK-16 (docs/desktop-prd.md): the conversation with the principal, from either door, kept in the
 // local database (`conversation`, migration `0009`), so the app shows it again and the text
 // interpreter picks up its recent turns after a restart (R-16 AC3). No image is kept, nor a text
-// pasted for a login (R-17 AC7). It is erased on "Borrar conversación", on a confirmed erase of
-// the history and after 90 days; a forgotten or replaced memory erases the turns that hold its
-// words (R-23 AC3, AC6). Nothing here logs a message's words.
+// pasted for a login (R-17 AC7). It is erased on "Borrar conversación", on a confirmed forget and
+// after 90 days; a replaced memory erases the turns that hold its words (R-23 AC3). Nothing here logs a message's words.
 
 /** S7: the retention job erases the messages older than this. */
 export const CONVERSATION_RETENTION_DAYS = 90;
@@ -95,10 +94,10 @@ export const forgetConversation = (db: Database.Database): number => {
 };
 
 /**
- * R-23 AC3, AC6: erases each turn with a message that `holds` (a replaced or forgotten memory's
- * text or quote): the message and the one paired with it, the principal's message and the reply
- * it got (`recordMessages` stores them one after the other), so no reply is left without what
- * asked it. Runs in the caller's transaction; the caller checkpoints the WAL after it, as
+ * R-23 AC3: erases each turn with a message that `holds` (a replaced memory's text or quote):
+ * the message and the one paired with it, the principal's message and the reply it got
+ * (`recordMessages` stores them one after the other), so no reply is left without what asked
+ * it. Runs in the caller's transaction; the caller checkpoints the WAL after it, as
  * `forgetConversation` does. Returns how many messages were erased.
  */
 export const forgetTurnsHolding = (

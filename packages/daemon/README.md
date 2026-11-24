@@ -240,9 +240,12 @@ becomes an expense fact.
 
 `clear()` erases the stored conversation for real (`secure_delete`, then a truncating WAL
 checkpoint): the app's `clear_history` ("Borrar conversación"), run in the chat's turn so a turn
-that runs is stored before the erase and never after it, and the `forget_history` answer on `Sí`
-(DK-14 AC4) call it. A forgotten or replaced memory erases only the turns that hold its text or
-quote (`forgetTurnsHolding`, see Conversation memory). The retention job erases messages older
+that runs is stored before the erase and never after it, the `forget_memory` answer on `Sí`
+(R-23 AC6) and the `forget_history` answer on `Sí` (DK-14 AC4) call it, so the forgotten fact and
+the S-29 question that showed it leave the context and the database. The press itself
+(`[botón: Sí]` and S-30, which names no fact) is then stored as the first turn after the erase. A
+replaced memory erases only the turns that hold its text or quote (`forgetTurnsHolding`, see
+Conversation memory). The retention job erases messages older
 than 90 days.
 
 ## Conversation memory (R-23)
@@ -292,16 +295,17 @@ correction for `forget_memory`, so it goes to the interpreter (R-17).
 
 **Answering (AC6).** `createForgetMemoryAnswerHandler` (`src/decisions/forget-memory-decision.ts`)
 on `Sí` first calls `forgetMemories` with the ids (a memory forgotten or replaced since the
-question is skipped), then records the answer: an erase that fails leaves the question open, so
-`Sí` can be pressed again. `No` rejects the proposal, erases nothing and replies S-31. `Sí`
-executes the proposal with an action authorized by the principal and replies S-30. Listing and forgetting go through the same interpreter call as any text,
-so a spent budget gets S-26 and a failed call S-22 (S5).
+question is skipped) and empties the stored conversation and the recent turns, then records the
+answer: an erase that fails leaves the question open, so `Sí` can be pressed again. `No` rejects
+the proposal, erases nothing and replies S-31. `Sí` executes the proposal with an action
+authorized by the principal and replies S-30. Listing and forgetting go through the same
+interpreter call as any text, so a spent budget gets S-26 and a failed call S-22 (S5).
 
 **Forgetting (AC6, AC7).** `forgetMemories` deletes the `memory_texts` rows (the triggers remove
-them from the index) and sets the assertions to `expired`, in one transaction, with each turn of
-the stored conversation that holds the text or quote (ignoring case and spacing): the principal's
-message and its reply together, so S-29 and the message that asked go too, and the rest stays.
-A replacement (`saveMemory` with `replaces`) erases the old memory's turns the same way. The erase is real:
+them from the index) and sets the assertions to `expired`, in one transaction. A replacement
+(`saveMemory` with `replaces`) also erases each turn of the stored conversation that holds the old
+text or quote (ignoring case and spacing), the principal's message and its reply together
+(`forgetTurnsHolding`); the rest of the conversation stays. The erase is real:
 `openDatabase` turns on `secure_delete`, the index has FTS5 `secure-delete`, and the WAL is
 checkpointed and truncated afterwards, so the text is in neither the database file nor its WAL.
 The test proves it by reading the raw bytes. Never log a memory's text or quote (AC8).

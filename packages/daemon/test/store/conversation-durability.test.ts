@@ -13,7 +13,7 @@ import {
 } from '../../src/store/conversation.ts';
 import { applyMigrations, MIGRATIONS_DIR, openDatabase } from '../../src/store/database.ts';
 import { recordAction } from '../../src/store/history.ts';
-import { forgetMemories, saveMemory } from '../../src/store/memory.ts';
+import { saveMemory } from '../../src/store/memory.ts';
 
 // DK-16: the stored conversation survives the 0009 migration and is erased for real.
 const AT = new Date('2026-11-24T10:00:00.000Z');
@@ -87,7 +87,7 @@ describe('S5/S6 real erasure', () => {
   });
 });
 
-describe('B48: a memory replaced or forgotten takes the turns that hold its words with it', () => {
+describe('R-23 AC3: a replaced memory takes the turns that hold its words with it', () => {
   const at = AT.toISOString();
   const capture = (text: string, quote: string, replaces: number | null) => ({
     text,
@@ -117,22 +117,6 @@ describe('B48: a memory replaced or forgotten takes the turns that hold its word
     expect(texts()).toEqual(['23 € cena', 'Apuntado.', 'Recordatorio: llamar.']);
     expect(onDisk('Zorbtown')).toEqual([]);
     expect(onDisk('zorbtown')).toEqual([]);
-  });
-
-  it('R-23 AC6: a forget erases the turns that hold its text or quote, S-29 and the message that asked included, and keeps the rest', () => {
-    db = openDatabase(path);
-    applyMigrations(db);
-    const turns = createRecentTurns({ db, now: () => AT, logger });
-    turns.add('soy zorbvegano', { text: 'Tomo nota.' }, 'telegram');
-    turns.add('23 € cena', { text: 'Apuntado.' }, 'app');
-    turns.add('olvida que soy  ZORBVEGANO', { text: '¿Olvido esto?\n· Es zorbvegano' }, 'app');
-    const id = saveMemory(db, capture('Es zorbvegano', 'soy zorbvegano', null));
-
-    expect(forgetMemories(db, [id])).toEqual([id]);
-
-    expect(texts()).toEqual(['23 € cena', 'Apuntado.']);
-    expect(onDisk('orbvegano')).toEqual([]);
-    expect(onDisk('ORBVEGANO')).toEqual([]);
   });
 });
 
