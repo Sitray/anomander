@@ -16,33 +16,42 @@ const PROVIDER_CREDENTIALS = new Set([
   'AWS_BEARER_TOKEN_BEDROCK',
 ]);
 
-/** Every string anywhere in `value`, however deep, or only those of the fields `named`. */
-const stringLeaves = (value: unknown, named?: ReadonlySet<string>): string[] => {
+/** Whether a variable named `name` holds a model provider's credential. */
+const isProviderCredential = (name: string): boolean =>
+  PROVIDER_KEY.test(name) || PROVIDER_CREDENTIALS.has(name);
+
+/** Every string anywhere in `value`, however deep, or only those of the fields `named` accepts. */
+const stringLeaves = (value: unknown, named?: (name: string) => boolean): string[] => {
   if (typeof value === 'string') return named === undefined ? [value] : [];
   if (typeof value !== 'object' || value === null) return [];
   return Object.entries(value).flatMap(([name, inner]) =>
-    named?.has(name) && typeof inner === 'string' ? [inner] : stringLeaves(inner, named),
+    named?.(name) && typeof inner === 'string' ? [inner] : stringLeaves(inner, named),
   );
 };
 
 /**
  * The fields of the model login that hold a secret (pi-ai's `Credential`, the shape of
- * `auth.json`): the rest is metadata such as `enterpriseUrl` or an account ID.
+ * `auth.json`): its `key`, `access` and `refresh`, and in the `env` of an API-key login the
+ * variables named as a provider credential, such as `AWS_SECRET_ACCESS_KEY`. The rest is
+ * metadata such as `enterpriseUrl` or an account ID.
  */
-const LOGIN_SECRETS = new Set(['key', 'access', 'refresh']);
+const LOGIN_FIELDS = new Set(['key', 'access', 'refresh']);
+const isLoginSecret = (name: string): boolean =>
+  LOGIN_FIELDS.has(name) || isProviderCredential(name);
 
 /**
  * The fields of a connection's OAuth state that hold a secret: the rest, such as the client's
  * name, its grant types, its redirect address or the server's, is ordinary text.
  */
-const OAUTH_SECRETS = new Set(['access_token', 'refresh_token', 'id_token', 'client_secret']);
+const OAUTH_FIELDS = new Set(['access_token', 'refresh_token', 'id_token', 'client_secret']);
+const isOAuthSecret = (name: string): boolean => OAUTH_FIELDS.has(name);
 
 /**
  * The secrets of a variable that holds JSON: every string in it, however deep, or only those of
  * the fields `named`. When it is not JSON nothing reads it, yet it may still hold tokens, so the
  * whole of it is one.
  */
-const jsonSecrets = (raw: string | undefined, named?: ReadonlySet<string>): string[] => {
+const jsonSecrets = (raw: string | undefined, named?: (name: string) => boolean): string[] => {
   if (raw === undefined) return [];
   try {
     return stringLeaves(JSON.parse(raw), named);
@@ -62,7 +71,7 @@ export const secretsToScrub = (
   env: Record<string, string | undefined>,
 ): string[] => {
   const providerKeys = Object.entries(env)
-    .filter(([name]) => PROVIDER_KEY.test(name) || PROVIDER_CREDENTIALS.has(name))
+    .filter(([name]) => isProviderCredential(name))
     .map(([, value]) => value);
   return [
     config.telegram?.botToken,
@@ -71,7 +80,7 @@ export const secretsToScrub = (
     ...providerKeys,
     // The Keychain items by name: every value is secret, no name is.
     ...jsonSecrets(config.mcpSecrets),
-    ...jsonSecrets(config.authJson, LOGIN_SECRETS),
-    ...jsonSecrets(config.mcpOAuth, OAUTH_SECRETS),
+    ...jsonSecrets(config.authJson, isLoginSecret),
+    ...jsonSecrets(config.mcpOAuth, isOAuthSecret),
   ].filter((secret): secret is string => secret !== undefined && secret.trim() !== '');
 };

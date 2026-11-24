@@ -132,6 +132,26 @@ describe('the secrets the daemon scrubs from its log', () => {
     ).toBe('https://github.example.com account-0123456789 [secret] [secret] [secret]');
   });
 
+  it("include the credentials of a login's env, by the same names as the environment's", () => {
+    const awsSecret = 'aws-secret-0123456789abcdef';
+    const login = JSON.stringify({
+      'amazon-bedrock': {
+        type: 'api_key',
+        env: {
+          AWS_ACCESS_KEY_ID: 'AKIA0123456789',
+          AWS_SECRET_ACCESS_KEY: awsSecret,
+          OPENAI_API_KEY: OPENAI_KEY,
+        },
+      },
+    });
+    expect(
+      logged(
+        { ANOMANDER_LOCAL_TOKEN: LOCAL_TOKEN, ANOMANDER_AUTH_JSON: login },
+        `AKIA0123456789 ${awsSecret} ${OPENAI_KEY}`,
+      ),
+    ).toBe('AKIA0123456789 [secret] [secret]');
+  });
+
   it('take the login or the OAuth tokens whole when they are not JSON', () => {
     const line = logged(
       {
