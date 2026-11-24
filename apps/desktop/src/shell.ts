@@ -174,6 +174,9 @@ export const LOGIN_EVENT = 'shell://login';
 /** The event the shell emits when the menu bar's "Detener tarea" is chosen. */
 export const STOP_TASK_EVENT = 'shell://stop-task';
 
+/** B48: the event the shell emits each time it shows the chat window, hidden until then. */
+export const CHAT_SHOWN_EVENT = 'shell://chat-shown';
+
 export const shell = {
   snapshot: (): Promise<Snapshot> => invoke('get_snapshot'),
   /** Saves the setup and starts the daemon again with it. */
@@ -252,6 +255,8 @@ export const shell = {
   setTaskRunning: (running: boolean): Promise<void> => invoke('set_task_running', { running }),
   /** The principal chose "Detener tarea" in the menu bar. */
   onStopTask: (handler: () => void): Promise<UnlistenFn> => listen(STOP_TASK_EVENT, handler),
+  /** B48: calls `handler` each time the shell shows the chat window. */
+  onChatShown: (handler: () => void): Promise<UnlistenFn> => listen(CHAT_SHOWN_EVENT, handler),
   /** An answer arrived: the shell notifies it unless the window is in front. */
   notifyReply: (text: string): Promise<void> => invoke('notify_reply', { text }),
   onSnapshot: (handler: (snapshot: Snapshot) => void): Promise<UnlistenFn> =>

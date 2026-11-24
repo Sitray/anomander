@@ -37,6 +37,11 @@ export interface ChatScreenProps {
   onTaskRunning?: (running: boolean) => void;
   /** Subscribes `stop` to the menu bar's "Detener tarea"; answers how to unsubscribe. */
   subscribeStop?: (stop: () => void) => () => void;
+  /**
+   * B48: subscribes `shown` to the shell showing the window again (closing it only hides it);
+   * answers how to unsubscribe.
+   */
+  subscribeShown?: (shown: () => void) => () => void;
   /** The model the daemon answers with (S2); `null` or absent when none is set. */
   model?: string | null;
   /** S5: starts the daemon, offered by the empty chat while it is stopped. */
@@ -69,6 +74,7 @@ const proposing = ({ messages }: Conversation): boolean =>
 export function ChatScreen(props: ChatScreenProps) {
   const { daemon, channel, onThinking, onReply, onCaptureScreen, onPerformAction } = props;
   const { onReveal, onTaskRunning, subscribeStop, model = null, onAddWebSearch } = props;
+  const { subscribeShown } = props;
   const draft = useDraft();
   const computer = useMemo(
     () =>
@@ -104,6 +110,8 @@ export function ChatScreen(props: ChatScreenProps) {
   const { running, stop } = chat;
   useEffect(() => onTaskRunning?.(running), [running, onTaskRunning]);
   useEffect(() => subscribeStop?.(stop), [subscribeStop, stop]);
+  const { shownAgain } = chat;
+  useEffect(() => subscribeShown?.(shownAgain), [subscribeShown, shownAgain]);
 
   const disabled = channel === null;
   const connecting = chat.conversation.connection !== 'open';

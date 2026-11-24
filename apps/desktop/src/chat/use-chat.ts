@@ -48,6 +48,11 @@ export interface Chat {
    * `not_done`: nothing was erased; `unknown`: the connection was lost first.
    */
   clear(): Promise<'done' | 'not_done' | 'unknown'>;
+  /**
+   * B48: the window was shown again: it shows the stored conversation instead, once nothing on
+   * screen would be lost.
+   */
+  shownAgain(): void;
 }
 
 export interface ChatOptions {
@@ -425,7 +430,8 @@ export const useChat = (channel: LocalChannel | null, options: ChatOptions = {})
   );
 
   // B48: the window is hidden, not closed; shown again, it shows what the daemon keeps now, so a
-  // forget made through Telegram meanwhile is gone from it too.
+  // forget made through Telegram meanwhile is gone from it too. The shell says when it shows the
+  // window (`shownAgain`); the page's own visibility is a second, harmless sign of it.
   useEffect(() => {
     const visible = () => {
       if (document.visibilityState === 'visible') wantStored();
@@ -478,6 +484,7 @@ export const useChat = (channel: LocalChannel | null, options: ChatOptions = {})
     stop,
     addWebSearch,
     clear,
+    shownAgain: wantStored,
   };
 };
 
