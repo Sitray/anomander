@@ -12,7 +12,7 @@ export interface MemoryScreenProps {
   /** `null` while the daemon is not running. */
   channel: LocalChannel | null;
   onClose: () => void;
-  /** A memory was forgotten, and the stored conversation with it (DK-16 AC5). */
+  /** Something was forgotten, and the turns of the stored conversation that said it (DK-18). */
   onForgotten?: () => void;
 }
 
@@ -39,8 +39,8 @@ export function MemoryScreen({ channel, onClose, onForgotten }: MemoryScreenProp
     setForgetting(false);
     setAsking(null);
     setProblem(outcome === 'done' ? null : outcome);
-    // The chat follows a forget that erased, or may have erased, the stored conversation.
-    if (kind === 'memory' && outcome !== 'not_done') onForgotten?.();
+    // The chat follows a forget that erased, or may have erased, turns of the stored conversation.
+    if (outcome !== 'not_done') onForgotten?.();
   };
 
   /** "Olvidar", or the question it opened. */

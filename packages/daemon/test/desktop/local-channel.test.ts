@@ -798,11 +798,30 @@ describe('the memories and the history in the window (DK-18)', () => {
     });
   });
 
-  it('forget_memory erases that memory for real and the stored conversation, as a confirmed forget, and answers done', async () => {
+  /** Stores a principal's message and the reply it got, as one turn. */
+  const turn = (said: string, replied: string): void => {
+    const db = openDatabase(path());
+    try {
+      const at = new Date().toISOString();
+      recordMessages(db, [
+        { from: 'principal', door: 'app', text: said, buttons: [], channelRef: null, at },
+        { from: 'anomander', door: 'app', text: replied, buttons: [], channelRef: null, at },
+      ]);
+    } finally {
+      db.close();
+    }
+  };
+  const conversation = () =>
+    query<{ text: string }>('SELECT text FROM conversation ORDER BY id').map(({ text }) => text);
+
+  it('forget_memory erases that memory for real and only the turns that say it, and answers done', async () => {
     const chat = await client(await start());
     await chat.ask({ type: 'text', text: '23 € cena zorbchatline' });
     const forgotten = remember('Su clave es zorbmemtext', 'mi clave zorbmemquote', true);
     const kept = remember('Se llama Eric', 'me llamo Eric', true);
+    // Its quote in the principal's own words, and its text in a reply: each turn goes whole.
+    await chat.ask({ type: 'text', text: 'mi clave zorbmemquote, 23 € comida' });
+    turn('¿qué sabes de mí?', 'Sé que Su clave es zorbmemtext.');
     expect(onDisk('zorbmemtext')).not.toEqual([]);
 
     const id = 'forget-memory-1';
@@ -810,7 +829,7 @@ describe('the memories and the history in the window (DK-18)', () => {
     expect(await chat.answerTo(id)).toEqual({ type: 'done', inReplyTo: id });
 
     // R-23 AC6, AC7: its text and quote are in no file; the assertion stays, expired.
-    for (const marker of ['zorbmemtext', 'zorbmemquote', 'zorbchatline']) {
+    for (const marker of ['zorbmemtext', 'zorbmemquote']) {
       expect(onDisk(marker)).toEqual([]);
     }
     expect(query(`SELECT status FROM assertions WHERE id = ${forgotten}`)).toEqual([
@@ -819,10 +838,12 @@ describe('the memories and the history in the window (DK-18)', () => {
     expect(await chat.ask({ type: 'memories' })).toMatchObject({
       memories: [{ id: kept, text: 'Se llama Eric', mode: 'declared' }],
     });
-    // DK-16 AC5: the whole stored conversation goes with it, and the recent turns.
-    expect(query('SELECT id FROM conversation')).toEqual([]);
-    await chat.ask({ type: 'text', text: '23 € comida' });
-    expect(interpreted.at(-1)?.recent).toEqual([]);
+    // Decided 2026-11-24: "Solo los mensajes que lo contienen". The rest of the chat stays.
+    expect(conversation()).toEqual(['23 € cena zorbchatline', PHRASED]);
+    await chat.ask({ type: 'text', text: '23 € merienda' });
+    expect(interpreted.at(-1)?.recent).toEqual([
+      { principal: '23 € cena zorbchatline', reply: PHRASED },
+    ]);
     // R-23 AC8: never logged.
     expect(logged()).not.toContain('zorbmem');
   });
@@ -835,12 +856,17 @@ describe('the memories and the history in the window (DK-18)', () => {
     expect(query('SELECT id FROM conversation')).toHaveLength(2);
   });
 
-  it('forget_action erases only that action, for real, and answers done', async () => {
+  it('forget_action erases that action for real and only the turns that say its words, and answers done', async () => {
     const chat = await client(await start());
     await chat.ask({ type: 'text', text: '23 € cena' });
     act('lee el correo zorbactiongone', '2026-11-23T09:00:00.000Z');
     act('qué pone aquí', '2026-11-24T10:30:00.000Z');
     const [gone, stays] = actionIds();
+    // The principal's words, and a reply that holds the whole task: each turn goes whole.
+    turn('lee el correo zorbactiongone', 'Hecho.');
+    turn('¿qué hiciste ayer?', 'Ayer: lee el correo zorbactiongone.');
+    // A reply that holds only some of its words stays.
+    turn('¿y el correo?', 'No he leído ningún correo hoy.');
     expect(onDisk('zorbactiongone')).not.toEqual([]);
 
     const id = 'forget-action-1';
@@ -849,9 +875,31 @@ describe('the memories and the history in the window (DK-18)', () => {
 
     expect(actionIds()).toEqual([stays]);
     expect(onDisk('zorbactiongone')).toEqual([]);
-    // Only that row: the stored conversation stays.
-    expect(query('SELECT id FROM conversation')).toHaveLength(2);
+    expect(conversation()).toEqual([
+      '23 € cena',
+      PHRASED,
+      '¿y el correo?',
+      'No he leído ningún correo hoy.',
+    ]);
     expect(logged()).not.toContain('zorbactiongone');
+  });
+
+  it('the chat\'s confirmed "olvida" still erases the whole stored conversation, unlike the window', async () => {
+    const chat = await client(await start());
+    await chat.ask({ type: 'text', text: '23 € cena' });
+    const first = remember('Se llama Eric', 'me llamo Eric', true);
+    const second = remember('Vive en Lisboa', 'vivo en Lisboa', true);
+    await chat.ask({ type: 'memories' });
+    await chat.ask({ type: 'forget_memory', memoryId: first });
+    expect(conversation()).toEqual(['23 € cena', PHRASED]);
+
+    routed = JSON.stringify({ kind: 'forget', ids: [second] });
+    const question = reply(await chat.ask({ type: 'text', text: 'olvida dónde vivo' }));
+    routed = undefined;
+    const [yes] = question.buttons as { data: string }[];
+    await chat.ask({ type: 'button', data: yes?.data, channelRef: question.channelRef });
+
+    expect(conversation()).toEqual(['[botón: Sí]', 'Hecho, lo he olvidado.']);
   });
 
   it('B47: forget_memory and forget_action wait for a Telegram turn in progress', async () => {
@@ -863,7 +911,7 @@ describe('the memories and the history in the window (DK-18)', () => {
     interpreting = new Promise<void>((resolveHeld) => {
       release = resolveHeld;
     });
-    api.push(updates.text({ chatId: PRINCIPAL }, '23 € merienda'));
+    api.push(updates.text({ chatId: PRINCIPAL }, 'me llamo Eric, 23 € merienda'));
     await vi.waitFor(() => expect(interpreted).toHaveLength(1));
 
     chat.sendRaw(JSON.stringify({ type: 'forget_memory', id: 'fm', memoryId: memory }));
@@ -876,7 +924,7 @@ describe('the memories and the history in the window (DK-18)', () => {
 
     expect(await chat.answerTo('fm')).toEqual({ type: 'done', inReplyTo: 'fm' });
     expect(await chat.answerTo('fa')).toEqual({ type: 'done', inReplyTo: 'fa' });
-    // The turn was stored before the erase, so it went with it.
+    // The turn, which says the memory, was stored before the erase, so it went with it.
     expect(query('SELECT id FROM conversation')).toEqual([]);
     expect(actionIds()).toEqual([]);
   });

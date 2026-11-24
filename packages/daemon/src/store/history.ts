@@ -1,5 +1,6 @@
 import type Database from 'better-sqlite3';
 import { localParts } from '../reminders/when.ts';
+import { forgetTurnsSaying } from './memory.ts';
 
 // DK-14 (docs/desktop-prd.md): what ANOMANDER did for the principal, kept in the local database
 // (`action_history`, migration `0008`) so it can answer "¿qué hiciste ayer?". A row holds the
@@ -148,13 +149,25 @@ export const listActions = (db: Database.Database): KeptAction[] =>
     .all();
 
 /**
- * DK-18: erases the one action `id`, and checkpoints the WAL as `forgetHistory` does: with
- * `secure_delete` on, the freed pages hold zeros. Returns whether it was there.
+ * DK-18 AC5 (decided by the principal on 2026-11-24: "Solo los mensajes que lo contienen"):
+ * erases the one action `id` and the turns of the stored conversation that say its task, as a
+ * replaced memory's are found (R-23 AC3): a principal's own message that holds the task's words,
+ * or a reply that holds the whole task, each with its turn. Then the WAL is checkpointed as
+ * `forgetHistory` does: with `secure_delete` on, the freed pages hold zeros. Returns whether it
+ * was there.
  */
 export const forgetAction = (db: Database.Database, id: number): boolean => {
-  const { changes } = db.prepare('DELETE FROM action_history WHERE id = ?').run(id);
-  if (changes > 0) db.pragma('wal_checkpoint(TRUNCATE)');
-  return changes > 0;
+  const erased = db.transaction(() => {
+    const row = db
+      .prepare<[number], { task: string }>('SELECT task FROM action_history WHERE id = ?')
+      .get(id);
+    if (row === undefined) return false;
+    forgetTurnsSaying(db, { text: row.task, quote: row.task });
+    db.prepare('DELETE FROM action_history WHERE id = ?').run(id);
+    return true;
+  })();
+  if (erased) db.pragma('wal_checkpoint(TRUNCATE)');
+  return erased;
 };
 
 /**

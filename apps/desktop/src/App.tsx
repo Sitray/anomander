@@ -68,8 +68,8 @@ export function App() {
 
   // B48: the shell shows the window again (closing it only hides it); the chat then shows what
   // the daemon keeps now. Subscribed as `useShell` subscribes "Detener tarea".
-  // DK-18: a memory forgotten in Memoria erased the stored conversation; the chat follows it as
-  // it follows the window shown again.
+  // DK-18: a forget in Memoria erased the turns of the stored conversation that said it; the chat
+  // follows it as it follows the window shown again.
   const forgottenListeners = useRef(new Set<() => void>());
   const onForgotten = useCallback(() => {
     for (const listener of forgottenListeners.current) listener();

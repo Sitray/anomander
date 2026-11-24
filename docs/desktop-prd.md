@@ -519,7 +519,8 @@ and keep its secrets in the operating system instead of a text file.
     connection is not open, while an answer is owed, or while a task runs or waits for
     "Permitir".
   - AC5: a confirmed "olvida" (R-23 AC6) and a confirmed erase of the action history (DK-14 AC4)
-    also erase the stored conversation. When an erase fails the question stays open and the reply
+    also erase the stored conversation. "Olvidar" on one item of the app's "Memoria" erases only
+    the turns that say it (DK-18 AC4, AC5). When an erase fails the question stays open and the reply
     is S-22, so `Sí` can be pressed again. A memory replaced by a new fact (R-23 AC3) erases, the
     same way, only the turns where the principal said it, matched as whole words ignoring case,
     spacing and accents: its quote in a principal's own message (never a line such as
@@ -557,20 +558,31 @@ and keep its secrets in the operating system instead of a text file.
     channel the screen says ANOMANDER is not running; while it connects, that it is connecting.
     Nothing of either list is ever logged (R-23 AC8, DK-14 AC5).
   - AC3: every item has "Olvidar", which asks first in the window, as "Borrar conversación"
-    does: for a memory "¿Lo olvido? Lo borro de este Mac y, como cuando me lo pides en el chat,
-    borro también la conversación guardada.", for an action "¿Lo olvido? Lo borro de este Mac y
-    no podré recuperarlo.", with "Sí, olvidar" and "No olvidar". "No olvidar" sends nothing.
+    does: for a memory "¿Lo olvido? Lo borro de este Mac, y también los mensajes de la
+    conversación que lo mencionan.", for an action "¿Lo olvido? Lo borro de este Mac, y también
+    los mensajes de la conversación que lo mencionan. No podré recuperarlo.", with "Sí, olvidar"
+    and "No olvidar". "No olvidar" sends nothing.
   - AC4: "Sí, olvidar" on a memory sends `forget_memory` with its id: the daemon forgets it as a
     confirmed "olvida" does (R-23 AC6, AC7: its text and quote erased for real, the assertion
-    `expired`) and erases the whole stored conversation and the recent turns with it (DK-16
-    AC5). A memory no longer current is left alone and nothing else is erased. Once it is
-    answered, the chat asks for the stored conversation again, as after a forget confirmed in the
-    chat (DK-16 AC5).
+    `expired`), and of the stored conversation it erases only the turns that say it, found as a
+    replaced memory's are (R-23 AC3, DK-16 AC5): its quote in a principal's own message, its text
+    in any message, matched as whole words ignoring case, spacing and accents, each message with
+    its turn. The rest of the conversation stays, and the recent turns are read from what stays
+    (decided by the principal on 2026-11-24: "Solo los mensajes que lo contienen" — "Borra de
+    verdad la memoria o la acción, y además los mensajes de la conversación que la mencionan, con
+    la búsqueda por palabra completa que ya usamos para una memoria reemplazada. El resto del chat
+    se queda."). A memory no longer current is left alone and nothing else is erased.
   - AC5: "Sí, olvidar" on an action sends `forget_action` with its id: the daemon erases that
-    one row of `action_history` for real (secure delete, then the WAL checkpoint, as DK-14 AC4);
-    the rest of the history and the stored conversation stay.
+    one row of `action_history` for real and, by the same decision and the same matching, the
+    turns that say its task: a principal's own message that holds the task's words, and a reply
+    that holds the whole task (a reply that holds only some of its words stays), each with its
+    turn. The rest of the history and of the conversation stays. Both erases are secure deletes
+    followed by the WAL checkpoint (R-23 AC7).
+  - Known limit (accepted by the principal with that decision): a reply that said the memory or
+    the task in other words is not matched and stays.
   - AC6: both forgets wait for the chat's turn of either door that runs, as `clear_history`
-    does (DK-16 AC4), and are answered `done`; the window then reads both lists again. When it
+    does (DK-16 AC4), and are answered `done`; the window then reads both lists again and the
+    chat asks for the stored conversation again, as after a forget confirmed in the chat. When it
     was not forgotten (the reply S-22) the item stays and the screen says so; when the connection
     was lost first, that it cannot know.
 

@@ -144,11 +144,11 @@ describe('Memoria (DK-18)', () => {
     await shown([GUESS], [LOOK, SEARCH], 2);
     expect(items(known())).toEqual([expect.stringContaining(GUESS.text)]);
     expect(screen.queryByText(text.confirmMemory)).toBeNull();
-    // The stored conversation went with it: the chat reads it again.
+    // The turns that said it went with it: the chat reads the stored conversation again.
     expect(onForgotten).toHaveBeenCalledTimes(1);
   });
 
-  it('forgets an action the same way, without touching the chat', async () => {
+  it('forgets an action the same way, and the chat reads the stored conversation again', async () => {
     const socket = await openMemory();
     fireEvent.click(screen.getByRole('button', { name: text.forgetLabel(LOOK.task) }));
     expect(screen.getByText(text.confirmAction)).toBeTruthy();
@@ -159,7 +159,7 @@ describe('Memoria (DK-18)', () => {
     act(() => socket.receive({ type: 'done', inReplyTo: forget.id }));
     await shown([NAME, GUESS], [SEARCH], 2);
     expect(items(done())).toEqual([expect.stringContaining(SEARCH.task)]);
-    expect(onForgotten).not.toHaveBeenCalled();
+    expect(onForgotten).toHaveBeenCalledTimes(1);
   });
 
   it('keeps the item and says so when it was not forgotten, or that it cannot know', async () => {
@@ -182,7 +182,8 @@ describe('Memoria (DK-18)', () => {
     act(() => FakeWebSocket.last.open());
     await shown([NAME, GUESS], [LOOK, SEARCH], 1);
     expect((await screen.findByRole('alert')).textContent).toBe(text.forgetUnknown);
-    expect(onForgotten).not.toHaveBeenCalled();
+    // Not forgotten: the chat is left alone. Lost: it may have been, so the chat reads it again.
+    expect(onForgotten).toHaveBeenCalledTimes(1);
   });
 
   it('says when a list cannot be read, and reads it again on Reintentar', async () => {

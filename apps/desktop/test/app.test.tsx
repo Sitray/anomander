@@ -515,7 +515,7 @@ describe('Memoria (DK-18)', () => {
     );
     fireEvent.click(screen.getByRole('button', { name: strings.memory.confirmYes }));
     await waitFor(() => expect(socket.lastRequest.type).toBe('forget_memory'));
-    // The daemon erased the stored conversation with it (DK-16 AC5).
+    // The daemon erased the turn that said it (DK-18 AC4).
     FakeWebSocket.history = [];
     act(() => socket.receive({ type: 'done', inReplyTo: socket.lastRequest.id }));
 

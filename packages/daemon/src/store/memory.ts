@@ -95,12 +95,30 @@ const saysWords = (words: string): ((text: string) => boolean) => {
 const isMarkerLine = (text: string): boolean => text.startsWith('[');
 
 /**
- * R-23 AC3: erases a replaced memory's text and quote from `memory_texts` and the turns of the
- * stored conversation (R-16 AC3) where the principal said it, so its old fact is kept nowhere: a
+ * R-23 AC3: erases the turns of the stored conversation (R-16 AC3) that say `text` or `quote`: a
  * principal's message that holds the quote (their own words, never a marker line) or the text,
  * and a reply that holds the text, each matched as whole words, ignoring case, spacing and
  * accents; a matched message takes its turn with it. The rest of the conversation stays. In the
- * caller's transaction; the caller checkpoints the WAL after it.
+ * caller's transaction; the caller checkpoints the WAL after it. DK-18 erases the turns of a
+ * forgotten action with it too, its task as both.
+ */
+export const forgetTurnsSaying = (
+  db: Database.Database,
+  { text, quote }: { text: string; quote: string },
+): void => {
+  const saysQuote = saysWords(quote);
+  const saysText = saysWords(text);
+  forgetTurnsHolding(
+    db,
+    ({ from, text: said }) =>
+      saysText(said) || (from === 'principal' && !isMarkerLine(said) && saysQuote(said)),
+  );
+};
+
+/**
+ * R-23 AC3: erases a replaced memory's text and quote from `memory_texts` and the turns where the
+ * principal said it (`forgetTurnsSaying`), so its old fact is kept nowhere. In the caller's
+ * transaction; the caller checkpoints the WAL after it.
  */
 const eraseReplacedText = (db: Database.Database, id: number): void => {
   const row = db
@@ -108,15 +126,7 @@ const eraseReplacedText = (db: Database.Database, id: number): void => {
       'SELECT text, quote FROM memory_texts WHERE assertion_id = ?',
     )
     .get(id);
-  if (row !== undefined) {
-    const saysQuote = saysWords(row.quote);
-    const saysText = saysWords(row.text);
-    forgetTurnsHolding(
-      db,
-      ({ from, text }) =>
-        saysText(text) || (from === 'principal' && !isMarkerLine(text) && saysQuote(text)),
-    );
-  }
+  if (row !== undefined) forgetTurnsSaying(db, row);
   db.prepare('DELETE FROM memory_texts WHERE assertion_id = ?').run(id);
 };
 
@@ -243,6 +253,23 @@ export interface MemoryNote {
  */
 export const memoryNotesFor = (db: Database.Database, words: string): MemoryNote[] =>
   memoriesForPrompt(db, words, 'declared').map(({ text }) => ({ text, mode: 'declared' }));
+
+/**
+ * DK-18 AC4 (decided by the principal on 2026-11-24: "Solo los mensajes que lo contienen"): forgets
+ * one current memory from the app's "Memoria" as `forgetMemories` does, and of the stored
+ * conversation only the turns that say it, as a replaced memory's (R-23 AC3). Then the WAL is
+ * checkpointed. Returns whether it was a current memory; one that is not is left alone.
+ */
+export const forgetMemoryAndItsTurns = (db: Database.Database, id: number): boolean => {
+  const forgotten = db.transaction(() => {
+    if (!isCurrentMemory(db, id)) return false;
+    eraseReplacedText(db, id);
+    db.prepare("UPDATE assertions SET status = 'expired' WHERE id = ?").run(id);
+    return true;
+  })();
+  if (forgotten) db.pragma('wal_checkpoint(TRUNCATE)');
+  return forgotten;
+};
 
 /**
  * R-23 AC6, AC7: forgets the given current memories. In one transaction each one's text and

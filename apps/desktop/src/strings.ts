@@ -469,10 +469,11 @@ const es = {
       ),
     forget: 'Olvidar',
     forgetLabel: (words: string) => `Olvidar «${words}»`,
-    /** DK-16 AC5: a forgotten memory takes the stored conversation with it, as in the chat. */
+    /** DK-18 AC4, AC5: the turns of the stored conversation that say it go with it. */
     confirmMemory:
-      '¿Lo olvido? Lo borro de este Mac y, como cuando me lo pides en el chat, borro también la conversación guardada.',
-    confirmAction: '¿Lo olvido? Lo borro de este Mac y no podré recuperarlo.',
+      '¿Lo olvido? Lo borro de este Mac, y también los mensajes de la conversación que lo mencionan.',
+    confirmAction:
+      '¿Lo olvido? Lo borro de este Mac, y también los mensajes de la conversación que lo mencionan. No podré recuperarlo.',
     confirmYes: 'Sí, olvidar',
     keep: 'No olvidar',
     forgetting: 'Olvidando…',
@@ -940,9 +941,9 @@ const en: Strings = {
     forget: 'Forget',
     forgetLabel: (words: string) => `Forget “${words}”`,
     confirmMemory:
-      'Shall I forget it? I erase it from this Mac and, as when you ask me in the chat, I erase the stored conversation too.',
+      'Shall I forget it? I erase it from this Mac, and the messages of the conversation that mention it too.',
     confirmAction:
-      "Shall I forget it? I erase it from this Mac and I won't be able to get it back.",
+      "Shall I forget it? I erase it from this Mac, and the messages of the conversation that mention it too. I won't be able to get it back.",
     confirmYes: 'Yes, forget',
     keep: "Don't forget",
     forgetting: 'Forgetting…',

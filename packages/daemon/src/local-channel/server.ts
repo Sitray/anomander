@@ -63,13 +63,13 @@ export interface StoredMemory {
   /** The current memories, in the order they were remembered. */
   memories(): ChatMemory[];
   /**
-   * Forgets one memory as a confirmed "olvida" does (R-23 AC6, AC7), the stored conversation with
-   * it (DK-16 AC5); one no longer current is left alone. In the chat's turn, as `clear`.
+   * Forgets one memory for real (R-23 AC6, AC7) and the turns of the stored conversation that
+   * say it (DK-18 AC4); one no longer current is left alone. In the chat's turn, as `clear`.
    */
   forgetMemory(id: number): Promise<void> | void;
   /** The actions kept, the latest first. */
   actions(): ChatAction[];
-  /** Erases one action for real (R-23 AC7). In the chat's turn, as `clear`. */
+  /** Erases one action and the turns that say it, for real (DK-18 AC5). In the chat's turn. */
   forgetAction(id: number): Promise<void> | void;
 }
 

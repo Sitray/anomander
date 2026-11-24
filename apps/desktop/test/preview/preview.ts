@@ -490,8 +490,6 @@ const memoryAnswer = (request: MemoryRequest): ChatEvent => {
       return { type: 'actions', inReplyTo: request.id, actions };
     case 'forget_memory':
       memories = memories.filter(({ id }) => id !== request.memoryId);
-      // As a confirmed "olvida": the stored conversation goes with it (DK-16 AC5).
-      kept = [];
       return { type: 'done', inReplyTo: request.id };
     case 'forget_action':
       actions = actions.filter(({ id }) => id !== request.actionId);

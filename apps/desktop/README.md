@@ -119,8 +119,8 @@ is framework-free, so it is tested against a fake `WebSocket` (`test/fake-web-so
   setup hides the chat without unmounting it.
 - **Memoria** (DK-18) opens its own connection to the channel and asks for `memories` and
   `actions` each time it opens. "Olvidar" asks first and sends `forget_memory` or
-  `forget_action`; a forgotten memory erases the stored conversation too, so the chat then asks
-  for it again. Nothing of either list is kept by the window.
+  `forget_action`; the daemon also erases the turns of the stored conversation that say it, so
+  the chat then asks for it again. Nothing of either list is kept by the window.
 - **A reply is plain text** (DK-4 AC1): shown exactly as received, line breaks kept, never HTML
   or Markdown.
 - **Delivery honesty.** A `rejected` request did nothing: the window says it was not sent and

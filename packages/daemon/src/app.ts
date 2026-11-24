@@ -75,7 +75,7 @@ import { acquireDaemonLock } from './store/daemon-lock.ts';
 import { applyMigrations, openDatabase } from './store/database.ts';
 import { exportLedger } from './store/export.ts';
 import { type ActionRecord, forgetAction, listActions, recordAction } from './store/history.ts';
-import { forgetMemories, listMemories, memoryNotesFor } from './store/memory.ts';
+import { forgetMemoryAndItsTurns, listMemories, memoryNotesFor } from './store/memory.ts';
 import { createWeeklySummary } from './summary/weekly-summary.ts';
 import { openTelegramDoor } from './telegram-door.ts';
 
@@ -824,10 +824,10 @@ export const startAnomander = <M>(config: Config, deps: AnomanderDeps<M>): Anoma
   // DK-16: the app shows the stored conversation of both doors and can erase it. AC4: the erase
   // waits for the turn that runs, so nothing of that turn is stored after it.
   const clearInTurn = inTurn(async () => turns.clear());
-  // DK-18: a forget from the window waits for the turn that runs too, as the erase does. A
-  // memory is forgotten as a confirmed "olvida" (R-23 AC6), with the stored conversation.
+  // DK-18: a forget from the window waits for the turn that runs too, as the erase does, so a
+  // turn that says it is stored before it and goes with it. Only the turns that say it go.
   const forgetMemoryInTurn = inTurn(async (id: number) => {
-    if (forgetMemories(db, [id]).length > 0) turns.clear();
+    forgetMemoryAndItsTurns(db, id);
   });
   const forgetActionInTurn = inTurn(async (id: number) => {
     forgetAction(db, id);
