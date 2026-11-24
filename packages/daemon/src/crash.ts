@@ -12,6 +12,47 @@ export interface CrashSource {
   ): unknown;
 }
 
+/** Where the log goes: `process.stdout` and `process.stderr`. */
+export interface Drainable {
+  write(chunk: string, done: (error?: Error | null) => void): boolean;
+}
+
+/** How long `exitOnceWritten` waits for its streams before it exits anyway. */
+export const DRAIN_LIMIT_MS = 5_000;
+
+/**
+ * `exit`, called once whatever was written to `streams` is out (B45): a pipe on macOS or Windows
+ * is written later, and `process.exit` drops what still waits, the crash line among it. A stream
+ * that never drains holds the exit `limitMs` at most. Only the first code counts.
+ */
+export const exitOnceWritten = (
+  streams: readonly Drainable[],
+  exit: (code: ExitCode) => void,
+  limitMs: number = DRAIN_LIMIT_MS,
+): ((code: ExitCode) => void) => {
+  let leaving = false;
+  return (code) => {
+    if (leaving) return;
+    leaving = true;
+    let pending = streams.length;
+    let gone = false;
+    const leave = (): void => {
+      if (gone) return;
+      gone = true;
+      clearTimeout(timer);
+      exit(code);
+    };
+    const done = (): void => {
+      pending -= 1;
+      if (pending === 0) leave();
+    };
+    const timer = setTimeout(leave, limitMs);
+    if (pending === 0) leave();
+    // An empty write is done once every write queued before it is.
+    for (const stream of streams) stream.write('', done);
+  };
+};
+
 /** Writes every uncaught exception and unhandled rejection to `log`, then calls `exit`. */
 export const reportCrashes = (
   source: CrashSource,

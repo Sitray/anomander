@@ -17,10 +17,32 @@ const BOT_TOKEN_IN_ADDRESS = /\bbot\d+:[\w-]+/g;
  */
 const SHORTEST_SECRET = 8;
 
-/** `text` with every secret of `SHORTEST_SECRET` or more replaced whole, the longest first. */
+/**
+ * `secret` as a line may quote it (B42): as it is, escaped inside a JSON string (a request body),
+ * and URL-encoded in an address or in a form, where a space is `+`. A URL holds no lone
+ * surrogate (`encodeURIComponent` throws on one), so its forms encode the secret with each one
+ * replaced by U+FFFD, as `URLSearchParams` does.
+ */
+const writtenForms = (secret: string): string[] => {
+  const wellFormed = secret.toWellFormed();
+  return [
+    ...new Set([
+      secret,
+      JSON.stringify(secret).slice(1, -1),
+      encodeURIComponent(wellFormed),
+      new URLSearchParams({ s: wellFormed }).toString().slice(2),
+    ]),
+  ];
+};
+
+/**
+ * `text` with every secret of `SHORTEST_SECRET` or more replaced whole, in each of its written
+ * forms, the longest first.
+ */
 export const scrub = (text: string, secrets: readonly string[]): string => {
   const known = secrets
     .filter((secret) => secret.length >= SHORTEST_SECRET)
+    .flatMap(writtenForms)
     .sort((a, b) => b.length - a.length);
   const scrubbed = known.reduce((line, secret) => line.replaceAll(secret, REDACTED), text);
   return scrubbed.replace(BOT_TOKEN_IN_ADDRESS, `bot${REDACTED}`);
