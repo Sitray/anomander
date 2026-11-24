@@ -22,5 +22,12 @@ COPY apps ./apps
 RUN mkdir -p /app/data && chown node:node /app/data && chmod 700 /app/data
 USER node
 
+# Liveness: a running daemon holds an exclusive SQLite lock on `<database>.lock` for its whole life
+# (DK-2 AC1, store/daemon-lock.ts), in every mode, Telegram, setup guide or read API. The check
+# opens that file read-only with Node's own SQLite: "locked" means a daemon holds it, so the
+# container is healthy; a file it can read, or no file, means none does. No curl, no open port.
+HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
+  CMD ["node", "--no-warnings", "-e", "const{DatabaseSync}=require('node:sqlite');const f=(process.env.ANOMANDER_DB_PATH||'./data/anomander.db')+'.lock';try{new DatabaseSync(f,{readOnly:true}).prepare('SELECT 1 FROM sqlite_master').all();console.log('no daemon holds '+f);process.exit(1)}catch(e){const held=e.errcode===5;console.log(held?'daemon holds '+f:'cannot read '+f+': '+e.message);process.exit(held?0:1)}"]
+
 # Node 24 runs TypeScript directly by stripping types; there is no build step.
 CMD ["node", "packages/daemon/src/main.ts"]

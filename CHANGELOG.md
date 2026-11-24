@@ -18,6 +18,11 @@ On `main` since 0.1.0. The interface speaks English or Spanish, and the app runs
 ### Changed
 
 - The CI workflow runs only by hand while GitHub Actions minutes are unavailable. `scripts/ci-local.sh` runs the same checks locally before a merge to `main`.
+- CI also runs Biome, the typecheck and Vitest on Linux (`check-linux`), and starts the built daemon image until its health check says healthy. `scripts/ci-local.sh` runs the same smoke start when Docker is running.
+- Dependencies: Dependabot proposes weekly grouped updates for pnpm, Cargo and the GitHub actions; every action is pinned to a commit SHA; CI audits the locked dependencies (`pnpm audit --audit-level high`, `cargo audit`); pnpm installs only versions published at least a day ago (`minimumReleaseAge`). `scripts/ci-local.sh` runs the pnpm audit, and the cargo audit where `cargo-audit` is installed.
+- `pnpm coverage` measures the test coverage with Vitest's V8 provider and prints a summary; no thresholds.
+- Repository: issue templates (bug, feature), a pull request template that asks for `scripts/ci-local.sh`, `CODEOWNERS`, and `apps/desktop/src-tauri/rust-toolchain.toml` (stable, with clippy and rustfmt). A CI `msrv` job checks the shell on the `rust-version` of its `Cargo.toml`; `scripts/ci-local.sh` runs it where that toolchain is installed.
+- The daemon image has a `HEALTHCHECK`: healthy while a daemon holds its database lock. `compose.yaml` rotates the daemon log at 3 files of 10 MB.
 
 ### Fixed
 

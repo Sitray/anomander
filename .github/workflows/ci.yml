@@ -10,6 +10,9 @@ on:
 permissions:
   contents: read
 
+# Every action is pinned to a full commit SHA, with its version in a comment; Dependabot
+# (.github/dependabot.yml) proposes the updates.
+
 # A newer push to the same branch or pull request cancels the run it supersedes.
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -36,12 +39,12 @@ jobs:
         if: runner.os == 'Windows'
         run: git config --global core.autocrlf false
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
       # pnpm's version comes from `packageManager` in package.json.
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4.3.0
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version-file: .node-version
           cache: pnpm
@@ -51,11 +54,14 @@ jobs:
       - run: pnpm -r typecheck
       - run: pnpm test
 
-      - uses: dtolnay/rust-toolchain@stable
+      # The `stable` branch of this action has no tags; its master commit takes the toolchain
+      # as an input instead.
+      - uses: dtolnay/rust-toolchain@df2a88e9fe4098bad09cb42c3dec7187f15861fc # master
         with:
+          toolchain: stable
           components: clippy, rustfmt
 
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           workspaces: apps/desktop/src-tauri -> target
 
@@ -71,6 +77,44 @@ jobs:
         working-directory: apps/desktop/src-tauri
         run: cargo test
 
+  # The TypeScript checks on Linux, the system the Docker image runs on. The Rust shell is
+  # macOS and Windows only, so it is not built here.
+  check-linux:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4.3.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm biome ci .
+      - run: pnpm -r typecheck
+      - run: pnpm test
+
+  # The shell still compiles on the oldest compiler it declares: `rust-version` in Cargo.toml,
+  # read from there so the two never drift. rust-toolchain.toml selects stable, so the check names
+  # the toolchain explicitly. macOS, where the shell needs no system libraries.
+  msrv:
+    runs-on: macos-15
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - name: read rust-version
+        id: msrv
+        run: echo "version=$(sed -n 's/^rust-version = "\(.*\)"$/\1/p' apps/desktop/src-tauri/Cargo.toml)" >> "$GITHUB_OUTPUT"
+      - uses: dtolnay/rust-toolchain@df2a88e9fe4098bad09cb42c3dec7187f15861fc # master
+        with:
+          toolchain: ${{ steps.msrv.outputs.version }}
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          workspaces: apps/desktop/src-tauri -> target
+      - name: cargo check on rust-version
+        working-directory: apps/desktop/src-tauri
+        run: cargo +${{ steps.msrv.outputs.version }} check --locked --all-targets
+
   # Smoke build of the Mac app: a debug, unsigned `.app` (no signing identity is configured),
   # so it proves the frontend build and the bundled shell compile, not that the app is
   # distributable.
@@ -78,16 +122,18 @@ jobs:
     runs-on: macos-15
     timeout-minutes: 40
     steps:
-      - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4.3.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version-file: .node-version
           cache: pnpm
       - run: pnpm install --frozen-lockfile
 
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
+      - uses: dtolnay/rust-toolchain@df2a88e9fe4098bad09cb42c3dec7187f15861fc # master
+        with:
+          toolchain: stable
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           workspaces: apps/desktop/src-tauri -> target
 
@@ -105,16 +151,18 @@ jobs:
       run:
         shell: bash
     steps:
-      - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4.3.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version-file: .node-version
           cache: pnpm
       - run: pnpm install --frozen-lockfile
 
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
+      - uses: dtolnay/rust-toolchain@df2a88e9fe4098bad09cb42c3dec7187f15861fc # master
+        with:
+          toolchain: stable
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           workspaces: apps/desktop/src-tauri -> target
 
@@ -122,10 +170,50 @@ jobs:
         working-directory: apps/desktop
         run: pnpm tauri build --debug --ci --bundles nsis
 
-  # The daemon's container image (Dockerfile, used by compose.yaml) still builds. Nothing is pushed.
+  # The daemon's container image (Dockerfile, used by compose.yaml) still builds and starts.
+  # Nothing is pushed.
   docker:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - run: docker build --tag anomander-daemon:ci .
+      # Starts the image with no model and no Telegram: a throwaway ANOMANDER_LOCAL_TOKEN is the
+      # only front door, so the daemon runs its setup guide and holds its database lock, which is
+      # what the image's HEALTHCHECK reads. No port is published and no secret is used. The same
+      # steps run in scripts/ci-local.sh.
+      - name: docker smoke start (healthy)
+        run: |
+          token="$(head -c 32 /dev/urandom | od -An -tx1 | tr -d ' \n')"
+          docker run --detach --name anomander-smoke --health-interval=2s \
+            --env ANOMANDER_LOCAL_TOKEN="$token" anomander-daemon:ci
+          status=starting
+          for _ in $(seq 1 30); do
+            status="$(docker inspect --format '{{if .State.Running}}{{.State.Health.Status}}{{else}}exited{{end}}' anomander-smoke)"
+            [[ "$status" == starting ]] || break
+            sleep 2
+          done
+          docker logs anomander-smoke
+          docker rm --force anomander-smoke >/dev/null
+          echo "container status: $status"
+          [[ "$status" == healthy ]]
+
+  # Known vulnerabilities in the locked dependencies: high or critical in the pnpm workspace, any
+  # in the Rust shell (RustSec). `scripts/ci-local.sh` runs the pnpm audit, and the cargo audit
+  # only where cargo-audit is already installed.
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4.3.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version-file: .node-version
+      - run: pnpm audit --audit-level high
+      - uses: taiki-e/install-action@fe3acb53a98b62c772db35de75ce0e4595e7ca8c # v2.90.8
+        with:
+          tool: cargo-audit
+      - name: cargo audit
+        working-directory: apps/desktop/src-tauri
+        run: cargo audit

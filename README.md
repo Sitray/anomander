@@ -196,7 +196,7 @@ You need:
 | --- | --- |
 | macOS | The app uses the Keychain, the menu bar and the notch. For Windows, see [Run the app on Windows](#run-the-app-on-windows); there is no Linux app |
 | Node 24 and pnpm | The app runs the daemon with the first `node` on `PATH` (plus `/opt/homebrew/bin` and `/usr/local/bin`) |
-| Rust 1.85 or later and the Xcode Command Line Tools | To build the Tauri shell |
+| Rust 1.90 or later and the Xcode Command Line Tools | To build the Tauri shell |
 | A code-signing identity | macOS ties each Keychain entry to the app's signature. An unsigned build gets a new one each time, so after every rebuild macOS asks for your login keychain password |
 | A Telegram bot and your user ID, if you want | Only to talk to ANOMANDER over Telegram too ([Getting started](#getting-started), steps 1 and 2). Without them the app's chat works on its own |
 | A model | An API key, or a ChatGPT or Kimi Code subscription |
@@ -231,7 +231,7 @@ You need:
 | --- | --- |
 | Windows 10 or 11, 64-bit, with the WebView2 runtime | The window is drawn by WebView2. Windows 11 has it; on Windows 10 the installer fetches it |
 | Node 24 and pnpm | The app runs the daemon with the first `node.exe` on `PATH` |
-| Rust 1.85 or later with the MSVC toolchain (`rustup default stable-x86_64-pc-windows-msvc`) and the Visual Studio Build Tools with "Desktop development with C++" | To build the Tauri shell |
+| Rust 1.90 or later with the MSVC toolchain (`rustup default stable-x86_64-pc-windows-msvc`) and the Visual Studio Build Tools with "Desktop development with C++" | To build the Tauri shell |
 | A model | An API key, or a ChatGPT or Kimi Code subscription |
 
 Steps, in a terminal (PowerShell or Git Bash):

@@ -6,3 +6,6 @@ allowBuilds:
   # Transitive dependencies of pi-ai whose install scripts the daemon does not need.
   '@google/genai': false
   protobufjs: false
+# A version is installed only once it has been published for a day (1440 minutes): a compromised
+# release is usually pulled within hours. Set here, it is strict: no younger fallback.
+minimumReleaseAge: 1440
