@@ -17,7 +17,7 @@ import {
   startFakeTelegramApi,
   updates,
 } from '@anomander/telegram/fake-telegram-api';
-import type { AssistantMessage, Context } from '@earendil-works/pi-ai';
+import type { AssistantMessage, Context, Credential } from '@earendil-works/pi-ai';
 import Database from 'better-sqlite3';
 import { afterEach, beforeEach, describe, expect, it, type Mock, vi } from 'vitest';
 import {
@@ -26,6 +26,8 @@ import {
   startAnomander,
   startSetupGuide,
 } from '../../src/app.ts';
+import { createFileCredentialStore } from '../../src/auth/file-credential-store.ts';
+import type { ModelLogin } from '../../src/auth/telegram-login.ts';
 import { loadConfig } from '../../src/config.ts';
 import type { Connection } from '../../src/connections/connection.ts';
 import { connectionTaskPrompt } from '../../src/connections/task.ts';
@@ -66,6 +68,8 @@ let interpreted: {
 }[];
 /** What the text interpreter answers instead of an expense, as its JSON text (DK-13). */
 let routed: string | undefined;
+/** What the text interpreter waits for before it answers. */
+let interpreting: Promise<void>;
 /** The contexts the computer planner received. */
 let plans: Context[];
 /** What the computer planner answers, as the text of its response. */
@@ -110,6 +114,7 @@ const complete = async (_model: string, context: Context): Promise<AssistantMess
   }
   const [turn] = context.messages;
   if (typeof turn?.content === 'string') interpreted.push(JSON.parse(turn.content));
+  await interpreting;
   return routed === undefined ? reply : { ...reply, content: [{ type: 'text', text: routed }] };
 };
 
@@ -252,6 +257,7 @@ beforeEach(async () => {
   sockets = [];
   interpreted = [];
   routed = undefined;
+  interpreting = Promise.resolve();
   screens = [];
   plans = [];
   planned = async () => JSON.stringify(CLICK);
@@ -629,6 +635,26 @@ describe('the stored conversation (DK-16)', () => {
     ).not.toContain(marker);
   });
 
+  it('B47: clear_history waits for a Telegram turn in progress, and erases it too', async () => {
+    const chat = await client(await start());
+    let release = (): void => {};
+    interpreting = new Promise<void>((resolveHeld) => {
+      release = resolveHeld;
+    });
+    api.push(updates.text({ chatId: PRINCIPAL }, '23 € merienda'));
+    await vi.waitFor(() => expect(interpreted).toHaveLength(1));
+
+    const id = 'clear-in-turn';
+    chat.sendRaw(JSON.stringify({ type: 'clear_history', id }));
+    // Answered outside the turn: once it is, the daemon has the erase too.
+    await chat.ask({ type: 'history' });
+    release();
+    await api.waitForSent(1);
+
+    expect(await chat.answerTo(id)).toEqual({ type: 'done', inReplyTo: id });
+    expect(query('SELECT id FROM conversation')).toEqual([]);
+  });
+
   it('when the store cannot be read or erased, answers S-22 and the stored conversation stays', async () => {
     const chat = await client(await start());
     await chat.ask({ type: 'text', text: '23 € cena' });
@@ -662,6 +688,80 @@ describe('the stored conversation (DK-16)', () => {
     expect((await chat.ask({ type: 'history', limit: 'all' })).type).toBe('rejected');
     expect((await chat.ask({ type: 'clear_history', all: true })).type).toBe('rejected');
     expect(query('SELECT id FROM conversation')).toHaveLength(2);
+  });
+});
+
+describe('a text pasted in the app while a Telegram login waits (R-17 AC7, R-27 AC3)', () => {
+  it('goes to the login first: answered done, never stored, logged, a recent turn or sent to the model', async () => {
+    const pasted = 'http://127.0.0.1:1455/auth/callback?code=zorbpasted&state=s';
+    const token: Credential = { type: 'oauth', access: 'a', refresh: 'r', expires: 1 };
+    let received: string | undefined;
+    const models: ModelLogin = {
+      login: async (_providerId, _type, interaction) => {
+        interaction.notify({ type: 'auth_url', url: 'https://auth.openai.com/oauth/authorize' });
+        received = await interaction.prompt({
+          type: 'manual_code',
+          message: 'Paste the redirect URL',
+          ...(interaction.signal === undefined ? {} : { signal: interaction.signal }),
+        });
+        return token;
+      },
+      logout: async () => {},
+    };
+    const daemon = await start(undefined, {
+      login: {
+        models,
+        credentials: createFileCredentialStore(join(scratch, 'auth.json')),
+        getDeviceId: () => '00000000-0000-4000-8000-000000000000',
+        timeoutMs: 60_000,
+      },
+    });
+    const chat = await client(daemon);
+    api.push(updates.text({ chatId: PRINCIPAL }, '/login'));
+    const [choose] = await api.waitForSent(1);
+    api.push(updates.callbackQuery({ chatId: PRINCIPAL }, 'login:openai', choose?.messageId ?? 0));
+    await api.waitForSent(2);
+
+    const answer = await chat.ask({ type: 'text', text: pasted });
+
+    expect(answer.type).toBe('done');
+    await vi.waitFor(() => expect(received).toBe(pasted));
+    expect(interpreted).toEqual([]);
+    expect(query('SELECT id FROM conversation')).toEqual([]);
+    const path = join(scratch, 'anomander.db');
+    expect(
+      [path, `${path}-wal`, `${path}-shm`].some((file) => {
+        try {
+          return readFileSync(file).includes('zorbpasted');
+        } catch {
+          return false;
+        }
+      }),
+    ).toBe(false);
+    expect(
+      JSON.stringify([logger.info, logger.warn, logger.error].flatMap((log) => log.mock.calls)),
+    ).not.toContain('zorbpasted');
+    await chat.ask({ type: 'text', text: '23 € cena' });
+    expect(interpreted.map(({ message, recent }) => ({ message, recent }))).toEqual([
+      { message: '23 € cena', recent: [] },
+    ]);
+  });
+
+  it('never starts a login from the app: /login there is not a login route (DK-4 AC7)', async () => {
+    const daemon = await start(undefined, {
+      login: {
+        models: { login: async () => Promise.reject(new Error('no')), logout: async () => {} },
+        credentials: createFileCredentialStore(join(scratch, 'auth.json')),
+        getDeviceId: () => '00000000-0000-4000-8000-000000000000',
+        timeoutMs: 60_000,
+      },
+    });
+    const chat = await client(daemon);
+
+    const answer = reply(await chat.ask({ type: 'text', text: '/login' }));
+
+    expect(JSON.stringify(answer.buttons)).not.toContain('login:');
+    expect(api.sent).toEqual([]);
   });
 });
 
@@ -1175,6 +1275,12 @@ describe('a request the chat routes by itself (DK-13)', () => {
     expect(answer.text).toBe('Mañana tienes dentista a las 10.');
     expect(answer).not.toHaveProperty('route');
     expect(api.sent).toEqual([]);
+    // B50: what the principal typed is stored once, with no `[conexiones]` line of its own.
+    expect(query('SELECT sender, text FROM conversation ORDER BY id')).toEqual([
+      { sender: 'principal', text: '¿qué tengo mañana?' },
+      { sender: 'anomander', text: 'Lo miro en tus conexiones.' },
+      { sender: 'anomander', text: 'Mañana tienes dentista a las 10.' },
+    ]);
   });
 
   it('AC1, AC2: Telegram offers only connections, and answers a task asked there', async () => {
@@ -1202,6 +1308,14 @@ describe('a request the chat routes by itself (DK-13)', () => {
       'Mañana tienes dentista a las 10.',
     ]);
     expect(interpreted.at(-1)?.routes).toEqual(['connect']);
+    // B50: what the principal typed is stored once, then each message the bot sent.
+    await vi.waitFor(() =>
+      expect(query('SELECT sender, door, text FROM conversation ORDER BY id')).toEqual([
+        { sender: 'principal', door: 'telegram', text: '¿qué tengo mañana?' },
+        { sender: 'anomander', door: 'telegram', text: 'Lo miro en tus conexiones.' },
+        { sender: 'anomander', door: 'telegram', text: 'Mañana tienes dentista a las 10.' },
+      ]),
+    );
   });
 
   it('AC1: a look or a task on the computer asked in Telegram says it is done in the app', async () => {
@@ -2121,6 +2235,39 @@ describe('who the principal is and what ANOMANDER did (DK-14)', () => {
     expect(interpreted.map(({ history: given }) => given)).toEqual([[entry], [entry]]);
   });
 
+  it('R-23 AC6, DK-16 AC5: "Sí" to a forget erases the whole stored conversation and the recent turns', async () => {
+    const chat = await client(await start());
+    await chat.ask({ type: 'text', text: '23 € cena' });
+    rememberName();
+    const [memory] = query<{ id: number }>(
+      "SELECT id FROM assertions WHERE predicate = 'memory' AND status = 'current'",
+    );
+    routed = JSON.stringify({ kind: 'forget', ids: [memory?.id] });
+    const question = reply(await chat.ask({ type: 'text', text: 'olvida que me llamo Eric' }));
+    expect(question.text).toBe(`¿Olvido esto?\n· ${NAME.text}`);
+    routed = undefined;
+
+    const [yes] = question.buttons as { data: string }[];
+    const done = reply(
+      await chat.ask({ type: 'button', data: yes?.data, channelRef: question.channelRef }),
+    );
+
+    expect(done.text).toBe('Hecho, lo he olvidado.');
+    // Only the press and S-30, which name no fact, are stored after the erase.
+    expect(query('SELECT text FROM conversation ORDER BY id')).toEqual([
+      { text: '[botón: Sí]' },
+      { text: 'Hecho, lo he olvidado.' },
+    ]);
+    const path = join(scratch, 'anomander.db');
+    for (const words of ['llamo Eric', '23 € cena']) {
+      expect([path, `${path}-wal`].some((file) => readFileSync(file).includes(words))).toBe(false);
+    }
+    await chat.ask({ type: 'text', text: '23 € comida' });
+    expect(interpreted.at(-1)?.recent).toEqual([
+      { principal: '[botón: Sí]', reply: 'Hecho, lo he olvidado.' },
+    ]);
+  });
+
   describe('AC4: the principal can erase it, after "Sí"', () => {
     const FORGET = JSON.stringify({ kind: 'forget_history' });
 
@@ -2157,6 +2304,30 @@ describe('who the principal is and what ANOMANDER did (DK-14)', () => {
         { principal: '[botón: Sí]', reply: 'Hecho, he borrado mi historial.' },
       ]);
       expect(interpreted.at(-1)?.history).toEqual([]);
+    });
+
+    it('R4-001: when the erase fails, the question stays open and a second "Sí" erases', async () => {
+      const chat = await client(await start());
+      planned = async () => JSON.stringify({ kind: 'done', message: 'Hecho.' });
+      await chat.ask({ type: 'computer', task: 'abre Notas', image: png(), done: [] });
+      routed = FORGET;
+      const question = reply(await chat.ask({ type: 'text', text: 'borra tu historial' }));
+      const [yes] = question.buttons as { data: string }[];
+      const press = { type: 'button', data: yes?.data, channelRef: question.channelRef } as const;
+      const db = new Database(join(scratch, 'anomander.db'));
+      db.exec('ALTER TABLE conversation RENAME TO conversation_moved');
+
+      expect(reply(await chat.ask(press)).text).toBe(strings.processingFailed());
+      expect(history()).toHaveLength(1);
+
+      db.exec('ALTER TABLE conversation_moved RENAME TO conversation');
+      db.close();
+      expect(reply(await chat.ask(press)).text).toBe('Hecho, he borrado mi historial.');
+      expect(history()).toEqual([]);
+      expect(query('SELECT text FROM conversation ORDER BY id')).toEqual([
+        { text: '[botón: Sí]' },
+        { text: 'Hecho, he borrado mi historial.' },
+      ]);
     });
 
     it('"No" erases nothing, and with nothing kept there is nothing to ask', async () => {

@@ -224,8 +224,12 @@ So the interpreter understands "ese" or "lo de antes", the text interpreter gets
 exchanges with the principal, none older than 30 minutes, as `recent`. `app.ts` records them at the
 front door, with the door they went through: `recordingTurns` wraps the text, receipt and button
 handlers (a receipt is `[foto de ticket]` and its caption, a press `[botón: Apuntar]`), and
-`recordingNotices` wraps `notify`, so a message sent unasked, once sent, is a turn with no principal
-part. A login's messages (R-17 AC7) go around both, so a pasted code is never a turn.
+`recordingNotices` wraps `notify`, so a message sent unasked, once delivered, is a turn with no
+principal part; a send that fails or delivers nothing stores nothing. A text the interpreter routes
+to a task with connections is stored once, with its announcement; the task's answer follows with
+no `[conexiones]` line (`connectionSession.run(task, door, true)`). A login's messages (R-17 AC7)
+go around both, so a pasted code is never a turn, from either door: the app's chat hands its text
+to `login.takePasted` first.
 
 `src/conversation/recent-turns.ts` keeps them in the local database (desktop PRD DK-16, table
 `conversation`, `src/store/conversation.ts`): one row per message, the principal's and the reply,
@@ -237,11 +241,14 @@ expense's amount must still be written in the current message (R-2 AC6), so a re
 becomes an expense fact.
 
 `clear()` erases the stored conversation for real (`secure_delete`, then a truncating WAL
-checkpoint): the app's `clear_history` ("Borrar conversación"), the `forget_memory` answer on `Sí`
+checkpoint): the app's `clear_history` ("Borrar conversación"), run in the chat's turn so a turn
+that runs is stored before the erase and never after it, the `forget_memory` answer on `Sí`
 (R-23 AC6) and the `forget_history` answer on `Sí` (DK-14 AC4) call it, so the forgotten fact and
 the S-29 question that showed it leave the context and the database. The press itself
-(`[botón: Sí]` and S-30, which names no fact) is then stored as the first turn after the erase. The
-retention job erases messages older than 90 days.
+(`[botón: Sí]` and S-30, which names no fact) is then stored as the first turn after the erase. A
+replaced memory erases only the turns where the principal said it, matched as whole words
+(`forgetTurnsHolding`, see Conversation memory). The retention job erases messages older
+than 90 days.
 
 ## Conversation memory (R-23)
 
@@ -289,14 +296,21 @@ into `pending_decisions`. A text sent as a reply to S-29 is not a correction: th
 correction for `forget_memory`, so it goes to the interpreter (R-17).
 
 **Answering (AC6).** `createForgetMemoryAnswerHandler` (`src/decisions/forget-memory-decision.ts`)
-records the answer first. `No` rejects the proposal, erases nothing and replies S-31. `Sí`
-executes the proposal with an action authorized by the principal, then calls `forgetMemories`
-with the ids (a memory forgotten or replaced since the question is skipped), empties the recent
-turns and replies S-30. Listing and forgetting go through the same interpreter call as any text,
-so a spent budget gets S-26 and a failed call S-22 (S5).
+on `Sí` first calls `forgetMemories` with the ids (a memory forgotten or replaced since the
+question is skipped) and empties the stored conversation and the recent turns, then records the
+answer: an erase that fails leaves the question open, so `Sí` can be pressed again. `No` rejects
+the proposal, erases nothing and replies S-31. `Sí` executes the proposal with an action
+authorized by the principal and replies S-30. Listing and forgetting go through the same
+interpreter call as any text, so a spent budget gets S-26 and a failed call S-22 (S5).
 
 **Forgetting (AC6, AC7).** `forgetMemories` deletes the `memory_texts` rows (the triggers remove
-them from the index) and sets the assertions to `expired`, in one transaction. The erase is real:
+them from the index) and sets the assertions to `expired`, in one transaction. A replacement
+(`saveMemory` with `replaces`) also erases the turns of the stored conversation where the principal
+said it, matched as whole words ignoring case, spacing and accents (so "sí" is not in "así" nor
+"23" in "123"): the old quote in a principal's own message, never a marker line such as
+`[botón: Sí]`, and the old text in any message. A matched message takes its turn, the
+principal's message and its reply, with it (`forgetTurnsHolding`); the rest of the conversation
+stays. The erase is real:
 `openDatabase` turns on `secure_delete`, the index has FTS5 `secure-delete`, and the WAL is
 checkpointed and truncated afterwards, so the text is in neither the database file nor its WAL.
 The test proves it by reading the raw bytes. Never log a memory's text or quote (AC8).
@@ -710,7 +724,9 @@ key (R-15 AC3).
   abandons the running one, with no S-65. `/logout` replies S-66 with one button per connected
   account, or S-68; pressing one deletes it (S-67). These commands, their buttons (`login:<provider>`
   and `logout:<provider>`, apart from `decision:` data) and the awaited text are handled in
-  `app.ts` before every other route, so they work when no model is reachable (R-17 AC7).
+  `app.ts` before every other route, so they work when no model is reachable (R-17 AC7). While a
+  login waits, a text sent in the desktop app's chat goes to it too (`takePasted`), answered
+  `done`; the app never takes `/login` or `/logout` (desktop PRD DK-4 AC7).
 - **From a terminal on the server.** `pnpm run login [provider]` and `pnpm run logout <provider>`
   (`scripts/login.ts`, `scripts/logout.ts`) do the same and print the link or device code. Plain
   `pnpm login` is pnpm's own npm-registry login, so `run` is needed. Run them from the directory

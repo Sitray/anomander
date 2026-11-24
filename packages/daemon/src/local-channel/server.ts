@@ -46,8 +46,11 @@ export interface ChatHandlers {
 export interface StoredConversation {
   /** The latest `limit` messages, oldest first. */
   messages(limit: number): ChatStoredMessage[];
-  /** Erases it for real, and with it the recent turns. */
-  clear(): void;
+  /**
+   * Erases it for real, and with it the recent turns. The daemon runs it in the chat's turn, so a
+   * turn of either door that runs is stored before the erase, never after it (DK-16 AC4).
+   */
+  clear(): Promise<void> | void;
 }
 
 export interface LocalChannelDeps {
@@ -206,8 +209,10 @@ export const startLocalChannel = (deps: LocalChannelDeps): LocalChannel => {
         });
       // DK-16 S5: `done` once it is erased; when it cannot be, the reply says it failed.
       case 'clear_history':
-        conversation.clear();
-        return Promise.resolve(null);
+        return (async () => {
+          await conversation.clear();
+          return null;
+        })();
       case 'connect':
         return handlers.onConnect({ task: request.task, channelRef, receivedAt: at });
       case 'computer':

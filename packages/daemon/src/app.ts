@@ -310,7 +310,8 @@ export const startSetupGuide = (config: Config, deps: SetupGuideDeps): Anomander
   const localChannel = startChannel(
     config,
     {
-      onText: async () => guide,
+      // R-17 AC7: a code pasted in the app's chat while a login waits goes to it, never stored.
+      onText: async (message) => (login?.takePasted(message.text) === true ? null : guide),
       onReceipt: async () => guide,
       onButton: async () => guide,
       onScreen: async () => guide,
@@ -681,7 +682,9 @@ export const startAnomander = <M>(config: Config, deps: AnomanderDeps<M>): Anoma
     const { route } = reply;
     if (route?.to !== 'connect') return reply;
     // Telegram's answer goes out by itself when the task ends: the announcement goes now.
-    return connectionSession.run(route.task, doorOf(message.channelRef)) ?? { text: reply.text };
+    // DK-16 AC1: its words are stored once, with the announcement, above.
+    const run = connectionSession.run(route.task, doorOf(message.channelRef), true);
+    return run ?? { text: reply.text };
   });
 
   const chat: ChatHandlers = {
@@ -767,11 +770,21 @@ export const startAnomander = <M>(config: Config, deps: AnomanderDeps<M>): Anoma
           logger,
         });
 
-  // DK-16: the app shows the stored conversation of both doors and can erase it.
+  // DK-16: the app shows the stored conversation of both doors and can erase it. AC4: the erase
+  // waits for the turn that runs, so nothing of that turn is stored after it.
+  const clearInTurn = inTurn(async () => turns.clear());
   const localChannel = startChannel(
     config,
-    { ...chat, onButton: onButtonAt('app') },
-    { messages: (limit) => storedConversation(db, limit), clear: turns.clear },
+    {
+      ...chat,
+      // R-17 AC7: while a login waits, the app's next text goes to it first, before any other
+      // route: it is never stored, logged, a recent turn or sent to the model. `/login` and
+      // `/logout` are not taken here: they stay in Telegram (DK-4 AC7).
+      onText: async (message) =>
+        login?.takePasted(message.text) === true ? null : chat.onText(message),
+      onButton: onButtonAt('app'),
+    },
+    { messages: (limit) => storedConversation(db, limit), clear: () => clearInTurn(undefined) },
     logger,
     now,
   );

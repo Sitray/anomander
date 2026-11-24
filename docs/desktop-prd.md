@@ -91,7 +91,9 @@ and keep its secrets in the operating system instead of a text file.
     S-20 for an image over 20 MB.
   - AC7: `/login` and `/logout` stay in Telegram (R-27): their messages go out through the bot.
     The app has its own place for the same logins, the Suscripciones screen (DK-15); the chat
-    does not offer them.
+    does not offer them. While a login started in Telegram waits for a pasted code or address,
+    the next text sent in the app's chat goes to it, as in Telegram (R-17 AC7): it is answered
+    `done` and is never stored, logged, a recent turn or sent to the model.
 - DK-5 Secrets in the Keychain.
   - AC1: the Telegram bot token (optional, AC4), the provider API keys and the subscription login are stored
     in the macOS Keychain, entered once in the app's setup screen. The login is made from
@@ -479,7 +481,14 @@ and keep its secrets in the operating system instead of a text file.
     app's database (DK-8), one row per message: who (`principal` or `anomander`), the door, the
     text, the buttons and `channelRef` of a reply, and when. What ANOMANDER sends unasked is kept
     as its message. No image is kept: a receipt is its `[foto de ticket]` line and a press its
-    `[botón: …]` line. A text pasted for a login (R-17 AC7) is never kept.
+    `[botón: …]` line. A text pasted for a login (R-17 AC7) is never kept. What ANOMANDER sends
+    unasked is kept only once it was delivered. A text the chat routes to a task with
+    connections (DK-13 AC2) is kept once, with its announcement; the task's answer follows as a
+    message of its own. Unlike the action history of DK-14, which keeps only the request and how it
+    ended, the stored conversation keeps the reply to a look at the screen, the end of a task on the
+    computer and the final answer of a task with connections (what was read or what the tools
+    answered); the capture itself is never kept (decided by the principal on 2026-11-24: "Dejarlo
+    así").
   - AC2: the text interpreter's recent turns are read from it, with R-16 AC3's bounds unchanged:
     at most the last 10, none older than 30 minutes. A restart within 30 minutes keeps the
     context; lasting facts are the memories of R-23.
@@ -497,12 +506,18 @@ and keep its secrets in the operating system instead of a text file.
     Telegram sigue en Telegram." with "Sí, borrar" and "No borrar". "No borrar" sends nothing.
     "Sí, borrar" sends `clear_history`: the daemon erases the stored conversation and the recent
     turns for real (secure delete, then the WAL checkpoint, as a forget, R-23 AC7) and answers
-    `done`, and the chat empties. When it was not erased the chat keeps its messages and says so;
+    `done`, and the chat empties. The erase waits for a turn of either door that runs, so
+    nothing of that turn is kept after it. When it was not erased the chat keeps its messages and says so;
     when the connection was lost first it says it cannot know. It cannot be pressed while the
     connection is not open, while an answer is owed, or while a task runs or waits for
     "Permitir".
   - AC5: a confirmed "olvida" (R-23 AC6) and a confirmed erase of the action history (DK-14 AC4)
-    also erase the stored conversation.
+    also erase the stored conversation. When an erase fails the question stays open and the reply
+    is S-22, so `Sí` can be pressed again. A memory replaced by a new fact (R-23 AC3) erases, the
+    same way, only the turns where the principal said it, matched as whole words ignoring case,
+    spacing and accents: its quote in a principal's own message (never a line such as
+    `[botón: Sí]`), or its text in any message; the principal's message and its reply go
+    together, and the rest of the conversation stays.
   - AC6: a stored message is kept 90 days; the retention job then erases it, next to the 30 days
     of the action history (DK-14 AC3).
   - AC7: the conversation is local: it lives only in the app's database, is never logged, and
