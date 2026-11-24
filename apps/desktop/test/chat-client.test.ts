@@ -381,3 +381,82 @@ describe('the stored conversation (DK-16)', () => {
     expect(outcomes).toEqual([]);
   });
 });
+
+describe('the memories and the history (DK-18)', () => {
+  const MEMORY = { id: 3, text: 'Se llama Eric', mode: 'declared' } as const;
+  const ACTION = {
+    id: 12,
+    what: 'screen',
+    door: 'app',
+    task: '¿Qué pone aquí?',
+    outcome: 'answer',
+    at: '2026-11-24T10:00:00.000Z',
+  } as const;
+
+  it('asks for each list and resolves with what the window can show, never as an outcome', async () => {
+    const socket = connected();
+    const memories = client.requestMemories();
+    const asked = socket.lastRequest;
+    expect(asked).toEqual({ type: 'memories', id: asked.id });
+    socket.receive({
+      type: 'memories',
+      inReplyTo: asked.id,
+      // A memory of a mode the window does not know is not shown.
+      memories: [MEMORY, { id: 4, text: 'x', mode: 'confirmed' } as never],
+    });
+    const actions = client.requestActions();
+    const listed = socket.lastRequest;
+    expect(listed).toEqual({ type: 'actions', id: listed.id });
+    socket.receive({
+      type: 'actions',
+      inReplyTo: listed.id,
+      actions: [ACTION, { ...ACTION, id: 'x' } as never],
+    });
+
+    expect(await memories).toEqual([MEMORY]);
+    expect(await actions).toEqual([ACTION]);
+    expect(outcomes).toEqual([]);
+  });
+
+  it("resolves with nothing when rejected, lost, not asked, or the daemon's failure reply", async () => {
+    const socket = connected();
+    const rejected = client.requestMemories();
+    socket.receive({ type: 'rejected', inReplyTo: socket.lastRequest.id });
+    const failed = client.requestActions();
+    socket.receive(reply(socket.lastRequest.id, { text: 'No he podido procesarlo.' }));
+    const lost = client.requestMemories();
+    socket.drop();
+
+    expect(await rejected).toBeNull();
+    expect(await failed).toBeNull();
+    expect(await lost).toBeNull();
+    expect(await client.requestActions()).toBeNull();
+    expect(outcomes).toEqual([]);
+  });
+
+  it('forgets one memory or one action by its id: done, not done, or unknown', async () => {
+    const socket = connected();
+    const memory = client.forgetMemory(3);
+    expect(socket.lastRequest).toEqual({
+      type: 'forget_memory',
+      id: socket.lastRequest.id,
+      memoryId: 3,
+    });
+    socket.receive({ type: 'done', inReplyTo: socket.lastRequest.id });
+    const action = client.forgetAction(12);
+    expect(socket.lastRequest).toEqual({
+      type: 'forget_action',
+      id: socket.lastRequest.id,
+      actionId: 12,
+    });
+    socket.receive(reply(socket.lastRequest.id, { text: 'No he podido procesarlo.' }));
+    const lost = client.forgetAction(12);
+    socket.drop();
+
+    expect(await memory).toBe('done');
+    expect(await action).toBe('not_done');
+    expect(await lost).toBe('unknown');
+    expect(await client.forgetMemory(3)).toBe('not_done');
+    expect(outcomes).toEqual([]);
+  });
+});

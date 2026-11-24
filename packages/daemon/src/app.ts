@@ -50,6 +50,7 @@ import {
   type LocalChannel,
   type LocalChannelAddress,
   type StoredConversation,
+  type StoredMemory,
   startLocalChannel,
 } from './local-channel/server.ts';
 import { createPatternOffers } from './patterns/pattern-offers.ts';
@@ -73,8 +74,8 @@ import { storedConversation } from './store/conversation.ts';
 import { acquireDaemonLock } from './store/daemon-lock.ts';
 import { applyMigrations, openDatabase } from './store/database.ts';
 import { exportLedger } from './store/export.ts';
-import { type ActionRecord, recordAction } from './store/history.ts';
-import { memoryNotesFor } from './store/memory.ts';
+import { type ActionRecord, forgetAction, listActions, recordAction } from './store/history.ts';
+import { forgetMemories, listMemories, memoryNotesFor } from './store/memory.ts';
 import { createWeeklySummary } from './summary/weekly-summary.ts';
 import { openTelegramDoor } from './telegram-door.ts';
 
@@ -207,6 +208,7 @@ const startChannel = (
   config: Config,
   handlers: ChatHandlers,
   conversation: StoredConversation,
+  memory: StoredMemory,
   logger: Logger,
   now?: () => Date,
 ): LocalChannel | undefined =>
@@ -217,6 +219,7 @@ const startChannel = (
         port: config.localPort,
         handlers,
         conversation,
+        memory,
         logger,
         ...(now === undefined ? {} : { now }),
       });
@@ -328,6 +331,16 @@ export const startSetupGuide = (config: Config, deps: SetupGuideDeps): Anomander
     {
       messages: () => [],
       clear: () => {
+        throw new Error('the setup guide opens no database');
+      },
+    },
+    {
+      memories: () => [],
+      actions: () => [],
+      forgetMemory: () => {
+        throw new Error('the setup guide opens no database');
+      },
+      forgetAction: () => {
         throw new Error('the setup guide opens no database');
       },
     },
@@ -811,6 +824,14 @@ export const startAnomander = <M>(config: Config, deps: AnomanderDeps<M>): Anoma
   // DK-16: the app shows the stored conversation of both doors and can erase it. AC4: the erase
   // waits for the turn that runs, so nothing of that turn is stored after it.
   const clearInTurn = inTurn(async () => turns.clear());
+  // DK-18: a forget from the window waits for the turn that runs too, as the erase does. A
+  // memory is forgotten as a confirmed "olvida" (R-23 AC6), with the stored conversation.
+  const forgetMemoryInTurn = inTurn(async (id: number) => {
+    if (forgetMemories(db, [id]).length > 0) turns.clear();
+  });
+  const forgetActionInTurn = inTurn(async (id: number) => {
+    forgetAction(db, id);
+  });
   const localChannel = startChannel(
     config,
     {
@@ -823,6 +844,20 @@ export const startAnomander = <M>(config: Config, deps: AnomanderDeps<M>): Anoma
       onButton: onButtonAt('app'),
     },
     { messages: (limit) => storedConversation(db, limit), clear: () => clearInTurn(undefined) },
+    {
+      memories: () => listMemories(db),
+      forgetMemory: forgetMemoryInTurn,
+      actions: () =>
+        listActions(db).map(({ id, kind, door, task, outcome, endedAt }) => ({
+          id,
+          what: kind,
+          door,
+          task,
+          outcome,
+          at: endedAt,
+        })),
+      forgetAction: forgetActionInTurn,
+    },
     logger,
     now,
   );

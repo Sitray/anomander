@@ -11,6 +11,7 @@
 //   &connections=none|invalid                             (default: two servers)
 //   &subscriptions=none|connected                         (default: none; connected: ChatGPT and Claude)
 //   &history=none                                         nothing kept of the conversation (DK-16)
+//   &memory=none|failing                                  nothing remembered or done, or the store fails (DK-18)
 //
 // The scripted daemon answers by what is typed: "mercadona" asks a Sí/No question, "rechaza" is
 // rejected, "corta" loses the connection, "lento" never answers, "largo" answers at length,
@@ -18,7 +19,10 @@
 // on the computer (DK-13); a PDF gets S-18 and images are read as a receipt. It keeps the
 // conversation as the daemon does, starting with some of it, Telegram included (DK-16).
 import {
+  type ChatAction,
   type ChatButton,
+  type ChatEvent,
+  type ChatMemory,
   type ChatReply,
   type ChatRequest,
   type ChatStoredMessage,
@@ -318,7 +322,10 @@ type Answer =
   | 'never';
 
 /** The requests the daemon answers by what was said; the stored conversation is apart. */
-type Said = Exclude<ChatRequest, { type: 'history' } | { type: 'clear_history' }>;
+type Said = Exclude<
+  ChatRequest,
+  { type: 'history' | 'clear_history' | 'memories' | 'forget_memory' | 'actions' | 'forget_action' }
+>;
 
 const answerTo = (request: Said): Answer => {
   if (request.type === 'button') {
@@ -419,6 +426,79 @@ const keep = (message: Omit<ChatStoredMessage, 'id' | 'door' | 'at'>): void => {
   kept.push({ ...message, id: lastKept, door: 'app', at: new Date().toISOString() });
 };
 
+// DK-18: what the daemon remembers and what it did, as the window's "Memoria" lists them.
+const memoryScene = params.get('memory');
+let memories: ChatMemory[] =
+  memoryScene === 'none'
+    ? []
+    : [
+        { id: 3, text: 'Se llama Eric', mode: 'declared' },
+        { id: 7, text: 'Es vegetariano', mode: 'declared' },
+        { id: 9, text: 'Suele cenar fuera los viernes', mode: 'inferred' },
+      ];
+let actions: ChatAction[] =
+  memoryScene === 'none'
+    ? []
+    : [
+        {
+          id: 12,
+          what: 'computer',
+          door: 'app',
+          task: 'Envía a Marta el resumen de gastos de noviembre',
+          outcome: 'done',
+          at: at(45),
+        },
+        {
+          id: 11,
+          what: 'screen',
+          door: 'app',
+          task: '¿Qué pone en este correo?',
+          outcome: 'answer',
+          at: at(60 * 26),
+        },
+        {
+          id: 10,
+          what: 'connect',
+          door: 'telegram',
+          task: 'Busca vuelos a Lisboa para el viernes',
+          outcome: 'stopped',
+          at: at(60 * 50),
+        },
+      ];
+
+const MEMORY_REQUESTS = ['memories', 'actions', 'forget_memory', 'forget_action'] as const;
+type MemoryRequest = ChatRequest & { type: (typeof MEMORY_REQUESTS)[number] };
+const isMemoryRequest = (request: ChatRequest): request is MemoryRequest =>
+  MEMORY_REQUESTS.some((type) => type === request.type);
+
+/** DK-18: the answer to a request of the window's "Memoria". */
+const memoryAnswer = (request: MemoryRequest): ChatEvent => {
+  if (memoryScene === 'failing') {
+    return {
+      type: 'reply',
+      inReplyTo: request.id,
+      channelRef: 'desktop:failing',
+      text: 'Algo ha fallado al procesar tu mensaje.',
+      buttons: [],
+      sentAt: new Date().toISOString(),
+    };
+  }
+  switch (request.type) {
+    case 'memories':
+      return { type: 'memories', inReplyTo: request.id, memories };
+    case 'actions':
+      return { type: 'actions', inReplyTo: request.id, actions };
+    case 'forget_memory':
+      memories = memories.filter(({ id }) => id !== request.memoryId);
+      // As a confirmed "olvida": the stored conversation goes with it (DK-16 AC5).
+      kept = [];
+      return { type: 'done', inReplyTo: request.id };
+    case 'forget_action':
+      actions = actions.filter(({ id }) => id !== request.actionId);
+      return { type: 'done', inReplyTo: request.id };
+  }
+};
+
 /** What the daemon keeps of a request: its words, never an image. */
 const wordsOf = (request: ChatRequest): string | null => {
   if (request.type === 'text') return request.text;
@@ -436,6 +516,10 @@ class ScriptedSocket extends FakeWebSocket {
   override send(data: string): void {
     super.send(data);
     const request = JSON.parse(data) as ChatRequest;
+    if (isMemoryRequest(request)) {
+      setTimeout(() => this.receive(memoryAnswer(request)), 300);
+      return;
+    }
     if (request.type === 'history' || request.type === 'clear_history') {
       setTimeout(() => {
         if (request.type === 'clear_history') {

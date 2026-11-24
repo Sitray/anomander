@@ -127,6 +127,36 @@ export const forgetHistory = (db: Database.Database, upToId: number): number => 
   return changes;
 };
 
+/** DK-18: one action as the window lists it, without its steps or calls. */
+export interface KeptAction {
+  id: number;
+  kind: ActionKind;
+  door: ActionDoor;
+  task: string;
+  outcome: string;
+  /** UTC. */
+  endedAt: string;
+}
+
+/** DK-18: every action kept, the latest first. */
+export const listActions = (db: Database.Database): KeptAction[] =>
+  db
+    .prepare<[], KeptAction>(
+      `SELECT id, kind, door, task, outcome, ended_at AS endedAt FROM action_history
+       ORDER BY ended_at DESC, id DESC`,
+    )
+    .all();
+
+/**
+ * DK-18: erases the one action `id`, and checkpoints the WAL as `forgetHistory` does: with
+ * `secure_delete` on, the freed pages hold zeros. Returns whether it was there.
+ */
+export const forgetAction = (db: Database.Database, id: number): boolean => {
+  const { changes } = db.prepare('DELETE FROM action_history WHERE id = ?').run(id);
+  if (changes > 0) db.pragma('wal_checkpoint(TRUNCATE)');
+  return changes > 0;
+};
+
 /**
  * T14, security audit L3: the retention job (R-19 AC6) erases the actions that ended before
  * `before`, and checkpoints the WAL as `forgetHistory` does. Returns how many were erased.

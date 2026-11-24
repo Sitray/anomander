@@ -3,8 +3,10 @@ import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import {
   type ButtonPress,
+  type ChatAction,
   type ChatEvent,
   type ChatHistoryRequest,
+  type ChatMemory,
   type ChatRequest,
   type ChatStoredMessage,
   type ComputerRequest,
@@ -53,6 +55,24 @@ export interface StoredConversation {
   clear(): Promise<void> | void;
 }
 
+/**
+ * DK-18: what ANOMANDER remembers about the principal (R-23) and what it did (DK-14), as the
+ * window's "Memoria" lists them. Nothing of it is ever logged (R-23 AC8, DK-14 AC5).
+ */
+export interface StoredMemory {
+  /** The current memories, in the order they were remembered. */
+  memories(): ChatMemory[];
+  /**
+   * Forgets one memory as a confirmed "olvida" does (R-23 AC6, AC7), the stored conversation with
+   * it (DK-16 AC5); one no longer current is left alone. In the chat's turn, as `clear`.
+   */
+  forgetMemory(id: number): Promise<void> | void;
+  /** The actions kept, the latest first. */
+  actions(): ChatAction[];
+  /** Erases one action for real (R-23 AC7). In the chat's turn, as `clear`. */
+  forgetAction(id: number): Promise<void> | void;
+}
+
 export interface LocalChannelDeps {
   /** `ANOMANDER_LOCAL_TOKEN`: never logged (DK-3 AC2). */
   token: string;
@@ -60,6 +80,7 @@ export interface LocalChannelDeps {
   port: number;
   handlers: ChatHandlers;
   conversation: StoredConversation;
+  memory: StoredMemory;
   logger: Logger;
   now?: () => Date;
 }
@@ -131,6 +152,11 @@ const requestSchema = z.discriminatedUnion('type', [
   // DK-16: a larger limit is capped at `HISTORY_LIMIT`.
   z.strictObject({ type: z.literal('history'), id, limit: z.int().positive().optional() }),
   z.strictObject({ type: z.literal('clear_history'), id }),
+  // DK-18
+  z.strictObject({ type: z.literal('memories'), id }),
+  z.strictObject({ type: z.literal('forget_memory'), id, memoryId: z.int().positive() }),
+  z.strictObject({ type: z.literal('actions'), id }),
+  z.strictObject({ type: z.literal('forget_action'), id, actionId: z.int().positive() }),
 ]);
 
 /** The request in a frame, or the `id` it carried when it is not one. */
@@ -164,7 +190,7 @@ const unsupported = (images: ChatRequest & { type: 'receipt' }): string | undefi
 };
 
 export const startLocalChannel = (deps: LocalChannelDeps): LocalChannel => {
-  const { handlers, conversation, logger, now = () => new Date() } = deps;
+  const { handlers, conversation, memory, logger, now = () => new Date() } = deps;
   const expected = digest(deps.token);
   // DK-3 AC2: exactly the protocol and then the token, compared in constant time.
   const authorized = (header: string | undefined): boolean => {
@@ -176,8 +202,15 @@ export const startLocalChannel = (deps: LocalChannelDeps): LocalChannel => {
     );
   };
 
-  /** `history` is answered in `handle`: its answer is not a reply. */
-  const answer = (request: Exclude<ChatRequest, ChatHistoryRequest>): Promise<DoorReply | null> => {
+  /** The requests answered with a list in `handle`, not with a reply. */
+  type Listing = ChatHistoryRequest | { type: 'memories' | 'actions' };
+  /** DK-18: the list a `memories` or `actions` request asks for. Their words are never logged. */
+  const listed = (request: ChatRequest & { type: 'memories' | 'actions' }): ChatEvent =>
+    request.type === 'memories'
+      ? { type: 'memories', inReplyTo: request.id, memories: memory.memories() }
+      : { type: 'actions', inReplyTo: request.id, actions: memory.actions() };
+
+  const answer = (request: Exclude<ChatRequest, Listing>): Promise<DoorReply | null> => {
     const channelRef = `desktop:${randomUUID()}`;
     const at = now().toISOString();
     switch (request.type) {
@@ -211,6 +244,17 @@ export const startLocalChannel = (deps: LocalChannelDeps): LocalChannel => {
       case 'clear_history':
         return (async () => {
           await conversation.clear();
+          return null;
+        })();
+      // DK-18: `done` once it is erased, as `clear_history`.
+      case 'forget_memory':
+        return (async () => {
+          await memory.forgetMemory(request.memoryId);
+          return null;
+        })();
+      case 'forget_action':
+        return (async () => {
+          await memory.forgetAction(request.actionId);
           return null;
         })();
       case 'connect':
@@ -257,13 +301,15 @@ export const startLocalChannel = (deps: LocalChannelDeps): LocalChannel => {
       await send(socket, { type: 'rejected', inReplyTo: request.rejected });
       return;
     }
-    let answered: DoorReply | ChatStoredMessage[] | null;
+    let answered: DoorReply | ChatStoredMessage[] | ChatEvent | null;
     try {
       // DK-16 S4: the latest messages, oldest first. Their words are never logged.
       answered =
         request.type === 'history'
           ? conversation.messages(Math.min(request.limit ?? HISTORY_LIMIT, HISTORY_LIMIT))
-          : await answer(request);
+          : request.type === 'memories' || request.type === 'actions'
+            ? listed(request)
+            : await answer(request);
     } catch (error) {
       logger.error(`The daemon failed to handle a ${request.type} from the local channel`, {
         error,
@@ -272,6 +318,10 @@ export const startLocalChannel = (deps: LocalChannelDeps): LocalChannel => {
     }
     if (Array.isArray(answered)) {
       await send(socket, { type: 'history', inReplyTo: request.id, messages: answered });
+      return;
+    }
+    if (answered !== null && 'type' in answered) {
+      await send(socket, answered);
       return;
     }
     const reply = answered;
