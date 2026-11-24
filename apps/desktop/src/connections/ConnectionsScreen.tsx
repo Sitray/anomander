@@ -8,7 +8,7 @@
 // A value (of a variable or a header) is typed into an uncontrolled field and kept in a ref, so
 // it never enters React state or a DOM attribute, and it is dropped once saved. The shell never
 // sends one back: of what is stored the screen only has the names.
-import { OAUTH_CONNECTIONS, WEB_SEARCH_CONNECTION } from '@anomander/protocol';
+import { OAUTH_CONNECTIONS } from '@anomander/protocol';
 import { type FormEvent, useEffect, useId, useRef, useState } from 'react';
 import { Field } from '../setup/SetupScreen.tsx';
 import type { ConnectionInput, ConnectionServer, ConnectionsView, OAuthConnect } from '../shell.ts';
@@ -16,6 +16,7 @@ import { ErrorBlock } from '../status/StatusBar.tsx';
 import { strings } from '../strings.ts';
 import { messageOf } from '../ui/message-of.ts';
 import { boxed, isServerName, isServerUrl, unboxed } from './validation.ts';
+import { hasWebSearch, webSearchInput } from './web-search.ts';
 
 export interface ConnectionsScreenProps {
   /** Reads the servers; rejects with the shell's own message. */
@@ -604,18 +605,8 @@ export function ConnectionsScreen({
           title: text.webSearch,
           about: text.webSearchAbout,
           // T17: once a server has its name, it is edited or removed like any other.
-          connected: view.servers.some((server) => server.name === WEB_SEARCH_CONNECTION.name),
-          connect: run(text.webSearch, () => {
-            const { name, command, args, env, readOnly } = WEB_SEARCH_CONNECTION;
-            return addConnector(text.webSearch, {
-              name,
-              kind: 'process',
-              command,
-              args: [...args],
-              values: Object.entries(env).map(([valueName, value]) => ({ name: valueName, value })),
-              readOnly: [...readOnly],
-            });
-          }),
+          connected: hasWebSearch(view),
+          connect: run(text.webSearch, () => addConnector(text.webSearch, webSearchInput())),
         },
       ];
   const offersWebSearch = connectors.some(

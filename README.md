@@ -30,7 +30,7 @@ The Mac app:
 | A look at the screen | Captures the screen and answers about it. The capture is never stored | DK-9 |
 | Tasks on the computer | One step at a time, at most 12. A routine step runs; a step of care (Enter, Space, Spotlight, the app switcher, a click on a send, pay or delete control, every fifth step) waits for "Permitir" | DK-10 |
 | Connections | MCP servers from `mcp.json` or the Conexiones screen: one "Conectar" for Notion, Linear and Atlassian, or any server by hand under "Avanzado", with OAuth for servers reached by URL. A tool marked read-only runs; any other call waits for "Permitir" | DK-11 |
-| Web search | The "Búsqueda web" card in Conexiones adds `pi-web-access` (pinned). "Búscame dónde comprar…" then searches the web instead of using the computer; with no key, searches go to Exa. Reading a page asks first | DK-11 AC11, DK-13 AC5 |
+| Web search | Checked on the first setup, or the "Búsqueda web" card in Conexiones, adds `pi-web-access` (pinned). "Búscame dónde comprar…" then searches the web instead of using the computer; with no key, searches go to Exa. Reading a page asks first | DK-11 AC11, AC13, DK-13 AC5 |
 | Memories and history | Looks and computer tasks know what you told it about yourself. A local history of what it did answers "¿qué hiciste ayer?" and is erased on request | DK-14 |
 | Subscription login | Connect ChatGPT or Kimi Code from the Suscripciones screen | DK-15 |
 | A ledger from Docker | Imports a ledger copied out of a Docker install into the app's empty one | DK-12 |
@@ -188,7 +188,7 @@ Steps:
    APPLE_SIGNING_IDENTITY="<identity name or hash>" pnpm --dir apps/desktop tauri build --debug
    ```
    The app is `apps/desktop/src-tauri/target/debug/bundle/macos/ANOMANDER.app`.
-4. **Set it up.** Open the app and fill in the setup screen: the models and a key, or connect a subscription from Suscripciones. Telegram is optional: add the bot token and your Telegram ID to talk to ANOMANDER there too, or leave both empty to use the app's chat alone.
+4. **Set it up.** Open the app and fill in the setup screen: the models and a key, or connect a subscription from Suscripciones. Telegram is optional: add the bot token and your Telegram ID to talk to ANOMANDER there too, or leave both empty to use the app's chat alone. "Búsqueda web" comes checked: leave it so to let ANOMANDER search the internet (the note beside it says what leaves the Mac), or uncheck it and add it later from Conexiones.
 5. **Allow it.** In System Settings › Privacy & Security, turn ANOMANDER on under Screen Recording (for a look at the screen) and Accessibility (for tasks on the computer). Until then the app says how and does nothing.
 
 Good to know:

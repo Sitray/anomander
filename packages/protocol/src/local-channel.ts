@@ -140,6 +140,11 @@ export interface ChatReply {
    * now, as if the principal had asked for it with a `screen` or `computer` request.
    */
   route?: { to: 'screen' | 'computer'; task: string };
+  /**
+   * DK-11 AC13: the connection `text` says is missing; the app offers to add it in one press and
+   * then sends the request again.
+   */
+  offer?: 'web_search';
 }
 
 /** The request `inReplyTo` was handled and has no reply. */

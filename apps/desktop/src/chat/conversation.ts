@@ -71,6 +71,15 @@ export interface BotMessage {
   proposal: Proposal | null;
   /** `null` for every reply that announces no route the window starts. */
   start: Start | null;
+  /** DK-11 AC13: the web search the reply says is missing; `null` when it says nothing so. */
+  offer: Offer | null;
+}
+
+/** DK-11 AC13: the web search offered in one press, and the request asked again once added. */
+export interface Offer {
+  /** The text the reply answered, asked again once the web search is there. */
+  ask: string;
+  state: 'offered' | 'adding' | 'failed' | 'added';
 }
 
 export type Message = OwnMessage | BotMessage;
@@ -115,7 +124,9 @@ export type ConversationAction =
    */
   | { type: 'not_performed'; id: string; seen?: string; text?: string }
   /** The principal stopped at the proposal of the reply `id`. */
-  | { type: 'refused'; id: string };
+  | { type: 'refused'; id: string }
+  /** DK-11 AC13: the web search offered by the reply `id` is being added, was, or was not. */
+  | { type: 'offer'; id: string; state: Offer['state'] };
 
 export const emptyConversation: Conversation = { connection: 'offline', messages: [] };
 
@@ -128,6 +139,24 @@ const leftAs = (requestId: string | null): Pick<OwnMessage, 'delivery' | 'reques
   requestId,
   delivery: requestId === null ? 'not_sent' : 'pending',
 });
+
+/**
+ * DK-11 AC13: the web search is offered in answer to a plain text the principal typed, which is
+ * asked again once it is added.
+ */
+const offerFor = (
+  messages: Message[],
+  requestId: string,
+  offer: string | undefined,
+): Offer | null => {
+  if (offer !== 'web_search') return null;
+  const asked = messages.find(
+    (message) => message.kind === 'own' && message.requestId === requestId,
+  );
+  if (asked?.kind !== 'own' || asked.attachments.length > 0 || asked.text.trim() === '')
+    return null;
+  return { ask: asked.text, state: 'offered' };
+};
 
 const settle = (message: Message, requestId: string, delivery: Delivery): Message => {
   if (message.kind === 'own') {
@@ -218,6 +247,7 @@ export const reduceConversation = (
             buttons,
             press: null,
             proposal: action.proposal ?? null,
+            offer: offerFor(settled.messages, action.requestId, action.outcome.reply.offer),
             // Pending from the start: the capture is taken before anything leaves.
             start:
               action.start === undefined
@@ -233,6 +263,12 @@ export const reduceConversation = (
         ...leftAs(action.requestId),
         captureUrl: action.captureUrl ?? null,
       }));
+    case 'offer':
+      return mapped((message) =>
+        message.kind === 'bot' && message.id === action.id && message.offer !== null
+          ? { ...message, offer: { ...message.offer, state: action.state } }
+          : message,
+      );
     case 'restarted':
       return starting(action.id, (start) => ({
         ...start,

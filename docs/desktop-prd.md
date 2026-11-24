@@ -299,6 +299,15 @@ and keep its secrets in the operating system instead of a text file.
     `~/.pi/agent/web-search.json`, when present, applies its keys, providers and proxy. It needs
     Node 22.19 or later. Once saved it is edited or removed like any other server. Since AC12
     it is one more card, "Búsqueda web", with the same press.
+  - AC13 (asked on 2026-11-23: "la busqueda web deberia estar on por defecto", then "pues ve
+    con la 2 y 3"): the web search comes on by default without leaving the principal unaware.
+    The first setup (while it cannot start the daemon yet) shows "Búsqueda web" as a checkbox,
+    checked, with AC11's note beside it; saving with it checked adds AC11's server through the
+    same path as the card, before the setup is saved, so the daemon starts once. A server
+    already named `Internet` is kept as it is; when the connection cannot be saved the setup is
+    not saved either, and the screen says why. Unchecked, nothing is added. A complete setup
+    opened again does not show it: Conexiones does. And when the web search is missing, the
+    chat offers it in one press (DK-13 AC5).
   - AC12 (asked on 2026-11-11: "Quiero algo parecido, que tenga como conectores bases que al
     darle a un botón de connect ya me conecte el MCP"; "Pero me gustaría que la parte de
     connectar a un MCP fuera más sencilla"; Google left out on 2026-11-21: "no hagas lo del oauth
@@ -374,7 +383,13 @@ and keep its secrets in the operating system instead of a text file.
     never a task on the computer: with a tool that searches it is routed to `connect`; with none
     the processor answers `{"kind":"no_web_search"}` and code says "Para buscar en internet
     necesito la conexión de búsqueda web. Añádela en Conexiones, en la app de ANOMANDER, y
-    vuelve a pedírmelo.", starting nothing. AC4 holds for such a route.
+    vuelve a pedírmelo.", starting nothing. AC4 holds for such a route. In the app that reply
+    carries `offer: 'web_search'` (DK-11 AC13; Telegram gets the text alone), and the chat shows
+    under it AC11's note and a button "Añadir búsqueda web" when the request was a typed text.
+    One press adds AC11's server (a server already named `Internet` is kept), waits for the
+    daemon that reads it to be back and open, and sends the same text again; while it works the
+    button is disabled, and when the connection cannot be saved the chat says so and the button
+    stays.
 - DK-14 Who the principal is and what ANOMANDER did (asked by the principal on 2026-11-20:
   "También me gustaría que recordara quién soy, que recuerde quien soy y tenga memoria de lo que
   ha hecho"; the proposal "pasarle los recuerdos a todas las rutas, y agregar un historial

@@ -36,6 +36,11 @@ export interface Chat {
   running: boolean;
   /** Stops the task that is running: nothing more is performed for it. */
   stop(): void;
+  /**
+   * DK-11 AC13: adds the web search `message` offers, then asks its request again once the
+   * daemon that reads it is there.
+   */
+  addWebSearch(message: BotMessage): void;
 }
 
 export interface ChatOptions {
@@ -50,6 +55,19 @@ export interface ChatOptions {
   look?: () => Promise<ArrayBuffer>;
   /** Called with why something on the computer could not be done. */
   onProblem?: (text: string) => void;
+  /**
+   * DK-11 AC13: adds the web search connection; `true` when it was saved, which starts the daemon
+   * again, `false` when it was already there. Absent where the window cannot add one.
+   */
+  addWebSearch?: () => Promise<boolean>;
+}
+
+/** DK-11 AC13: a request to ask again once the daemon that reads the new connection is there. */
+interface AskAgain {
+  text: string;
+  /** The channel when the press was made, and how many times the channel had gone since. */
+  channel: string | null;
+  gone: number;
 }
 
 /** A task started while a look waited for its turn: the screen is the task's. */
@@ -90,6 +108,10 @@ export const useChat = (channel: LocalChannel | null, options: ChatOptions = {})
         release: (url) => URL.revokeObjectURL(url),
       }),
   );
+  /** The channel when the connection last opened; `null` while it is not open. */
+  const opened = useRef<string | null>(null);
+  /** The channel as one value, and how many times it went away: a restarted daemon is a new one. */
+  const current = useRef<{ channel: string | null; gone: number }>({ channel: null, gone: 0 });
   /** `launch`, defined below the client that calls it. */
   const launching = useRef<(id: string, route: Route) => void>(() => {});
   /** The captures of looks shown in the conversation, let go of when the chat leaves. */
@@ -103,7 +125,11 @@ export const useChat = (channel: LocalChannel | null, options: ChatOptions = {})
 
   useEffect(() => {
     const created = createChatClient({
-      onConnection: (state) => dispatch({ type: 'connection', state }),
+      onConnection: (state) => {
+        // DK-11 AC13: which channel the open connection is to, so a request waits for the new one.
+        opened.current = state === 'open' ? current.current.channel : null;
+        dispatch({ type: 'connection', state });
+      },
       onOutcome: (requestId, outcome) => {
         // DK-13: a route is followed only in the answer to a plain text.
         const plain = texts.current.delete(requestId);
@@ -132,9 +158,18 @@ export const useChat = (channel: LocalChannel | null, options: ChatOptions = {})
   // A new snapshot with the same channel must not reconnect: depend on its values, not the object.
   const url = channel?.url ?? null;
   const token = channel?.token ?? null;
+  const channelKey = url === null || token === null ? null : `${url} ${token}`;
+  // Before the client hears of it: a connection that opens belongs to this channel.
+  useEffect(() => {
+    if (channelKey === null) current.current.gone += 1;
+    current.current.channel = channelKey;
+  }, [channelKey]);
   useEffect(() => {
     client.current?.setChannel(url === null || token === null ? null : { url, token });
   }, [url, token]);
+  /** In the order pressed; each waits for the daemon started after its own press. */
+  const askAgain = useRef<AskAgain[]>([]);
+  const [recheck, setRecheck] = useState(0);
 
   const deliver = useCallback(async (id: string, text: string, attachments: Attachment[]) => {
     let requestId: string | null = null;
@@ -246,7 +281,63 @@ export const useChat = (channel: LocalChannel | null, options: ChatOptions = {})
     [deliver],
   );
 
-  return { conversation, say, retry, restart, press, allow, refuse, running, stop };
+  // DK-11 AC13: a saved connection restarts the daemon; the request waits for the new one, open.
+  const { connection } = conversation;
+  // biome-ignore lint/correctness/useExhaustiveDependencies: runs as the channel changes.
+  useEffect(() => {
+    if (askAgain.current.length === 0 || channelKey === null || connection !== 'open') return;
+    if (opened.current !== channelKey) return;
+    const { channel: now, gone } = current.current;
+    const back = (waiting: AskAgain) => now !== waiting.channel || gone !== waiting.gone;
+    const ready = askAgain.current.filter(back);
+    askAgain.current = askAgain.current.filter((waiting) => !back(waiting));
+    for (const waiting of ready) say(waiting.text, []);
+  }, [channelKey, connection, recheck, say]);
+
+  const addWebSearch = useCallback(
+    (message: BotMessage) => {
+      const { offer } = message;
+      const add = latest.current.addWebSearch;
+      if (offer === null || add === undefined) return;
+      if (offer.state === 'adding' || offer.state === 'added') return;
+      dispatch({ type: 'offer', id: message.id, state: 'adding' });
+      const before = { ...current.current };
+      void add().then(
+        (saved) => {
+          dispatch({ type: 'offer', id: message.id, state: 'added' });
+          // Already there: it waits for the restart an earlier press started, if one is coming;
+          // otherwise it is asked again now.
+          const earlier = askAgain.current.at(-1);
+          if (!saved && earlier === undefined) {
+            say(offer.ask, []);
+            return;
+          }
+          const waitFor = saved || earlier === undefined ? before : earlier;
+          askAgain.current = [
+            ...askAgain.current,
+            { text: offer.ask, channel: waitFor.channel, gone: waitFor.gone },
+          ];
+          // The daemon may be back already, and the effect above only runs on a change.
+          setRecheck((count) => count + 1);
+        },
+        () => dispatch({ type: 'offer', id: message.id, state: 'failed' }),
+      );
+    },
+    [say],
+  );
+
+  return {
+    conversation,
+    say,
+    retry,
+    restart,
+    press,
+    allow,
+    refuse,
+    running,
+    stop,
+    addWebSearch,
+  };
 };
 
 /** Whether the window can start `route` at all: it needs the shell's side of it. */

@@ -79,11 +79,18 @@ const withRoute = (reply: ChatReply): ChatReply => {
   return kept === undefined ? rest : { ...rest, route: kept };
 };
 
+/** DK-11 AC13: a reply keeps an offer only as the window can add it. */
+const withOffer = (reply: ChatReply): ChatReply => {
+  if (!('offer' in reply) || reply.offer === 'web_search') return reply;
+  const { offer: _unknown, ...rest } = reply;
+  return rest;
+};
+
 const parseEvent = (data: unknown): ChatEvent | undefined => {
   if (typeof data !== 'string') return undefined;
   try {
     const event = JSON.parse(data) as Partial<ChatEvent> | null;
-    if (event?.type === 'reply') return withRoute(event as ChatReply);
+    if (event?.type === 'reply') return withOffer(withRoute(event as ChatReply));
     return event?.type === 'done' || event?.type === 'rejected' ? (event as ChatEvent) : undefined;
   } catch {
     return undefined;

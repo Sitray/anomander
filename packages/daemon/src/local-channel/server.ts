@@ -261,6 +261,8 @@ export const startLocalChannel = (deps: LocalChannelDeps): LocalChannel => {
       ...(reply.route === undefined || reply.route.to === 'connect'
         ? {}
         : { route: { to: reply.route.to, task: reply.route.task } }),
+      // DK-11 AC13: what the app can add in one press.
+      ...(reply.offer === undefined ? {} : { offer: reply.offer }),
     });
     // R-9 AC2: only a reply that left through the socket was delivered.
     reply.onDelivered?.({ channelRef, deliveredAt: sentAt });

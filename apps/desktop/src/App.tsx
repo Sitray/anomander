@@ -4,6 +4,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ChatScreen } from './chat/ChatScreen.tsx';
 import { ConnectionsScreen } from './connections/ConnectionsScreen.tsx';
+import { addWebSearch } from './connections/web-search.ts';
 import { LedgerScreen } from './ledger/LedgerScreen.tsx';
 import { SubscriptionsScreen } from './login/SubscriptionsScreen.tsx';
 import { isComplete, SetupScreen } from './setup/SetupScreen.tsx';
@@ -57,6 +58,13 @@ export function App() {
     [saveSetup, close],
   );
 
+  const { connections, saveConnection } = shell;
+  // DK-11 AC11: from the first setup and from the chat; a server already named so is kept.
+  const onAddWebSearch = useCallback(
+    () => addWebSearch({ connections, saveConnection }),
+    [connections, saveConnection],
+  );
+
   return (
     <div className="window">
       <StatusBar
@@ -100,6 +108,7 @@ export function App() {
                 subscribeStop={shell.onStopTask}
                 model={snapshot.setup.model}
                 onStart={shell.start}
+                onAddWebSearch={onAddWebSearch}
               />
             </div>
             {open === 'setup' && (
@@ -110,6 +119,7 @@ export function App() {
                   onClose={close}
                   onOpenLedger={() => setOpen('ledger')}
                   onOpenSubscriptions={() => setOpen('subscriptions')}
+                  onAddWebSearch={onAddWebSearch}
                 />
               </div>
             )}

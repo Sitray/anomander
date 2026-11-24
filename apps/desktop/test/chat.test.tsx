@@ -1417,3 +1417,155 @@ describe('DK-13: a route is followed only in the answer to a plain text', () => 
     expect(screen.getByRole('button', { name: /permitir/i })).toBeTruthy();
   });
 });
+
+describe('a missing web search (DK-11 AC13)', () => {
+  const ASKED = 'Búscame dónde comprar una silla';
+  const BACK: LocalChannel = { url: 'ws://127.0.0.1:4999', token: TOKEN };
+  const missing = (inReplyTo: string) =>
+    replyTo(inReplyTo, { text: 'Falta la búsqueda web.', offer: 'web_search' });
+  const addButton = () => screen.getByRole('button', { name: strings.chat.addWebSearch });
+
+  /** A chat that asked for a search and was told the web search is missing. */
+  const toldMissing = async (add: () => Promise<boolean>) => {
+    const onAddWebSearch = vi.fn(add);
+    const chat = (daemon: DaemonStatus, channel: LocalChannel | null) => (
+      <ChatScreen daemon={daemon} channel={channel} onAddWebSearch={onAddWebSearch} />
+    );
+    const view = render(chat(RUNNING, CHANNEL));
+    const first = FakeWebSocket.last;
+    act(() => first.open());
+    say(ASKED);
+    const request = await sentRequest(first);
+    act(() => first.receive(missing(request.id)));
+    return {
+      first,
+      onAddWebSearch,
+      rerender: (...args: Parameters<typeof chat>) => view.rerender(chat(...args)),
+    };
+  };
+
+  it('offers to add it, saying what leaves the Mac', async () => {
+    await toldMissing(async () => true);
+
+    expect(screen.getByText('Falta la búsqueda web.')).toBeTruthy();
+    expect(screen.getByText(strings.connections.webSearchNote)).toBeTruthy();
+    expect(addButton()).toBeTruthy();
+  });
+
+  it('adds it once pressed and asks again only once the daemon is back', async () => {
+    let added: (value: boolean) => void = () => {};
+    const { first, onAddWebSearch, rerender } = await toldMissing(
+      () => new Promise((resolve) => (added = resolve)),
+    );
+    fireEvent.click(addButton());
+
+    expect(onAddWebSearch).toHaveBeenCalledOnce();
+    expect(addButton().hasAttribute('disabled')).toBe(true);
+    // Saved while the old daemon still answers: nothing is asked of it.
+    await act(async () => added(true));
+    expect(first.requests).toHaveLength(1);
+    // The daemon starts again to read the connection.
+    rerender(STARTING, null);
+    rerender(RUNNING, BACK);
+    act(() => FakeWebSocket.last.open());
+
+    expect(await sentRequest(FakeWebSocket.last)).toMatchObject({ type: 'text', text: ASKED });
+    expect(screen.getAllByText(ASKED)).toHaveLength(2);
+    expect(screen.getByText(strings.chat.webSearchAdded)).toBeTruthy();
+    expect(screen.queryByRole('button', { name: strings.chat.addWebSearch })).toBeNull();
+  });
+
+  it('asks again at once when the web search was already there', async () => {
+    const { first } = await toldMissing(async () => false);
+    fireEvent.click(addButton());
+
+    expect(await sentRequest(first, 2)).toMatchObject({ type: 'text', text: ASKED });
+  });
+
+  it('says when it could not be added, and can be pressed again', async () => {
+    const { first, onAddWebSearch } = await toldMissing(async () => {
+      throw new Error('mcp.json is not valid JSON');
+    });
+    fireEvent.click(addButton());
+
+    expect(await screen.findByText(strings.chat.webSearchFailed)).toBeTruthy();
+    expect(first.requests).toHaveLength(1);
+    fireEvent.click(addButton());
+    await waitFor(() => expect(onAddWebSearch).toHaveBeenCalledTimes(2));
+  });
+
+  /** A chat that asked `Q1` and `Q2` and was told twice the web search is missing. */
+  const toldMissingTwice = async (add: () => Promise<boolean>) => {
+    const chat = (daemon: DaemonStatus, channel: LocalChannel | null) => (
+      <ChatScreen daemon={daemon} channel={channel} onAddWebSearch={add} />
+    );
+    const view = render(chat(RUNNING, CHANNEL));
+    const first = FakeWebSocket.last;
+    act(() => first.open());
+    for (const [index, text] of ['Q1', 'Q2'].entries()) {
+      say(text);
+      const request = await sentRequest(first, index + 1);
+      act(() => first.receive(missing(request.id)));
+    }
+    const [press1, press2] = screen
+      .getAllByRole('button', { name: strings.chat.addWebSearch })
+      .map((button) => () => fireEvent.click(button));
+    return {
+      press1: press1 ?? (() => {}),
+      press2: press2 ?? (() => {}),
+      rerender: (...args: Parameters<typeof chat>) => view.rerender(chat(...args)),
+    };
+  };
+  const askedOnceBack = async () => {
+    const back = FakeWebSocket.last;
+    act(() => back.open());
+    await waitFor(() => expect(back.requests).toHaveLength(2));
+    return back.requests.map((request) => (request as { text: string }).text).sort();
+  };
+
+  it('asks a second offer again only once the daemon restarted for the first is back', async () => {
+    let saves = 0;
+    let added: (value: boolean) => void = () => {};
+    // As `addWebSearch`: the first press saves; a later one finds the server already there.
+    const { press1, press2, rerender } = await toldMissingTwice(() => {
+      saves += 1;
+      return saves === 1 ? new Promise((resolve) => (added = resolve)) : Promise.resolve(false);
+    });
+    const first = FakeWebSocket.last;
+    press1();
+    await act(async () => added(true));
+    rerender(STARTING, null);
+    press2();
+    await act(async () => {});
+    rerender(RUNNING, BACK);
+
+    expect(first.requests).toHaveLength(2);
+    expect(await askedOnceBack()).toEqual(['Q1', 'Q2']);
+  });
+
+  it('asks both again when two presses saved before the daemon restarted', async () => {
+    const saved: ((value: boolean) => void)[] = [];
+    const { press1, press2, rerender } = await toldMissingTwice(
+      () => new Promise((resolve) => saved.push(resolve)),
+    );
+    press1();
+    press2();
+    await act(async () => {
+      for (const resolve of saved) resolve(true);
+    });
+    rerender(STARTING, null);
+    rerender(RUNNING, BACK);
+
+    expect(await askedOnceBack()).toEqual(['Q1', 'Q2']);
+  });
+
+  it('offers nothing where the window cannot add a connection', async () => {
+    const socket = openChat();
+    say(ASKED);
+    const request = await sentRequest(socket);
+    act(() => socket.receive(missing(request.id)));
+
+    expect(screen.getByText('Falta la búsqueda web.')).toBeTruthy();
+    expect(screen.queryByText(strings.connections.webSearchNote)).toBeNull();
+  });
+});

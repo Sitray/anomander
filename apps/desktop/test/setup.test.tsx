@@ -384,3 +384,77 @@ describe('provider keys', () => {
     expect((await saved(onSave)).providerKeys).toEqual({});
   });
 });
+
+describe('web search on the first setup', () => {
+  const firstRun = (addWebSearch: () => Promise<void> = async () => {}) => {
+    const order: string[] = [];
+    const onAddWebSearch = vi.fn(async () => {
+      order.push('web search');
+      await addWebSearch();
+    });
+    const onSave = vi.fn(async (_input: SetupInput) => {
+      order.push('setup');
+      return FILLED_SETUP;
+    });
+    render(
+      <SetupScreen
+        setup={EMPTY_SETUP}
+        onSave={onSave}
+        onClose={vi.fn()}
+        onAddWebSearch={onAddWebSearch}
+      />,
+    );
+    fill(text.model, 'openai/gpt-4o-mini');
+    return { order, onAddWebSearch, onSave };
+  };
+  const checkbox = (): HTMLInputElement => screen.getByRole('checkbox', { name: text.webSearch });
+
+  it('comes checked, with what leaves the Mac beside it', () => {
+    firstRun();
+
+    expect(checkbox().checked).toBe(true);
+    expect(screen.getByText(strings.connections.webSearchNote)).toBeTruthy();
+  });
+
+  it('adds the web search before saving the setup, so the daemon starts once', async () => {
+    const { order, onSave } = firstRun();
+    save();
+
+    await saved(onSave);
+    expect(order).toEqual(['web search', 'setup']);
+  });
+
+  it('adds nothing once unchecked', async () => {
+    const { onAddWebSearch, onSave } = firstRun();
+    fireEvent.click(checkbox());
+    save();
+
+    await saved(onSave);
+    expect(onAddWebSearch).not.toHaveBeenCalled();
+  });
+
+  it('saves nothing and says why when the web search could not be added', async () => {
+    const { onSave } = firstRun(async () => {
+      throw new Error('mcp.json is not valid JSON');
+    });
+    save();
+
+    expect(await screen.findByText('mcp.json is not valid JSON')).toBeTruthy();
+    expect(screen.getByText(text.rejected)).toBeTruthy();
+    expect(onSave).not.toHaveBeenCalled();
+    expect(checkbox()).toBeTruthy();
+  });
+
+  it('is not offered once the setup is complete: Conexiones has it', () => {
+    render(
+      <SetupScreen
+        setup={FILLED_SETUP}
+        onSave={vi.fn(async () => FILLED_SETUP)}
+        onClose={vi.fn()}
+        onAddWebSearch={vi.fn(async () => {})}
+      />,
+    );
+
+    expect(screen.queryByRole('checkbox', { name: text.webSearch })).toBeNull();
+  });
+});

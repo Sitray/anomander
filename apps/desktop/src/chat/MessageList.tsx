@@ -44,6 +44,8 @@ export interface MessageListProps {
   /** DK-10 AC1: the principal allows the action a message proposes, or stops there. */
   onAllow: (message: BotMessage) => void;
   onRefuse: (message: BotMessage) => void;
+  /** DK-11 AC13: adds the web search a message offers. Absent where the window cannot. */
+  onAddWebSearch?: ((message: BotMessage) => void) | undefined;
 }
 
 /** How far from the end still counts as reading the latest message. */
@@ -208,20 +210,56 @@ const StartStatus = ({
   </>
 );
 
+/**
+ * DK-11 AC13: the web search the reply says is missing, offered in one press with what leaves the
+ * Mac; once added, the request is asked again.
+ */
+const OfferCard = ({
+  message,
+  offer,
+  onAdd,
+}: {
+  message: BotMessage;
+  offer: NonNullable<BotMessage['offer']>;
+  onAdd: (message: BotMessage) => void;
+}) => {
+  if (offer.state === 'added') {
+    return <p className="message-note">{strings.chat.webSearchAdded}</p>;
+  }
+  const adding = offer.state === 'adding';
+  return (
+    <div className="offer">
+      <p className="message-note">{strings.connections.webSearchNote}</p>
+      {offer.state === 'failed' && <Problem>{strings.chat.webSearchFailed}</Problem>}
+      <button
+        type="button"
+        className="button small"
+        disabled={adding}
+        aria-label={strings.chat.addWebSearch}
+        onClick={() => onAdd(message)}
+      >
+        {adding ? strings.chat.addingWebSearch : strings.chat.addWebSearch}
+      </button>
+    </div>
+  );
+};
+
 const Bot = ({
   message,
   onRestart,
   onPress,
   onAllow,
   onRefuse,
+  onAddWebSearch,
 }: {
   message: BotMessage;
   onRestart: MessageListProps['onRestart'];
   onPress: MessageListProps['onPress'];
   onAllow: MessageListProps['onAllow'];
   onRefuse: MessageListProps['onRefuse'];
+  onAddWebSearch: MessageListProps['onAddWebSearch'];
 }) => {
-  const { press, proposal, start } = message;
+  const { press, proposal, start, offer } = message;
   const choices = message.buttons.filter((button) => 'data' in button);
   // DK-4 AC7: this WebView cannot open a link, so a link button is named, never offered.
   const links = message.buttons.filter((button) => 'url' in button);
@@ -247,6 +285,9 @@ const Bot = ({
         </div>
       )}
       {start !== null && <StartStatus message={message} start={start} onRestart={onRestart} />}
+      {offer !== null && onAddWebSearch !== undefined && (
+        <OfferCard message={message} offer={offer} onAdd={onAddWebSearch} />
+      )}
       {proposal !== null && (
         <ProposalCard message={message} proposal={proposal} onAllow={onAllow} onRefuse={onRefuse} />
       )}
@@ -267,6 +308,7 @@ const Bot = ({
 
 export function MessageList(props: MessageListProps) {
   const { messages, waiting, onRetry, onRestart, onPress, onAllow, onRefuse } = props;
+  const { onAddWebSearch } = props;
   const empty = props.empty ?? emptyStateFor(null);
   const scroller = useRef<HTMLDivElement>(null);
   /** Whether the principal is reading the end; scrolling up to reread must not be undone. */
@@ -315,6 +357,7 @@ export function MessageList(props: MessageListProps) {
               onPress={onPress}
               onAllow={onAllow}
               onRefuse={onRefuse}
+              onAddWebSearch={onAddWebSearch}
             />
           ),
         )}

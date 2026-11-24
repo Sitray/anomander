@@ -679,6 +679,14 @@ button {
   white-space: nowrap;
 }
 
+/* DK-11 AC13: the web search offered under the reply that says it is missing. */
+.offer {
+  display: grid;
+  justify-items: start;
+  gap: var(--s2);
+  margin-top: var(--s2);
+}
+
 .message-status {
   display: flex;
   flex-wrap: wrap;
@@ -1043,6 +1051,18 @@ button {
 
 .field label {
   color: var(--text);
+}
+
+/* DK-11 AC11: a choice that is a box to tick, with its words beside it. */
+.field label.check {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+}
+
+.check input {
+  margin: 0;
+  accent-color: var(--accent);
 }
 
 /* S5: beside the label of what a first run cannot do without. */
