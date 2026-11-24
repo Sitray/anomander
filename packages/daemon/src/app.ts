@@ -310,7 +310,8 @@ export const startSetupGuide = (config: Config, deps: SetupGuideDeps): Anomander
   const localChannel = startChannel(
     config,
     {
-      onText: async () => guide,
+      // R-17 AC7: a code pasted in the app's chat while a login waits goes to it, never stored.
+      onText: async (message) => (login?.takePasted(message.text) === true ? null : guide),
       onReceipt: async () => guide,
       onButton: async () => guide,
       onScreen: async () => guide,
@@ -774,7 +775,15 @@ export const startAnomander = <M>(config: Config, deps: AnomanderDeps<M>): Anoma
   const clearInTurn = inTurn(async () => turns.clear());
   const localChannel = startChannel(
     config,
-    { ...chat, onButton: onButtonAt('app') },
+    {
+      ...chat,
+      // R-17 AC7: while a login waits, the app's next text goes to it first, before any other
+      // route: it is never stored, logged, a recent turn or sent to the model. `/login` and
+      // `/logout` are not taken here: they stay in Telegram (DK-4 AC7).
+      onText: async (message) =>
+        login?.takePasted(message.text) === true ? null : chat.onText(message),
+      onButton: onButtonAt('app'),
+    },
     { messages: (limit) => storedConversation(db, limit), clear: () => clearInTurn(undefined) },
     logger,
     now,

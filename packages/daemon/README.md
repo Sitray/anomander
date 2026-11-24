@@ -227,7 +227,9 @@ handlers (a receipt is `[foto de ticket]` and its caption, a press `[botón: Apu
 `recordingNotices` wraps `notify`, so a message sent unasked, once delivered, is a turn with no
 principal part; a send that fails or delivers nothing stores nothing. A text the interpreter routes
 to a task with connections is stored once, with its announcement; the task's answer follows with
-no `[conexiones]` line (`connectionSession.run(task, door, true)`). A login's messages (R-17 AC7) go around both, so a pasted code is never a turn.
+no `[conexiones]` line (`connectionSession.run(task, door, true)`). A login's messages (R-17 AC7)
+go around both, so a pasted code is never a turn, from either door: the app's chat hands its text
+to `login.takePasted` first.
 
 `src/conversation/recent-turns.ts` keeps them in the local database (desktop PRD DK-16, table
 `conversation`, `src/store/conversation.ts`): one row per message, the principal's and the reply,
@@ -719,7 +721,9 @@ key (R-15 AC3).
   abandons the running one, with no S-65. `/logout` replies S-66 with one button per connected
   account, or S-68; pressing one deletes it (S-67). These commands, their buttons (`login:<provider>`
   and `logout:<provider>`, apart from `decision:` data) and the awaited text are handled in
-  `app.ts` before every other route, so they work when no model is reachable (R-17 AC7).
+  `app.ts` before every other route, so they work when no model is reachable (R-17 AC7). While a
+  login waits, a text sent in the desktop app's chat goes to it too (`takePasted`), answered
+  `done`; the app never takes `/login` or `/logout` (desktop PRD DK-4 AC7).
 - **From a terminal on the server.** `pnpm run login [provider]` and `pnpm run logout <provider>`
   (`scripts/login.ts`, `scripts/logout.ts`) do the same and print the link or device code. Plain
   `pnpm login` is pnpm's own npm-registry login, so `run` is needed. Run them from the directory

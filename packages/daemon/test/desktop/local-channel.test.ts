@@ -17,7 +17,7 @@ import {
   startFakeTelegramApi,
   updates,
 } from '@anomander/telegram/fake-telegram-api';
-import type { AssistantMessage, Context } from '@earendil-works/pi-ai';
+import type { AssistantMessage, Context, Credential } from '@earendil-works/pi-ai';
 import Database from 'better-sqlite3';
 import { afterEach, beforeEach, describe, expect, it, type Mock, vi } from 'vitest';
 import {
@@ -26,6 +26,8 @@ import {
   startAnomander,
   startSetupGuide,
 } from '../../src/app.ts';
+import { createFileCredentialStore } from '../../src/auth/file-credential-store.ts';
+import type { ModelLogin } from '../../src/auth/telegram-login.ts';
 import { loadConfig } from '../../src/config.ts';
 import type { Connection } from '../../src/connections/connection.ts';
 import { connectionTaskPrompt } from '../../src/connections/task.ts';
@@ -686,6 +688,80 @@ describe('the stored conversation (DK-16)', () => {
     expect((await chat.ask({ type: 'history', limit: 'all' })).type).toBe('rejected');
     expect((await chat.ask({ type: 'clear_history', all: true })).type).toBe('rejected');
     expect(query('SELECT id FROM conversation')).toHaveLength(2);
+  });
+});
+
+describe('a text pasted in the app while a Telegram login waits (R-17 AC7, R-27 AC3)', () => {
+  it('goes to the login first: answered done, never stored, logged, a recent turn or sent to the model', async () => {
+    const pasted = 'http://127.0.0.1:1455/auth/callback?code=zorbpasted&state=s';
+    const token: Credential = { type: 'oauth', access: 'a', refresh: 'r', expires: 1 };
+    let received: string | undefined;
+    const models: ModelLogin = {
+      login: async (_providerId, _type, interaction) => {
+        interaction.notify({ type: 'auth_url', url: 'https://auth.openai.com/oauth/authorize' });
+        received = await interaction.prompt({
+          type: 'manual_code',
+          message: 'Paste the redirect URL',
+          ...(interaction.signal === undefined ? {} : { signal: interaction.signal }),
+        });
+        return token;
+      },
+      logout: async () => {},
+    };
+    const daemon = await start(undefined, {
+      login: {
+        models,
+        credentials: createFileCredentialStore(join(scratch, 'auth.json')),
+        getDeviceId: () => '00000000-0000-4000-8000-000000000000',
+        timeoutMs: 60_000,
+      },
+    });
+    const chat = await client(daemon);
+    api.push(updates.text({ chatId: PRINCIPAL }, '/login'));
+    const [choose] = await api.waitForSent(1);
+    api.push(updates.callbackQuery({ chatId: PRINCIPAL }, 'login:openai', choose?.messageId ?? 0));
+    await api.waitForSent(2);
+
+    const answer = await chat.ask({ type: 'text', text: pasted });
+
+    expect(answer.type).toBe('done');
+    await vi.waitFor(() => expect(received).toBe(pasted));
+    expect(interpreted).toEqual([]);
+    expect(query('SELECT id FROM conversation')).toEqual([]);
+    const path = join(scratch, 'anomander.db');
+    expect(
+      [path, `${path}-wal`, `${path}-shm`].some((file) => {
+        try {
+          return readFileSync(file).includes('zorbpasted');
+        } catch {
+          return false;
+        }
+      }),
+    ).toBe(false);
+    expect(
+      JSON.stringify([logger.info, logger.warn, logger.error].flatMap((log) => log.mock.calls)),
+    ).not.toContain('zorbpasted');
+    await chat.ask({ type: 'text', text: '23 € cena' });
+    expect(interpreted.map(({ message, recent }) => ({ message, recent }))).toEqual([
+      { message: '23 € cena', recent: [] },
+    ]);
+  });
+
+  it('never starts a login from the app: /login there is not a login route (DK-4 AC7)', async () => {
+    const daemon = await start(undefined, {
+      login: {
+        models: { login: async () => Promise.reject(new Error('no')), logout: async () => {} },
+        credentials: createFileCredentialStore(join(scratch, 'auth.json')),
+        getDeviceId: () => '00000000-0000-4000-8000-000000000000',
+        timeoutMs: 60_000,
+      },
+    });
+    const chat = await client(daemon);
+
+    const answer = reply(await chat.ask({ type: 'text', text: '/login' }));
+
+    expect(JSON.stringify(answer.buttons)).not.toContain('login:');
+    expect(api.sent).toEqual([]);
   });
 });
 
