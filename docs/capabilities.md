@@ -1,6 +1,6 @@
 # Capabilities
 
-ANOMANDER is a personal assistant. Expenses were its first matter, not its limit: what it can do for the principal grows by adding **capabilities**, each one self-contained (PRD R-24). Reminders and tasks (PRD R-25) are the first one, the morning digest (PRD R-26) the second and the opt-in weekly summary (PRD R-10 AC5-AC8) the third.
+ANOMANDER is a personal assistant. Expenses were its first matter, not its limit: what it can do for the principal grows by adding **capabilities**, each one self-contained (PRD R-24). Reminders and tasks (PRD R-25) are the first one, the morning digest (PRD R-26) the second, the opt-in weekly summary (PRD R-10 AC5-AC8) the third and the expense query (PRD R-30) the fourth.
 
 Expenses, memories, categories and policies are older, built-in kinds of the text interpreter. They are not capabilities yet; moving them is not part of M5.
 
@@ -89,6 +89,10 @@ Sending is a scheduler job, like the reminders' send. `src/digest/send-digest.ts
 `src/summary/capability.ts` follows the digest with nothing to carry: `{"kind":"weekly_summary_enable"}` asks S-74 (or S-76 when it is already on) and `{"kind":"weekly_summary_disable"}` revokes at once. Its answer handler is `src/decisions/grant-weekly-summary-decision.ts`, registered under `grant_weekly_summary`. Both capabilities share `src/store/permissions.ts`: `openGrantDecision` opens the question (closing an earlier one still unanswered), `grantPermission` revokes the earlier permission and inserts the new one, `revokePermissions` takes it back and `activePermissions` reads what is in force. A capability that needs a new permission should reuse them rather than write its own queries.
 
 When two capabilities read alike, the prompt is where they are told apart: the summary's prompt says a summary not called weekly is the morning one (R-10 AC8).
+
+## A fourth capability: the expense query
+
+`src/expenses/expense-query.ts` answers "¿cuánto llevo gastado este mes?" with figures the processor never sees. The processor returns only the parameters: `{"kind":"expense_query","from":"2026-11-01","to":"2026-11-24","category":null,"merchant":null}`, the period resolved from `today` and optionally a category and a merchant. The schema checks the dates are real and in order and drops any other key, so a total the model adds is never read. The handler then checks what needs the store: the period does not start after today (one that ends later ends today), the category exists and the merchant is the principal's own words. A failed check is S-22 (R-22 AC1). Every figure comes from the `current` rows, as the weekly summary's do: the total, the count and the breakdown by category, or the top 3 merchants when a category is given; pending expenses of the period are counted apart (S-94). It only reads, so it needs no permission and no decision (R-24 AC3), and it declares no `context`: the interpreter already receives `today` and `categories`.
 
 ## Routes: the screen, the computer and connections
 

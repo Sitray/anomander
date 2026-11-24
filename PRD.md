@@ -456,6 +456,17 @@ The principal's data survives a damaged file and can leave in files they can ope
 - AC3: `/exportar` in Telegram writes the views `gastos`, `lineas_de_compra` and `pendientes_de_confirmar` (`docs/read-access-prd.md` RA-1) as one CSV file each and all three in `ledger.json`, in a new dated folder under `exports/` in the data folder, and replies S-79 followed by the four files as documents. It is handled by code, never reaches the processor and is never a recent turn. When the files cannot be written it replies S-80. While setup is incomplete it gets the setup guide (R-28), as every other message.
 - AC4: In the desktop app, `/exportar` replies S-81 and writes nothing: for now the export only reaches the principal through Telegram.
 
+### R-30 Expense query
+The principal asks what they spent ("¿cuánto llevo gastado este mes?") and gets figures computed by code, as the weekly summary's are (R-10). It is the fourth capability (R-24), and it only reads: no confirmation is needed (R-24 AC3).
+- AC1: The processor only returns the call `{"kind":"expense_query","from":"YYYY-MM-DD","to":"YYYY-MM-DD","category":…,"merchant":…}`: the period it resolves from the message and today in `TZ` ("este mes", "la semana pasada", "en octubre", "ayer"), both days included, and optionally an existing category and a merchant as the principal wrote it. A period that ends after today ends today (assumption).
+- AC2: Every figure is computed in code from the `expenses` rows with status `current` whose `occurred_on` falls in the period and that match the filters: the total, the number of expenses and `{desglose}`. No figure ever comes from the processor; anything else in its call is ignored. The reply is S-90, or S-91 with a filter, sent verbatim (R-21 AC3).
+- AC3: Without a category, `{desglose}` lists the categories with expenses in the period as S-9 writes them (`{Categoria} {importe}`, joined by ` · `, highest first, `Sin clasificar` last). With a category, it lists the 3 merchants with the most spent in it (assumption), as `{Comercio} {importe}`; expenses without a merchant count in the total only. A merchant matches every merchant whose name contains it, ignoring case. `{filtro}` is the category, the merchant as written, or `{comercio} ({categoria})` with both.
+- AC4: The expenses of the period that match the filters and are pending confirmation are never in the total; when there is any, S-94 follows the answer.
+- AC5: A period with no current expense that matches gets S-92, or S-93 with a filter, followed by S-94 when some are pending.
+- AC6: Interpreting the message is the one processor call of R-14 and counts against the daily AI budget (R-12); computing the answer makes none.
+- AC7: A call code cannot answer is handled as R-22 AC1 (S-22, and the reason logged without the message): a date that does not exist, a period that ends before it starts or starts after today, a category that does not exist, or a merchant that is not in the message.
+- AC8: The answer reaches the door the question came from, Telegram or the desktop app (DK-4), and is stored as a turn of the conversation (R-16 AC3) like every reply.
+
 ## 12. User-facing strings (verbatim, `es-ES`)
 
 The table below is the Spanish reference. The English table in `packages/protocol/src/strings.ts` says the same with the same keys and placeholders; it is used when `ANOMANDER_LOCALE` is `en`, where amounts read `€23.40`, dates `29 October`, and a reminder's `{cuando}` reads `today at 9:00`, `on 29 October at 9:00` or `every Monday and Thursday at 8:00`.
@@ -547,8 +558,13 @@ Amounts are formatted with `Intl.NumberFormat('es-ES', { style: 'currency', curr
 | S-79 | `Aquí tienes tus datos: gastos, líneas de compra y pendientes de confirmar, en CSV y en JSON.` |
 | S-80 | `No he podido exportar tus datos. Inténtalo de nuevo en un rato.` |
 | S-81 | `De momento la exportación solo llega por Telegram: escribe /exportar allí.` |
+| S-90 | `{periodo}: {total} en {gastos}. {desglose}.` |
+| S-91 | `{periodo}, en {filtro}: {total} en {gastos}. {desglose}.` |
+| S-92 | `{periodo} no hay gastos.` |
+| S-93 | `{periodo} no hay gastos en {filtro}.` |
+| S-94 | `Pendientes de confirmar: {pendientes}.` (after S-90 to S-93, separated by a space) |
 
-When there is no category, `{categoria}` is `sin clasificar`. In S-9, each category name in `{desglose}` starts with a capital letter (R-10 AC4), for example `Supermercado 45,20 € · Restaurantes 23,00 € · Sin clasificar 0,00 €`. Telegram commands are in English (`/start`, `/login`, `/logout`), except `/exportar` (R-29 AC3); what the principal reads stays in Spanish. Button labels: `Apuntar`, `Corregir`, `Descartar`, and for S-11, S-12, S-13, S-15, S-29, S-46, S-53 and S-74 `Sí` and `No`; S-60 and S-66 have one button per account (`ChatGPT`, `Kimi Code`), and S-62 and S-63 an `Abrir` button with the link. In S-53, S-54, S-57 and S-59, `{hora}` is written `7:30` or `8:00`; at 1:00 the sentence reads `a la 1:00`. In S-50, `{texto}` lists the texts joined with `, ` and ` y ` before the last one.
+When there is no category, `{categoria}` is `sin clasificar`. In S-9, each category name in `{desglose}` starts with a capital letter (R-10 AC4), for example `Supermercado 45,20 € · Restaurantes 23,00 € · Sin clasificar 0,00 €`. Telegram commands are in English (`/start`, `/login`, `/logout`), except `/exportar` (R-29 AC3); what the principal reads stays in Spanish. Button labels: `Apuntar`, `Corregir`, `Descartar`, and for S-11, S-12, S-13, S-15, S-29, S-46, S-53 and S-74 `Sí` and `No`; S-60 and S-66 have one button per account (`ChatGPT`, `Kimi Code`), and S-62 and S-63 an `Abrir` button with the link. In S-53, S-54, S-57 and S-59, `{hora}` is written `7:30` or `8:00`; at 1:00 the sentence reads `a la 1:00`. In S-50, `{texto}` lists the texts joined with `, ` and ` y ` before the last one. In S-90 to S-93 (R-30), `{periodo}` is `Del {inicio} al {fin}`, or `El {dia}` when the period is one day; `{gastos}` is `1 gasto` or `{n} gastos`; when `{desglose}` is empty, ` {desglose}.` is left out.
 
 ## 13. Data model
 

@@ -1,4 +1,5 @@
 import { digestCapability } from '../digest/capability.ts';
+import { expenseQueryCapability } from '../expenses/expense-query.ts';
 import { remindersCapability } from '../reminders/capability.ts';
 import { weeklySummaryCapability } from '../summary/capability.ts';
 import type { Capability } from './capability.ts';
@@ -9,4 +10,5 @@ export const CAPABILITIES: readonly Capability[] = [
   remindersCapability,
   digestCapability,
   weeklySummaryCapability,
+  expenseQueryCapability,
 ];

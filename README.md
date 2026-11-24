@@ -16,7 +16,7 @@ To run your own, see [Getting started](#getting-started) (Docker and Telegram), 
 
 | Where | What works | Spec |
 | --- | --- | --- |
-| Telegram | Text and receipt expenses, decisions with buttons, corrections, conversation memory, the weekly summary and the morning digest (both off until you ask for them), policies, categories, reminders and tasks, model login (`/login`), the setup guide (`/start`), tasks with connections and an export of your ledger as CSV and JSON files (`/exportar`) | [PRD](PRD.md) M0 to M5f; DK-11 for connections |
+| Telegram | Text and receipt expenses, questions on what you spent ("¿cuánto llevo este mes?"), decisions with buttons, corrections, conversation memory, the weekly summary and the morning digest (both off until you ask for them), policies, categories, reminders and tasks, model login (`/login`), the setup guide (`/start`), tasks with connections and an export of your ledger as CSV and JSON files (`/exportar`) | [PRD](PRD.md) M0 to M5f; DK-11 for connections |
 | Read API | A token-guarded, GET-only HTTP API over the views `gastos`, `lineas_de_compra` and `pendientes_de_confirmar`, off unless `ANOMANDER_API_TOKEN` is set | [`docs/read-access-prd.md`](docs/read-access-prd.md) (M5b) |
 | Mac app | Everything below, with the same daemon, rules and ledger as Telegram | [`docs/desktop-prd.md`](docs/desktop-prd.md) (M6) |
 

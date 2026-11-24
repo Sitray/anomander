@@ -14,6 +14,7 @@ On `main` since 0.1.0. The interface speaks English or Spanish, and the app runs
 - **Web search from the chat**: when a request needs web search and it is missing, the chat offers "Añadir búsqueda web". The button adds the connection, waits for the daemon to restart and sends the same text again. Telegram gets the text alone.
 - **Daily backup**: right after the retention job, the daemon copies the database beside it as `<db>.backup-daily-<stamp>` (mode 600) once a day and keeps the 7 newest, apart from the copies taken before migrations. Erased conversation and memory text stays in the older copies until 7 newer daily copies replace them (PRD §16).
 - **`/exportar`**: in Telegram, sends the ledger (`gastos`, `lineas_de_compra`, `pendientes_de_confirmar`) as CSV files and `ledger.json`, also kept under `exports/` in the data folder. In the app it says the export comes through Telegram for now (PRD R-29).
+- **Expense query**: "¿cuánto llevo gastado este mes?", "¿cuánto gasté en Mercadona en octubre?" get the total, the number of expenses and a breakdown by category (or the top merchants of a category), with the expenses pending confirmation counted apart. The model only picks the period and the filters; code computes every figure from the ledger. In Telegram and in the app (PRD R-30).
 
 ### Changed
 
