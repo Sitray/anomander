@@ -10,7 +10,10 @@ import type { DecisionAnswerHandler } from './types.ts';
 // to erase: a replacement erases the old text (R-23 AC3), so S-30 is always true.
 
 export interface ForgetMemoryDecisionDeps {
-  /** Empties the recent turns, so the forgotten text leaves the conversation (R-16 AC3). */
+  /**
+   * Erases the stored conversation and so the recent turns, so the forgotten text leaves the
+   * conversation and the database (R-16 AC3, DK-16).
+   */
   clearRecentTurns: () => void;
 }
 

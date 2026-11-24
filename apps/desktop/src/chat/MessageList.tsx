@@ -89,6 +89,7 @@ const Own = ({
       )}
       {message.text !== '' && <p className="message-text">{message.text}</p>}
     </div>
+    {message.door === 'telegram' && <p className="message-note">{strings.chat.viaTelegram}</p>}
     {message.delivery === 'not_sent' && (
       <div className="message-status">
         <Problem>{strings.chat.notSent}</Problem>
@@ -274,6 +275,7 @@ const Bot = ({
       <span className="sr-only">{strings.chat.bot}</span>
       {/* DK-4 AC1: exactly as received. A text node: never HTML, never Markdown. */}
       <p className="message-text">{message.text}</p>
+      {message.door === 'telegram' && <p className="message-note">{strings.chat.viaTelegram}</p>}
       {choices.length > 0 && (
         <div className="choices">
           {choices.map((button) => (

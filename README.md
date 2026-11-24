@@ -32,6 +32,7 @@ The Mac app:
 | Connections | MCP servers from `mcp.json` or the Conexiones screen: one "Conectar" for Notion, Linear and Atlassian, or any server by hand under "Avanzado", with OAuth for servers reached by URL. A tool marked read-only runs; any other call waits for "Permitir" | DK-11 |
 | Web search | Checked on the first setup, or the "Búsqueda web" card in Conexiones, adds `pi-web-access` (pinned). "Búscame dónde comprar…" then searches the web instead of using the computer; with no key, searches go to Exa. Reading a page asks first | DK-11 AC11, AC13, DK-13 AC5 |
 | Memories and history | Looks and computer tasks know what you told it about yourself. A local history of what it did answers "¿qué hiciste ayer?" and is erased on request | DK-14 |
+| The conversation | Kept in the local database, Telegram included, for 90 days: the chat shows it again after you quit the app, and ANOMANDER picks up the last half hour after a restart. It is stored only on your machine (the last turns go to the model provider with each message, as below); "Borrar conversación" or a confirmed "olvida" erases it | DK-16 |
 | Subscription login | Connect ChatGPT or Kimi Code from the Suscripciones screen | DK-15 |
 | A ledger from Docker | Imports a ledger copied out of a Docker install into the app's empty one | DK-12 |
 
@@ -123,7 +124,7 @@ The front doors only send messages and show answers. The processor never writes:
 ANOMANDER is an open-source project in a public repository, released under the [MIT License](LICENSE). That adds four rules to the design:
 
 1. **One principal per installation.** Anyone can deploy their own ANOMANDER; it is not a multi-user service.
-2. **Nothing personal in the repository.** Expenses, categories, policies and permissions live in the local database; tokens and keys live in a `.env` file that is never committed.
+2. **Nothing personal in the repository.** Expenses, categories, policies, permissions and the conversation live in the local database; tokens and keys live in a `.env` file that is never committed.
 3. **Providers are chosen at install time.** Whoever runs it picks their model (API, subscription or local) and their front door; the core assumes none.
 4. **The ontology is public.** These documents are the specification: every contribution must respect it, and any app can be built on top of it.
 
@@ -141,9 +142,9 @@ Your data stays on the machine that runs ANOMANDER, except for what goes to thes
 
 What stays local:
 
-- The data folder: the SQLite database (expenses, categories, policies, memories and the history of what ANOMANDER did) and the receipt photos, readable by their owner only.
+- The data folder: the SQLite database (expenses, categories, policies, memories, the conversation for 90 days and the history of what ANOMANDER did) and the receipt photos, readable by their owner only.
 - Secrets: in the macOS Keychain or the Windows Credential Manager for the app, in `.env` and the login file at `ANOMANDER_AUTH_PATH` for Docker.
-- Screen captures are never stored, and the last turns of the conversation live only in memory, lost on restart.
+- Screen captures and receipt images in the conversation are never stored: a receipt is kept as its `[foto de ticket]` line. "Borrar conversación", a confirmed "olvida" and the 90-day retention erase the conversation for real.
 
 See [PRD](PRD.md) §16 for the full rules.
 

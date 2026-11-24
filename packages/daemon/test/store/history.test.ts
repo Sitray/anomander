@@ -206,7 +206,10 @@ describe('migration 0008 (verifier probes)', () => {
     const oldPath = join(scratch, 'old.db');
     const old = openDatabase(oldPath);
     expect(applyMigrations(old, upTo7)).toBe(7);
-    expect(applyMigrations(old)).toBe(1);
+    // 0008 and every migration after it.
+    expect(applyMigrations(old)).toBe(
+      readdirSync(MIGRATIONS_DIR).filter((name) => name.endsWith('.sql') && name >= '0008').length,
+    );
     expect(applyMigrations(old)).toBe(0);
     recordAction(old, action());
     expect(old.prepare('SELECT count(*) AS n FROM action_history').get()).toEqual({ n: 1 });

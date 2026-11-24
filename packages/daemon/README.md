@@ -173,8 +173,9 @@ was down arrives after the restart, possibly while the startup run is going. The
 finds them; later runs find none. When S-5 or S-14 cannot be sent (no Telegram, or a failed
 send) the receipt stays as it is and the failure is logged once per receipt, not every minute.
 It erases the `action_history` rows that ended more than 30 days ago with
-`forgetActionsEndedBefore`, as long as an inference is kept (AC6, security audit L3). Apart from
-that erase it only changes `status` columns and deletes temporary images; a second run changes
+`forgetActionsEndedBefore`, as long as an inference is kept (AC6, security audit L3), and the
+messages of the stored conversation sent more than 90 days ago with `forgetConversationBefore`
+(desktop PRD DK-16). Apart from those erases it only changes `status` columns and deletes temporary images; a second run changes
 nothing (AC4).
 
 **Weekly summary (R-10).** `createWeeklySummary().send` (`src/summary/weekly-summary.ts`) covers
@@ -219,17 +220,28 @@ so a failed reading is S-5, as before.
 
 ## Recent turns (R-16 AC3)
 
-So the interpreter understands "ese" or "lo de antes", `src/conversation/recent-turns.ts` keeps the
-last 10 exchanges with the principal, none older than 30 minutes, and the text interpreter gets
-them as `recent`. `app.ts` records them at the front door: `recordingTurns` wraps the text, receipt
-and button handlers (a receipt is `[foto de ticket]` and its caption, a press `[botón: Apuntar]`),
-and `recordingNotices` wraps `notify`, so a message sent unasked is a turn with no principal part.
-Turns live only in this process: they are never written to the database or logged, and a restart
-loses them. They give context only: an expense's amount must still be written in the current message
-(R-2 AC6), so a recent turn never becomes an expense fact. `clear()` empties them: `app.ts` hands
-it to the `forget_memory` answer, which calls it on `Sí` (R-23 AC6), so the forgotten fact and the
-S-29 question that showed it leave the context. The press itself (`[botón: Sí]` and S-30) is then
-recorded as the first turn of the emptied window.
+So the interpreter understands "ese" or "lo de antes", the text interpreter gets the last 10
+exchanges with the principal, none older than 30 minutes, as `recent`. `app.ts` records them at the
+front door, with the door they went through: `recordingTurns` wraps the text, receipt and button
+handlers (a receipt is `[foto de ticket]` and its caption, a press `[botón: Apuntar]`), and
+`recordingNotices` wraps `notify`, so a message sent unasked, once sent, is a turn with no principal
+part. A login's messages (R-17 AC7) go around both, so a pasted code is never a turn.
+
+`src/conversation/recent-turns.ts` keeps them in the local database (desktop PRD DK-16, table
+`conversation`, `src/store/conversation.ts`): one row per message, the principal's and the reply,
+with the reply's buttons and, once delivered, its `channelRef`, so a press on a stored button still
+resolves. The turns therefore survive a restart, and the local channel answers the app's `history`
+request with the latest messages (at most `HISTORY_LIMIT`, 500). Nothing here is logged; a failure
+to store a turn is logged without its words and never changes the reply. They give context only: an
+expense's amount must still be written in the current message (R-2 AC6), so a recent turn never
+becomes an expense fact.
+
+`clear()` erases the stored conversation for real (`secure_delete`, then a truncating WAL
+checkpoint): the app's `clear_history` ("Borrar conversación"), the `forget_memory` answer on `Sí`
+(R-23 AC6) and the `forget_history` answer on `Sí` (DK-14 AC4) call it, so the forgotten fact and
+the S-29 question that showed it leave the context and the database. The press itself
+(`[botón: Sí]` and S-30, which names no fact) is then stored as the first turn after the erase. The
+retention job erases messages older than 90 days.
 
 ## Conversation memory (R-23)
 
@@ -524,11 +536,13 @@ Each message is one JSON text frame, typed in `packages/protocol/src/local-chann
 | `screen`: a question and one capture of the screen in base64 (DK-9) | `reply` with what the vision processor sees (`src/processor/screen-reader.ts`): no tools, nothing stored but its question in the history (DK-14), one call against the daily AI limit; an image over 20 MB gets R-20's reply |
 | `connect`: a task for the connected MCP servers (DK-11) | `reply` in words that ends the task, or a `reply` that describes one call and carries "Permitir" and "Detener" buttons (`connection:<id>:allow`, `connection:<id>:refuse`). `src/connections/task.ts` decides every call the processor asks for; `mcp-client.ts` makes it. The servers come from `ANOMANDER_MCP_CONFIG` (`config.ts`). At most 8 calls, each processor call against the daily AI limit |
 | `computer`: a task, one capture and the steps already done (DK-10) | `reply` whose `computer` is the one action the vision processor proposes (`src/processor/computer-planner.ts`), described by code; or a `reply` in words that ends the task. The daemon never performs anything. At most 12 steps, each one call against the daily AI limit |
+| `history`, with an optional `limit` (DK-16) | `history` with the stored conversation of both doors, oldest first: the latest `limit` messages, at most 500 (`HISTORY_LIMIT`). Each has its id, `from`, `door`, text, buttons and the reply's `channelRef`; a `reply` with S-22 when it cannot be read |
+| `clear_history` (DK-16) | `done` once the stored conversation and the recent turns are erased for real; a `reply` with S-22 when they cannot be |
 | A frame that is none of these | `rejected`, and nothing is done with it |
 
 A `reply` carries its own `channelRef`, `desktop:<uuid>`, which is recorded as the delivery
 (R-9 AC2) once the frame left through the socket. The channel only answers: what ANOMANDER
-sends unasked goes to Telegram (DK-4 AC5). `/login` and `/logout` are Telegram's alone.
+sends unasked goes to Telegram (DK-4 AC5), and the app sees it in the stored conversation. `/login` and `/logout` are Telegram's alone.
 
 Both doors call the same handlers, `chat` in `src/app.ts`, wrapped by `oneTurnAtATime`: inputs
 are handled one after another in the order they arrive, so Telegram and the app share the

@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import type { ChatStoredMessage } from '@anomander/protocol';
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ChatScreen } from '../src/chat/ChatScreen.tsx';
@@ -1610,5 +1611,177 @@ describe('a missing web search (DK-11 AC13)', () => {
 
     expect(screen.getByText('Falta la búsqueda web.')).toBeTruthy();
     expect(screen.queryByText(strings.connections.webSearchNote)).toBeNull();
+  });
+});
+
+describe('the stored conversation (DK-16)', () => {
+  const stored = (
+    message: Pick<ChatStoredMessage, 'id' | 'text'> & Partial<ChatStoredMessage>,
+  ): ChatStoredMessage => ({
+    from: 'principal',
+    door: 'app',
+    buttons: [],
+    channelRef: null,
+    at: '2026-11-20T10:00:00.000Z',
+    ...message,
+  });
+  const STORED: ChatStoredMessage[] = [
+    stored({ id: 1, door: 'telegram', text: '40 € mercadona' }),
+    stored({
+      id: 2,
+      from: 'anomander',
+      door: 'telegram',
+      text: '¿Mercadona siempre es supermercado?',
+      buttons: [
+        { label: 'Sí', data: 'policy:yes:7' },
+        { label: 'No', data: 'policy:no:7' },
+      ],
+      channelRef: 'telegram:4242:99',
+    }),
+    stored({ id: 3, text: '[foto de ticket] cena' }),
+    stored({
+      id: 4,
+      from: 'anomander',
+      text: 'Apuntado: 47,85 € en Mercadona.',
+      channelRef: 'desktop:stored-4',
+    }),
+  ];
+
+  const shownTexts = (): (string | null | undefined)[] =>
+    within(screen.getByRole('log'))
+      .getAllByRole('listitem')
+      .map((item) => item.querySelector('.message-text')?.textContent);
+
+  it('asks for it when the chat opens empty, and shows it oldest first, Telegram included', async () => {
+    FakeWebSocket.history = null;
+    const socket = openChat();
+    const request = await sentRequest(socket);
+
+    expect(request).toEqual({ type: 'history', id: request.id });
+    act(() => socket.receive({ type: 'history', inReplyTo: request.id, messages: STORED }));
+
+    await waitFor(() => expect(shownTexts()).toEqual(STORED.map((message) => message.text)));
+    expect(screen.getAllByText(strings.chat.viaTelegram)).toHaveLength(2);
+    expect(screen.queryByText(strings.chat.emptyTitle)).toBeNull();
+    expect(screen.queryByText(strings.chat.thinking)).toBeNull();
+    expect(screen.queryByText(strings.chat.notSent)).toBeNull();
+  });
+
+  it('leaves it out once the principal said something first', async () => {
+    FakeWebSocket.history = null;
+    const socket = openChat();
+    const asked = await sentRequest(socket);
+    say('23 € cena');
+    await sentRequest(socket, 2);
+    act(() => socket.receive({ type: 'history', inReplyTo: asked.id, messages: STORED }));
+    await act(async () => {});
+
+    expect(shownTexts()).toEqual(['23 € cena']);
+  });
+
+  it('asks nothing and duplicates nothing when the daemon restarts with it on screen', async () => {
+    FakeWebSocket.history = STORED;
+    const first = openChat();
+    await waitFor(() => expect(shownTexts()).toHaveLength(4));
+    FakeWebSocket.history = null;
+
+    act(() => first.drop());
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 300));
+    });
+    const back = FakeWebSocket.last;
+    expect(back).not.toBe(first);
+    act(() => back.open());
+    await act(async () => {});
+
+    expect(back.sent).toEqual([]);
+    expect(shownTexts()).toEqual(STORED.map((message) => message.text));
+  });
+
+  it("sends a press on a stored reply's button with its channelRef (S-19 answers as today)", async () => {
+    FakeWebSocket.history = STORED;
+    const socket = openChat();
+    fireEvent.click(await screen.findByRole('button', { name: 'Sí' }));
+
+    expect(await sentRequest(socket)).toMatchObject({
+      type: 'button',
+      data: 'policy:yes:7',
+      channelRef: 'telegram:4242:99',
+    });
+    act(() => socket.receive(replyTo(socket.lastRequest.id, { text: S19 })));
+    expect(screen.getByText(S19)).toBeTruthy();
+  });
+
+  describe('Borrar conversación', () => {
+    const erase = (): HTMLButtonElement =>
+      screen.getByRole('button', { name: strings.chat.clearConversation });
+
+    const shownWithHistory = async (): Promise<FakeWebSocket> => {
+      FakeWebSocket.history = STORED;
+      const socket = openChat();
+      await waitFor(() => expect(shownTexts()).toHaveLength(4));
+      return socket;
+    };
+
+    it('is not offered while there is nothing to erase', () => {
+      openChat();
+
+      expect(screen.queryByRole('button', { name: strings.chat.clearConversation })).toBeNull();
+    });
+
+    it('asks first, sends nothing on no, and empties the chat once the daemon is done', async () => {
+      const socket = await shownWithHistory();
+      fireEvent.click(erase());
+
+      expect(screen.getByText(strings.chat.confirmClear)).toBeTruthy();
+      fireEvent.click(screen.getByRole('button', { name: strings.chat.keepConversation }));
+      expect(screen.queryByText(strings.chat.confirmClear)).toBeNull();
+      expect(socket.sent).toEqual([]);
+
+      fireEvent.click(erase());
+      fireEvent.click(screen.getByRole('button', { name: strings.chat.confirmClearYes }));
+      const request = await sentRequest(socket);
+      expect(request).toEqual({ type: 'clear_history', id: request.id });
+      expect(shownTexts()).toHaveLength(4);
+
+      act(() => socket.receive({ type: 'done', inReplyTo: request.id }));
+      await waitFor(() => expect(screen.getByText(strings.chat.emptyTitle)).toBeTruthy());
+      expect(within(screen.getByRole('log')).queryAllByRole('listitem')).toEqual([]);
+      expect(screen.queryByText(strings.chat.confirmClear)).toBeNull();
+    });
+
+    it('keeps the messages and says so when it was not erased', async () => {
+      const socket = await shownWithHistory();
+      fireEvent.click(erase());
+      fireEvent.click(screen.getByRole('button', { name: strings.chat.confirmClearYes }));
+      const request = await sentRequest(socket);
+      act(() => socket.receive({ type: 'rejected', inReplyTo: request.id }));
+
+      expect((await screen.findByRole('alert')).textContent).toBe(strings.chat.clearFailed);
+      expect(shownTexts()).toHaveLength(4);
+    });
+
+    it('keeps the messages and says it cannot know when the connection is lost', async () => {
+      const socket = await shownWithHistory();
+      fireEvent.click(erase());
+      fireEvent.click(screen.getByRole('button', { name: strings.chat.confirmClearYes }));
+      await sentRequest(socket);
+      act(() => socket.drop());
+
+      expect((await screen.findByRole('alert')).textContent).toBe(strings.chat.clearUnknown);
+      expect(shownTexts()).toHaveLength(4);
+    });
+
+    it('cannot be pressed while an answer is owed or the connection is not open', async () => {
+      const socket = await shownWithHistory();
+      say('23 € cena');
+      const request = await sentRequest(socket);
+
+      expect(erase().disabled).toBe(true);
+      act(() => socket.receive({ type: 'done', inReplyTo: request.id }));
+      expect(erase().disabled).toBe(false);
+      act(() => socket.drop());
+      expect(erase().disabled).toBe(true);
+    });
   });
 });

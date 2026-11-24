@@ -8,6 +8,7 @@ import {
   type ChatReceipt,
   type ChatReply,
   type ChatScreen,
+  type ChatStoredMessage,
   type ChatText,
   LOCAL_CHANNEL_PROTOCOL,
 } from '@anomander/protocol';
@@ -56,6 +57,16 @@ export interface ChatClient {
   setChannel(channel: LocalChannel | null): void;
   /** Sends `request` and returns its id, or `null` when nothing was sent: no open connection. */
   send(request: NewRequest): string | null;
+  /**
+   * DK-16: asks for the stored conversation; its messages, oldest first, or `null` when it did
+   * not come: no open connection, rejected, or the connection was lost first.
+   */
+  requestHistory(): Promise<ChatStoredMessage[] | null>;
+  /**
+   * DK-16: erases the stored conversation. `not_done`: nothing was erased; `unknown`: the
+   * connection was lost first, so it may have been.
+   */
+  clearHistory(): Promise<'done' | 'not_done' | 'unknown'>;
   dispose(): void;
 }
 
@@ -86,11 +97,34 @@ const withOffer = (reply: ChatReply): ChatReply => {
   return rest;
 };
 
+const ONE_OF = { from: ['principal', 'anomander'], door: ['app', 'telegram'] } as const;
+
+/** DK-16: a stored message only as the window can show it. */
+const isStored = (value: unknown): value is ChatStoredMessage => {
+  if (typeof value !== 'object' || value === null) return false;
+  const { id, from, door, text, buttons, channelRef, at } = value as Record<string, unknown>;
+  return (
+    typeof id === 'number' &&
+    ONE_OF.from.some((known) => known === from) &&
+    ONE_OF.door.some((known) => known === door) &&
+    typeof text === 'string' &&
+    Array.isArray(buttons) &&
+    (channelRef === null || typeof channelRef === 'string') &&
+    typeof at === 'string'
+  );
+};
+
 const parseEvent = (data: unknown): ChatEvent | undefined => {
   if (typeof data !== 'string') return undefined;
   try {
     const event = JSON.parse(data) as Partial<ChatEvent> | null;
     if (event?.type === 'reply') return withOffer(withRoute(event as ChatReply));
+    if (event?.type === 'history') {
+      const { messages } = event as { messages: unknown };
+      return Array.isArray(messages)
+        ? { ...(event as ChatEvent & { type: 'history' }), messages: messages.filter(isStored) }
+        : undefined;
+    }
     return event?.type === 'done' || event?.type === 'rejected' ? (event as ChatEvent) : undefined;
   } catch {
     return undefined;
@@ -110,6 +144,8 @@ export const createChatClient = (options: ChatClientOptions): ChatClient => {
   let failures = 0;
   let state: ConnectionState = 'offline';
   const inFlight = new Set<string>();
+  /** DK-16: the history and clear requests in flight; `null` when the connection was lost. */
+  const awaited = new Map<string, (event: ChatEvent | null) => void>();
 
   const report = (next: ConnectionState): void => {
     if (next === state) return;
@@ -124,6 +160,21 @@ export const createChatClient = (options: ChatClientOptions): ChatClient => {
   /** The socket is gone: whether the daemon handled what was in flight cannot be known. */
   const loseInFlight = (): void => {
     for (const requestId of [...inFlight]) settle(requestId, { type: 'unknown' });
+    for (const [requestId, resolve] of [...awaited]) {
+      awaited.delete(requestId);
+      resolve(null);
+    }
+  };
+
+  /** Sends `request` and waits for its answer: `undefined` when nothing was sent. */
+  const ask = (
+    request: { type: 'history' } | { type: 'clear_history' },
+  ): Promise<ChatEvent | null | undefined> => {
+    if (socket === null || socket.readyState !== OPEN) return Promise.resolve(undefined);
+    const id = crypto.randomUUID();
+    const answered = new Promise<ChatEvent | null>((resolve) => awaited.set(id, resolve));
+    socket.send(JSON.stringify({ ...request, id }));
+    return answered;
   };
 
   /** Lets go of the current socket without hearing from it again. */
@@ -151,6 +202,13 @@ export const createChatClient = (options: ChatClientOptions): ChatClient => {
       const event = parseEvent(message.data);
       // A `rejected` without an id cannot be one of ours: every request carries its id.
       if (event === undefined || event.inReplyTo === null) return;
+      const waiting = awaited.get(event.inReplyTo);
+      if (waiting !== undefined) {
+        awaited.delete(event.inReplyTo);
+        waiting(event);
+        return;
+      }
+      if (event.type === 'history') return;
       settle(
         event.inReplyTo,
         event.type === 'reply' ? { type: 'reply', reply: event } : { type: event.type },
@@ -182,6 +240,15 @@ export const createChatClient = (options: ChatClientOptions): ChatClient => {
       inFlight.add(id);
       socket.send(JSON.stringify({ ...request, id }));
       return id;
+    },
+    async requestHistory() {
+      const event = await ask({ type: 'history' });
+      return event?.type === 'history' ? event.messages : null;
+    },
+    async clearHistory() {
+      const event = await ask({ type: 'clear_history' });
+      if (event === null) return 'unknown';
+      return event?.type === 'done' ? 'done' : 'not_done';
     },
     dispose() {
       release();

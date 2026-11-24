@@ -81,12 +81,11 @@ const cutShort = (text: string, performed: number): string =>
 export const createConnectionSession = (deps: ConnectionSessionDeps): ConnectionSession => {
   const { tasks, turnLock, turns, keep, send, logger } = deps;
 
-  const connectionReply = (outcome: TaskOutcome, task: string): DoorReply => {
+  const connectionReply = (outcome: TaskOutcome, task: string, door: Door): DoorReply => {
     switch (outcome.kind) {
       case 'answer':
         // R-16 AC3: how the task ended is a recent turn; what the tools answered is not.
-        turns.add(connectionTurn(task), outcome.text);
-        return { text: outcome.text };
+        return turns.add(connectionTurn(task), { text: outcome.text }, door);
       case 'ask':
         return {
           text: outcome.text,
@@ -140,7 +139,7 @@ export const createConnectionSession = (deps: ConnectionSessionDeps): Connection
       // A call that waits is not an end, nor is a press on one that no longer waits.
       if (outcome.kind === 'ask') task.waiting = true;
       else if (outcome.kind !== 'gone') keepTask(task, outcome.kind);
-      return connectionReply(outcome, task.task);
+      return connectionReply(outcome, task.task, task.door);
     },
     { ends: true },
   );

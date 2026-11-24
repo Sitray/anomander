@@ -6,7 +6,9 @@ import {
   type ChatEvent,
   type ChatReply,
   type ChatRequest,
+  HISTORY_LIMIT,
   LOCAL_CHANNEL_PROTOCOL,
+  strings,
   WEB_SEARCH_CONNECTION,
 } from '@anomander/protocol';
 import {
@@ -32,7 +34,8 @@ import { RECEIPT_READER_PROMPT } from '../../src/processor/receipt-reader.ts';
 import { replyPhraserPrompt } from '../../src/processor/reply-phraser.ts';
 import { screenReaderPrompt } from '../../src/processor/screen-reader.ts';
 import { textInterpreterPrompt } from '../../src/processor/text-interpreter.ts';
-import { openDatabase } from '../../src/store/database.ts';
+import { recordMessages } from '../../src/store/conversation.ts';
+import { applyMigrations, openDatabase } from '../../src/store/database.ts';
 import { saveMemory } from '../../src/store/memory.ts';
 
 // DK-3 and DK-4 (docs/desktop-prd.md): a real WebSocket client, as the desktop app's window is,
@@ -475,6 +478,190 @@ describe('the chat over the local channel', () => {
 
     const sent = await api.waitForSent(1);
     expect(reply(await chat.ask({ type: 'text', text: 'hola' })).text).toBe(sent[0]?.text);
+  });
+});
+
+// DK-16 (docs/desktop-prd.md): the conversation is kept in the local database, from both doors;
+// the app asks for it when its chat is empty and can erase it.
+describe('the stored conversation (DK-16)', () => {
+  const history = async (chat: Awaited<ReturnType<typeof client>>, limit?: number) => {
+    const event = await chat.ask({ type: 'history', ...(limit === undefined ? {} : { limit }) });
+    if (event.type !== 'history') throw new Error(`expected history, got ${JSON.stringify(event)}`);
+    return event.messages;
+  };
+  const AT = expect.stringMatching(/^\d{4}-\d{2}-\d{2}T/);
+
+  it('S2, S4: keeps the messages of both doors and answers history with them, oldest first', async () => {
+    const chat = await client(await start());
+
+    const answer = reply(await chat.ask({ type: 'text', text: '23 € cena' }));
+    api.push(updates.text({ chatId: PRINCIPAL }, '23 € merienda'));
+    const [sent] = await api.waitForSent(1);
+    const question = reply(await chat.ask({ type: 'receipt', images: [png()], caption: 'cena' }));
+
+    expect(await history(chat)).toEqual([
+      {
+        id: expect.any(Number),
+        from: 'principal',
+        door: 'app',
+        text: '23 € cena',
+        buttons: [],
+        channelRef: null,
+        at: AT,
+      },
+      {
+        id: expect.any(Number),
+        from: 'anomander',
+        door: 'app',
+        text: PHRASED,
+        buttons: [],
+        channelRef: answer.channelRef,
+        at: AT,
+      },
+      {
+        id: expect.any(Number),
+        from: 'principal',
+        door: 'telegram',
+        text: '23 € merienda',
+        buttons: [],
+        channelRef: null,
+        at: AT,
+      },
+      {
+        id: expect.any(Number),
+        from: 'anomander',
+        door: 'telegram',
+        text: PHRASED,
+        buttons: [],
+        channelRef: `telegram:${sent?.messageId}`,
+        at: AT,
+      },
+      {
+        id: expect.any(Number),
+        from: 'principal',
+        door: 'app',
+        text: '[foto de ticket] cena',
+        buttons: [],
+        channelRef: null,
+        at: AT,
+      },
+      {
+        id: expect.any(Number),
+        from: 'anomander',
+        door: 'app',
+        text: question.text,
+        buttons: question.buttons,
+        channelRef: question.channelRef,
+        at: AT,
+      },
+    ]);
+    // No image is kept.
+    expect(query('SELECT text FROM conversation').map((row) => JSON.stringify(row))).not.toContain(
+      png().data,
+    );
+  });
+
+  it('S4: limit returns the latest messages, at most HISTORY_LIMIT (500)', async () => {
+    const db = openDatabase(join(scratch, 'anomander.db'));
+    applyMigrations(db);
+    const at = new Date().toISOString();
+    for (let i = 1; i <= 501; i++) {
+      recordMessages(db, [
+        { from: 'principal', door: 'app', text: `mensaje ${i}`, buttons: [], channelRef: null, at },
+      ]);
+    }
+    db.close();
+    const chat = await client(await start());
+
+    const all = await history(chat);
+    expect(all).toHaveLength(HISTORY_LIMIT);
+    expect(all[0]?.text).toBe('mensaje 2');
+    expect(all.at(-1)?.text).toBe('mensaje 501');
+    expect((await history(chat, 2)).map(({ text }) => text)).toEqual([
+      'mensaje 500',
+      'mensaje 501',
+    ]);
+    expect(await history(chat, 10_000)).toHaveLength(HISTORY_LIMIT);
+    expect((await chat.ask({ type: 'history', limit: 0 })).type).toBe('rejected');
+  });
+
+  it('S3: after a restart, the interpreter gets the turns of the last 30 minutes again', async () => {
+    const chat = await client(await start());
+    await chat.ask({ type: 'text', text: '23 € cena' });
+    await anomander?.stop();
+    anomander = undefined;
+
+    const again = await client(await start());
+    await again.ask({ type: 'text', text: '23 € comida' });
+
+    expect(interpreted.at(-1)?.recent).toEqual([{ principal: '23 € cena', reply: PHRASED }]);
+    expect((await history(again)).map(({ text }) => text)).toEqual([
+      '23 € cena',
+      PHRASED,
+      '23 € comida',
+      PHRASED,
+    ]);
+  });
+
+  it('S5: clear_history erases the stored conversation for real and the recent turns, and answers done', async () => {
+    const marker = 'zorblaxchatmarker';
+    const chat = await client(await start());
+    await chat.ask({ type: 'text', text: `23 € cena ${marker}` });
+    api.push(updates.text({ chatId: PRINCIPAL }, '23 € merienda'));
+    await api.waitForSent(1);
+    const path = join(scratch, 'anomander.db');
+    const onDisk = (): boolean =>
+      [path, `${path}-wal`].some((file) => readFileSync(file).includes(marker));
+    expect(onDisk()).toBe(true);
+
+    const id = 'clear-1';
+    chat.sendRaw(JSON.stringify({ type: 'clear_history', id }));
+    expect(await chat.answerTo(id)).toEqual({ type: 'done', inReplyTo: id });
+
+    expect(await history(chat)).toEqual([]);
+    expect(query('SELECT id FROM conversation')).toEqual([]);
+    expect(onDisk()).toBe(false);
+    await chat.ask({ type: 'text', text: '23 € comida' });
+    expect(interpreted.at(-1)?.recent).toEqual([]);
+    // Never logged.
+    expect(
+      JSON.stringify([logger.info, logger.warn, logger.error].flatMap((log) => log.mock.calls)),
+    ).not.toContain(marker);
+  });
+
+  it('when the store cannot be read or erased, answers S-22 and the stored conversation stays', async () => {
+    const chat = await client(await start());
+    await chat.ask({ type: 'text', text: '23 € cena' });
+    const db = new Database(join(scratch, 'anomander.db'));
+    db.exec('ALTER TABLE conversation RENAME TO conversation_moved');
+    db.close();
+
+    const failed = strings.processingFailed();
+    expect(reply(await chat.ask({ type: 'history' })).text).toBe(failed);
+    expect(reply(await chat.ask({ type: 'clear_history' })).text).toBe(failed);
+    expect(query('SELECT id FROM conversation_moved')).toHaveLength(2);
+  });
+
+  it('while setup is incomplete, history is empty and an erase answers S-22', async () => {
+    const guide = startSetupGuide(
+      { ...config({ ANOMANDER_LOCAL_TOKEN: TOKEN }), localPort: 0 },
+      { gaps: [{ kind: 'model_unset' }], telegramApiRoot: api.apiRoot, logger },
+    );
+    anomander = guide;
+    await guide.started;
+    const chat = await client(guide);
+
+    expect(await history(chat)).toEqual([]);
+    expect((await chat.ask({ type: 'clear_history' })).type).toBe('reply');
+  });
+
+  it('rejects a history or clear_history request with fields it does not know', async () => {
+    const chat = await client(await start());
+    await chat.ask({ type: 'text', text: '23 € cena' });
+
+    expect((await chat.ask({ type: 'history', limit: 'all' })).type).toBe('rejected');
+    expect((await chat.ask({ type: 'clear_history', all: true })).type).toBe('rejected');
+    expect(query('SELECT id FROM conversation')).toHaveLength(2);
   });
 });
 
@@ -1958,6 +2145,11 @@ describe('who the principal is and what ANOMANDER did (DK-14)', () => {
 
       expect(done.text).toBe('Hecho, he borrado mi historial.');
       expect(history()).toEqual([]);
+      // DK-16 S6: the stored conversation is erased too; only the press and its answer follow.
+      expect(query('SELECT sender, text FROM conversation ORDER BY id')).toEqual([
+        { sender: 'principal', text: '[botón: Sí]' },
+        { sender: 'anomander', text: 'Hecho, he borrado mi historial.' },
+      ]);
       routed = undefined;
       await chat.ask({ type: 'text', text: '23 € cena' });
       // Only the press itself: the turns of the tasks are gone.
