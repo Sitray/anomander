@@ -80,7 +80,8 @@ export const acceptCorrection = ({
   if (typeof total === 'number' && total > 0 && isLiteralAmount(text, total)) {
     correction.total_cents = total;
   } else if (total !== null) {
-    logger.warn('corrected amount is not written in the message; ignored', { channelRef, total });
+    // §16: the proposed amount is the principal's data; only the reason is logged.
+    logger.warn('corrected amount is not written in the message; ignored', { channelRef });
   }
   const merchant = textValue(value('merchant'));
   if (merchant !== null && writtenIn(text, merchant)) {

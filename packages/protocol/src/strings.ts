@@ -223,7 +223,7 @@ const es = {
     `Deshecho: he quitado ${formatAmount(total)} en ${merchant} de tus gastos.`,
   /** S-101: S-100 when the expense has no merchant. */
   undoneNoMerchant: (total: number) => `Deshecho: he quitado ${formatAmount(total)} de tus gastos.`,
-  /** S-102: S-8 when the expense has no merchant (R-7 AC2). */
+  /** S-102: S-8 when the expense, a receipt's or a text's, has no merchant (R-7 AC2). */
   correctedNoMerchant: (total: number, categoryName: string | null) =>
     `Corregido: ${formatAmount(total)} (${category(categoryName)}).`,
   /** S-103: a typed correction that does not say which expense (R-7 AC7). */

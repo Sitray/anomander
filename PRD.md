@@ -280,7 +280,7 @@ Code checks every proposed receipt expense.
 
 ### R-7 Corrections
 - AC1: "Corregir" replies with S-7 and waits for the principal's text.
-- AC2: A correction creates a `declared` assertion with `supersedes_id` pointing at the corrected one, marks the old one `refuted`, updates the expense, and replies with S-8. It may change the total, the merchant, the category or the date. The processor resolves a named date against today in `TZ`; code keeps it only if the words it rests on are in the message and it is not after today, and otherwise ignores it like any value not written.
+- AC2: A correction creates a `declared` assertion with `supersedes_id` pointing at the corrected one, marks the old one `refuted`, updates the expense, and replies with S-8, or S-102 when the expense has no merchant (a receipt as well as a text expense). It may change the total, the merchant, the category or the date. The processor resolves a named date against today in `TZ`; code keeps it only if the words it rests on are in the message and it is not after today, and otherwise ignores it like any value not written.
 - AC3: No row in `assertions` is ever updated except `status`, or deleted. SQLite triggers enforce it (§13): any other update or any delete aborts with an error, and an integration test proves both.
 - AC4: The reply S-1 or S-2 of a text expense (R-2) carries the buttons "Deshacer" and "Corregir", in Telegram and in the desktop app: an `amend_expense` proposal, `asked` in the "Keep my expenses" matter, and its pending decision. When S-15 is asked with the reply (R-18 AC3), the message carries the S-15 buttons first, then these two, and a Telegram reply to it is a correction of the expense (R-17 AC2). (Added on 2026-11-24, backlog B20: "Deshacer / Corregir" on the reply.)
 - AC5: "Deshacer" takes the expense out of the ledger as "Descartar" does (R-6 AC4): the expense becomes `refuted`, so it leaves the `gastos` view, nothing is deleted, the proposal is `executed` by an action with `authorized_by = 'principal'`, the decision is `answered`, and the reply is S-100, or S-101 when the expense has no merchant, verbatim; its delivery verifies the action (R-9 AC2).
@@ -554,7 +554,7 @@ Amounts are formatted with `Intl.NumberFormat('es-ES', { style: 'currency', curr
 | S-81 | `De momento la exportación solo llega por Telegram: escribe /exportar allí.` |
 | S-100 | `Deshecho: he quitado {total} en {comercio} de tus gastos.` |
 | S-101 | `Deshecho: he quitado {total} de tus gastos.` |
-| S-102 | `Corregido: {total} ({categoria}).` |
+| S-102 | `Corregido: {total} ({categoria}).` (S-8 for an expense with no merchant, R-7 AC2) |
 | S-103 | `¿Qué gasto corrijo? Dímelo con su importe, por ejemplo: el de 23,40 €.` |
 | S-104 | `No encuentro un gasto reciente que corregir.` |
 

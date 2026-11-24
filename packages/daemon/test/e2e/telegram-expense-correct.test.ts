@@ -47,6 +47,8 @@ let anomander: Anomander;
 let clock: Date;
 /** The user turns the text interpreter received, parsed. */
 let interpreted: { message: string; expenses?: unknown }[];
+/** Everything the daemon logged, with its fields (§16: no amount or text of the principal). */
+let logs: unknown[];
 /** What the text interpreter answers, by message, built from its input; an expense when absent. */
 let interpretations: Map<string, (input: { expenses?: { id: number }[] }) => unknown>;
 
@@ -108,7 +110,11 @@ const start = async () => {
       complete,
       model: 'openai/gpt-4o-mini',
       telegramApiRoot: api.apiRoot,
-      logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+      logger: {
+        info: (...entry: unknown[]) => logs.push(entry),
+        warn: (...entry: unknown[]) => logs.push(entry),
+        error: (...entry: unknown[]) => logs.push(entry),
+      },
       now: () => clock,
     },
   );
@@ -121,6 +127,7 @@ beforeEach(async () => {
   clock = NOW;
   interpreted = [];
   interpretations = new Map();
+  logs = [];
   await start();
 });
 
@@ -365,6 +372,17 @@ describe('undoing and correcting a typed expense', () => {
     expect((await say('no eran 23')).text).toBe(S7);
     expect(gastos()).toEqual([{ total_cents: 2300 }]);
     expect(totals()).toHaveLength(2);
+  });
+
+  it('§16: a typed correction logs no amount the processor proposed', async () => {
+    await registered();
+    logs.length = 0;
+    interpretations.set('no eran 23, eran 32', ({ expenses = [] }) =>
+      correcting(expenses[0]?.id ?? null, 9900, 'eran 32'),
+    );
+    expect((await say('no eran 23, eran 32')).text).toBe(S7);
+    expect(logs).not.toEqual([]);
+    expect(JSON.stringify(logs)).not.toMatch(/9900/);
   });
 
   it('R-7 AC7: when it is not clear which expense, it asks S-103 and changes nothing', async () => {

@@ -131,7 +131,7 @@ today in `TZ`, only if its quote is in the text (`quotedFrom`) and it is not aft
 accepted value is a `declared` assertion by the principal whose `supersedes_id` points at the
 assertion it corrects, which becomes `refuted`; the expense takes the new value (a corrected category gets `category_basis
 'declared'`). The corrected expense is then registered as on "Apuntar", with the first
-declaration as `answer_assertion_id`, and the reply is S-8, verbatim, from the row read back
+declaration as `answer_assertion_id`, and the reply is S-8 (S-102 without a merchant), verbatim, from the row read back
 (R-21 AC3). If nothing usable was written, the reply is S-7 again (S-22 if the processor
 failed or gave an answer code cannot use, S-26 past the budget) and the decision is left as it was: one `awaiting_text` keeps
 waiting, and one answered by a Telegram reply (such as `vale`) stays `open`, so the next
