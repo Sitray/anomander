@@ -10,7 +10,7 @@ export const KEPT_DAILY_BACKUPS = 7;
 const escapeRegExp = (text: string): string => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 // `20261120T153000Z`: the UTC second, sortable as text.
-const stamp = (at: Date): string => `${at.toISOString().slice(0, 19).replace(/[-:]/g, '')}Z`;
+export const stamp = (at: Date): string => `${at.toISOString().slice(0, 19).replace(/[-:]/g, '')}Z`;
 
 /**
  * Writes a copy of `db` beside its file, as `<file>.backup-v<version>-<yyyymmddThhmmssZ>`, with

@@ -804,6 +804,15 @@ conversación" or a confirmed forget erases stays in older daily copies for up t
 §16). A copy that cannot be written is logged by its error code only, never its path, and is made
 at the next run; the daemon keeps running. The copies sit on the same disk as the database.
 
+**Ledger export.** `exportLedger` (B5, `src/store/export.ts`) writes the read views of RA-1
+(`gastos`, `lineas_de_compra`, `pendientes_de_confirmar`) as one CSV file each (RFC 4180, CRLF,
+a header row even with no rows) and all three in `ledger.json`, into a new
+`<data folder>/exports/<yyyymmddThhmmssZ>/` (`-1`, `-2`, … within the same second). The views are
+read in one transaction; folders get mode 700 and files 600, and a failed write leaves no partial
+folder. A CSV text that starts with `=`, `+`, `-`, `@`, a tab or a carriage return gets a leading
+`'`, so a spreadsheet never runs a merchant or product name read from a receipt as a formula;
+`ledger.json` keeps the text as stored. No processor is called. No front door calls it yet.
+
 ## Configuration
 
 `loadConfig(process.env)` (`src/config.ts`) reads PRD §14.4. An empty value counts as unset.
