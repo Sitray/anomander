@@ -53,8 +53,12 @@ export interface ConnectionSessionDeps {
 }
 
 export interface ConnectionSession {
-  /** Called in a turn. One task at a time: a second one is refused while a step runs. */
-  run(task: string, door: Door): DoorReply | Later | null;
+  /**
+   * Called in a turn. One task at a time: a second one is refused while a step runs. `routed`
+   * when the principal asked it in words that are already a stored turn (DK-13 AC2): its end is
+   * then stored with no `[conexiones]` line, so those words are stored once.
+   */
+  run(task: string, door: Door, routed?: boolean): DoorReply | Later | null;
   /**
    * Called in a turn: the answer to a press on "Permitir" or "Detener"; `undefined` for any
    * other button. A press at the other door, or while a step of the task runs, answers nothing.
@@ -72,6 +76,8 @@ interface Asked {
   calls: DecidedCall[];
   /** It waits for "Permitir": a task asked meanwhile ends it. */
   waiting: boolean;
+  /** Asked in words already stored as a turn (`run`). */
+  routed: boolean;
 }
 
 /** How a task was cut short, and that it had made calls by then: they are not undone. */
@@ -81,11 +87,15 @@ const cutShort = (text: string, performed: number): string =>
 export const createConnectionSession = (deps: ConnectionSessionDeps): ConnectionSession => {
   const { tasks, turnLock, turns, keep, send, logger } = deps;
 
-  const connectionReply = (outcome: TaskOutcome, task: string, door: Door): DoorReply => {
+  const connectionReply = (outcome: TaskOutcome, current: Asked): DoorReply => {
     switch (outcome.kind) {
       case 'answer':
         // R-16 AC3: how the task ended is a recent turn; what the tools answered is not.
-        return turns.add(connectionTurn(task), { text: outcome.text }, door);
+        return turns.add(
+          current.routed ? null : connectionTurn(current.task),
+          { text: outcome.text },
+          current.door,
+        );
       case 'ask':
         return {
           text: outcome.text,
@@ -118,7 +128,7 @@ export const createConnectionSession = (deps: ConnectionSessionDeps): Connection
   };
 
   /** The last task asked, and where: a call is answered at the door that asked for the task. */
-  let asked: Asked = { task: '', door: 'app', calls: [], waiting: false };
+  let asked: Asked = { task: '', door: 'app', calls: [], waiting: false, routed: false };
   /** DK-14 AC2: a task that ended, as it is kept. */
   const keepTask = (task: Asked, outcome: string): void => {
     task.waiting = false;
@@ -139,7 +149,7 @@ export const createConnectionSession = (deps: ConnectionSessionDeps): Connection
       // A call that waits is not an end, nor is a press on one that no longer waits.
       if (outcome.kind === 'ask') task.waiting = true;
       else if (outcome.kind !== 'gone') keepTask(task, outcome.kind);
-      return connectionReply(outcome, task.task, task.door);
+      return connectionReply(outcome, task);
     },
     { ends: true },
   );
@@ -169,11 +179,11 @@ export const createConnectionSession = (deps: ConnectionSessionDeps): Connection
   };
 
   return {
-    run: (task, door) => {
+    run: (task, door, routed = false) => {
       if (working) return { text: strings.connectionBusy() };
       // DK-11 AC8: a task that waited for "Permitir" ends here.
       if (asked.waiting) keepTask(asked, 'replaced');
-      asked = { task, door, calls: [], waiting: false };
+      asked = { task, door, calls: [], waiting: false, routed };
       return connectionStep(asked, () => tasks.start(task));
     },
     answer: (data, door) => {

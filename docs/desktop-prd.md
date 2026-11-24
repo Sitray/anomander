@@ -473,7 +473,10 @@ and keep its secrets in the operating system instead of a text file.
     app's database (DK-8), one row per message: who (`principal` or `anomander`), the door, the
     text, the buttons and `channelRef` of a reply, and when. What ANOMANDER sends unasked is kept
     as its message. No image is kept: a receipt is its `[foto de ticket]` line and a press its
-    `[botón: …]` line. A text pasted for a login (R-17 AC7) is never kept.
+    `[botón: …]` line. A text pasted for a login (R-17 AC7) is never kept. What ANOMANDER sends
+    unasked is kept only once it was delivered. A text the chat routes to a task with
+    connections (DK-13 AC2) is kept once, with its announcement; the task's answer follows as a
+    message of its own.
   - AC2: the text interpreter's recent turns are read from it, with R-16 AC3's bounds unchanged:
     at most the last 10, none older than 30 minutes. A restart within 30 minutes keeps the
     context; lasting facts are the memories of R-23.

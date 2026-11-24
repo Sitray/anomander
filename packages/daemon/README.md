@@ -224,8 +224,10 @@ So the interpreter understands "ese" or "lo de antes", the text interpreter gets
 exchanges with the principal, none older than 30 minutes, as `recent`. `app.ts` records them at the
 front door, with the door they went through: `recordingTurns` wraps the text, receipt and button
 handlers (a receipt is `[foto de ticket]` and its caption, a press `[botón: Apuntar]`), and
-`recordingNotices` wraps `notify`, so a message sent unasked, once sent, is a turn with no principal
-part. A login's messages (R-17 AC7) go around both, so a pasted code is never a turn.
+`recordingNotices` wraps `notify`, so a message sent unasked, once delivered, is a turn with no
+principal part; a send that fails or delivers nothing stores nothing. A text the interpreter routes
+to a task with connections is stored once, with its announcement; the task's answer follows with
+no `[conexiones]` line (`connectionSession.run(task, door, true)`). A login's messages (R-17 AC7) go around both, so a pasted code is never a turn.
 
 `src/conversation/recent-turns.ts` keeps them in the local database (desktop PRD DK-16, table
 `conversation`, `src/store/conversation.ts`): one row per message, the principal's and the reply,

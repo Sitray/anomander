@@ -148,7 +148,8 @@ export const recordingTurns =
 
 /**
  * Records each message sent to the principal unasked as a turn with no principal part, once it
- * was sent: they go to Telegram only (DK-4 AC5).
+ * was delivered: they go to Telegram only (DK-4 AC5). A send that fails or ends without
+ * delivering it stores nothing (DK-16 AC1).
  */
 export const recordingNotices =
   (turns: RecentTurns, notify: Notify): Notify =>
@@ -161,7 +162,7 @@ export const recordingNotices =
         message.onDelivered?.(delivery);
       },
     });
-    turns.add(null, message, 'telegram', channelRef);
+    if (channelRef !== undefined) turns.add(null, message, 'telegram', channelRef);
   };
 
 /** How a task on the computer appears in the recent turns: what was asked, never the screen. */

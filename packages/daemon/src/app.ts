@@ -681,7 +681,9 @@ export const startAnomander = <M>(config: Config, deps: AnomanderDeps<M>): Anoma
     const { route } = reply;
     if (route?.to !== 'connect') return reply;
     // Telegram's answer goes out by itself when the task ends: the announcement goes now.
-    return connectionSession.run(route.task, doorOf(message.channelRef)) ?? { text: reply.text };
+    // DK-16 AC1: its words are stored once, with the announcement, above.
+    const run = connectionSession.run(route.task, doorOf(message.channelRef), true);
+    return run ?? { text: reply.text };
   });
 
   const chat: ChatHandlers = {

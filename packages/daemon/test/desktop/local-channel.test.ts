@@ -1199,6 +1199,12 @@ describe('a request the chat routes by itself (DK-13)', () => {
     expect(answer.text).toBe('Mañana tienes dentista a las 10.');
     expect(answer).not.toHaveProperty('route');
     expect(api.sent).toEqual([]);
+    // B50: what the principal typed is stored once, with no `[conexiones]` line of its own.
+    expect(query('SELECT sender, text FROM conversation ORDER BY id')).toEqual([
+      { sender: 'principal', text: '¿qué tengo mañana?' },
+      { sender: 'anomander', text: 'Lo miro en tus conexiones.' },
+      { sender: 'anomander', text: 'Mañana tienes dentista a las 10.' },
+    ]);
   });
 
   it('AC1, AC2: Telegram offers only connections, and answers a task asked there', async () => {
@@ -1226,6 +1232,14 @@ describe('a request the chat routes by itself (DK-13)', () => {
       'Mañana tienes dentista a las 10.',
     ]);
     expect(interpreted.at(-1)?.routes).toEqual(['connect']);
+    // B50: what the principal typed is stored once, then each message the bot sent.
+    await vi.waitFor(() =>
+      expect(query('SELECT sender, door, text FROM conversation ORDER BY id')).toEqual([
+        { sender: 'principal', door: 'telegram', text: '¿qué tengo mañana?' },
+        { sender: 'anomander', door: 'telegram', text: 'Lo miro en tus conexiones.' },
+        { sender: 'anomander', door: 'telegram', text: 'Mañana tienes dentista a las 10.' },
+      ]),
+    );
   });
 
   it('AC1: a look or a task on the computer asked in Telegram says it is done in the app', async () => {
