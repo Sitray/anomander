@@ -16,6 +16,7 @@ On `main` since 0.1.0. The interface speaks English or Spanish, and the app runs
 ### Changed
 
 - The CI workflow runs only by hand while GitHub Actions minutes are unavailable. `scripts/ci-local.sh` runs the same checks locally before a merge to `main`.
+- CI also runs Biome, the typecheck and Vitest on Linux (`check-linux`), and starts the built daemon image until its health check says healthy. `scripts/ci-local.sh` runs the same smoke start when Docker is running.
 - The daemon image has a `HEALTHCHECK`: healthy while a daemon holds its database lock. `compose.yaml` rotates the daemon log at 3 files of 10 MB.
 
 ### Fixed

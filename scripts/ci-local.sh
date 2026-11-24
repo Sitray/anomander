@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Runs locally the checks of .github/workflows/ci.yml that this machine can run: the `check` job
-# (TypeScript and the Rust shell), the Mac app smoke build, and the daemon image when Docker is
-# running. The Windows jobs cannot run here and are reported as skipped.
+# (TypeScript and the Rust shell), the Mac app smoke build, and the daemon image with its smoke
+# start when Docker is running. The Windows and Linux jobs cannot run here and are reported as
+# skipped.
 # Usage: scripts/ci-local.sh [--skip-build]
 set -euo pipefail
 
@@ -13,6 +14,25 @@ skip_build=false
 [[ "${1:-}" == "--skip-build" ]] && skip_build=true
 
 step() { printf '\n==> %s\n' "$*"; }
+
+# The `docker smoke start` step of ci.yml: the image starts with a throwaway local token as its
+# only front door (no model, no Telegram, no published port) and its HEALTHCHECK turns healthy.
+docker_smoke() {
+  local token status=starting
+  token="$(head -c 32 /dev/urandom | od -An -tx1 | tr -d ' \n')"
+  docker rm --force anomander-smoke >/dev/null 2>&1 || true
+  docker run --detach --name anomander-smoke --health-interval=2s \
+    --env ANOMANDER_LOCAL_TOKEN="$token" anomander-daemon:ci >/dev/null
+  for _ in $(seq 1 30); do
+    status="$(docker inspect --format '{{if .State.Running}}{{.State.Health.Status}}{{else}}exited{{end}}' anomander-smoke)"
+    [[ "$status" == starting ]] || break
+    sleep 2
+  done
+  docker logs anomander-smoke
+  docker rm --force anomander-smoke >/dev/null
+  echo "container status: $status"
+  [[ "$status" == healthy ]]
+}
 
 wanted="$(cat .node-version)"
 have="$(node -p 'process.versions.node.split(".")[0]')"
@@ -30,17 +50,18 @@ step "cargo test"; cargo test
 cd "$root"
 
 if $skip_build; then
-  echo "skipped: tauri build, docker build (--skip-build)"
+  echo "skipped: tauri build, docker build, docker smoke start (--skip-build)"
 else
   step "tauri build (debug, unsigned)"
   (cd apps/desktop && pnpm tauri build --debug --ci)
   if docker info >/dev/null 2>&1; then
     step "docker build"; docker build --tag anomander-daemon:ci .
+    step "docker smoke start (healthy)"; docker_smoke
   else
-    echo "skipped: docker build (Docker is not running)"
+    echo "skipped: docker build, docker smoke start (Docker is not running)"
   fi
 fi
 
 echo
-echo "skipped: check on windows-latest, tauri-build-windows (need Windows)"
+echo "skipped: check on windows-latest, tauri-build-windows (need Windows), check-linux (needs Linux)"
 echo "ci-local: all checks passed"
