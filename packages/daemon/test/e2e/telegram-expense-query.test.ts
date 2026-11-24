@@ -143,6 +143,33 @@ const query = <T>(sql: string): T[] => {
   }
 };
 
+/**
+ * Adds expenses while the daemon runs, through a second connection: each row is its merchant
+ * (created when new, `null` for none), date, cents, category and status.
+ */
+const addRows = (rows: [string | null, string, number, string | null, string][]) => {
+  const db = new Database(dbPath());
+  try {
+    const merchantId = (name: string) =>
+      db.prepare<[string], { id: number }>('SELECT id FROM entities WHERE name = ?').get(name)
+        ?.id ??
+      Number(
+        db
+          .prepare("INSERT INTO entities (kind, name, created_at) VALUES ('merchant', ?, ?)")
+          .run(name, NOW.toISOString()).lastInsertRowid,
+      );
+    const insert = db.prepare(
+      `INSERT INTO expenses (merchant_id, occurred_on, total_cents, category_id, mode, status, created_at)
+       VALUES (?, ?, ?, (SELECT id FROM categories WHERE name = ?), 'declared', ?, ?)`,
+    );
+    for (const [merchant, ...rest] of rows) {
+      insert.run(merchant === null ? null : merchantId(merchant), ...rest, NOW.toISOString());
+    }
+  } finally {
+    db.close();
+  }
+};
+
 /** Sends `text` over Telegram with the interpreter answering `envelope`; the reply text. */
 const say = async (text: string, envelope: unknown) => {
   interpretations.set(text, envelope);
@@ -217,6 +244,62 @@ describe('a free query on the expenses (R-30)', () => {
       }),
     ).toBe(
       `Del 1 de noviembre al 24 de noviembre, en mercadona: ${eur('45,20')} en 1 gasto. Supermercado ${eur('45,20')}. Pendientes de confirmar: 1.`,
+    );
+  });
+
+  it('AC3: with a category, the merchants after the first 3 add up as one "Otros" amount', async () => {
+    addRows([
+      ['Dia', '2026-11-06', 1000, 'supermercado', 'current'],
+      ['Carrefour', '2026-11-07', 500, 'supermercado', 'current'],
+      [null, '2026-11-08', 200, 'supermercado', 'current'],
+    ]);
+    expect(
+      await say('¿cuánto llevo en supermercado este mes?', {
+        ...THIS_MONTH,
+        category: 'supermercado',
+      }),
+    ).toBe(
+      `Del 1 de noviembre al 24 de noviembre, en supermercado: ${eur('74,70')} en 5 gastos. Mercadona ${eur('45,20')} · Lidl ${eur('12,50')} · Dia ${eur('10,00')} · Otros ${eur('7,00')}. Pendientes de confirmar: 1.`,
+    );
+  });
+
+  it('AC3: a merchant written without accents matches the accented one', async () => {
+    addRows([['Cafetería Luna', '2026-11-05', 300, null, 'current']]);
+    expect(
+      await say('¿cuánto gasté en la cafeteria luna este mes?', {
+        ...THIS_MONTH,
+        merchant: 'cafeteria luna',
+      }),
+    ).toContain(eur('3,00'));
+    // AC7: the merchant is still the principal's words when only the accents differ.
+    expect(
+      await say('¿cuánto gasté en la cafetería luna este mes?', {
+        ...THIS_MONTH,
+        merchant: 'cafeteria luna',
+      }),
+    ).toContain(eur('3,00'));
+  });
+
+  it('AC1: a period across years names its years', async () => {
+    addRows([['Lidl', '2025-11-02', 10000, 'supermercado', 'current']]);
+    expect(
+      await say('¿cuánto he gastado desde noviembre del año pasado?', {
+        kind: 'expense_query',
+        from: '2025-11-01',
+        to: '2026-11-24',
+      }),
+    ).toMatch(/^Del 1 de noviembre de 2025 al 24 de noviembre de 2026: /);
+  });
+
+  it('AC1: "en total" starts at the first expense', async () => {
+    expect(
+      await say('¿cuánto he gastado en total?', {
+        kind: 'expense_query',
+        from: null,
+        to: '2026-11-24',
+      }),
+    ).toBe(
+      `Del 30 de octubre al 24 de noviembre: ${eur('138,70')} en 5 gastos. Supermercado ${eur('107,70')} · Restaurantes ${eur('23,00')} · Sin clasificar ${eur('8,00')}. Pendientes de confirmar: 1.`,
     );
   });
 

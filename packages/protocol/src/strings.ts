@@ -169,6 +169,8 @@ export interface ExpenseQueryAnswer {
   /** The period, `YYYY-MM-DD`, both included. */
   from: string;
   to: string;
+  /** Today in `TZ`: a period outside its year, or across two years, names its years. */
+  today: string;
   /** The category asked about, as stored; `null` when none. */
   category: string | null;
   /** The merchant asked about, as the principal wrote it; `null` when none. */
@@ -179,15 +181,35 @@ export interface ExpenseQueryAnswer {
   count: number;
   /** `{desglose}`, already in its order; a `null` name is `Sin clasificar`. */
   breakdown: readonly { name: string | null; cents: number }[];
+  /** What the breakdown leaves out, listed last as `Otros`; 0 when nothing is. */
+  others: number;
   /** The expenses of the period pending confirmation, never in `total`. */
   pending: number;
 }
 
-/** `{desglose}` of S-90 and S-91: `{Nombre} {importe}` joined by ` · `, as S-9. */
-const queryBreakdown = (items: ExpenseQueryAnswer['breakdown']): string =>
-  items
+/** `{desglose}` of S-90 and S-91: `{Nombre} {importe}` joined by ` · `, as S-9, then the rest. */
+const queryBreakdown = ({ breakdown, others }: ExpenseQueryAnswer, othersLabel: string): string =>
+  [...breakdown, ...(others > 0 ? [{ name: othersLabel, cents: others }] : [])]
     .map(({ name, cents }) => `${capitalized(name ?? uncategorized())} ${formatAmount(cents)}`)
     .join(' · ');
+
+const datedOptions: Intl.DateTimeFormatOptions = { ...dateOptions, year: 'numeric' };
+const datedFormats: Record<Locale, Intl.DateTimeFormat> = {
+  es: new Intl.DateTimeFormat('es-ES', datedOptions),
+  en: new Intl.DateTimeFormat('en-GB', datedOptions),
+};
+
+/**
+ * The days of `{periodo}` (S-90 to S-93): `1 de noviembre`, or `1 de noviembre de 2025` when the
+ * period is not within today's year.
+ */
+const queryDays = ({ from, to, today }: ExpenseQueryAnswer): [string, string] => {
+  const year = today.slice(0, 4);
+  const thisYear = from.slice(0, 4) === year && to.slice(0, 4) === year;
+  const format = (date: string) =>
+    thisYear ? formatDate(date) : datedFormats[getLocale()].format(new Date(`${date}T00:00:00Z`));
+  return [format(from), format(to)];
+};
 
 /** `{filtro}` of S-91 and S-93: `supermercado`, `mercadona` or `mercadona (supermercado)`. */
 const queryFilter = ({ category, merchant }: ExpenseQueryAnswer): string | null =>
@@ -439,12 +461,10 @@ const es = {
    * was spent, each followed by S-94 when some expense of the period is pending confirmation.
    */
   expenseQuery: (answer: ExpenseQueryAnswer) => {
-    const period =
-      answer.from === answer.to
-        ? `El ${formatDate(answer.from)}`
-        : `Del ${formatDate(answer.from)} al ${formatDate(answer.to)}`;
+    const [from, to] = queryDays(answer);
+    const period = answer.from === answer.to ? `El ${from}` : `Del ${from} al ${to}`;
     const filter = queryFilter(answer);
-    const breakdown = queryBreakdown(answer.breakdown);
+    const breakdown = queryBreakdown(answer, 'otros');
     const sentence =
       answer.count === 0
         ? `${period} no hay gastos${filter === null ? '' : ` en ${filter}`}.`
@@ -649,12 +669,10 @@ const en: typeof es = {
   exportOnlyInTelegram: () =>
     'For now the export only comes through Telegram: send /exportar there.',
   expenseQuery: (answer) => {
-    const period =
-      answer.from === answer.to
-        ? `on ${formatDate(answer.from)}`
-        : `from ${formatDate(answer.from)} to ${formatDate(answer.to)}`;
+    const [from, to] = queryDays(answer);
+    const period = answer.from === answer.to ? `on ${from}` : `from ${from} to ${to}`;
     const filter = queryFilter(answer);
-    const breakdown = queryBreakdown(answer.breakdown);
+    const breakdown = queryBreakdown(answer, 'others');
     const sentence =
       answer.count === 0
         ? `No expenses${filter === null ? '' : ` for ${filter}`} ${period}.`
