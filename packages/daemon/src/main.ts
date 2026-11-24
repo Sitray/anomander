@@ -10,7 +10,9 @@ import { startAnomander, startSetupGuide } from './app.ts';
 import { createDeviceId } from './auth/device-id.ts';
 import { credentialStoreFor } from './auth/shell-credential-store.ts';
 import { loadConfig } from './config.ts';
+import { reportCrashes } from './crash.ts';
 import { createScrubbingLogger } from './scrubbing-logger.ts';
+import { secretsToScrub } from './secrets-to-scrub.ts';
 import { createConnectionGaps, resolveModels } from './setup/setup-guide.ts';
 import { DaemonAlreadyRunningError } from './store/daemon-lock.ts';
 import {
@@ -24,6 +26,8 @@ import {
 // Security audit M3: nothing the daemon writes holds a secret of its configuration.
 let secrets: readonly string[] = [];
 const log = createScrubbingLogger(console, () => secrets);
+// A crash is written through the same log, so its message and stack are scrubbed too.
+reportCrashes(process, log, (code) => process.exit(code));
 
 // The exit code tells whoever started the daemon why it stopped (`exitCodes`).
 const fail = (message: string, code: ExitCode = exitCodes.failed): never => {
@@ -41,14 +45,15 @@ const handed = secretsOnStdin(process.env)
   ? await readHandover(process.stdin).catch((error: unknown) => fail(reason(error)))
   : {};
 
+const env = { ...process.env, ...handed };
 const config = (() => {
   try {
-    return loadConfig({ ...process.env, ...handed });
+    return loadConfig(env);
   } catch (error) {
     return fail(reason(error));
   }
 })();
-secrets = [config.telegram?.botToken ?? '', config.apiToken ?? '', config.localToken ?? ''];
+secrets = secretsToScrub(config, env);
 
 // DK-5 AC1: the login the desktop app keeps in the Keychain, or the file of a Docker install.
 const credentials = (() => {
