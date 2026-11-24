@@ -4,7 +4,8 @@ Status: approved by the principal (2026-11-10) and built: the daemon side (§8) 
 `apps/desktop` (§9), with the points asked on 2026-11-11 ("haz esos puntos"): the connections
 screen and OAuth (DK-11 AC9, AC10), tasks with connections from Telegram (DK-11 AC2), a task that
 does not hold the chat (DK-11), the ledger from Docker (DK-12) and the subscription login in the
-Keychain (DK-5 AC1), and the subscription login from the app (DK-15, asked on 2026-11-20). Still
+Keychain (DK-5 AC1), the subscription login from the app (DK-15, asked on 2026-11-20), and the
+conversation that survives the app and the daemon (DK-16, asked on 2026-11-24). Still
 open: a first run against a real bot, against a real server that asks for OAuth, and of a
 subscription login in the app. Its requirements move into `PRD.md` under
 milestone M6 once the principal has tried the app, and this file is then removed.
@@ -78,12 +79,14 @@ and keep its secrets in the operating system instead of a text file.
     same answer as in Telegram. A decision answered in one channel is closed in both, and a
     press on the other gets S-19.
   - AC4: the conversation is one: turns from Telegram and from the app are the same recent
-    context (R-16 AC3).
+    context (R-16 AC3) and the same stored conversation, which the daemon keeps and the app's chat
+    shows again (DK-16).
   - AC5: what ANOMANDER sends unasked (reminders, the morning digest, the weekly summary) goes
     to Telegram only, as today, whether or not the app's chat is open (decision 4). Without
     Telegram (DK-5 AC4) it is not sent: a reminder waits and goes out late once Telegram is set
     up, the digest and the summary are skipped, and the other unasked messages are logged as not
-    sent.
+    sent. What goes out is kept in the stored conversation (DK-16), so the app's chat shows it
+    the next time it loads the conversation.
   - AC6: an input R-20 does not support gets the same reply as in Telegram: S-18 for a PDF,
     S-20 for an image over 20 MB.
   - AC7: `/login` and `/logout` stay in Telegram (R-27): their messages go out through the bot.
@@ -423,12 +426,12 @@ and keep its secrets in the operating system instead of a text file.
     historial de lo que he hecho por ti? Son N acciones y no podré recuperarlas." ("Es 1 acción" for one) with `Sí` and
     `No`, or replies "No tengo nada en mi historial." when it is empty. `Sí` erases every action
     kept when it was asked, checkpoints the WAL as a forget does (R-23 AC7), empties the recent
-    turns and replies "Hecho, he borrado mi historial."; `No` erases nothing and replies "Vale,
-    no borro nada.".
+    turns and the stored conversation (DK-16 AC5) and replies "Hecho, he borrado mi historial.";
+    `No` erases nothing and replies "Vale, no borro nada.".
   - AC5: the history is local: it lives only in the app's database (DK-8), is never logged (a
     failure to keep an action is logged without its words) and never leaves the machine except
-    in the history the text interpreter receives. Unlike the recent turns (R-16 AC3), it
-    survives a restart.
+    in the history the text interpreter receives. It survives a restart, as the stored
+    conversation does (DK-16).
 - DK-15 Subscription login in the app (asked by the principal on 2026-11-20: "ah, tambien
   necesitariamos una parte de conectarte con una suscripcion, openai, kimi, etc").
   - AC1: the app has a "Suscripciones" screen, opened from the status bar and from the models
@@ -457,6 +460,43 @@ and keep its secrets in the operating system instead of a text file.
   - Open, for the principal: the pasted address holds a one-time authorization code, which goes
     from the window to the shell and to the script and nowhere else; `pnpm run login` on a
     terminal still reaches the app's daemon only through an `auth.json` merged at its next start.
+- DK-16 The conversation survives (asked by the principal on 2026-11-24: "Sobretodo esta la
+  conversación se pierde al cerrar la ventana es importante. Debemos guardar la conversacion y
+  recordar al usuariow"; the option "Daemon + IA recuerda" chosen the same day). Closing the
+  window only hides it; quitting the app or restarting the daemon lost the conversation.
+  - AC1: the daemon keeps every message of the conversation, from either door (DK-4 AC4), in the
+    app's database (DK-8), one row per message: who (`principal` or `anomander`), the door, the
+    text, the buttons and `channelRef` of a reply, and when. What ANOMANDER sends unasked is kept
+    as its message. No image is kept: a receipt is its `[foto de ticket]` line and a press its
+    `[botón: …]` line. A text pasted for a login (R-17 AC7) is never kept.
+  - AC2: the text interpreter's recent turns are read from it, with R-16 AC3's bounds unchanged:
+    at most the last 10, none older than 30 minutes. A restart within 30 minutes keeps the
+    context; lasting facts are the memories of R-23.
+  - AC3: when the app's chat is empty and its connection opens, the app asks for the stored
+    conversation (`history`, at most `HISTORY_LIMIT`, 500 messages, oldest first) and shows it,
+    Telegram messages included and marked "Por Telegram", before anything new. An answer that
+    arrives after the principal already said something is not shown (assumption: it arrives at
+    once; nothing is merged). A daemon that restarts while the chat shows messages adds nothing:
+    nothing is asked and nothing is shown twice. A stored reply shows its buttons, and a press on
+    one goes as any press: a decision already answered gets S-19. Proposals (DK-10), the looks
+    and tasks a reply started (DK-13) and offers (DK-11 AC13) are not kept and are never armed
+    again.
+  - AC4: "Borrar conversación", over the chat while it shows messages, asks "¿Borrar la
+    conversación? ANOMANDER la borra de este Mac y deja de tenerla en cuenta. Lo que hay en
+    Telegram sigue en Telegram." with "Sí, borrar" and "No borrar". "No borrar" sends nothing.
+    "Sí, borrar" sends `clear_history`: the daemon erases the stored conversation and the recent
+    turns for real (secure delete, then the WAL checkpoint, as a forget, R-23 AC7) and answers
+    `done`, and the chat empties. When it was not erased the chat keeps its messages and says so;
+    when the connection was lost first it says it cannot know. It cannot be pressed while the
+    connection is not open, while an answer is owed, or while a task runs or waits for
+    "Permitir".
+  - AC5: a confirmed "olvida" (R-23 AC6) and a confirmed erase of the action history (DK-14 AC4)
+    also erase the stored conversation.
+  - AC6: a stored message is kept 90 days; the retention job then erases it, next to the 30 days
+    of the action history (DK-14 AC3).
+  - AC7: the conversation is local: it lives only in the app's database, is never logged, and
+    leaves the machine only in the recent turns the text interpreter receives (R-16 AC3). The
+    window keeps it in memory only, never in storage.
 
 ## 6. Decisions
 
@@ -495,7 +535,7 @@ the principal to confirm:
 | The token (DK-3 AC2) | `ANOMANDER_LOCAL_TOKEN`, handed over on the daemon's stdin by the app (DK-5 AC2), at least 32 characters of `A-Z a-z 0-9 . _ ~ + -`. Unset: the channel is off and no port opens, as under Docker |
 | The port | `ANOMANDER_LOCAL_PORT`, default `4312`, always on `127.0.0.1`. The app picks a free one at each launch |
 | Presenting the token | As the second WebSocket subprotocol: `new WebSocket(url, ['anomander.v1', token])` |
-| Messages | `ChatRequest` (`text`, `receipt`, `button`) and `ChatEvent` (`reply`, `done`, `rejected`) in `packages/protocol/src/local-channel.ts` |
+| Messages | `ChatRequest` (`text`, `receipt`, `button`, `screen`, `computer`, `connect`, `history`, `clear_history`) and `ChatEvent` (`reply`, `done`, `rejected`, `history`) in `packages/protocol/src/local-channel.ts` |
 | Why the daemon stopped (DK-2 AC3) | Exit code `3`: another daemon runs on the same database. `4`: another process uses the bot. `1`: anything else. `exitCodes` in `packages/protocol` |
 | The single-daemon lock (DK-2 AC1) | `<database>.lock` beside the database, held while the daemon runs and freed by the operating system when it ends, so a crash leaves nothing stale |
 

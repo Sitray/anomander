@@ -1,0 +1,23 @@
+/* DK-16: the bar over the conversation, with "Borrar conversación" and its question. */
+.chat-bar {
+  flex: none;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  align-items: baseline;
+  gap: var(--s1) var(--s3);
+  padding: var(--s2) var(--s4);
+  border-bottom: 1px solid var(--line);
+  font-size: var(--text-sm);
+}
+
+.chat-bar .message-problem {
+  margin-right: auto;
+}
+
+.chat-bar-confirm {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--s1) var(--s3);
+}

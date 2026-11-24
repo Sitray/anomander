@@ -41,6 +41,11 @@ export interface Chat {
    * daemon that reads it is there.
    */
   addWebSearch(message: BotMessage): void;
+  /**
+   * DK-16: erases the stored conversation; the window empties once the daemon is done.
+   * `not_done`: nothing was erased; `unknown`: the connection was lost first.
+   */
+  clear(): Promise<'done' | 'not_done' | 'unknown'>;
 }
 
 export interface ChatOptions {
@@ -87,6 +92,9 @@ const UNAVAILABLE: Record<Route['to'], string> = {
 
 export const useChat = (channel: LocalChannel | null, options: ChatOptions = {}): Chat => {
   const [conversation, dispatch] = useReducer(reduceConversation, emptyConversation);
+  /** The conversation as last shown, for the client's callbacks. */
+  const shown = useRef(conversation);
+  shown.current = conversation;
   const client = useRef<ChatClient | null>(null);
   // The latest options, so new ones do not open the connection again.
   const latest = useRef(options);
@@ -129,6 +137,12 @@ export const useChat = (channel: LocalChannel | null, options: ChatOptions = {})
         // DK-11 AC13: which channel the open connection is to, so a request waits for the new one.
         opened.current = state === 'open' ? current.current.channel : null;
         dispatch({ type: 'connection', state });
+        // DK-16: an empty chat shows what was said before, through either door.
+        if (state === 'open' && shown.current.messages.length === 0) {
+          void created.requestHistory().then((messages) => {
+            if (messages !== null && messages.length > 0) dispatch({ type: 'history', messages });
+          });
+        }
       },
       onOutcome: (requestId, outcome) => {
         // DK-13: a route is followed only in the answer to a plain text.
@@ -326,6 +340,12 @@ export const useChat = (channel: LocalChannel | null, options: ChatOptions = {})
     [say],
   );
 
+  const clear = useCallback(async () => {
+    const outcome = (await client.current?.clearHistory()) ?? 'not_done';
+    if (outcome === 'done') dispatch({ type: 'cleared' });
+    return outcome;
+  }, []);
+
   return {
     conversation,
     say,
@@ -337,6 +357,7 @@ export const useChat = (channel: LocalChannel | null, options: ChatOptions = {})
     running,
     stop,
     addWebSearch,
+    clear,
   };
 };
 

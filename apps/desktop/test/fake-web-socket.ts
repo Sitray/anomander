@@ -1,4 +1,4 @@
-import type { ChatEvent, ChatRequest } from '@anomander/protocol';
+import type { ChatEvent, ChatRequest, ChatStoredMessage } from '@anomander/protocol';
 
 // A `WebSocket` the tests (and the preview harness) drive by hand: nothing opens, answers or
 // closes until told to, so every step of the chat client is observable.
@@ -11,8 +11,16 @@ export class FakeWebSocket {
   /** Every socket created since the last `reset`, oldest first. */
   static instances: FakeWebSocket[] = [];
 
+  /**
+   * DK-16: the conversation the daemon keeps. A `history` request is answered with it at once and
+   * is not counted in `sent`, so a test sees only what the principal did; `null` leaves it to the
+   * test, like any other request.
+   */
+  static history: ChatStoredMessage[] | null = [];
+
   static reset(): void {
     FakeWebSocket.instances = [];
+    FakeWebSocket.history = [];
   }
 
   /** The most recent socket; throws when none was created. */
@@ -41,6 +49,12 @@ export class FakeWebSocket {
 
   send(data: string): void {
     if (this.readyState !== FakeWebSocket.OPEN) throw new Error('the socket is not open');
+    const request = JSON.parse(data) as ChatRequest;
+    const { history } = FakeWebSocket;
+    if (request.type === 'history' && history !== null) {
+      this.receive({ type: 'history', inReplyTo: request.id, messages: history });
+      return;
+    }
     this.sent.push(data);
   }
 

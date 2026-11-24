@@ -10,12 +10,20 @@
 //   &fail=start|stop|save|oauth|login                     that command is refused
 //   &connections=none|invalid                             (default: two servers)
 //   &subscriptions=none|connected                         (default: none; connected: ChatGPT and Claude)
+//   &history=none                                         nothing kept of the conversation (DK-16)
 //
 // The scripted daemon answers by what is typed: "mercadona" asks a Sí/No question, "rechaza" is
 // rejected, "corta" loses the connection, "lento" never answers, "largo" answers at length,
 // "/login" answers with a link button, "pantalla" is routed to a look and "ordenador" to a task
-// on the computer (DK-13); a PDF gets S-18 and images are read as a receipt.
-import type { ChatButton, ChatReply, ChatRequest } from '@anomander/protocol';
+// on the computer (DK-13); a PDF gets S-18 and images are read as a receipt. It keeps the
+// conversation as the daemon does, starting with some of it, Telegram included (DK-16).
+import {
+  type ChatButton,
+  type ChatReply,
+  type ChatRequest,
+  type ChatStoredMessage,
+  HISTORY_LIMIT,
+} from '@anomander/protocol';
 import { emit } from '@tauri-apps/api/event';
 import { mockIPC } from '@tauri-apps/api/mocks';
 import {
@@ -309,7 +317,10 @@ type Answer =
   | 'drop'
   | 'never';
 
-const answerTo = (request: ChatRequest): Answer => {
+/** The requests the daemon answers by what was said; the stored conversation is apart. */
+type Said = Exclude<ChatRequest, { type: 'history' } | { type: 'clear_history' }>;
+
+const answerTo = (request: Said): Answer => {
   if (request.type === 'button') {
     if (closed.has(request.channelRef)) return { text: 'Esa pregunta ya no está abierta.' };
     closed.add(request.channelRef);
@@ -329,7 +340,6 @@ const answerTo = (request: ChatRequest): Answer => {
   }
   if (request.type === 'screen') return { text: 'Veo una pantalla de un solo color.' };
   if (request.type === 'computer') return { text: 'En esta vista previa no toco nada. Hecho.' };
-  if (request.type === 'history' || request.type === 'clear_history') return 'rejected';
   const text = ('task' in request ? request.task : request.text).toLowerCase();
   if (text.includes('rechaza')) return 'rejected';
   if (text.includes('corta')) return 'drop';
@@ -359,6 +369,64 @@ const answerTo = (request: ChatRequest): Answer => {
   return { text: 'Apuntado: 23,00 € en restaurantes.' };
 };
 
+// DK-16: the stored conversation, from both doors; gone with the page, unlike the daemon's.
+const at = (minutesAgo: number): string => new Date(Date.now() - minutesAgo * 60_000).toISOString();
+let kept: ChatStoredMessage[] =
+  params.get('history') === 'none'
+    ? []
+    : [
+        {
+          id: 1,
+          from: 'principal',
+          door: 'telegram',
+          text: '40 € mercadona',
+          buttons: [],
+          channelRef: null,
+          at: at(90),
+        },
+        {
+          id: 2,
+          from: 'anomander',
+          door: 'telegram',
+          text: 'Apuntado: 40,00 € en Mercadona, supermercado.\n¿Mercadona siempre es supermercado?',
+          buttons: YES_NO,
+          channelRef: 'telegram:4242:17',
+          at: at(90),
+        },
+        {
+          id: 3,
+          from: 'principal',
+          door: 'app',
+          text: '[foto de ticket] cena',
+          buttons: [],
+          channelRef: null,
+          at: at(30),
+        },
+        {
+          id: 4,
+          from: 'anomander',
+          door: 'app',
+          text: 'Apuntado: 47,85 € en Mercadona, supermercado, 12 líneas.',
+          buttons: [],
+          channelRef: 'desktop:stored-4',
+          at: at(30),
+        },
+      ];
+let lastKept = kept.length;
+
+const keep = (message: Omit<ChatStoredMessage, 'id' | 'door' | 'at'>): void => {
+  lastKept += 1;
+  kept.push({ ...message, id: lastKept, door: 'app', at: new Date().toISOString() });
+};
+
+/** What the daemon keeps of a request: its words, never an image. */
+const wordsOf = (request: ChatRequest): string | null => {
+  if (request.type === 'text') return request.text;
+  if (request.type === 'receipt') return `[foto de ticket] ${request.caption ?? ''}`.trim();
+  if (request.type === 'button') return `[botón: ${request.data}]`;
+  return null;
+};
+
 class ScriptedSocket extends FakeWebSocket {
   constructor(url: string | URL, protocols?: string | string[]) {
     super(url, protocols);
@@ -368,18 +436,35 @@ class ScriptedSocket extends FakeWebSocket {
   override send(data: string): void {
     super.send(data);
     const request = JSON.parse(data) as ChatRequest;
+    if (request.type === 'history' || request.type === 'clear_history') {
+      setTimeout(() => {
+        if (request.type === 'clear_history') {
+          kept = [];
+          this.receive({ type: 'done', inReplyTo: request.id });
+        } else {
+          const messages = kept.slice(-HISTORY_LIMIT);
+          this.receive({ type: 'history', inReplyTo: request.id, messages });
+        }
+      }, 300);
+      return;
+    }
+    const words = wordsOf(request);
+    if (words !== null) keep({ from: 'principal', text: words, buttons: [], channelRef: null });
     const answer = answerTo(request);
     if (answer === 'never') return;
     setTimeout(() => {
       if (answer === 'drop') this.drop();
       else if (answer === 'rejected') this.receive({ type: 'rejected', inReplyTo: request.id });
       else {
+        const channelRef = `desktop:${crypto.randomUUID()}`;
+        const buttons = answer.buttons ?? [];
+        keep({ from: 'anomander', text: answer.text, buttons, channelRef });
         this.receive({
           type: 'reply',
           inReplyTo: request.id,
-          channelRef: `desktop:${crypto.randomUUID()}`,
+          channelRef,
           text: answer.text,
-          buttons: answer.buttons ?? [],
+          buttons,
           ...(answer.route === undefined ? {} : { route: answer.route }),
           sentAt: new Date().toISOString(),
         });
@@ -387,6 +472,9 @@ class ScriptedSocket extends FakeWebSocket {
     }, 700);
   }
 }
+
+// Every frame, `history` included, is answered by the scripted daemon.
+FakeWebSocket.history = null;
 
 // Only the local channel is scripted: Vite's own hot-reload socket stays real.
 window.WebSocket = new Proxy(window.WebSocket, {
