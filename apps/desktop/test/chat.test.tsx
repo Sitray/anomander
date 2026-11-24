@@ -1526,6 +1526,93 @@ describe('a missing web search (DK-11 AC13)', () => {
     }
   });
 
+  it('gives up a minute after the press when the add never answers, and ignores a late answer', async () => {
+    let added: (value: boolean) => void = () => {};
+    const { first, onAddWebSearch, rerender } = await toldMissing(
+      () => new Promise((resolve) => (added = resolve)),
+    );
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    try {
+      fireEvent.click(addButton());
+      await act(async () => vi.advanceTimersByTime(59_999));
+      expect(screen.getByText(strings.chat.addingWebSearch)).toBeTruthy();
+
+      await act(async () => vi.advanceTimersByTime(1));
+      expect(screen.getByText(strings.chat.webSearchFailed)).toBeTruthy();
+      expect(addButton().hasAttribute('disabled')).toBe(false);
+      // Saved after all, too late: the card stays as it is and nothing is asked by itself.
+      await act(async () => added(true));
+      expect(screen.queryByText(strings.chat.webSearchAdded)).toBeNull();
+      rerender(STARTING, null);
+      rerender(RUNNING, BACK);
+      const back = FakeWebSocket.last;
+      act(() => back.open());
+      await act(async () => {});
+      expect(first.requests).toHaveLength(1);
+      expect(back.requests).toHaveLength(0);
+      expect(onAddWebSearch).toHaveBeenCalledOnce();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('pressed again while the daemon is still down, waits for it instead of sending', async () => {
+    let saves = 0;
+    const { first, onAddWebSearch, rerender } = await toldMissing(async () => {
+      saves += 1;
+      return saves === 1;
+    });
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    try {
+      fireEvent.click(addButton());
+      await act(async () => {});
+      rerender(STARTING, null);
+      await act(async () => vi.advanceTimersByTime(60_000));
+      expect(screen.getByText(strings.chat.webSearchNotBack)).toBeTruthy();
+
+      // Still down: the request is not sent into the channel that is gone.
+      fireEvent.click(addButton());
+      await act(async () => {});
+      expect(onAddWebSearch).toHaveBeenCalledTimes(2);
+      expect(screen.getByText(strings.chat.webSearchAlreadyOn)).toBeTruthy();
+      expect(screen.queryByText(strings.chat.notSent)).toBeNull();
+      expect(screen.getAllByText(ASKED)).toHaveLength(1);
+
+      rerender(RUNNING, BACK);
+      const back = FakeWebSocket.last;
+      act(() => back.open());
+      await act(async () => {});
+      expect(first.requests).toHaveLength(1);
+      expect(back.requests).toHaveLength(1);
+      expect(back.requests[0]).toMatchObject({ type: 'text', text: ASKED });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('does not give up once the daemon came back and the request was asked again', async () => {
+    const { first, rerender } = await toldMissing(async () => true);
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    try {
+      fireEvent.click(addButton());
+      await act(async () => {});
+      rerender(STARTING, null);
+      rerender(RUNNING, BACK);
+      const back = FakeWebSocket.last;
+      act(() => back.open());
+      await act(async () => {});
+      expect(back.requests).toHaveLength(1);
+
+      await act(async () => vi.advanceTimersByTime(60_000));
+      expect(screen.getByText(strings.chat.webSearchAdded)).toBeTruthy();
+      expect(screen.queryByText(strings.chat.webSearchNotBack)).toBeNull();
+      expect(first.requests).toHaveLength(1);
+      expect(back.requests).toHaveLength(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('says when it could not be added, and can be pressed again', async () => {
     const { first, onAddWebSearch } = await toldMissing(async () => {
       throw new Error('mcp.json is not valid JSON');
