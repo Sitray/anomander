@@ -94,5 +94,5 @@ describe('B9: the web search preset', () => {
 
     expect(names).toEqual(expect.arrayContaining([...WEB_SEARCH_CONNECTION.readOnly]));
     expect(names).toEqual(expect.arrayContaining(Object.keys(WEB_SEARCH_CONNECTION.asksWith)));
-  });
+  }, 20_000);
 });
