@@ -284,9 +284,15 @@ and keep its secrets in the operating system instead of a text file.
     necesidad"): the Conexiones screen offers "Añadir búsqueda web" while no server is named
     `Internet`. One press saves, through the same path as the form, the server `Internet`:
     `npx -y pi-web-access@0.48.0` (MIT, pinned: never what npm calls latest), the variable
-    `npm_config_ignore_scripts=true` (npm runs no install script; the package's own dependencies
-    are ranges, not pinned), and `web_search` and `get_search_content` marked read-only. The
-    preset is `WEB_SEARCH_CONNECTION` in `packages/protocol`. A search runs without "Permitir"
+    `npm_config_ignore_scripts=true` (npm runs no install script), and `web_search` and
+    `get_search_content` marked read-only. The preset is `WEB_SEARCH_CONNECTION` in
+    `packages/protocol`. The daemon does not run that `npx` line (B9, 2026-11-24): the daemon
+    depends on that exact version, so `pnpm-lock.yaml` pins it and everything it brings, and a
+    server whose command and arguments are exactly the preset's starts that installed copy with
+    the daemon's own `node`, in the Mac app, on Windows and in Docker alike. A file written
+    before holds the same line and runs pinned too, with nothing to migrate; another version or
+    another command runs as written. If the installed copy is missing or is another version, the
+    server is left out, never run unpinned. A search runs without "Permitir"
     and AC4 holds for what it answered. Reading a page (`fetch_content`) always asks, showing
     its exact address, and so does a search carrying `provider`, `proxy` or `includeContent`:
     the daemon applies these argument rules (`asksWith`) to any program that runs
@@ -296,7 +302,7 @@ and keep its secrets in the operating system instead of a text file.
     2026-11-20). `source_check` asks. The package can turn GitHub cloning off and pin a provider
     only in its `web-search.json`, not by a variable or an argument, so the preset does
     neither; a page fetch asks anyway. The screen says beside the button what leaves the Mac:
-    `npx` fetches the package from npm the first time; with no key and no `web-search.json`
+    the package comes with ANOMANDER at a fixed version; with no key and no `web-search.json`
     what is searched goes only to Exa's hosted MCP (`mcp.exa.ai`), and another provider or a
     proxy asks first; pages are read from this Mac, after "Permitir"; a
     `~/.pi/agent/web-search.json`, when present, applies its keys, providers and proxy. It needs

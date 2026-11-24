@@ -9,6 +9,7 @@ import type { ConnectedTool, Logger } from '../processor/ports.ts';
 import type { ConnectionsConfig, ServerConfig } from './config.ts';
 import type { Connection, ToolInfo } from './connection.ts';
 import { type OAuthKeeper, originScopedFetch } from './oauth.ts';
+import { programFor } from './web-search.ts';
 
 // DK-11: the MCP client. It connects to the servers of `mcp.json`, lists their tools and calls
 // one when `task.ts` decided that call runs. It decides nothing itself.
@@ -104,8 +105,8 @@ export const transportFor = (
 ): Transport =>
   server.kind === 'process'
     ? new StdioClientTransport({
-        command: server.command,
-        args: server.args,
+        // The web search preset runs its pinned, installed copy (B9).
+        ...programFor(server),
         // The SDK adds only HOME, LOGNAME, PATH, SHELL, TERM and USER: a server never gets the
         // daemon's own environment, which holds its secrets.
         env: server.env,

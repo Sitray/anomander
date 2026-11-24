@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { OAUTH_CONNECTIONS } from '../src/connections.ts';
+import {
+  OAUTH_CONNECTIONS,
+  WEB_SEARCH_CONNECTION,
+  WEB_SEARCH_PACKAGE,
+  WEB_SEARCH_VERSION,
+} from '../src/connections.ts';
 
 // DK-11 AC12: the remote presets are data the shell saves as written.
 describe('the remote ready-made connections', () => {
@@ -10,5 +15,13 @@ describe('the remote ready-made connections', () => {
       expect(new URL(preset.url).protocol, preset.name).toBe('https:');
       expect(preset).not.toHaveProperty('readOnly');
     }
+  });
+});
+
+// B9: the web search preset names one exact version, the one the daemon installs.
+describe('the web search preset', () => {
+  it('names its package at one exact version, visible in `mcp.json`', () => {
+    expect(WEB_SEARCH_VERSION).toMatch(/^\d+\.\d+\.\d+$/);
+    expect(WEB_SEARCH_CONNECTION.args).toContain(`${WEB_SEARCH_PACKAGE}@${WEB_SEARCH_VERSION}`);
   });
 });
