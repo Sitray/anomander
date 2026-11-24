@@ -12,6 +12,7 @@ import {
   strings,
 } from '@anomander/protocol';
 import { createTelegramLogin, type TelegramLoginDeps } from './auth/telegram-login.ts';
+import { createDailyBackup } from './backup/daily-backup.ts';
 import { budgeted, createAiBudget } from './budget/ai-budget.ts';
 import { createReceiptQueue } from './budget/receipt-queue.ts';
 import type { Config } from './config.ts';
@@ -734,6 +735,8 @@ export const startAnomander = <M>(config: Config, deps: AnomanderDeps<M>): Anoma
     notify,
     logger,
   });
+  // B5: right after retention, so the day's copy holds nothing retention erased (§16).
+  const dailyBackup = createDailyBackup({ db, now, logger });
   const summary = createWeeklySummary({ db, timeZone: config.timeZone, now, notify });
   const queue = createReceiptQueue({ db, readQueued: receipts.readQueued, notify, now, logger });
   const dueReminders = createDueReminders({ db, timeZone: config.timeZone, now, notify, logger });
@@ -743,7 +746,13 @@ export const startAnomander = <M>(config: Config, deps: AnomanderDeps<M>): Anoma
     weeklySummaryCron: config.weeklySummaryCron,
     timeZone: config.timeZone,
     jobs: {
-      retain: retention.retain,
+      retain: async () => {
+        try {
+          return await retention.retain();
+        } finally {
+          await dailyBackup.run();
+        }
+      },
       sendMorningDigest: unasked(digest.send),
       sendDueReminders: unasked(dueReminders.send),
       // T13 F1: a receipt is read only where its reply can be told; it waits for Telegram.

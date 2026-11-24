@@ -4,6 +4,8 @@ import type Database from 'better-sqlite3';
 
 // How many backups taken before migrations stay beside the database; older ones are deleted.
 export const KEPT_BACKUPS = 3;
+// How many daily copies (B5) stay beside it, apart from the ones taken before migrations.
+export const KEPT_DAILY_BACKUPS = 7;
 
 const escapeRegExp = (text: string): string => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
@@ -20,10 +22,39 @@ export const backupDatabase = (
   fromVersion: number,
   now: Date,
   keep: number = KEPT_BACKUPS,
+): string => writeBackup(db, `v${fromVersion}`, 'v\\d+', now, keep);
+
+/**
+ * B5: the daily copy, `<file>.backup-daily-<yyyymmddThhmmssZ>`, written as `backupDatabase` writes
+ * its own; only daily copies are pruned to the `keep` newest. Throws as `backupDatabase` does.
+ */
+export const backupDatabaseDaily = (
+  db: Database.Database,
+  now: Date,
+  keep: number = KEPT_DAILY_BACKUPS,
+): string => writeBackup(db, 'daily', 'daily', now, keep);
+
+/** Whether a daily copy of `db` stamped on the UTC day of `now` is already beside it. */
+export const hasDailyBackupOn = (db: Database.Database, now: Date): boolean => {
+  const day = stamp(now).slice(0, 8);
+  const pattern = namePattern(basename(db.name), 'daily');
+  return readdirSync(dirname(db.name)).some((name) => pattern.exec(name)?.[1]?.startsWith(day));
+};
+
+// `<file>.backup-<label>-<stamp>[-n]`, where `label` matches the regular expression `labels`.
+const namePattern = (file: string, labels: string): RegExp =>
+  new RegExp(`^${escapeRegExp(file)}\\.backup-${labels}-(\\d{8}T\\d{6}Z)(?:-(\\d+))?$`);
+
+const writeBackup = (
+  db: Database.Database,
+  label: string,
+  labels: string,
+  now: Date,
+  keep: number,
 ): string => {
   const folder = dirname(db.name);
   const file = basename(db.name);
-  const base = `${file}.backup-v${fromVersion}-${stamp(now)}`;
+  const base = `${file}.backup-${label}-${stamp(now)}`;
   // A second start within the same second gets `-1`, `-2`, … rather than failing.
   let target = join(folder, base);
   let handle: number | undefined;
@@ -47,15 +78,14 @@ export const backupDatabase = (
     rmSync(target, { force: true });
     throw error;
   }
-  prune(folder, file, keep, basename(target));
+  prune(folder, namePattern(file, labels), keep, basename(target));
   return target;
 };
 
 // Only files named exactly as backups of this database are ever deleted, oldest first, and never
 // `written`, the one just made: older ones stamped by a clock that was once ahead would otherwise
 // sort after it. A failure to delete an old backup does not stop the start.
-const prune = (folder: string, file: string, keep: number, written: string): void => {
-  const pattern = new RegExp(`^${escapeRegExp(file)}\\.backup-v\\d+-(\\d{8}T\\d{6}Z)(?:-(\\d+))?$`);
+const prune = (folder: string, pattern: RegExp, keep: number, written: string): void => {
   const found = readdirSync(folder)
     .map((name) => ({ name, match: pattern.exec(name) }))
     .filter((entry) => entry.match !== null && entry.name !== written)

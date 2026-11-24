@@ -189,8 +189,8 @@ by default: `send` sends nothing unless a `send_weekly_summary` permission is in
 which only the principal grants (see the weekly summary capability below).
 
 **Scheduler.** `startScheduler` (`src/scheduler/scheduler.ts`, croner) runs retention, the queue
-and the receipt watch once at startup. After that, it runs retention at `ANOMANDER_RETENTION_CRON`
-and the weekly summary at `ANOMANDER_WEEKLY_SUMMARY_CRON`, both in `TZ`, and the queue and the
+and the receipt watch once at startup. After that, it runs retention at `ANOMANDER_RETENTION_CRON`,
+followed by the daily backup (see "Migrations and backups" below), and the weekly summary at `ANOMANDER_WEEKLY_SUMMARY_CRON`, both in `TZ`, and the queue and the
 receipt watch every minute, so S-13's "lo borro en una hora" holds. The weekly summary never runs
 at startup. The jobs share one serial queue and never overlap. `stop()` waits for the job in
 progress.
@@ -794,6 +794,15 @@ it is first copied with `VACUUM INTO` beside its file as
 such files are kept and older ones deleted. A fresh database gets no copy, and a copy that cannot
 be written stops the start with nothing applied. To go back, stop the daemon and put a backup in
 place of the database file, removing its `-wal` and `-shm`.
+
+The daily backup (B5, `src/backup/daily-backup.ts`) runs right after each retention run, so at
+startup and at `ANOMANDER_RETENTION_CRON`: it copies the database the same way as
+`<db>.backup-daily-<yyyymmddThhmmssZ>`, unless a copy stamped on the same UTC day is already
+there, and keeps the seven newest daily copies; the copies taken before migrations are pruned
+apart. Taken after retention, a copy never holds what retention had erased; what "Borrar
+conversación" or a confirmed forget erases stays in older daily copies for up to seven days (PRD
+§16). A copy that cannot be written is logged by its error code only, never its path, and is made
+at the next run; the daemon keeps running. The copies sit on the same disk as the database.
 
 ## Configuration
 
