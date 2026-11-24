@@ -11,6 +11,7 @@
 //   &connections=none|invalid                             (default: two servers)
 //   &subscriptions=none|connected                         (default: none; connected: ChatGPT and Claude)
 //   &history=none                                         nothing kept of the conversation (DK-16)
+//   &expenses=none|fail                                   no expense in any month, or the daemon fails to read them (DK-17)
 //   &memory=none|failing                                  nothing remembered or done, or the store fails (DK-18)
 //
 // The scripted daemon answers by what is typed: "mercadona" asks a Sí/No question, "rechaza" is
@@ -22,11 +23,13 @@ import {
   type ChatAction,
   type ChatButton,
   type ChatEvent,
+  type ChatExpenses,
   type ChatMemory,
   type ChatReply,
   type ChatRequest,
   type ChatStoredMessage,
   HISTORY_LIMIT,
+  strings,
 } from '@anomander/protocol';
 import { emit } from '@tauri-apps/api/event';
 import { mockIPC } from '@tauri-apps/api/mocks';
@@ -324,7 +327,16 @@ type Answer =
 /** The requests the daemon answers by what was said; the stored conversation is apart. */
 type Said = Exclude<
   ChatRequest,
-  { type: 'history' | 'clear_history' | 'memories' | 'forget_memory' | 'actions' | 'forget_action' }
+  {
+    type:
+      | 'history'
+      | 'clear_history'
+      | 'expenses'
+      | 'memories'
+      | 'forget_memory'
+      | 'actions'
+      | 'forget_action';
+  }
 >;
 
 const answerTo = (request: Said): Answer => {
@@ -374,6 +386,69 @@ const answerTo = (request: Said): Answer => {
     };
   }
   return { text: 'Apuntado: 23,00 € en restaurantes.' };
+};
+
+// DK-17: the expenses of a month, as the daemon reads them from its views: some in this month and
+// the previous one, every mode, and two pending apart.
+const thisMonth = new Date().toISOString().slice(0, 7);
+const expensesOf = (month: string): Omit<ChatExpenses, 'inReplyTo'> => {
+  const shown =
+    params.get('expenses') === 'none' || month < '2026-01'
+      ? []
+      : [
+          {
+            day: '02',
+            merchant: null,
+            category: 'restaurantes',
+            basis: 'inferred',
+            cents: 2300,
+            mode: 'declared',
+          },
+          {
+            day: '05',
+            merchant: 'Mercadona',
+            category: 'supermercado',
+            basis: 'policy',
+            cents: 4785,
+            mode: 'corroborated',
+            lines: 12,
+          },
+          {
+            day: '11',
+            merchant: 'Café Sol',
+            category: 'restaurantes',
+            basis: 'inferred',
+            cents: 320,
+            mode: 'inferred',
+            lines: 2,
+          },
+          {
+            day: '18',
+            merchant: 'Lidl',
+            category: null,
+            basis: null,
+            cents: 1599,
+            mode: 'confirmed',
+            lines: 4,
+          },
+        ].map((row, index) => ({
+          id: index + 1,
+          date: `${month}-${row.day}`,
+          merchant: row.merchant,
+          category: row.category,
+          totalCents: row.cents,
+          mode: row.mode as ChatExpenses['expenses'][number]['mode'],
+          categoryMode: row.basis as ChatExpenses['expenses'][number]['categoryMode'],
+          origin: row.lines === undefined ? ('text' as const) : ('receipt' as const),
+          lines: row.lines ?? 0,
+        }));
+  return {
+    type: 'expenses',
+    month,
+    expenses: shown,
+    totalCents: shown.reduce((sum, row) => sum + row.totalCents, 0),
+    pending: { count: 2, totalCents: 1500 },
+  };
 };
 
 // DK-16: the stored conversation, from both doors; gone with the page, unlike the daemon's.
@@ -516,6 +591,23 @@ class ScriptedSocket extends FakeWebSocket {
     const request = JSON.parse(data) as ChatRequest;
     if (isMemoryRequest(request)) {
       setTimeout(() => this.receive(memoryAnswer(request)), 300);
+      return;
+    }
+    if (request.type === 'expenses') {
+      setTimeout(() => {
+        if (params.get('expenses') === 'fail') {
+          this.receive({
+            type: 'reply',
+            inReplyTo: request.id,
+            channelRef: `desktop:${crypto.randomUUID()}`,
+            text: strings.processingFailed(),
+            buttons: [],
+            sentAt: new Date().toISOString(),
+          });
+        } else {
+          this.receive({ ...expensesOf(request.month ?? thisMonth), inReplyTo: request.id });
+        }
+      }, 300);
       return;
     }
     if (request.type === 'history' || request.type === 'clear_history') {

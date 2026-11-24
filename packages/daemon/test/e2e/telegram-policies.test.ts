@@ -132,11 +132,15 @@ const yesNo = (decisionId: number) => ({
 });
 
 /** The latest decision, once its message is recorded (R-17 AC2). */
+/** The decisions other than the "Deshacer" and "Corregir" under each typed expense (R-7 AC4). */
+const ASKED = "proposal_id NOT IN (SELECT id FROM proposals WHERE operation = 'amend_expense')";
+
 const shownDecision = async () => {
   let id: number | undefined;
   await vi.waitFor(() => {
     [{ id } = { id: undefined }] = query<{ id: number }>(
-      'SELECT id FROM pending_decisions WHERE channel_ref IS NOT NULL ORDER BY id DESC LIMIT 1',
+      `SELECT id FROM pending_decisions WHERE channel_ref IS NOT NULL AND ${ASKED}
+       ORDER BY id DESC LIMIT 1`,
     );
     expect(id).toBeDefined();
   });
@@ -383,7 +387,7 @@ describe('patterns noticed by code (R-13 AC2)', () => {
   it('the third expense with a declared category sends S-12; "Sí" stores the policy', async () => {
     const text = spend('Mercadona', 'declared');
     await spendTimes(text, 2);
-    expect(query('SELECT id FROM pending_decisions')).toEqual([]);
+    expect(query(`SELECT id FROM pending_decisions WHERE ${ASKED}`)).toEqual([]);
 
     const [registered, offer] = await say(text, 2);
     const decisionId = await shownDecision();
@@ -430,7 +434,9 @@ describe('patterns noticed by code (R-13 AC2)', () => {
     );
 
     expect(kept?.text).toBe(S35);
-    expect(query('SELECT status FROM pending_decisions')).toEqual([{ status: 'answered' }]);
+    expect(query(`SELECT status FROM pending_decisions WHERE ${ASKED}`)).toEqual([
+      { status: 'answered' },
+    ]);
     expect(policies()).toEqual([]);
   });
 
@@ -440,7 +446,7 @@ describe('patterns noticed by code (R-13 AC2)', () => {
     await spendTimes(spend('Mercadona', 'inferred'), 3);
     await spendTimes(spend('Lidl', 'declared'), 3);
 
-    expect(query('SELECT id FROM pending_decisions')).toEqual([]);
+    expect(query(`SELECT id FROM pending_decisions WHERE ${ASKED}`)).toEqual([]);
     expect(api.sent).toHaveLength(6);
   });
 });

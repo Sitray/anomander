@@ -9,7 +9,13 @@
 // The language is the window's (`locale.ts`): each section is read in it at the moment it is
 // read, so a section kept in a variable still follows it.
 
-import { type OAuthConnectionName, perLocale } from '@anomander/protocol';
+import { type ExpenseMode, type OAuthConnectionName, perLocale } from '@anomander/protocol';
+
+/** DK-17: `2026-11` as the name of its month and its year in `locale`. */
+const monthTitle = (locale: string, month: string): string =>
+  new Intl.DateTimeFormat(locale, { month: 'long', year: 'numeric', timeZone: 'UTC' }).format(
+    new Date(`${month}-01T00:00:00Z`),
+  );
 
 /** DK-4: how many files one message carries, as the daemon accepts. */
 export const MAX_ATTACHMENTS = 10;
@@ -46,6 +52,7 @@ const es = {
     openSetup: 'Configuración',
     openConnections: 'Conexiones',
     openSubscriptions: 'Suscripciones',
+    openExpenses: 'Gastos',
     /** DK-18 */
     openMemory: 'Memoria',
     closeSetup: 'Volver al chat',
@@ -523,6 +530,45 @@ const es = {
       not_a_path: 'Escribe la ruta completa: empieza por / o por ~/.',
     },
   },
+  /** DK-17: the expenses of a month, read only. */
+  expenses: {
+    title: 'Gastos',
+    intro: 'Lo que ANOMANDER tiene apuntado, mes a mes, y cómo lo sabe.',
+    /** `2026-11` → `noviembre de 2026`. */
+    month: (month: string): string => monthTitle('es-ES', month),
+    previous: 'Mes anterior',
+    next: 'Mes siguiente',
+    caption: (month: string) => `Gastos de ${month}`,
+    date: 'Fecha',
+    merchant: 'Comercio',
+    category: 'Categoría',
+    amount: 'Importe',
+    mode: 'Cómo lo sé',
+    /** The header of the per-row action's column, shown only once there is one (DK-17 AC6). */
+    actions: 'Acciones',
+    noMerchant: 'Sin comercio',
+    noCategory: 'Sin categoría',
+    lines: (count: number) => (count === 1 ? '1 línea' : `${count} líneas`),
+    /** Principle 2: the `modo` of the `gastos` view, for the whole expense. */
+    modes: {
+      declared: 'Me lo dijiste',
+      confirmed: 'Lo confirmaste',
+      corroborated: 'Deducido y comprobado',
+      inferred: 'Deducido',
+    } satisfies Record<ExpenseMode, string>,
+    /** How the category was chosen, beside it; nothing when the principal said it. */
+    categoryModes: { policy: 'por tu regla', inferred: 'deducida' },
+    total: 'Total',
+    pending: (count: number, amount: string) =>
+      count === 1
+        ? `1 gasto pendiente de confirmar (${amount}), fuera del total.`
+        : `${count} gastos pendientes de confirmar (${amount}), fuera del total.`,
+    empty: (month: string) => `No hay gastos apuntados en ${month}.`,
+    loading: 'Cargando gastos…',
+    failed: 'No se han podido cargar los gastos.',
+    retry: 'Reintentar',
+    closed: 'ANOMANDER no está en marcha. Arráncalo para ver tus gastos.',
+  },
 } as const;
 
 /** The shape of the text, the same in every language: the Spanish keys and parameters. */
@@ -564,6 +610,7 @@ const en: Strings = {
     openSetup: 'Settings',
     openConnections: 'Connections',
     openSubscriptions: 'Subscriptions',
+    openExpenses: 'Expenses',
     openMemory: 'Memory',
     closeSetup: 'Back to chat',
 
@@ -988,6 +1035,40 @@ const en: Strings = {
       not_a_path: 'Write the full path: it starts with / or ~/.',
     },
   },
+  expenses: {
+    title: 'Expenses',
+    intro: 'What ANOMANDER has noted down, month by month, and how it knows.',
+    month: (month: string): string => monthTitle('en-GB', month),
+    previous: 'Previous month',
+    next: 'Next month',
+    caption: (month: string) => `Expenses of ${month}`,
+    date: 'Date',
+    merchant: 'Merchant',
+    category: 'Category',
+    amount: 'Amount',
+    mode: 'How I know',
+    actions: 'Actions',
+    noMerchant: 'No merchant',
+    noCategory: 'No category',
+    lines: (count: number) => (count === 1 ? '1 line' : `${count} lines`),
+    modes: {
+      declared: 'You told me',
+      confirmed: 'You confirmed it',
+      corroborated: 'Inferred and checked',
+      inferred: 'Inferred',
+    },
+    categoryModes: { policy: 'by your rule', inferred: 'inferred' },
+    total: 'Total',
+    pending: (count: number, amount: string) =>
+      count === 1
+        ? `1 expense waiting for confirmation (${amount}), not in the total.`
+        : `${count} expenses waiting for confirmation (${amount}), not in the total.`,
+    empty: (month: string) => `No expenses noted down in ${month}.`,
+    loading: 'Loading expenses…',
+    failed: 'The expenses could not be loaded.',
+    retry: 'Try again',
+    closed: 'ANOMANDER is not running. Start it to see your expenses.',
+  },
 };
 
 /** The text of the window, each section in the window's language at the moment it is read. */
@@ -1002,4 +1083,5 @@ export const strings: Strings = {
   }),
   memory: perLocale<Strings['memory']>({ es: es.memory, en: en.memory }),
   ledger: perLocale<Strings['ledger']>({ es: es.ledger, en: en.ledger }),
+  expenses: perLocale<Strings['expenses']>({ es: es.expenses, en: en.expenses }),
 };

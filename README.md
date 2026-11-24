@@ -16,7 +16,7 @@ To run your own, see [Getting started](#getting-started) (Docker and Telegram), 
 
 | Where | What works | Spec |
 | --- | --- | --- |
-| Telegram | Text and receipt expenses, decisions with buttons, corrections, conversation memory, the weekly summary and the morning digest (both off until you ask for them), policies, categories, reminders and tasks, model login (`/login`), the setup guide (`/start`), tasks with connections and an export of your ledger as CSV and JSON files (`/exportar`) | [PRD](PRD.md) M0 to M5f; DK-11 for connections |
+| Telegram | Text and receipt expenses, questions on what you spent ("¿cuánto llevo este mes?"), decisions with buttons, corrections, conversation memory, the weekly summary and the morning digest (both off until you ask for them), policies, categories, reminders and tasks, model login (`/login`), the setup guide (`/start`), tasks with connections and an export of your ledger as CSV and JSON files (`/exportar`) | [PRD](PRD.md) M0 to M5f; DK-11 for connections |
 | Read API | A token-guarded, GET-only HTTP API over the views `gastos`, `lineas_de_compra` and `pendientes_de_confirmar`, off unless `ANOMANDER_API_TOKEN` is set | [`docs/read-access-prd.md`](docs/read-access-prd.md) (M5b) |
 | Mac app | Everything below, with the same daemon, rules and ledger as Telegram | [`docs/desktop-prd.md`](docs/desktop-prd.md) (M6) |
 
@@ -35,6 +35,7 @@ The Mac app:
 | Memoria | A screen with what it remembers about you, each marked "Me lo dijiste" or "Lo deduje", and what it did, each with "Olvidar" | DK-18 |
 | The conversation | Kept in the local database, Telegram included, for 90 days: the chat shows it again after you quit the app, and ANOMANDER picks up the last half hour after a restart. It is stored only on your machine (the last turns go to the model provider with each message, as below); "Borrar conversación" or a confirmed "olvida" erases it; forgetting one item in Memoria erases only the messages that mention it | DK-16 |
 | Subscription login | Connect ChatGPT or Kimi Code from the Suscripciones screen | DK-15 |
+| Expenses | The Gastos screen shows a month's expenses, read only, with their total and how ANOMANDER knows each one ("Me lo dijiste", "Deducido"); pending ones are counted apart | DK-17 |
 | A ledger from Docker | Imports a ledger copied out of a Docker install into the app's empty one | DK-12 |
 
 Not built yet:

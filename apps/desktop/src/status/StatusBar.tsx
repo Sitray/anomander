@@ -9,6 +9,7 @@ import {
   Mark,
   MemoryIcon,
   PlugIcon,
+  ReceiptIcon,
   SlidersIcon,
 } from '../ui/icons.tsx';
 import { describeStatus, type StatusView } from './describe.ts';
@@ -31,11 +32,14 @@ export interface StatusBarProps {
   connectionsOpen: boolean;
   /** DK-15: the Suscripciones screen; without the handler the header does not offer it. */
   subscriptionsOpen?: boolean;
+  /** DK-17: the Gastos screen; without the handler the header does not offer it. */
+  expensesOpen?: boolean;
   onStart: () => void;
   onStop: () => void;
   onToggleSetup: () => void;
   onToggleConnections: () => void;
   onToggleSubscriptions?: () => void;
+  onToggleExpenses?: () => void;
   /** DK-18: the Memoria screen; without the handler the header does not offer it. */
   memoryOpen?: boolean;
   onToggleMemory?: () => void;
@@ -82,7 +86,15 @@ export function ErrorBlock({ label, children }: { label: string; children: strin
 }
 
 export function StatusBar(props: StatusBarProps) {
-  const { daemon, busy, commandError, setupOpen, connectionsOpen, subscriptionsOpen } = props;
+  const {
+    daemon,
+    busy,
+    commandError,
+    setupOpen,
+    connectionsOpen,
+    subscriptionsOpen,
+    expensesOpen,
+  } = props;
   const { status } = strings;
   const view = daemon === null ? LOADING : describeStatus(daemon);
 
@@ -110,6 +122,18 @@ export function StatusBar(props: StatusBarProps) {
               onClick={action.run}
             >
               {action.label}
+            </button>
+          )}
+          {props.onToggleExpenses !== undefined && (
+            <button
+              type="button"
+              className="icon-button"
+              aria-label={expensesOpen ? status.closeSetup : status.openExpenses}
+              title={expensesOpen ? status.closeSetup : status.openExpenses}
+              disabled={daemon === null}
+              onClick={props.onToggleExpenses}
+            >
+              {expensesOpen ? <ChatIcon /> : <ReceiptIcon />}
             </button>
           )}
           {props.onToggleMemory !== undefined && (

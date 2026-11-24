@@ -589,6 +589,26 @@ describe('the subscriptions', () => {
   });
 });
 
+describe('the expenses (DK-17)', () => {
+  it('open from the status area, ask the daemon for them, and close back to the chat', async () => {
+    await open(runningSnapshot());
+    const chat = FakeWebSocket.last;
+    fireEvent.click(screen.getByRole('button', { name: strings.status.openExpenses }));
+
+    expect(screen.getByRole('heading', { name: strings.expenses.title })).toBeTruthy();
+    expect(composer().closest('[hidden]')).toBeTruthy();
+    const socket = FakeWebSocket.last;
+    expect(socket).not.toBe(chat);
+    act(() => socket.open());
+    expect(socket.lastRequest.type).toBe('expenses');
+
+    const status = within(screen.getByRole('banner'));
+    fireEvent.click(status.getByRole('button', { name: strings.status.closeSetup }));
+    expect(screen.queryByRole('heading', { name: strings.expenses.title })).toBeNull();
+    expect(composer().closest('[hidden]')).toBeNull();
+  });
+});
+
 describe('thinking', () => {
   const thinking = () => mocked.setThinking.mock.calls.map(([value]) => value);
 

@@ -34,7 +34,7 @@ import {
 } from './conversation/recent-turns.ts';
 import { createButtonHandler, createDecisionAnswers, pressedOption } from './decisions/answer.ts';
 import { createCancelReminderAnswerHandler } from './decisions/cancel-reminder-decision.ts';
-import { createExpenseCorrection } from './decisions/correction.ts';
+import { createAmendExpenseCorrection, createExpenseCorrection } from './decisions/correction.ts';
 import { createCreateCategoryAnswerHandler } from './decisions/create-category-decision.ts';
 import { createCreatePolicyAnswerHandler } from './decisions/create-policy-decision.ts';
 import { createForgetHistoryAnswerHandler } from './decisions/forget-history-decision.ts';
@@ -47,6 +47,7 @@ import { createReceiptExpenseCycle } from './expenses/receipt-expense.ts';
 import { createTextExpenseHandler } from './expenses/text-expense.ts';
 import {
   type ChatHandlers,
+  type ExpensesLedger,
   type LocalChannel,
   type LocalChannelAddress,
   type StoredConversation,
@@ -63,6 +64,7 @@ import { withRetry } from './processor/retry.ts';
 import { createPiAiScreenReader } from './processor/screen-reader.ts';
 import { createPiAiTextInterpreter } from './processor/text-interpreter.ts';
 import { withTimeout } from './processor/timeout.ts';
+import { readExpensesMonth } from './read-api/month.ts';
 import { type ReadApiAddress, startReadApi } from './read-api/server.ts';
 import { createDueReminders } from './reminders/send-due.ts';
 import { createKeepReceiptAnswerHandler } from './retention/keep-receipt-decision.ts';
@@ -209,6 +211,7 @@ const startChannel = (
   handlers: ChatHandlers,
   conversation: StoredConversation,
   memory: StoredMemory,
+  expenses: ExpensesLedger,
   logger: Logger,
   now?: () => Date,
 ): LocalChannel | undefined =>
@@ -220,6 +223,7 @@ const startChannel = (
         handlers,
         conversation,
         memory,
+        expenses,
         logger,
         ...(now === undefined ? {} : { now }),
       });
@@ -344,6 +348,12 @@ export const startSetupGuide = (config: Config, deps: SetupGuideDeps): Anomander
         throw new Error('the setup guide opens no database');
       },
     },
+    // DK-17: nor can expenses be read: the window says it could not load them.
+    {
+      month: () => {
+        throw new Error('the setup guide opens no database');
+      },
+    },
     logger,
   );
 
@@ -421,17 +431,20 @@ export const startAnomander = <M>(config: Config, deps: AnomanderDeps<M>): Anoma
     throw new Error('notify used before the bot was created');
   };
   const patterns = createPatternOffers({ db, now, logger, notify: (message) => notify(message) });
+  const correcting = {
+    db,
+    interpreter: createPiAiCorrectionInterpreter({ complete: ai, model, logger }),
+    timeZone: config.timeZone,
+    now,
+    logger,
+    patterns,
+  };
   const onText = createTextRouter({
     db,
     corrections: {
-      register_expense: createExpenseCorrection({
-        db,
-        interpreter: createPiAiCorrectionInterpreter({ complete: ai, model, logger }),
-        timeZone: config.timeZone,
-        now,
-        logger,
-        patterns,
-      }),
+      register_expense: createExpenseCorrection(correcting),
+      // R-7 AC6: the text after "Corregir" under a typed expense's reply.
+      amend_expense: createAmendExpenseCorrection(correcting),
     },
     otherwise: createTextExpenseHandler({
       db,
@@ -858,6 +871,8 @@ export const startAnomander = <M>(config: Config, deps: AnomanderDeps<M>): Anoma
         })),
       forgetAction: forgetActionInTurn,
     },
+    // DK-17: the "Gastos" screen, over the views of RA-1.
+    { month: (month) => readExpensesMonth(db, { month, timeZone: config.timeZone, now: now() }) },
     logger,
     now,
   );

@@ -39,6 +39,13 @@ Real messages carry personal data, so the cases never enter the repository:
   For an expense, name the predicates: `total` (cents), `merchant`, `occurred_on`, `category`,
   `declared_category`. `"memories": true` asks for at least one remembered fact.
 - When more than one answer is right, `expect` is an array; any of them passes.
+- An expense query (PRD R-30) names the period and filters the model must pick, for example
+  `{"name": "query-this-month", "message": "¿cuánto llevo gastado este mes?", "now": "2026-11-24T10:00", "expect": {"kind": "expense_query", "from": "2026-11-01", "to": "2026-11-24"}}`,
+  `"¿cuánto gasté la semana pasada?"` → `"from": "2026-11-16", "to": "2026-11-22"`,
+  `"¿cuánto llevo en supermercado en octubre?"` → `"from": "2026-10-01", "to": "2026-10-31", "category": "supermercado"`,
+  `"¿cuánto llevo este año?"` → `"from": "2026-01-01", "to": "2026-11-24"`,
+  `"¿cuánto he gastado en total?"` → `"from": null, "to": "2026-11-24"`, or
+  `"¿cuánto llevo en el super este mes?"` → `"category": "supermercado", "merchant": null`.
 - `note` is free text for you.
 
 Strings are compared ignoring case, accents and punctuation; arrays ignore order.

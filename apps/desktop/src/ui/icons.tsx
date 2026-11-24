@@ -80,6 +80,25 @@ export const MemoryIcon = () => (
   </Icon>
 );
 
+/** DK-17: a receipt, for the expenses. */
+export const ReceiptIcon = () => (
+  <Icon>
+    <path d="M3.75 2.25h8.5v11.5l-2.125-1.25L8 13.75l-2.125-1.25-2.125 1.25zM6 5.5h4M6 8.25h4" />
+  </Icon>
+);
+
+export const ChevronLeftIcon = () => (
+  <Icon>
+    <path d="M10 3.5 5.5 8l4.5 4.5" />
+  </Icon>
+);
+
+export const ChevronRightIcon = () => (
+  <Icon>
+    <path d="m6 3.5 4.5 4.5L6 12.5" />
+  </Icon>
+);
+
 export const FileIcon = () => (
   <Icon>
     <path d="M9 2.25H5A1.25 1.25 0 0 0 3.75 3.5v9A1.25 1.25 0 0 0 5 13.75h6a1.25 1.25 0 0 0 1.25-1.25v-7zM9 2.25V5.5h3.25" />

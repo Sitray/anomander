@@ -158,6 +158,17 @@ export interface ChatForgetAction {
   actionId: number;
 }
 
+/**
+ * DK-17: the expenses of one month, for the window's "Gastos" screen. Answered with a
+ * `ChatExpenses`. Only reads: nothing is written.
+ */
+export interface ChatExpensesRequest {
+  type: 'expenses';
+  id: string;
+  /** `YYYY-MM`; absent, the current month in the daemon's `TZ`. */
+  month?: string;
+}
+
 export type ChatRequest =
   | ChatText
   | ChatReceipt
@@ -170,7 +181,8 @@ export type ChatRequest =
   | ChatMemoriesRequest
   | ChatForgetMemory
   | ChatActionsRequest
-  | ChatForgetAction;
+  | ChatForgetAction
+  | ChatExpensesRequest;
 
 /** DK-16: the most stored messages a `history` request returns. */
 export const HISTORY_LIMIT = 500;
@@ -278,10 +290,54 @@ export interface ChatActions {
   actions: ChatAction[];
 }
 
+/** The epistemic mode of an expense, as the `gastos` view gives it (`modo`, principle 2). */
+export const EXPENSE_MODES = ['declared', 'inferred', 'corroborated', 'confirmed'] as const;
+export type ExpenseMode = (typeof EXPENSE_MODES)[number];
+
+/**
+ * How the category of an expense was chosen (`expenses.category_basis`, R-5): the principal said
+ * it, a policy of theirs gave it, or the processor inferred it.
+ */
+export const CATEGORY_MODES = ['declared', 'policy', 'inferred'] as const;
+export type CategoryMode = (typeof CATEGORY_MODES)[number];
+
+/** DK-17: one row of the `gastos` view (RA-1), with its purchase lines counted. */
+export interface ChatExpense {
+  id: number;
+  /** `fecha`: `YYYY-MM-DD` in `TZ`. */
+  date: string;
+  merchant: string | null;
+  category: string | null;
+  totalCents: number;
+  /** `modo`: the view gives it for the whole expense, not field by field. */
+  mode: ExpenseMode;
+  /** How its category was chosen; `null` without a category or a recorded basis. */
+  categoryMode: CategoryMode | null;
+  /** `origen`: `texto` or `ticket`. */
+  origin: 'text' | 'receipt';
+  /** Its rows in `lineas_de_compra`: `0` for a typed expense. */
+  lines: number;
+}
+
+/** DK-17: the answer to an `expenses` request. */
+export interface ChatExpenses {
+  type: 'expenses';
+  inReplyTo: string;
+  /** `YYYY-MM`: the month asked, or the current one when none was. */
+  month: string;
+  /** The month's current expenses, by day and then id. */
+  expenses: ChatExpense[];
+  /** The sum of `expenses`, computed by code. */
+  totalCents: number;
+  /** `pendientes_de_confirmar`: every pending expense, whatever its month, never in the total. */
+  pending: { count: number; totalCents: number };
+}
+
 export type ChatEvent =
   | ChatReply
   | ChatDone
   | ChatRejected
   | ChatHistory
   | ChatMemories
-  | ChatActions;
+  | ChatActions
+  | ChatExpenses;
