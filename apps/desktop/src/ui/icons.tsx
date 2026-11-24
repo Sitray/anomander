@@ -73,6 +73,13 @@ export const KeyIcon = () => (
   </Icon>
 );
 
+/** DK-18: a bookmark, for what ANOMANDER keeps about the principal. */
+export const MemoryIcon = () => (
+  <Icon>
+    <path d="M4.5 2.25h7a.75.75 0 0 1 .75.75v10.75L8 11l-4.25 2.75V3a.75.75 0 0 1 .75-.75z" />
+  </Icon>
+);
+
 /** DK-17: a receipt, for the expenses. */
 export const ReceiptIcon = () => (
   <Icon>

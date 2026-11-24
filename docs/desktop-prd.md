@@ -446,7 +446,8 @@ and keep its secrets in the operating system instead of a text file.
     `No`, or replies "No tengo nada en mi historial." when it is empty. `Sí` erases every action
     kept when it was asked, checkpoints the WAL as a forget does (R-23 AC7), empties the recent
     turns and the stored conversation (DK-16 AC5) and replies "Hecho, he borrado mi historial.";
-    `No` erases nothing and replies "Vale, no borro nada.".
+    `No` erases nothing and replies "Vale, no borro nada.". One action at a time can also be
+    erased from the app's "Memoria" (DK-18 AC5).
   - AC5: the history is local: it lives only in the app's database (DK-8), is never logged (a
     failure to keep an action is logged without its words) and never leaves the machine except
     in the history the text interpreter receives. It survives a restart, as the stored
@@ -518,7 +519,8 @@ and keep its secrets in the operating system instead of a text file.
     connection is not open, while an answer is owed, or while a task runs or waits for
     "Permitir".
   - AC5: a confirmed "olvida" (R-23 AC6) and a confirmed erase of the action history (DK-14 AC4)
-    also erase the stored conversation. When an erase fails the question stays open and the reply
+    also erase the stored conversation. "Olvidar" on one item of the app's "Memoria" erases only
+    the turns that say it (DK-18 AC4, AC5). When an erase fails the question stays open and the reply
     is S-22, so `Sí` can be pressed again. A memory replaced by a new fact (R-23 AC3) erases, the
     same way, only the turns where the principal said it, matched as whole words ignoring case,
     spacing and accents: its quote in a principal's own message (never a line such as
@@ -572,6 +574,57 @@ and keep its secrets in the operating system instead of a text file.
     Until then no row offers a button.
   - AC7: it is a table with its headers, read and moved through by keyboard; Escape or "Volver
     al chat" goes back to the chat.
+- DK-18 Memories and history in the window (backlog B32, 2026-11-24: "Memories and history
+  visible, with "me lo dijiste / lo deduje" and "olvidar" per item (principles 2 and 5).").
+  - AC1: the app has a "Memoria" screen, opened from the status bar like "Conexiones", with two
+    sections. "Lo que sé de ti" lists every current memory (R-23 AC5), in the order it was
+    remembered, each marked "Me lo dijiste" when it is `declared` and "Lo deduje" when it is
+    `inferred` (PRD principle 2). "Lo que he hecho" lists every action of the history (DK-14
+    AC2), the latest first: when it ended, what it was ("Miré tu pantalla", "Tarea en tu
+    ordenador", "Tarea con tus conexiones"), "Por Telegram" when it was asked there, the
+    principal's words and how it ended. Its steps and calls are not shown. An empty section says
+    so.
+  - AC2: the window asks for them on the local channel with `memories` and `actions`, each time
+    its connection opens and after each forget; the daemon answers with the lists, outside the
+    chat's turn, as `history` is answered. A list that cannot be read is the reply S-22, as for
+    `history` (DK-16): the section says it could not be read and offers "Reintentar". Without a
+    channel the screen says ANOMANDER is not running; while it connects, that it is connecting.
+    Nothing of either list is ever logged (R-23 AC8, DK-14 AC5).
+  - AC3: every item has "Olvidar", which asks first in the window, as "Borrar conversación"
+    does: for a memory "¿Lo olvido? Lo borro de este Mac, y también los mensajes de la
+    conversación que lo mencionan.", for an action "¿Lo olvido? Lo borro de este Mac, y también
+    los mensajes de la conversación que lo mencionan. No podré recuperarlo.", with "Sí, olvidar"
+    and "No olvidar". "No olvidar" sends nothing.
+  - AC4: "Sí, olvidar" on a memory sends `forget_memory` with its id: the daemon forgets it as a
+    confirmed "olvida" does (R-23 AC6, AC7: its text and quote erased for real, the assertion
+    `expired`), and of the stored conversation it erases only the turns that say it, found as a
+    replaced memory's are (R-23 AC3, DK-16 AC5): its quote in a principal's own message, its text
+    in any message, matched as whole words ignoring case, spacing and accents, each message with
+    its turn. The rest of the conversation stays, and the recent turns are read from what stays
+    (decided by the principal on 2026-11-24: "Solo los mensajes que lo contienen" — "Borra de
+    verdad la memoria o la acción, y además los mensajes de la conversación que la mencionan, con
+    la búsqueda por palabra completa que ya usamos para una memoria reemplazada. El resto del chat
+    se queda."). A text or quote of fewer than 3 words ("sí", "Es vegetariano") is too common to
+    find inside other words: it takes only a principal's own message that is exactly it, ignoring
+    case, accents and punctuation (verifier finding F1, 2026-11-24, within that decision: the
+    turns that mention it, never unrelated ones). A memory replaced by a new fact (R-23 AC3) keeps
+    its whole-word rule. A memory no longer current is left alone and nothing else is erased.
+  - AC5: "Sí, olvidar" on an action sends `forget_action` with its id: the daemon erases that
+    one row of `action_history` for real and, by the same decision, its own turn: the line it was
+    stored as (`[captura de pantalla] …`, `[control del ordenador] …` or `[conexiones] …`) and its
+    reply. When the task has at least 3 words, every turn with a message that holds the whole task
+    as whole words goes too (a message that holds only some of its words stays); a shorter task
+    ("hola") takes only its own turn. The rest of the history and of the conversation stays. Both erases are secure deletes
+    followed by the WAL checkpoint (R-23 AC7).
+  - Known limit (accepted by the principal with that decision): a reply that said the memory or
+    the task in other words is not matched and stays, and so does a message that holds a phrase
+    of fewer than 3 words among others; a task with connections the chat routed from a sentence
+    (DK-13 AC2) has no `[conexiones]` line, so its turn goes only by the 3-word rule.
+  - AC6: both forgets wait for the chat's turn of either door that runs, as `clear_history`
+    does (DK-16 AC4), and are answered `done`; the window then reads both lists again and the
+    chat asks for the stored conversation again, as after a forget confirmed in the chat. When it
+    was not forgotten (the reply S-22) the item stays and the screen says so; when the connection
+    was lost first, that it cannot know.
 
 ## 6. Decisions
 
@@ -610,7 +663,7 @@ the principal to confirm:
 | The token (DK-3 AC2) | `ANOMANDER_LOCAL_TOKEN`, handed over on the daemon's stdin by the app (DK-5 AC2), at least 32 characters of `A-Z a-z 0-9 . _ ~ + -`. Unset: the channel is off and no port opens, as under Docker |
 | The port | `ANOMANDER_LOCAL_PORT`, default `4312`, always on `127.0.0.1`. The app picks a free one at each launch |
 | Presenting the token | As the second WebSocket subprotocol: `new WebSocket(url, ['anomander.v1', token])` |
-| Messages | `ChatRequest` (`text`, `receipt`, `button`, `screen`, `computer`, `connect`, `history`, `clear_history`, `expenses`) and `ChatEvent` (`reply`, `done`, `rejected`, `history`, `expenses`) in `packages/protocol/src/local-channel.ts` |
+| Messages | `ChatRequest` (`text`, `receipt`, `button`, `screen`, `computer`, `connect`, `history`, `clear_history`, `expenses`, `memories`, `forget_memory`, `actions`, `forget_action`) and `ChatEvent` (`reply`, `done`, `rejected`, `history`, `expenses`, `memories`, `actions`) in `packages/protocol/src/local-channel.ts` |
 | Why the daemon stopped (DK-2 AC3) | Exit code `3`: another daemon runs on the same database. `4`: another process uses the bot. `1`: anything else. `exitCodes` in `packages/protocol` |
 | The single-daemon lock (DK-2 AC1) | `<database>.lock` beside the database, held while the daemon runs and freed by the operating system when it ends, so a crash leaves nothing stale |
 

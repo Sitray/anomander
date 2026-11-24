@@ -38,7 +38,8 @@ import { screenReaderPrompt } from '../../src/processor/screen-reader.ts';
 import { textInterpreterPrompt } from '../../src/processor/text-interpreter.ts';
 import { recordMessages } from '../../src/store/conversation.ts';
 import { applyMigrations, openDatabase } from '../../src/store/database.ts';
-import { saveMemory } from '../../src/store/memory.ts';
+import { recordAction } from '../../src/store/history.ts';
+import { forgetMemories, saveMemory } from '../../src/store/memory.ts';
 
 // DK-3 and DK-4 (docs/desktop-prd.md): a real WebSocket client, as the desktop app's window is,
 // against the local channel of a started daemon, with the fake Telegram API, a SQLite file and
@@ -893,6 +894,292 @@ describe('the expenses of a month (DK-17)', () => {
     expect((await chat.ask({ type: 'expenses', month: '2026-13' })).type).toBe('rejected');
     expect((await chat.ask({ type: 'expenses', month: '2026-1' })).type).toBe('rejected');
     expect((await chat.ask({ type: 'expenses', all: true })).type).toBe('rejected');
+  });
+});
+
+describe('the memories and the history in the window (DK-18)', () => {
+  const path = () => join(scratch, 'anomander.db');
+  /** Which of the database files hold `marker`: none once it was erased for real (R-23 AC7). */
+  const onDisk = (marker: string): string[] =>
+    [path(), `${path()}-wal`, `${path()}-shm`].filter(
+      (file) => existsSync(file) && readFileSync(file).includes(marker),
+    );
+  const remember = (text: string, quote: string, said: boolean): number => {
+    const db = openDatabase(path());
+    try {
+      const now = new Date().toISOString();
+      return saveMemory(db, {
+        text,
+        quote,
+        said,
+        confidence: 0.7,
+        message: quote,
+        source: 'desktop:1',
+        replaces: null,
+        receivedAt: now,
+        now,
+      });
+    } finally {
+      db.close();
+    }
+  };
+  const act = (task: string, endedAt: string, kind: 'screen' | 'computer' = 'screen'): void => {
+    const db = openDatabase(path());
+    try {
+      recordAction(db, {
+        kind,
+        door: 'app',
+        task,
+        outcome: kind === 'screen' ? 'answer' : 'done',
+        steps: kind === 'screen' ? null : 2,
+        calls: null,
+        endedAt,
+      });
+    } finally {
+      db.close();
+    }
+  };
+  const actionIds = () =>
+    query<{ id: number; task: string }>('SELECT id, task FROM action_history');
+  const logged = () =>
+    JSON.stringify([logger.info, logger.warn, logger.error].flatMap((log) => log.mock.calls));
+
+  it('memories: every current memory with its text and mode, in the order remembered', async () => {
+    const chat = await client(await start());
+    const said = remember('Se llama Eric', 'me llamo Eric', true);
+    const guessed = remember('Le gusta el café', 'otra vez café', false);
+    const gone = remember('Vive en Lisboa', 'vivo en Lisboa', true);
+    const db = openDatabase(path());
+    forgetMemories(db, [gone]);
+    db.close();
+
+    expect(await chat.ask({ type: 'memories' })).toEqual({
+      type: 'memories',
+      inReplyTo: expect.any(String),
+      memories: [
+        { id: said, text: 'Se llama Eric', mode: 'declared' },
+        { id: guessed, text: 'Le gusta el café', mode: 'inferred' },
+      ],
+    });
+  });
+
+  it('actions: the history, the latest first, with when, what, the door, the words and how it ended', async () => {
+    const chat = await client(await start());
+    act('qué pone aquí', '2026-11-23T09:00:00.000Z');
+    act('envía el correo', '2026-11-24T10:30:00.000Z', 'computer');
+    const [first, second] = actionIds();
+
+    expect(await chat.ask({ type: 'actions' })).toEqual({
+      type: 'actions',
+      inReplyTo: expect.any(String),
+      actions: [
+        {
+          id: second?.id,
+          what: 'computer',
+          door: 'app',
+          task: 'envía el correo',
+          outcome: 'done',
+          at: '2026-11-24T10:30:00.000Z',
+        },
+        {
+          id: first?.id,
+          what: 'screen',
+          door: 'app',
+          task: 'qué pone aquí',
+          outcome: 'answer',
+          at: '2026-11-23T09:00:00.000Z',
+        },
+      ],
+    });
+  });
+
+  /** Stores a principal's message and the reply it got, as one turn. */
+  const turn = (said: string, replied: string): void => {
+    const db = openDatabase(path());
+    try {
+      const at = new Date().toISOString();
+      recordMessages(db, [
+        { from: 'principal', door: 'app', text: said, buttons: [], channelRef: null, at },
+        { from: 'anomander', door: 'app', text: replied, buttons: [], channelRef: null, at },
+      ]);
+    } finally {
+      db.close();
+    }
+  };
+  const conversation = () =>
+    query<{ text: string }>('SELECT text FROM conversation ORDER BY id').map(({ text }) => text);
+
+  it('forget_memory erases that memory for real and only the turns that say it, and answers done', async () => {
+    const chat = await client(await start());
+    await chat.ask({ type: 'text', text: '23 € cena zorbchatline' });
+    const forgotten = remember('Su clave es zorbmemtext', 'mi clave zorbmemquote', true);
+    const kept = remember('Se llama Eric', 'me llamo Eric', true);
+    // Its quote in the principal's own words, and its text in a reply: each turn goes whole.
+    await chat.ask({ type: 'text', text: 'mi clave zorbmemquote, 23 € comida' });
+    turn('¿qué sabes de mí?', 'Sé que Su clave es zorbmemtext.');
+    expect(onDisk('zorbmemtext')).not.toEqual([]);
+
+    const id = 'forget-memory-1';
+    chat.sendRaw(JSON.stringify({ type: 'forget_memory', id, memoryId: forgotten }));
+    expect(await chat.answerTo(id)).toEqual({ type: 'done', inReplyTo: id });
+
+    // R-23 AC6, AC7: its text and quote are in no file; the assertion stays, expired.
+    for (const marker of ['zorbmemtext', 'zorbmemquote']) {
+      expect(onDisk(marker)).toEqual([]);
+    }
+    expect(query(`SELECT status FROM assertions WHERE id = ${forgotten}`)).toEqual([
+      { status: 'expired' },
+    ]);
+    expect(await chat.ask({ type: 'memories' })).toMatchObject({
+      memories: [{ id: kept, text: 'Se llama Eric', mode: 'declared' }],
+    });
+    // Decided 2026-11-24: "Solo los mensajes que lo contienen". The rest of the chat stays.
+    expect(conversation()).toEqual(['23 € cena zorbchatline', PHRASED]);
+    await chat.ask({ type: 'text', text: '23 € merienda' });
+    expect(interpreted.at(-1)?.recent).toEqual([
+      { principal: '23 € cena zorbchatline', reply: PHRASED },
+    ]);
+    // R-23 AC8: never logged.
+    expect(logged()).not.toContain('zorbmem');
+  });
+
+  it('forget_memory of a memory no longer current erases nothing and answers done', async () => {
+    const chat = await client(await start());
+    await chat.ask({ type: 'text', text: '23 € cena' });
+
+    expect((await chat.ask({ type: 'forget_memory', memoryId: 9999 })).type).toBe('done');
+    expect(query('SELECT id FROM conversation')).toHaveLength(2);
+  });
+
+  it('forget_action erases that action for real and only the turns that say its words, and answers done', async () => {
+    const chat = await client(await start());
+    await chat.ask({ type: 'text', text: '23 € cena' });
+    act('lee el correo zorbactiongone', '2026-11-23T09:00:00.000Z');
+    act('qué pone aquí', '2026-11-24T10:30:00.000Z');
+    const [gone, stays] = actionIds();
+    // The principal's words, and a reply that holds the whole task: each turn goes whole.
+    turn('lee el correo zorbactiongone', 'Hecho.');
+    turn('¿qué hiciste ayer?', 'Ayer: lee el correo zorbactiongone.');
+    // A reply that holds only some of its words stays.
+    turn('¿y el correo?', 'No he leído ningún correo hoy.');
+    expect(onDisk('zorbactiongone')).not.toEqual([]);
+
+    const id = 'forget-action-1';
+    chat.sendRaw(JSON.stringify({ type: 'forget_action', id, actionId: gone?.id }));
+    expect(await chat.answerTo(id)).toEqual({ type: 'done', inReplyTo: id });
+
+    expect(actionIds()).toEqual([stays]);
+    expect(onDisk('zorbactiongone')).toEqual([]);
+    expect(conversation()).toEqual([
+      '23 € cena',
+      PHRASED,
+      '¿y el correo?',
+      'No he leído ningún correo hoy.',
+    ]);
+    expect(logged()).not.toContain('zorbactiongone');
+  });
+
+  it('the chat\'s confirmed "olvida" still erases the whole stored conversation, unlike the window', async () => {
+    const chat = await client(await start());
+    await chat.ask({ type: 'text', text: '23 € cena' });
+    const first = remember('Se llama Eric', 'me llamo Eric', true);
+    const second = remember('Vive en Lisboa', 'vivo en Lisboa', true);
+    await chat.ask({ type: 'memories' });
+    await chat.ask({ type: 'forget_memory', memoryId: first });
+    expect(conversation()).toEqual(['23 € cena', PHRASED]);
+
+    routed = JSON.stringify({ kind: 'forget', ids: [second] });
+    const question = reply(await chat.ask({ type: 'text', text: 'olvida dónde vivo' }));
+    routed = undefined;
+    const [yes] = question.buttons as { data: string }[];
+    await chat.ask({ type: 'button', data: yes?.data, channelRef: question.channelRef });
+
+    expect(conversation()).toEqual(['[botón: Sí]', 'Hecho, lo he olvidado.']);
+  });
+
+  it('B47: forget_memory and forget_action wait for a Telegram turn in progress', async () => {
+    const chat = await client(await start());
+    const memory = remember('Se llama Eric', 'me llamo Eric', true);
+    act('qué pone aquí', '2026-11-24T10:30:00.000Z');
+    const [action] = actionIds();
+    let release = (): void => {};
+    interpreting = new Promise<void>((resolveHeld) => {
+      release = resolveHeld;
+    });
+    api.push(updates.text({ chatId: PRINCIPAL }, 'me llamo Eric, 23 € merienda'));
+    await vi.waitFor(() => expect(interpreted).toHaveLength(1));
+
+    chat.sendRaw(JSON.stringify({ type: 'forget_memory', id: 'fm', memoryId: memory }));
+    chat.sendRaw(JSON.stringify({ type: 'forget_action', id: 'fa', actionId: action?.id }));
+    // Answered outside the turn: nothing was erased while it runs.
+    expect(await chat.ask({ type: 'memories' })).toMatchObject({ memories: [{ id: memory }] });
+    expect(await chat.ask({ type: 'actions' })).toMatchObject({ actions: [{ id: action?.id }] });
+    release();
+    await api.waitForSent(1);
+
+    expect(await chat.answerTo('fm')).toEqual({ type: 'done', inReplyTo: 'fm' });
+    expect(await chat.answerTo('fa')).toEqual({ type: 'done', inReplyTo: 'fa' });
+    // The turn, which says the memory, was stored before the erase, so it went with it.
+    expect(query('SELECT id FROM conversation')).toEqual([]);
+    expect(actionIds()).toEqual([]);
+  });
+
+  it('when the store cannot be read or erased, answers S-22 and nothing is erased', async () => {
+    const chat = await client(await start());
+    const memory = remember('Se llama Eric', 'me llamo Eric', true);
+    act('qué pone aquí', '2026-11-24T10:30:00.000Z');
+    const [action] = actionIds();
+    const db = new Database(path());
+    db.exec('ALTER TABLE memory_texts RENAME TO memory_texts_moved');
+    db.exec('ALTER TABLE action_history RENAME TO action_history_moved');
+    db.close();
+
+    const failed = strings.processingFailed();
+    expect(reply(await chat.ask({ type: 'memories' })).text).toBe(failed);
+    expect(reply(await chat.ask({ type: 'actions' })).text).toBe(failed);
+    expect(reply(await chat.ask({ type: 'forget_memory', memoryId: memory })).text).toBe(failed);
+    expect(reply(await chat.ask({ type: 'forget_action', actionId: action?.id })).text).toBe(
+      failed,
+    );
+    expect(query('SELECT assertion_id FROM memory_texts_moved')).toHaveLength(1);
+    expect(query(`SELECT status FROM assertions WHERE id = ${memory}`)).toEqual([
+      { status: 'current' },
+    ]);
+    expect(query('SELECT id FROM action_history_moved')).toHaveLength(1);
+  });
+
+  it('while setup is incomplete, both lists are empty and a forget answers S-22', async () => {
+    const guide = startSetupGuide(
+      { ...config({ ANOMANDER_LOCAL_TOKEN: TOKEN }), localPort: 0 },
+      { gaps: [{ kind: 'model_unset' }], telegramApiRoot: api.apiRoot, logger },
+    );
+    anomander = guide;
+    await guide.started;
+    const chat = await client(guide);
+
+    expect(await chat.ask({ type: 'memories' })).toMatchObject({ memories: [] });
+    expect(await chat.ask({ type: 'actions' })).toMatchObject({ actions: [] });
+    expect((await chat.ask({ type: 'forget_memory', memoryId: 1 })).type).toBe('reply');
+    expect((await chat.ask({ type: 'forget_action', actionId: 1 })).type).toBe('reply');
+  });
+
+  it('rejects a forget without a whole positive id, or with fields it does not know', async () => {
+    const chat = await client(await start());
+    const memory = remember('Se llama Eric', 'me llamo Eric', true);
+
+    for (const request of [
+      { type: 'forget_memory' },
+      { type: 'forget_memory', memoryId: '1' },
+      { type: 'forget_memory', memoryId: 0 },
+      { type: 'forget_action', actionId: 1.5 },
+      { type: 'memories', all: true },
+      { type: 'actions', limit: 1 },
+    ] as const) {
+      expect((await chat.ask(request)).type).toBe('rejected');
+    }
+    expect(query(`SELECT status FROM assertions WHERE id = ${memory}`)).toEqual([
+      { status: 'current' },
+    ]);
   });
 });
 

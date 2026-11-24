@@ -1,5 +1,8 @@
 import type Database from 'better-sqlite3';
+import { computerTurn, connectionTurn, screenTurn } from '../conversation/recent-turns.ts';
 import { localParts } from '../reminders/when.ts';
+import { forgetTurnsHolding } from './conversation.ts';
+import { isExactly, isMarkerLine, saysPhrase } from './memory.ts';
 
 // DK-14 (docs/desktop-prd.md): what ANOMANDER did for the principal, kept in the local database
 // (`action_history`, migration `0008`) so it can answer "¿qué hiciste ayer?". A row holds the
@@ -125,6 +128,65 @@ export const forgetHistory = (db: Database.Database, upToId: number): number => 
   const { changes } = db.prepare('DELETE FROM action_history WHERE id <= ?').run(upToId);
   if (changes > 0) db.pragma('wal_checkpoint(TRUNCATE)');
   return changes;
+};
+
+/** DK-18: how each kind of action is stored as a turn of the conversation (R-16 AC3). */
+const TURN_OF: Record<ActionKind, (task: string) => string> = {
+  screen: screenTurn,
+  computer: computerTurn,
+  connect: connectionTurn,
+};
+
+/** DK-18: one action as the window lists it, without its steps or calls. */
+export interface KeptAction {
+  id: number;
+  kind: ActionKind;
+  door: ActionDoor;
+  task: string;
+  outcome: string;
+  /** UTC. */
+  endedAt: string;
+}
+
+/** DK-18: every action kept, the latest first. */
+export const listActions = (db: Database.Database): KeptAction[] =>
+  db
+    .prepare<[], KeptAction>(
+      `SELECT id, kind, door, task, outcome, ended_at AS endedAt FROM action_history
+       ORDER BY ended_at DESC, id DESC`,
+    )
+    .all();
+
+/**
+ * DK-18 AC5 (decided by the principal on 2026-11-24: "Solo los mensajes que lo contienen"):
+ * erases the one action `id`, its own turn of the stored conversation (the line it was stored as,
+ * such as `[captura de pantalla] <task>`, and its reply) and, when the task has at least 3 words,
+ * every turn with a message that holds the whole task as whole words, as a replaced memory's are
+ * found (R-23 AC3). Then the WAL is checkpointed as
+ * `forgetHistory` does: with `secure_delete` on, the freed pages hold zeros. Returns whether it
+ * was there.
+ */
+export const forgetAction = (db: Database.Database, id: number): boolean => {
+  const erased = db.transaction(() => {
+    const row = db
+      .prepare<[number], { kind: ActionKind; task: string }>(
+        'SELECT kind, task FROM action_history WHERE id = ?',
+      )
+      .get(id);
+    if (row === undefined) return false;
+    const isOwnTurn = isExactly(TURN_OF[row.kind](row.task));
+    const saysTask = saysPhrase(row.task);
+    forgetTurnsHolding(
+      db,
+      ({ from, text }) =>
+        (from === 'principal' && isMarkerLine(text) && isOwnTurn(text)) ||
+        (saysTask?.(text) ?? false),
+    );
+    db.prepare('DELETE FROM action_history WHERE id = ?').run(id);
+    return true;
+  })();
+  if (erased) db.pragma('wal_checkpoint(TRUNCATE)');
+  return erased;
 };
 
 /**

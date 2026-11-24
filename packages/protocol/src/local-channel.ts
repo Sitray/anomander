@@ -127,6 +127,37 @@ export interface ChatClearHistory {
   id: string;
 }
 
+/** DK-18: the current memories (R-23 AC5), for the window's "Memoria". Answered with `ChatMemories`. */
+export interface ChatMemoriesRequest {
+  type: 'memories';
+  id: string;
+}
+
+/**
+ * DK-18: forgets one memory, after the principal confirmed it in the window, as a confirmed
+ * "olvida" does (R-23 AC6, AC7; DK-16 AC5). Answered with `done`.
+ */
+export interface ChatForgetMemory {
+  type: 'forget_memory';
+  id: string;
+  /** The memory's `id`, as `ChatMemories` gave it. */
+  memoryId: number;
+}
+
+/** DK-18: what ANOMANDER did (DK-14), for the window's "Memoria". Answered with `ChatActions`. */
+export interface ChatActionsRequest {
+  type: 'actions';
+  id: string;
+}
+
+/** DK-18: erases one action of the history for real, after the principal confirmed it. Answered with `done`. */
+export interface ChatForgetAction {
+  type: 'forget_action';
+  id: string;
+  /** The action's `id`, as `ChatActions` gave it. */
+  actionId: number;
+}
+
 /**
  * DK-17: the expenses of one month, for the window's "Gastos" screen. Answered with a
  * `ChatExpenses`. Only reads: nothing is written.
@@ -147,6 +178,10 @@ export type ChatRequest =
   | ChatConnect
   | ChatHistoryRequest
   | ChatClearHistory
+  | ChatMemoriesRequest
+  | ChatForgetMemory
+  | ChatActionsRequest
+  | ChatForgetAction
   | ChatExpensesRequest;
 
 /** DK-16: the most stored messages a `history` request returns. */
@@ -221,6 +256,40 @@ export interface ChatHistory {
   messages: ChatStoredMessage[];
 }
 
+/** DK-18: one current memory (R-23): what the principal said (`declared`) or what was deduced (`inferred`). */
+export interface ChatMemory {
+  id: number;
+  text: string;
+  mode: 'declared' | 'inferred';
+}
+
+/** DK-18: the answer to a `memories` request, in the order they were remembered. */
+export interface ChatMemories {
+  type: 'memories';
+  inReplyTo: string;
+  memories: ChatMemory[];
+}
+
+/** DK-18: one action of the history (DK-14 AC2), without its steps or calls. */
+export interface ChatAction {
+  id: number;
+  what: 'screen' | 'computer' | 'connect';
+  door: 'app' | 'telegram';
+  /** The principal's words: the question about the screen or the task. */
+  task: string;
+  /** How it ended, as a code word. */
+  outcome: string;
+  /** When it ended: ISO 8601, UTC. */
+  at: string;
+}
+
+/** DK-18: the answer to an `actions` request, the latest first. */
+export interface ChatActions {
+  type: 'actions';
+  inReplyTo: string;
+  actions: ChatAction[];
+}
+
 /** The epistemic mode of an expense, as the `gastos` view gives it (`modo`, principle 2). */
 export const EXPENSE_MODES = ['declared', 'inferred', 'corroborated', 'confirmed'] as const;
 export type ExpenseMode = (typeof EXPENSE_MODES)[number];
@@ -264,4 +333,11 @@ export interface ChatExpenses {
   pending: { count: number; totalCents: number };
 }
 
-export type ChatEvent = ChatReply | ChatDone | ChatRejected | ChatHistory | ChatExpenses;
+export type ChatEvent =
+  | ChatReply
+  | ChatDone
+  | ChatRejected
+  | ChatHistory
+  | ChatMemories
+  | ChatActions
+  | ChatExpenses;

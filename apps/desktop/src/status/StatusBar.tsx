@@ -7,6 +7,7 @@ import {
   CloseIcon,
   KeyIcon,
   Mark,
+  MemoryIcon,
   PlugIcon,
   ReceiptIcon,
   SlidersIcon,
@@ -39,6 +40,9 @@ export interface StatusBarProps {
   onToggleConnections: () => void;
   onToggleSubscriptions?: () => void;
   onToggleExpenses?: () => void;
+  /** DK-18: the Memoria screen; without the handler the header does not offer it. */
+  memoryOpen?: boolean;
+  onToggleMemory?: () => void;
   onDismissError: () => void;
 }
 
@@ -130,6 +134,18 @@ export function StatusBar(props: StatusBarProps) {
               onClick={props.onToggleExpenses}
             >
               {expensesOpen ? <ChatIcon /> : <ReceiptIcon />}
+            </button>
+          )}
+          {props.onToggleMemory !== undefined && (
+            <button
+              type="button"
+              className="icon-button"
+              aria-label={props.memoryOpen ? status.closeSetup : status.openMemory}
+              title={props.memoryOpen ? status.closeSetup : status.openMemory}
+              disabled={daemon === null}
+              onClick={props.onToggleMemory}
+            >
+              {props.memoryOpen ? <ChatIcon /> : <MemoryIcon />}
             </button>
           )}
           {props.onToggleSubscriptions !== undefined && (

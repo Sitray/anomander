@@ -64,6 +64,7 @@ local channel is a scripted socket. It is never part of a build. The URL picks t
 | `subscriptions` | `connected`: ChatGPT and Claude are connected; by default none |
 | `history` | `none`: nothing is kept of the conversation; by default four messages, two from Telegram (DK-16) |
 | `expenses` | `none`: no expense in any month; `fail`: the daemon cannot read them; by default four expenses a month, one of each mode, and two pending (DK-17) |
+| `memory` | `none`: nothing remembered or done; `failing`: the daemon cannot read or forget them; by default three memories and three actions (DK-18) |
 
 The scripted daemon answers by what is typed: `mercadona` asks a Sí/No question, `rechaza` is
 rejected, `corta` loses the connection, `lento` never answers, `largo` answers at length and
@@ -120,6 +121,10 @@ is framework-free, so it is tested against a fake `WebSocket` (`test/fake-web-so
 - **The expenses** are read, never written (DK-17): the Gastos screen opens its own connection to
   the local channel, asks for a month (`expenses`) and shows what the daemon read from its views,
   with each expense's mode. It keeps nothing once closed.
+- **Memoria** (DK-18) opens its own connection to the channel and asks for `memories` and
+  `actions` each time it opens. "Olvidar" asks first and sends `forget_memory` or
+  `forget_action`; the daemon also erases the turns of the stored conversation that say it, so
+  the chat then asks for it again. Nothing of either list is kept by the window.
 - **A reply is plain text** (DK-4 AC1): shown exactly as received, line breaks kept, never HTML
   or Markdown.
 - **Delivery honesty.** A `rejected` request did nothing: the window says it was not sent and
