@@ -1,6 +1,7 @@
 // DK-4: binds the chat client to React. It owns the connection for as long as the chat is on
 // screen and turns what the client reports into the conversation.
 
+import { strings as replies } from '@anomander/protocol';
 import { useCallback, useEffect, useReducer, useRef, useState } from 'react';
 import type { LocalChannel } from '../shell.ts';
 import { strings } from '../strings.ts';
@@ -11,6 +12,7 @@ import {
   type BotMessage,
   type Conversation,
   emptyConversation,
+  isReplaceable,
   type OwnMessage,
   type Route,
   reduceConversation,
@@ -113,6 +115,10 @@ export const useChat = (channel: LocalChannel | null, options: ChatOptions = {})
   latest.current = options;
   /** The plain texts whose answer has not arrived: only theirs may carry a route (DK-13). */
   const texts = useRef(new Set<string>());
+  /** The presses whose answer has not arrived: a forget is answered to one (B48). */
+  const presses = useRef(new Set<string>());
+  /** B48: asks for the stored conversation again, to show it instead of what is shown. */
+  const [reload, setReload] = useState(0);
   const [running, setRunning] = useState(false);
   /** The task on the computer (DK-10); it reads the options and the client as they are now. */
   const [session] = useState(
@@ -159,6 +165,11 @@ export const useChat = (channel: LocalChannel | null, options: ChatOptions = {})
       onOutcome: (requestId, outcome) => {
         // DK-13: a route is followed only in the answer to a plain text.
         const plain = texts.current.delete(requestId);
+        // B48: a forget confirmed here erased the stored conversation; the window follows it.
+        const pressed = presses.current.delete(requestId);
+        if (pressed && outcome.type === 'reply' && forgets(outcome.reply.text)) {
+          setReload((count) => count + 1);
+        }
         const step = session.answer(requestId, outcome);
         // A step on the way to the next one is not an answer to notify.
         if (step === 'routine') return;
@@ -231,6 +242,7 @@ export const useChat = (channel: LocalChannel | null, options: ChatOptions = {})
   const press = useCallback((message: BotMessage, data: string) => {
     const requestId =
       client.current?.send({ type: 'button', data, channelRef: message.channelRef }) ?? null;
+    if (requestId !== null) presses.current.add(requestId);
     dispatch({ type: 'pressed', id: message.id, data, requestId });
   }, []);
 
@@ -404,6 +416,28 @@ export const useChat = (channel: LocalChannel | null, options: ChatOptions = {})
     [say],
   );
 
+  // B48: the window is hidden, not closed; shown again, it shows what the daemon keeps now, so a
+  // forget made through Telegram meanwhile is gone from it too.
+  useEffect(() => {
+    const shownAgain = () => {
+      if (document.visibilityState === 'visible') setReload((count) => count + 1);
+    };
+    document.addEventListener('visibilitychange', shownAgain);
+    return () => document.removeEventListener('visibilitychange', shownAgain);
+  }, []);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: runs each time it is asked for.
+  useEffect(() => {
+    if (reload === 0) return;
+    const now = shown.current;
+    // Never over something still on its way, or a task that runs or waits for "Permitir".
+    if (now.connection !== 'open' || !isReplaceable(now)) return;
+    if (session.running || askAgain.current.length > 0) return;
+    const replacing = now.messages;
+    void client.current?.requestHistory().then((messages) => {
+      if (messages !== null) dispatch({ type: 'history', messages, replacing });
+    });
+  }, [reload]);
+
   const clear = useCallback(async () => {
     const outcome = (await client.current?.clearHistory()) ?? 'not_done';
     if (outcome === 'done') dispatch({ type: 'cleared' });
@@ -428,3 +462,7 @@ export const useChat = (channel: LocalChannel | null, options: ChatOptions = {})
 /** Whether the window can start `route` at all: it needs the shell's side of it. */
 const startable = (route: Route, options: ChatOptions): boolean =>
   (route.to === 'computer' ? options.computer : options.look) !== undefined;
+
+/** B48: the answer to a "Sí" that forgot a memory or erased the history, as the daemon says it. */
+const forgets = (text: string): boolean =>
+  text === replies.forgotten() || text === replies.historyForgotten();

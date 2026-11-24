@@ -137,8 +137,12 @@ export type ConversationAction =
   | { type: 'refused'; id: string }
   /** DK-11 AC13: the web search offered by the reply `id` is being added, was, or was not. */
   | { type: 'offer'; id: string; state: Offer['state']; why?: Offer['why'] }
-  /** DK-16: the stored conversation, oldest first; shown only while nothing else is. */
-  | { type: 'history'; messages: ChatStoredMessage[] }
+  /**
+   * DK-16: the stored conversation, oldest first; shown only while nothing else is. With
+   * `replacing`, it replaces the messages asked over, if they are still the ones shown (B48):
+   * only a message not sent stays, after it, since the daemon never had it.
+   */
+  | { type: 'history'; messages: ChatStoredMessage[]; replacing?: Message[] }
   /** DK-16: the daemon erased the stored conversation. */
   | { type: 'cleared' };
 
@@ -357,6 +361,14 @@ export const reduceConversation = (
     case 'refused':
       return answered(action.id, { data: 'refuse', delivery: 'delivered', requestId: null });
     case 'history':
+      if (action.replacing !== undefined) {
+        // Something changed since it was asked: what is shown now may not be in it.
+        if (messages !== action.replacing) return conversation;
+        const notSent = messages.filter(
+          (message) => message.kind === 'own' && message.delivery === 'not_sent',
+        );
+        return { ...conversation, messages: [...action.messages.map(fromStore), ...notSent] };
+      }
       // A daemon that restarted while the window shows the conversation: it is already here.
       if (messages.length > 0) return conversation;
       return { ...conversation, messages: action.messages.map(fromStore) };
@@ -371,4 +383,19 @@ export const isWaiting = (conversation: Conversation): boolean =>
     message.kind === 'own'
       ? message.delivery === 'pending'
       : message.press?.delivery === 'pending' || message.start?.delivery === 'pending',
+  );
+
+/**
+ * B48: whether the stored conversation may replace what is shown: nothing is owed an answer,
+ * waits for "Permitir", is being added, or did not leave and would be lost (a look or a task a
+ * reply started is never armed again from the store).
+ */
+export const isReplaceable = (conversation: Conversation): boolean =>
+  !isWaiting(conversation) &&
+  conversation.messages.every(
+    (message) =>
+      message.kind === 'own' ||
+      ((message.proposal === null || message.press !== null) &&
+        message.offer?.state !== 'adding' &&
+        message.start?.delivery !== 'not_sent'),
   );

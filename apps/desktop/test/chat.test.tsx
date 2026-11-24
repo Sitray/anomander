@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import type { ChatStoredMessage } from '@anomander/protocol';
+import { type ChatStoredMessage, strings as replies } from '@anomander/protocol';
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ChatScreen } from '../src/chat/ChatScreen.tsx';
@@ -1797,6 +1797,151 @@ describe('the stored conversation (DK-16)', () => {
     });
     act(() => socket.receive(replyTo(socket.lastRequest.id, { text: S19 })));
     expect(screen.getByText(S19)).toBeTruthy();
+  });
+
+  describe('after a forget (B48)', () => {
+    const QUESTION = stored({
+      id: 5,
+      from: 'anomander',
+      text: '¿Olvido esto?\n· Vivo en Madrid',
+      buttons: [
+        { label: 'Sí', data: 'decision:9:yes' },
+        { label: 'No', data: 'decision:9:no' },
+      ],
+      channelRef: 'desktop:stored-5',
+    });
+    /** What the daemon keeps once the forget erased the conversation: the press and its answer. */
+    const afterForget = (answer: string): ChatStoredMessage[] => [
+      stored({ id: 6, text: '[botón: Sí]' }),
+      stored({ id: 7, from: 'anomander', text: answer, channelRef: 'desktop:stored-7' }),
+    ];
+
+    const pressYes = (): void => {
+      const [, question] = screen.getAllByRole('button', { name: 'Sí' });
+      if (question === undefined) throw new Error('no Sí on the question');
+      fireEvent.click(question);
+    };
+    /** The chat showing the stored conversation, and a question to forget a memory last. */
+    const shownWithQuestion = async (): Promise<FakeWebSocket> => {
+      FakeWebSocket.history = [...STORED, QUESTION];
+      const socket = openChat();
+      await waitFor(() => expect(shownTexts()).toHaveLength(5));
+      return socket;
+    };
+
+    it.each([
+      ['a memory', replies.forgotten()],
+      ['the history', replies.historyForgotten()],
+    ])(
+      'shows the stored conversation again once a forget of %s pressed here is answered',
+      async (_what, answer) => {
+        const socket = await shownWithQuestion();
+        pressYes();
+        const press = await sentRequest(socket);
+        FakeWebSocket.history = afterForget(answer);
+        act(() => socket.receive(replyTo(press.id, { text: answer })));
+
+        await waitFor(() => expect(shownTexts()).toEqual(['[botón: Sí]', answer]));
+        expect(screen.queryByText('40 € mercadona')).toBeNull();
+      },
+    );
+
+    it('keeps the conversation as it is when the answer forgot nothing', async () => {
+      const socket = await shownWithQuestion();
+      pressYes();
+      const press = await sentRequest(socket);
+      FakeWebSocket.history = afterForget(replies.notForgotten());
+      act(() => socket.receive(replyTo(press.id, { text: replies.notForgotten() })));
+      await act(async () => {});
+
+      expect(shownTexts()).toEqual([
+        ...STORED.map((message) => message.text),
+        QUESTION.text,
+        replies.notForgotten(),
+      ]);
+    });
+
+    it('keeps a message that was not sent, after the stored conversation', async () => {
+      const socket = await shownWithQuestion();
+      say('23 € cena');
+      const rejected = await sentRequest(socket);
+      act(() => socket.receive({ type: 'rejected', inReplyTo: rejected.id }));
+      pressYes();
+      const press = await sentRequest(socket, 2);
+      FakeWebSocket.history = afterForget(replies.forgotten());
+      act(() => socket.receive(replyTo(press.id, { text: replies.forgotten() })));
+
+      await waitFor(() =>
+        expect(shownTexts()).toEqual(['[botón: Sí]', replies.forgotten(), '23 € cena']),
+      );
+      expect(screen.getByText(strings.chat.notSent)).toBeTruthy();
+    });
+
+    it('drops nothing while a message still waits for its answer', async () => {
+      const socket = await shownWithQuestion();
+      pressYes();
+      const press = await sentRequest(socket);
+      say('23 € cena');
+      await sentRequest(socket, 2);
+      FakeWebSocket.history = afterForget(replies.forgotten());
+      act(() => socket.receive(replyTo(press.id, { text: replies.forgotten() })));
+      await act(async () => {});
+
+      expect(shownTexts()).toEqual([
+        ...STORED.map((message) => message.text),
+        QUESTION.text,
+        '23 € cena',
+        replies.forgotten(),
+      ]);
+    });
+
+    describe('when the window is shown again', () => {
+      let visibility: DocumentVisibilityState = 'visible';
+      beforeEach(() => {
+        visibility = 'visible';
+        Object.defineProperty(document, 'visibilityState', {
+          configurable: true,
+          get: () => visibility,
+        });
+      });
+      afterEach(() => {
+        Reflect.deleteProperty(document, 'visibilityState');
+      });
+      const hideAndShow = async (): Promise<void> => {
+        for (const state of ['hidden', 'visible'] as const) {
+          visibility = state;
+          act(() => {
+            document.dispatchEvent(new Event('visibilitychange'));
+          });
+        }
+        await act(async () => {});
+      };
+
+      it('shows the stored conversation again, so a forget made in Telegram is gone', async () => {
+        await shownWithQuestion();
+        FakeWebSocket.history = afterForget(replies.forgotten()).map((message) => ({
+          ...message,
+          door: 'telegram' as const,
+        }));
+        await hideAndShow();
+
+        await waitFor(() => expect(shownTexts()).toEqual(['[botón: Sí]', replies.forgotten()]));
+      });
+
+      it('drops nothing while a message still waits for its answer', async () => {
+        const socket = await shownWithQuestion();
+        say('23 € cena');
+        await sentRequest(socket);
+        FakeWebSocket.history = [];
+        await hideAndShow();
+
+        expect(shownTexts()).toEqual([
+          ...STORED.map((message) => message.text),
+          QUESTION.text,
+          '23 € cena',
+        ]);
+      });
+    });
   });
 
   describe('Borrar conversación', () => {

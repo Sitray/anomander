@@ -502,7 +502,13 @@ and keep its secrets in the operating system instead of a text file.
     connection is not open, while an answer is owed, or while a task runs or waits for
     "Permitir".
   - AC5: a confirmed "olvida" (R-23 AC6) and a confirmed erase of the action history (DK-14 AC4)
-    also erase the stored conversation.
+    also erase the stored conversation. The window follows it: once the `Sí` pressed in the app
+    is answered ("Hecho, lo he olvidado.", "Hecho, he borrado mi historial."), and each time the
+    window is shown again (closing it only hides it), so one confirmed through Telegram is gone
+    too, the chat asks for the stored conversation and shows it instead of what it showed. Never
+    while an answer is owed, a task runs or waits for "Permitir", or a web search is being added
+    or waits to ask again, and never when something changed meanwhile; a message not sent stays,
+    after it, to be sent again.
   - AC6: a stored message is kept 90 days; the retention job then erases it, next to the 30 days
     of the action history (DK-14 AC3).
   - AC7: the conversation is local: it lives only in the app's database, is never logged, and
