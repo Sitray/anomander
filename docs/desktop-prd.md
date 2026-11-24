@@ -476,7 +476,11 @@ and keep its secrets in the operating system instead of a text file.
     `[botón: …]` line. A text pasted for a login (R-17 AC7) is never kept. What ANOMANDER sends
     unasked is kept only once it was delivered. A text the chat routes to a task with
     connections (DK-13 AC2) is kept once, with its announcement; the task's answer follows as a
-    message of its own.
+    message of its own. Unlike the action history of DK-14, which keeps only the request and how it
+    ended, the stored conversation keeps the reply to a look at the screen, the end of a task on the
+    computer and the final answer of a task with connections (what was read or what the tools
+    answered); the capture itself is never kept (decided by the principal on 2026-11-24: "Dejarlo
+    así").
   - AC2: the text interpreter's recent turns are read from it, with R-16 AC3's bounds unchanged:
     at most the last 10, none older than 30 minutes. A restart within 30 minutes keeps the
     context; lasting facts are the memories of R-23.
