@@ -397,6 +397,14 @@ const es = {
   weeklySummaryOff: () => 'Hecho, ya no te mando el resumen semanal.',
   /** S-78. */
   weeklySummaryWasOff: () => 'No tenía activado el resumen semanal.',
+  /** S-79: the reply to `/exportar`, before its files (R-29 AC3). */
+  exportSent: () =>
+    'Aquí tienes tus datos: gastos, líneas de compra y pendientes de confirmar, en CSV y en JSON.',
+  /** S-80: the export could not be written (R-29 AC3). */
+  exportFailed: () => 'No he podido exportar tus datos. Inténtalo de nuevo en un rato.',
+  /** S-81: `/exportar` in the app (R-29 AC4). */
+  exportOnlyInTelegram: () =>
+    'De momento la exportación solo llega por Telegram: escribe /exportar allí.',
 } as const;
 
 /**
@@ -587,6 +595,11 @@ const en: typeof es = {
   weeklySummaryAlreadyOn: () => 'I already send you a summary of your expenses every week.',
   weeklySummaryOff: () => "Done, I won't send you the weekly summary any more.",
   weeklySummaryWasOff: () => "The weekly summary wasn't on.",
+  exportSent: () =>
+    'Here is your data: expenses, purchase lines and pending confirmations, as CSV and JSON.',
+  exportFailed: () => "I couldn't export your data. Try again in a while.",
+  exportOnlyInTelegram: () =>
+    'For now the export only comes through Telegram: send /exportar there.',
 };
 
 /** Every bot phrase, in the language chosen when it is read. */

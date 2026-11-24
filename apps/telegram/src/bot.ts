@@ -13,7 +13,7 @@ import {
   type Reply,
   strings,
 } from '@anomander/protocol';
-import { type Api, Bot, type Context, GrammyError, type Transformer } from 'grammy';
+import { type Api, Bot, type Context, GrammyError, InputFile, type Transformer } from 'grammy';
 import type { InlineKeyboardMarkup, Message } from 'grammy/types';
 
 export interface TelegramLogger {
@@ -110,28 +110,55 @@ const keyboard = (reply: TelegramReply): { reply_markup: InlineKeyboardMarkup } 
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
+// A message or a document, such as a file of the export (R-29 AC3), is sent again when refused.
+const RETRIED_METHODS = new Set(['sendMessage', 'sendDocument']);
+
 /**
- * Retries `sendMessage` when Telegram answers 429 (after its `retry_after`, up to 30 s) or 5xx. A network
+ * Retries `sendMessage` and `sendDocument` when Telegram answers 429 (after its `retry_after`, up to 30 s) or 5xx. A network
  * error is not retried: the message may have been sent, and a reply must not arrive twice.
  */
 const retryRefusedSends: Transformer = async (prev, method, payload, signal) => {
   for (let attempt = 1; ; attempt++) {
     const result = await prev(method, payload, signal);
     const refused = !result.ok && (result.error_code === 429 || result.error_code >= 500);
-    if (method !== 'sendMessage' || !refused || attempt === SEND_ATTEMPTS) return result;
+    if (!RETRIED_METHODS.has(method) || !refused || attempt === SEND_ATTEMPTS) return result;
     const retryAfter = result.parameters?.retry_after;
     if (retryAfter !== undefined && retryAfter > MAX_RETRY_AFTER_S) return result;
     await sleep(retryAfter === undefined ? RETRY_DELAY_MS * attempt : retryAfter * 1000);
   }
 };
 
-/** Sends a reply, with its buttons, and reports the delivery (R-9 AC2, R-17 AC2). */
-const deliverReply = async (api: Api, chatId: number, reply: TelegramReply): Promise<void> => {
+/** Why a file was not sent, without its path: Telegram's error code, or the file system's. */
+const failureReason = (error: unknown): string | number =>
+  error instanceof GrammyError
+    ? error.error_code
+    : ((error as NodeJS.ErrnoException).code ?? (error instanceof Error ? error.name : 'unknown'));
+
+/**
+ * Sends a reply, with its buttons, and reports the delivery (R-9 AC2, R-17 AC2); then each of its
+ * files as a document, in order (R-29 AC3). The first file Telegram still refuses stops the rest
+ * and sends `filesFailed`, or S-22 without it.
+ */
+const deliverReply = async (
+  api: Api,
+  chatId: number,
+  reply: TelegramReply,
+  logger: TelegramLogger = console,
+): Promise<void> => {
   const sent = await api.sendMessage(chatId, reply.text, keyboard(reply));
   reply.onDelivered?.({
     channelRef: channelRef(sent.message_id),
     deliveredAt: new Date().toISOString(),
   });
+  for (const file of reply.files ?? []) {
+    try {
+      await api.sendDocument(chatId, new InputFile(file.path, file.name));
+    } catch (error) {
+      logger.error('Failed to send a file', { file: file.name, reason: failureReason(error) });
+      await api.sendMessage(chatId, reply.filesFailed ?? failed().text);
+      return;
+    }
+  }
 };
 
 /**
@@ -180,7 +207,8 @@ export const createTelegramBot = (options: TelegramBotOptions): Bot => {
     return new Uint8Array(await response.arrayBuffer());
   };
 
-  const deliver = (chatId: number, reply: TelegramReply) => deliverReply(bot.api, chatId, reply);
+  const deliver = (chatId: number, reply: TelegramReply) =>
+    deliverReply(bot.api, chatId, reply, logger);
 
   const handleReceipt = async (chatId: number, receipt: PrincipalReceipt) => {
     let reply: Reply | null;

@@ -87,8 +87,21 @@ export interface Reply {
    * Only the app shows it; Telegram sends `text` alone.
    */
   offer?: Offer;
+  /**
+   * R-29 AC3: files sent after `text`, as documents, such as the ledger export. Only Telegram
+   * sends them; the daemon never gives them to the app.
+   */
+  files?: ReplyFile[];
+  /** With `files`: sent instead of the rest when a file cannot be sent, such as S-80. */
+  filesFailed?: string;
   /** Called once the front door has sent `text`, to record the delivery. */
   onDelivered?: (delivery: Delivery) => void;
+}
+
+/** A file on the daemon's disk, sent under `name`. */
+export interface ReplyFile {
+  path: string;
+  name: string;
 }
 
 /** A button that opens `url` instead of coming back as a press, such as `Abrir` (R-27 AC2). */

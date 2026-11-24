@@ -189,8 +189,8 @@ by default: `send` sends nothing unless a `send_weekly_summary` permission is in
 which only the principal grants (see the weekly summary capability below).
 
 **Scheduler.** `startScheduler` (`src/scheduler/scheduler.ts`, croner) runs retention, the queue
-and the receipt watch once at startup. After that, it runs retention at `ANOMANDER_RETENTION_CRON`
-and the weekly summary at `ANOMANDER_WEEKLY_SUMMARY_CRON`, both in `TZ`, and the queue and the
+and the receipt watch once at startup. After that, it runs retention at `ANOMANDER_RETENTION_CRON`,
+followed by the daily backup (see "Migrations and backups" below), and the weekly summary at `ANOMANDER_WEEKLY_SUMMARY_CRON`, both in `TZ`, and the queue and the
 receipt watch every minute, so S-13's "lo borro en una hora" holds. The weekly summary never runs
 at startup. The jobs share one serial queue and never overlap. `stop()` waits for the job in
 progress.
@@ -556,7 +556,7 @@ Each message is one JSON text frame, typed in `packages/protocol/src/local-chann
 
 A `reply` carries its own `channelRef`, `desktop:<uuid>`, which is recorded as the delivery
 (R-9 AC2) once the frame left through the socket. The channel only answers: what ANOMANDER
-sends unasked goes to Telegram (DK-4 AC5), and the app sees it in the stored conversation. `/login` and `/logout` are Telegram's alone.
+sends unasked goes to Telegram (DK-4 AC5), and the app sees it in the stored conversation. `/login`, `/logout` and `/exportar` are Telegram's alone (`/exportar` replies S-81 in the app).
 
 Both doors call the same handlers, `chat` in `src/app.ts`, wrapped by `oneTurnAtATime`: inputs
 are handled one after another in the order they arrive, so Telegram and the app share the
@@ -790,7 +790,7 @@ polling, while Telegram is configured.
 **Without Telegram** (`src/telegram-door.ts`) `@anomander/telegram` is never imported: nothing
 polls Telegram or is sent there, `started` resolves once the store is ready and `polling` only at
 `stop`. What only Telegram serves is absent: `/login` and `/logout` (the app logs in from its
-Suscripciones screen), `/mcp`, and the setup guide sent at start. The local channel only answers
+Suscripciones screen), `/mcp`, `/exportar`, and the setup guide sent at start. The local channel only answers
 (DK-4 AC5), so the messages sent unasked have no door: the due reminders, the morning digest and
 the weekly summary are not run (a reminder then goes out late once Telegram is set up), nor is
 the budget queue: a queued receipt stays queued, unread, since its reply could not be told
@@ -810,6 +810,31 @@ it is first copied with `VACUUM INTO` beside its file as
 such files are kept and older ones deleted. A fresh database gets no copy, and a copy that cannot
 be written stops the start with nothing applied. To go back, stop the daemon and put a backup in
 place of the database file, removing its `-wal` and `-shm`.
+
+The daily backup (B5, `src/backup/daily-backup.ts`) runs right after each retention run, so at
+startup and at `ANOMANDER_RETENTION_CRON`: it copies the database the same way as
+`<db>.backup-daily-<yyyymmddThhmmssZ>`, unless a copy stamped on the same UTC day is already
+there, and keeps the seven newest daily copies; the copies taken before migrations are pruned
+apart. It runs in a `finally`, so also when retention failed; after a successful retention the
+copy holds nothing retention erased. What "Borrar conversación" or a confirmed forget erases stays
+in the older daily copies until seven newer ones replace them: seven days when the daemon runs
+every day, longer when it does not (PRD §16). A copy that cannot be written is logged by its error code only, never its path, and is made
+at the next run; the daemon keeps running. The copies sit on the same disk as the database.
+
+**Ledger export.** `exportLedger` (B5, `src/store/export.ts`) writes the read views of RA-1
+(`gastos`, `lineas_de_compra`, `pendientes_de_confirmar`) as one CSV file each (RFC 4180, CRLF,
+a header row even with no rows) and all three in `ledger.json`, into a new
+`<data folder>/exports/<yyyymmddThhmmssZ>/` (`-1`, `-2`, … within the same second). The views are
+read in one transaction; folders get mode 700 and files 600, and a failed write leaves no partial
+folder. A CSV text that starts with `=`, `+`, `-`, `@`, a tab or a carriage return gets a leading
+`'`, so a spreadsheet never runs a merchant or product name read from a receipt as a formula;
+`ledger.json` keeps the text as stored. No processor is called.
+
+`/exportar` (PRD R-29 AC3) in Telegram calls it with the folder of `ANOMANDER_DB_PATH` and
+replies S-79 with the four files in `files`; `@anomander/telegram` sends the text, then each file
+with `sendDocument`. A failed export replies S-80 and logs only the error code. It runs in the
+chat's turn and gets the setup guide while setup is incomplete. In the app `/exportar` replies
+S-81 and writes nothing. Exports stay under `exports/` until deleted by hand.
 
 ## Configuration
 

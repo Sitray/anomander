@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { connect } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -380,6 +380,16 @@ describe('the chat over the local channel', () => {
     const chat = await client(await start());
     expect(reply(await chat.ask({ type: 'text', text: '/start' })).text).toBe('¡Hola!');
     expect(interpreted).toEqual([]);
+  });
+
+  it('R-29 AC4: /exportar in the app gets S-81 and exports nothing', async () => {
+    const chat = await client(await start());
+    expect(reply(await chat.ask({ type: 'text', text: '/exportar' }))).toMatchObject({
+      text: 'De momento la exportación solo llega por Telegram: escribe /exportar allí.',
+    });
+    expect(interpreted).toEqual([]);
+    expect(api.sent).toEqual([]);
+    expect(existsSync(join(scratch, 'exports'))).toBe(false);
   });
 
   it('DK-4 AC2, AC3: a dropped image is a receipt; its question shows its buttons, and a decision answered in the app is closed in Telegram too (S-19)', async () => {

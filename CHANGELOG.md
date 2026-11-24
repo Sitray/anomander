@@ -12,6 +12,8 @@ On `main` since 0.1.0. The interface speaks English or Spanish, and the app runs
 - **Windows**: the same app, built from this repository, with the chat, the setup, connections, subscription login and Telegram. Secrets go to the Windows Credential Manager; the tray icon shows the working wave and the finished drop appears at the top of the screen; an unsigned NSIS installer. A look at the screen and tasks on the computer stay macOS-only (see [`docs/windows-check.md`](docs/windows-check.md)).
 - **Web search by default**: the first setup shows "Búsqueda web" checked, with a note on what leaves the computer.
 - **Web search from the chat**: when a request needs web search and it is missing, the chat offers "Añadir búsqueda web". The button adds the connection, waits for the daemon to restart and sends the same text again. Telegram gets the text alone.
+- **Daily backup**: right after the retention job, the daemon copies the database beside it as `<db>.backup-daily-<stamp>` (mode 600) once a day and keeps the 7 newest, apart from the copies taken before migrations. Erased conversation and memory text stays in the older copies until 7 newer daily copies replace them (PRD §16).
+- **`/exportar`**: in Telegram, sends the ledger (`gastos`, `lineas_de_compra`, `pendientes_de_confirmar`) as CSV files and `ledger.json`, also kept under `exports/` in the data folder. In the app it says the export comes through Telegram for now (PRD R-29).
 
 ### Changed
 
