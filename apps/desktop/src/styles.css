@@ -1440,6 +1440,109 @@ button {
   gap: var(--s2);
 }
 
+/* ---------- Expenses (DK-17) ---------- */
+
+.expenses {
+  display: grid;
+  gap: var(--s3);
+}
+
+/* A table of five columns: the whole screen takes the conversation's measure. */
+.expenses-screen .setup-body > *,
+.expenses-screen .setup-footer > * {
+  max-width: var(--measure);
+}
+
+.setup-body > .expenses {
+  margin-top: var(--s5);
+}
+
+.expenses-month {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+}
+
+.expenses-month h3 {
+  flex: 1;
+  font-size: var(--text-lg);
+  font-weight: 600;
+  text-align: center;
+}
+
+.expenses-month h3::first-letter {
+  text-transform: uppercase;
+}
+
+.expenses-note {
+  color: var(--text-2);
+  font-size: var(--text-sm);
+  line-height: 1.45;
+  text-wrap: pretty;
+}
+
+.expenses .setup-alert {
+  justify-items: start;
+}
+
+.expenses-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--text-md);
+  font-variant-numeric: tabular-nums;
+}
+
+.expenses-table th,
+.expenses-table td {
+  padding: var(--s2) var(--s2);
+  border-bottom: 1px solid var(--line);
+  text-align: start;
+  vertical-align: baseline;
+}
+
+.expenses-table thead th {
+  color: var(--text-2);
+  font-size: var(--text-sm);
+  font-weight: 600;
+}
+
+.expenses-table tfoot th,
+.expenses-table tfoot td {
+  border-bottom: 0;
+  font-weight: 600;
+}
+
+.expenses-table .amount {
+  text-align: end;
+  white-space: nowrap;
+}
+
+.expenses-none,
+.expenses-lines {
+  color: var(--text-3);
+}
+
+.expenses-lines {
+  display: block;
+  font-size: var(--text-sm);
+}
+
+/* Principle 2: what the principal said reads plainly; what was inferred is marked. */
+.mode-tag {
+  display: inline-block;
+  padding: 0 var(--s1);
+  border-radius: var(--radius-s);
+  color: var(--text-2);
+  font-size: var(--text-sm);
+  white-space: nowrap;
+}
+
+.mode-tag[data-mode="inferred"],
+.mode-tag[data-mode="corroborated"] {
+  background: var(--fill);
+  color: var(--accent-ink);
+}
+
 /* ---------- Wider windows ---------- */
 
 @media (min-width: 34rem) {

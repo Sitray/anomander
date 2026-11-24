@@ -701,6 +701,171 @@ describe('the stored conversation (DK-16)', () => {
   });
 });
 
+// DK-17 (docs/desktop-prd.md): the window's "Gastos" screen asks for the expenses of a month; the
+// daemon reads them from the views of RA-1, never the tables, and computes the total itself.
+describe('the expenses of a month (DK-17)', () => {
+  /** Writes an expense straight into the database, as the views see it. */
+  const seed = (
+    expenses: {
+      on: string;
+      cents: number;
+      merchant?: string;
+      category?: string;
+      mode?: string;
+      status?: string;
+      lines?: number;
+    }[],
+  ): number[] => {
+    const db = new Database(join(scratch, 'anomander.db'));
+    const at = '2026-11-20T10:00:00.000Z';
+    try {
+      return expenses.map((expense) => {
+        const document =
+          expense.lines === undefined
+            ? null
+            : db
+                .prepare(
+                  `INSERT INTO documents (kind, received_at, source, status)
+                   VALUES ('receipt', ?, 'telegram:1', 'read')`,
+                )
+                .run(at).lastInsertRowid;
+        const merchant =
+          expense.merchant === undefined
+            ? null
+            : db
+                .prepare("INSERT INTO entities (kind, name, created_at) VALUES ('merchant', ?, ?)")
+                .run(expense.merchant, at).lastInsertRowid;
+        const id = Number(
+          db
+            .prepare(
+              `INSERT INTO expenses (merchant_id, occurred_on, total_cents, category_id, mode,
+                 document_id, status, created_at)
+               VALUES (?, ?, ?, (SELECT id FROM categories WHERE name = ?), ?, ?, ?, ?)`,
+            )
+            .run(
+              merchant,
+              expense.on,
+              expense.cents,
+              expense.category ?? null,
+              expense.mode ?? 'declared',
+              document,
+              expense.status ?? 'current',
+              at,
+            ).lastInsertRowid,
+        );
+        for (let line = 0; line < (expense.lines ?? 0); line += 1) {
+          db.prepare(
+            'INSERT INTO purchase_lines (expense_id, product_name, quantity, amount_cents) VALUES (?, ?, 1, 100)',
+          ).run(id, `LINEA ${line}`);
+        }
+        return id;
+      });
+    } finally {
+      db.close();
+    }
+  };
+
+  it('answers the month asked: its current expenses with their mode, the total computed, pending apart', async () => {
+    const chat = await client(await start());
+    const [cena, ticket, deducido] = seed([
+      { on: '2026-10-02', cents: 2300, category: 'restaurantes' },
+      { on: '2026-10-31', cents: 450, merchant: 'Mercadona', mode: 'corroborated', lines: 2 },
+      {
+        on: '2026-10-15',
+        cents: 300,
+        merchant: 'Café Sol',
+        category: 'restaurantes',
+        mode: 'inferred',
+        lines: 1,
+      },
+      { on: '2026-09-30', cents: 999 },
+      { on: '2026-11-01', cents: 888 },
+      { on: '2026-10-10', cents: 1000, status: 'pending' },
+      { on: '2026-08-10', cents: 500, status: 'pending' },
+      { on: '2026-10-11', cents: 7000, status: 'refuted' },
+    ]);
+
+    expect(await chat.ask({ type: 'expenses', month: '2026-10' })).toEqual({
+      type: 'expenses',
+      inReplyTo: expect.any(String),
+      month: '2026-10',
+      expenses: [
+        {
+          id: cena,
+          date: '2026-10-02',
+          merchant: null,
+          category: 'restaurantes',
+          totalCents: 2300,
+          mode: 'declared',
+          origin: 'text',
+          lines: 0,
+        },
+        {
+          id: deducido,
+          date: '2026-10-15',
+          merchant: 'Café Sol',
+          category: 'restaurantes',
+          totalCents: 300,
+          mode: 'inferred',
+          origin: 'receipt',
+          lines: 1,
+        },
+        {
+          id: ticket,
+          date: '2026-10-31',
+          merchant: 'Mercadona',
+          category: null,
+          totalCents: 450,
+          mode: 'corroborated',
+          origin: 'receipt',
+          lines: 2,
+        },
+      ],
+      totalCents: 3050,
+      // RA-1 AC3: the view counts every pending expense, whatever its month (as R-10 AC2 does).
+      pending: { count: 2, totalCents: 1500 },
+    });
+  });
+
+  it('without a month, answers the current month in TZ', async () => {
+    // 23:30 UTC on 30 November is already 1 December in Madrid.
+    const chat = await client(
+      await start(
+        { ANOMANDER_LOCAL_TOKEN: TOKEN, TZ: 'Europe/Madrid' },
+        { now: () => new Date('2026-11-30T23:30:00.000Z') },
+      ),
+    );
+    seed([
+      { on: '2026-11-30', cents: 100 },
+      { on: '2026-12-01', cents: 250 },
+    ]);
+
+    const answer = await chat.ask({ type: 'expenses' });
+    expect(answer).toMatchObject({ type: 'expenses', month: '2026-12', totalCents: 250 });
+  });
+
+  it('when the views cannot be read, answers S-22 and logs no expense', async () => {
+    const chat = await client(await start());
+    seed([{ on: '2026-11-02', cents: 2300, merchant: 'Casa Pepe' }]);
+    const db = new Database(join(scratch, 'anomander.db'));
+    db.exec('DROP VIEW gastos');
+    db.close();
+
+    expect(reply(await chat.ask({ type: 'expenses', month: '2026-11' })).text).toBe(
+      strings.processingFailed(),
+    );
+    expect(JSON.stringify(logger.error.mock.calls)).not.toContain('Casa Pepe');
+  });
+
+  it('rejects a month that is not YYYY-MM, or fields it does not know', async () => {
+    const chat = await client(await start());
+
+    expect((await chat.ask({ type: 'expenses', month: '2026-13' })).type).toBe('rejected');
+    expect((await chat.ask({ type: 'expenses', month: '2026-1' })).type).toBe('rejected');
+    expect((await chat.ask({ type: 'expenses', all: true })).type).toBe('rejected');
+  });
+});
+
 describe('a text pasted in the app while a Telegram login waits (R-17 AC7, R-27 AC3)', () => {
   it('goes to the login first: answered done, never stored, logged, a recent turn or sent to the model', async () => {
     const pasted = 'http://127.0.0.1:1455/auth/callback?code=zorbpasted&state=s';

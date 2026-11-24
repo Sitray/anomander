@@ -11,6 +11,7 @@
 //   &connections=none|invalid                             (default: two servers)
 //   &subscriptions=none|connected                         (default: none; connected: ChatGPT and Claude)
 //   &history=none                                         nothing kept of the conversation (DK-16)
+//   &expenses=none|fail                                   no expense in any month, or the daemon fails to read them (DK-17)
 //
 // The scripted daemon answers by what is typed: "mercadona" asks a Sí/No question, "rechaza" is
 // rejected, "corta" loses the connection, "lento" never answers, "largo" answers at length,
@@ -19,10 +20,12 @@
 // conversation as the daemon does, starting with some of it, Telegram included (DK-16).
 import {
   type ChatButton,
+  type ChatExpenses,
   type ChatReply,
   type ChatRequest,
   type ChatStoredMessage,
   HISTORY_LIMIT,
+  strings,
 } from '@anomander/protocol';
 import { emit } from '@tauri-apps/api/event';
 import { mockIPC } from '@tauri-apps/api/mocks';
@@ -318,7 +321,10 @@ type Answer =
   | 'never';
 
 /** The requests the daemon answers by what was said; the stored conversation is apart. */
-type Said = Exclude<ChatRequest, { type: 'history' } | { type: 'clear_history' }>;
+type Said = Exclude<
+  ChatRequest,
+  { type: 'history' } | { type: 'clear_history' } | { type: 'expenses' }
+>;
 
 const answerTo = (request: Said): Answer => {
   if (request.type === 'button') {
@@ -367,6 +373,51 @@ const answerTo = (request: Said): Answer => {
     };
   }
   return { text: 'Apuntado: 23,00 € en restaurantes.' };
+};
+
+// DK-17: the expenses of a month, as the daemon reads them from its views: some in this month and
+// the previous one, every mode, and two pending apart.
+const thisMonth = new Date().toISOString().slice(0, 7);
+const expensesOf = (month: string): Omit<ChatExpenses, 'inReplyTo'> => {
+  const shown =
+    params.get('expenses') === 'none' || month < '2026-01'
+      ? []
+      : [
+          { day: '02', merchant: null, category: 'restaurantes', cents: 2300, mode: 'declared' },
+          {
+            day: '05',
+            merchant: 'Mercadona',
+            category: 'supermercado',
+            cents: 4785,
+            mode: 'corroborated',
+            lines: 12,
+          },
+          {
+            day: '11',
+            merchant: 'Café Sol',
+            category: 'restaurantes',
+            cents: 320,
+            mode: 'inferred',
+            lines: 2,
+          },
+          { day: '18', merchant: 'Lidl', category: null, cents: 1599, mode: 'confirmed', lines: 4 },
+        ].map((row, index) => ({
+          id: index + 1,
+          date: `${month}-${row.day}`,
+          merchant: row.merchant,
+          category: row.category,
+          totalCents: row.cents,
+          mode: row.mode as ChatExpenses['expenses'][number]['mode'],
+          origin: row.lines === undefined ? ('text' as const) : ('receipt' as const),
+          lines: row.lines ?? 0,
+        }));
+  return {
+    type: 'expenses',
+    month,
+    expenses: shown,
+    totalCents: shown.reduce((sum, row) => sum + row.totalCents, 0),
+    pending: { count: 2, totalCents: 1500 },
+  };
 };
 
 // DK-16: the stored conversation, from both doors; gone with the page, unlike the daemon's.
@@ -436,6 +487,23 @@ class ScriptedSocket extends FakeWebSocket {
   override send(data: string): void {
     super.send(data);
     const request = JSON.parse(data) as ChatRequest;
+    if (request.type === 'expenses') {
+      setTimeout(() => {
+        if (params.get('expenses') === 'fail') {
+          this.receive({
+            type: 'reply',
+            inReplyTo: request.id,
+            channelRef: `desktop:${crypto.randomUUID()}`,
+            text: strings.processingFailed(),
+            buttons: [],
+            sentAt: new Date().toISOString(),
+          });
+        } else {
+          this.receive({ ...expensesOf(request.month ?? thisMonth), inReplyTo: request.id });
+        }
+      }, 300);
+      return;
+    }
     if (request.type === 'history' || request.type === 'clear_history') {
       setTimeout(() => {
         if (request.type === 'clear_history') {

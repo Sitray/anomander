@@ -47,6 +47,7 @@ import { createReceiptExpenseCycle } from './expenses/receipt-expense.ts';
 import { createTextExpenseHandler } from './expenses/text-expense.ts';
 import {
   type ChatHandlers,
+  type ExpensesLedger,
   type LocalChannel,
   type LocalChannelAddress,
   type StoredConversation,
@@ -62,6 +63,7 @@ import { withRetry } from './processor/retry.ts';
 import { createPiAiScreenReader } from './processor/screen-reader.ts';
 import { createPiAiTextInterpreter } from './processor/text-interpreter.ts';
 import { withTimeout } from './processor/timeout.ts';
+import { readExpensesMonth } from './read-api/month.ts';
 import { type ReadApiAddress, startReadApi } from './read-api/server.ts';
 import { createDueReminders } from './reminders/send-due.ts';
 import { createKeepReceiptAnswerHandler } from './retention/keep-receipt-decision.ts';
@@ -207,6 +209,7 @@ const startChannel = (
   config: Config,
   handlers: ChatHandlers,
   conversation: StoredConversation,
+  expenses: ExpensesLedger,
   logger: Logger,
   now?: () => Date,
 ): LocalChannel | undefined =>
@@ -217,6 +220,7 @@ const startChannel = (
         port: config.localPort,
         handlers,
         conversation,
+        expenses,
         logger,
         ...(now === undefined ? {} : { now }),
       });
@@ -328,6 +332,12 @@ export const startSetupGuide = (config: Config, deps: SetupGuideDeps): Anomander
     {
       messages: () => [],
       clear: () => {
+        throw new Error('the setup guide opens no database');
+      },
+    },
+    // DK-17: nor can expenses be read: the window says it could not load them.
+    {
+      month: () => {
         throw new Error('the setup guide opens no database');
       },
     },
@@ -823,6 +833,8 @@ export const startAnomander = <M>(config: Config, deps: AnomanderDeps<M>): Anoma
       onButton: onButtonAt('app'),
     },
     { messages: (limit) => storedConversation(db, limit), clear: () => clearInTurn(undefined) },
+    // DK-17: the "Gastos" screen, over the views of RA-1.
+    { month: (month) => readExpensesMonth(db, { month, timeZone: config.timeZone, now: now() }) },
     logger,
     now,
   );

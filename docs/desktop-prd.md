@@ -539,6 +539,38 @@ and keep its secrets in the operating system instead of a text file.
   - AC7: the conversation is local: it lives only in the app's database, is never logged, and
     leaves the machine only in the recent turns the text interpreter receives (R-16 AC3). The
     window keeps it in memory only, never in storage.
+- DK-17 Expenses in the window (backlog B21, asked by the principal on 2026-11-24: "empieza con
+  el punto 1 entero"; "Expenses are not visible in the window: a read-only "Gastos" screen over
+  the `gastos` and `pendientes_de_confirmar` views, with the epistemic mode and a way to
+  correct."). Until now the only way to see them was Telegram or `/exportar`.
+  - AC1: "Gastos", in the window's header beside "Conexiones", opens a screen over the chat, read
+    only. It asks the daemon for the expenses of a month (`expenses`, `month` as `YYYY-MM`) and
+    the daemon answers from the views of RA-1 (`docs/read-access-prd.md`), through the read API's
+    own queries (RA-2 AC6), never the tables: one row per current expense of that month, by day
+    and then id, with its date, merchant, category, total, mode, origin and how many purchase
+    lines it has. The month's total is summed by code from those rows. Without a month the
+    daemon answers the current one in `TZ`, and says which it is.
+  - AC2: the screen opens on the current month; "Mes anterior" and "Mes siguiente" move one month
+    at a time, never past the current one. A month with no expense says "No hay gastos apuntados
+    en <mes>."
+  - AC3: each row shows how ANOMANDER knows it (principle 2), from the view's `modo`: "Me lo
+    dijiste" (`declared`), "Lo confirmaste" (`confirmed`), "Deducido y comprobado"
+    (`corroborated`) and "Deducido" (`inferred`), the last two marked apart. The view gives one
+    mode for the whole expense, not field by field: an inferred category of a typed expense
+    (`category_basis`, R-5) is not in it, so it is not shown (assumption, until the view carries
+    it).
+  - AC4: pending expenses are never in the rows or the total. Under them, "N gastos pendientes de
+    confirmar (importe), fuera del total.", from `pendientes_de_confirmar`, which counts every
+    pending expense whatever its month (as R-10 AC2 does); nothing when there is none.
+  - AC5: when the daemon cannot read them the answer is S-22 and the screen says "No se han
+    podido cargar los gastos." with "Reintentar". While ANOMANDER is not running it says
+    "ANOMANDER no está en marcha. Arráncalo para ver tus gastos." and asks nothing; a request
+    lost with its connection is asked again once it reopens, since it only reads. The rows are
+    never logged, by the daemon or the window.
+  - AC6 (pending, after B20): "Corregir" on a row opens the correction of B20 for that expense.
+    Until then no row offers a button.
+  - AC7: it is a table with its headers, read and moved through by keyboard; Escape or "Volver
+    al chat" goes back to the chat.
 
 ## 6. Decisions
 
@@ -577,7 +609,7 @@ the principal to confirm:
 | The token (DK-3 AC2) | `ANOMANDER_LOCAL_TOKEN`, handed over on the daemon's stdin by the app (DK-5 AC2), at least 32 characters of `A-Z a-z 0-9 . _ ~ + -`. Unset: the channel is off and no port opens, as under Docker |
 | The port | `ANOMANDER_LOCAL_PORT`, default `4312`, always on `127.0.0.1`. The app picks a free one at each launch |
 | Presenting the token | As the second WebSocket subprotocol: `new WebSocket(url, ['anomander.v1', token])` |
-| Messages | `ChatRequest` (`text`, `receipt`, `button`, `screen`, `computer`, `connect`, `history`, `clear_history`) and `ChatEvent` (`reply`, `done`, `rejected`, `history`) in `packages/protocol/src/local-channel.ts` |
+| Messages | `ChatRequest` (`text`, `receipt`, `button`, `screen`, `computer`, `connect`, `history`, `clear_history`, `expenses`) and `ChatEvent` (`reply`, `done`, `rejected`, `history`, `expenses`) in `packages/protocol/src/local-channel.ts` |
 | Why the daemon stopped (DK-2 AC3) | Exit code `3`: another daemon runs on the same database. `4`: another process uses the bot. `1`: anything else. `exitCodes` in `packages/protocol` |
 | The single-daemon lock (DK-2 AC1) | `<database>.lock` beside the database, held while the daemon runs and freed by the operating system when it ends, so a crash leaves nothing stale |
 
