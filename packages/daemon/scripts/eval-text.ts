@@ -31,6 +31,18 @@ const caseSchema = z.object({
   pending: z
     .array(z.object({ id: z.int(), text: z.string(), when: z.string().nullable() }))
     .default([]),
+  /** The recent expenses a typed correction may point at (R-7 AC7), newest first. */
+  expenses: z
+    .array(
+      z.object({
+        id: z.int(),
+        total_cents: z.int(),
+        merchant: z.string().nullable(),
+        category: z.string().nullable(),
+        occurred_on: z.string(),
+      }),
+    )
+    .optional(),
   /** One expectation, or several when more than one answer is right. */
   expect: z.union([expectSchema, z.array(expectSchema).min(1)]),
   note: z.string().optional(),
@@ -167,6 +179,7 @@ for (const modelId of modelIds) {
         recent: [],
         memories: item.memories.map((memory) => ({ ...memory, mode: memory.mode as 'declared' })),
         capabilities: { reminders: { now: item.now, weekday, pending: item.pending } },
+        ...(item.expenses === undefined ? {} : { expenses: item.expenses }),
       });
       const envelope = envelopeOf(raw);
       const misses = wants.map((want) => missesOf(want, envelope));
