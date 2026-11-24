@@ -139,8 +139,8 @@ export type ConversationAction =
   | { type: 'offer'; id: string; state: Offer['state']; why?: Offer['why'] }
   /**
    * DK-16: the stored conversation, oldest first; shown only while nothing else is. With
-   * `replacing`, it replaces the messages asked over, if they are still the ones shown (B48):
-   * only a message not sent stays, after it, since the daemon never had it.
+   * `replacing`, it replaces the messages asked over, if they are still the ones shown (B48);
+   * what the store cannot give back stays, after it (`isCarried`).
    */
   | { type: 'history'; messages: ChatStoredMessage[]; replacing?: Message[] }
   /** DK-16: the daemon erased the stored conversation. */
@@ -364,10 +364,8 @@ export const reduceConversation = (
       if (action.replacing !== undefined) {
         // Something changed since it was asked: what is shown now may not be in it.
         if (messages !== action.replacing) return conversation;
-        const notSent = messages.filter(
-          (message) => message.kind === 'own' && message.delivery === 'not_sent',
-        );
-        return { ...conversation, messages: [...action.messages.map(fromStore), ...notSent] };
+        const carried = messages.filter(isCarried);
+        return { ...conversation, messages: [...action.messages.map(fromStore), ...carried] };
       }
       // A daemon that restarted while the window shows the conversation: it is already here.
       if (messages.length > 0) return conversation;
@@ -385,17 +383,32 @@ export const isWaiting = (conversation: Conversation): boolean =>
       : message.press?.delivery === 'pending' || message.start?.delivery === 'pending',
   );
 
+/** Whether `delivery` says the daemon may never have had it. */
+const mayBeMissing = (delivery: Delivery | undefined): boolean =>
+  delivery === 'not_sent' || delivery === 'unknown';
+
+/**
+ * B48: what stays when the stored conversation replaces what is shown, after it: what the daemon
+ * may never have had (a message not sent, or that it cannot know arrived; a press it cannot know
+ * arrived), and what the store never arms again (a look or a task a reply started and that did
+ * not leave or may not have; a web search offered and not added).
+ */
+const isCarried = (message: Message): boolean =>
+  message.kind === 'own'
+    ? mayBeMissing(message.delivery)
+    : message.press?.delivery === 'unknown' ||
+      mayBeMissing(message.start?.delivery) ||
+      message.offer?.state === 'offered' ||
+      message.offer?.state === 'failed';
+
 /**
  * B48: whether the stored conversation may replace what is shown: nothing is owed an answer,
- * waits for "Permitir", is being added, or did not leave and would be lost (a look or a task a
- * reply started is never armed again from the store).
+ * waits for "Permitir", or is being added.
  */
 export const isReplaceable = (conversation: Conversation): boolean =>
   !isWaiting(conversation) &&
   conversation.messages.every(
     (message) =>
       message.kind === 'own' ||
-      ((message.proposal === null || message.press !== null) &&
-        message.offer?.state !== 'adding' &&
-        message.start?.delivery !== 'not_sent'),
+      ((message.proposal === null || message.press !== null) && message.offer?.state !== 'adding'),
   );
