@@ -19,16 +19,21 @@ const SHORTEST_SECRET = 8;
 
 /**
  * `secret` as a line may quote it (B42): as it is, escaped inside a JSON string (a request body),
- * and URL-encoded in an address or in a form, where a space is `+`.
+ * and URL-encoded in an address or in a form, where a space is `+`. A URL holds no lone
+ * surrogate (`encodeURIComponent` throws on one), so its forms encode the secret with each one
+ * replaced by U+FFFD, as `URLSearchParams` does.
  */
-const writtenForms = (secret: string): string[] => [
-  ...new Set([
-    secret,
-    JSON.stringify(secret).slice(1, -1),
-    encodeURIComponent(secret),
-    new URLSearchParams({ s: secret }).toString().slice(2),
-  ]),
-];
+const writtenForms = (secret: string): string[] => {
+  const wellFormed = secret.toWellFormed();
+  return [
+    ...new Set([
+      secret,
+      JSON.stringify(secret).slice(1, -1),
+      encodeURIComponent(wellFormed),
+      new URLSearchParams({ s: wellFormed }).toString().slice(2),
+    ]),
+  ];
+};
 
 /**
  * `text` with every secret of `SHORTEST_SECRET` or more replaced whole, in each of its written

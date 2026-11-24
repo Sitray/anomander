@@ -267,6 +267,17 @@ describe('the secrets the daemon gets after its start', () => {
     );
   });
 
+  it('keeps logging when a secret holds a lone surrogate', () => {
+    const list = createSecretList();
+    list.acquire('oauth', JSON.parse('{"access_token":"abcdefgh\\ud800ijkl"}'));
+    const lines: string[] = [];
+    const sink = { info: (m: string) => lines.push(m), warn: () => {}, error: () => {} };
+    const log = createScrubbingLogger(sink, list.current);
+
+    expect(() => log.info('anomander daemon stopping (SIGTERM)')).not.toThrow();
+    expect(lines).toEqual(['anomander daemon stopping (SIGTERM)']);
+  });
+
   it('include, before the configuration is read, every provider key and every handed value', () => {
     expect(
       secretsBeforeConfig(
