@@ -2,6 +2,7 @@
 // request ids, the requests in flight and the reconnection, and tells its owner what happened to
 // each request. The token lives only in this closure: never in a URL, a log or storage (DK-3 AC3).
 import {
+  CATEGORY_MODES,
   type ChatButtonPress,
   type ChatComputer,
   type ChatEvent,
@@ -128,10 +129,8 @@ const isCount = (value: unknown): value is number => Number.isInteger(value);
 /** DK-17: an expense only as the window can show it. */
 const isExpense = (value: unknown): value is ChatExpense => {
   if (typeof value !== 'object' || value === null) return false;
-  const { id, date, merchant, category, totalCents, mode, origin, lines } = value as Record<
-    string,
-    unknown
-  >;
+  const { id, date, merchant, category, totalCents, mode, categoryMode, origin, lines } =
+    value as Record<string, unknown>;
   return (
     isCount(id) &&
     typeof date === 'string' &&
@@ -139,6 +138,7 @@ const isExpense = (value: unknown): value is ChatExpense => {
     (category === null || typeof category === 'string') &&
     isCount(totalCents) &&
     EXPENSE_MODES.some((known) => known === mode) &&
+    (categoryMode === null || CATEGORY_MODES.some((known) => known === categoryMode)) &&
     (origin === 'text' || origin === 'receipt') &&
     isCount(lines)
   );

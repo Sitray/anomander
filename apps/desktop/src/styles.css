@@ -1537,6 +1537,10 @@ button {
   white-space: nowrap;
 }
 
+.mode-tag.category-mode {
+  margin-inline-start: var(--s1);
+}
+
 .mode-tag[data-mode="inferred"],
 .mode-tag[data-mode="corroborated"] {
   background: var(--fill);

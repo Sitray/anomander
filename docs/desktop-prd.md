@@ -556,9 +556,10 @@ and keep its secrets in the operating system instead of a text file.
   - AC3: each row shows how ANOMANDER knows it (principle 2), from the view's `modo`: "Me lo
     dijiste" (`declared`), "Lo confirmaste" (`confirmed`), "Deducido y comprobado"
     (`corroborated`) and "Deducido" (`inferred`), the last two marked apart. The view gives one
-    mode for the whole expense, not field by field: an inferred category of a typed expense
-    (`category_basis`, R-5) is not in it, so it is not shown (assumption, until the view carries
-    it).
+    mode for the whole expense; how its category was chosen (`expenses.category_basis`, R-5) is
+    read beside it by the daemon, and the category shows "deducida" when the processor inferred
+    it and "por tu regla" when a policy of the principal gave it (R-5 AC1), even on a typed
+    expense the principal declared; nothing when the principal said it or there is no category.
   - AC4: pending expenses are never in the rows or the total. Under them, "N gastos pendientes de
     confirmar (importe), fuera del total.", from `pendientes_de_confirmar`, which counts every
     pending expense whatever its month (as R-10 AC2 does); nothing when there is none.

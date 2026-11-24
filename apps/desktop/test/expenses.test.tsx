@@ -28,6 +28,7 @@ const NOVEMBER: Omit<ChatExpenses, 'inReplyTo'> = {
       category: 'restaurantes',
       totalCents: 2300,
       mode: 'declared',
+      categoryMode: 'inferred',
       origin: 'text',
       lines: 0,
     },
@@ -38,6 +39,7 @@ const NOVEMBER: Omit<ChatExpenses, 'inReplyTo'> = {
       category: 'restaurantes',
       totalCents: 300,
       mode: 'inferred',
+      categoryMode: 'policy',
       origin: 'receipt',
       lines: 3,
     },
@@ -113,9 +115,13 @@ describe('the expenses screen (DK-17)', () => {
     await answer(show() as FakeWebSocket, NOVEMBER);
 
     const [, cena, cafe] = rows();
-    expect(within(cafe as HTMLElement).getByText(text.modes.inferred)).toBeTruthy();
-    expect(within(cena as HTMLElement).getByText(text.modes.declared)).toBeTruthy();
-    expect(within(cena as HTMLElement).queryByText(text.modes.inferred)).toBeNull();
+    const cells = (row: HTMLElement | undefined) => within(row as HTMLElement).getAllByRole('cell');
+    // The expense's own mode, from the view's `modo`.
+    expect(cells(cafe)[4]?.textContent).toBe(text.modes.inferred);
+    expect(cells(cena)[4]?.textContent).toBe(text.modes.declared);
+    // The category's, from `category_basis`: typed, yet its category was inferred.
+    expect(cells(cena)[2]?.textContent).toBe(`restaurantes${text.categoryModes.inferred}`);
+    expect(cells(cafe)[2]?.textContent).toBe(`restaurantes${text.categoryModes.policy}`);
   });
 
   it('moves to the previous month and back, never past the current one', async () => {

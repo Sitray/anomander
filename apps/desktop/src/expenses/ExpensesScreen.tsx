@@ -145,6 +145,11 @@ export function ExpensesTable({ answer, rowAction }: ExpensesTableProps) {
                 </td>
                 <td>
                   {expense.category ?? <span className="expenses-none">{text.noCategory}</span>}
+                  {(expense.categoryMode === 'inferred' || expense.categoryMode === 'policy') && (
+                    <span className="mode-tag category-mode" data-mode={expense.categoryMode}>
+                      {text.categoryModes[expense.categoryMode]}
+                    </span>
+                  )}
                 </td>
                 <td className="amount">{formatAmount(expense.totalCents)}</td>
                 <td>

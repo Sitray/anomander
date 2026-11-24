@@ -712,6 +712,8 @@ describe('the expenses of a month (DK-17)', () => {
       merchant?: string;
       category?: string;
       mode?: string;
+      /** `expenses.category_basis`. */
+      basis?: string;
       status?: string;
       lines?: number;
     }[],
@@ -738,15 +740,16 @@ describe('the expenses of a month (DK-17)', () => {
         const id = Number(
           db
             .prepare(
-              `INSERT INTO expenses (merchant_id, occurred_on, total_cents, category_id, mode,
-                 document_id, status, created_at)
-               VALUES (?, ?, ?, (SELECT id FROM categories WHERE name = ?), ?, ?, ?, ?)`,
+              `INSERT INTO expenses (merchant_id, occurred_on, total_cents, category_id,
+                 category_basis, mode, document_id, status, created_at)
+               VALUES (?, ?, ?, (SELECT id FROM categories WHERE name = ?), ?, ?, ?, ?, ?)`,
             )
             .run(
               merchant,
               expense.on,
               expense.cents,
               expense.category ?? null,
+              expense.basis ?? null,
               expense.mode ?? 'declared',
               document,
               expense.status ?? 'current',
@@ -765,10 +768,11 @@ describe('the expenses of a month (DK-17)', () => {
     }
   };
 
-  it('answers the month asked: its current expenses with their mode, the total computed, pending apart', async () => {
+  it('answers the month asked: its current expenses with their modes, the total computed, pending apart', async () => {
     const chat = await client(await start());
-    const [cena, ticket, deducido] = seed([
-      { on: '2026-10-02', cents: 2300, category: 'restaurantes' },
+    const [cena, ticket, deducido, regla] = seed([
+      // Typed, so declared, but its category was inferred (R-5 AC2).
+      { on: '2026-10-02', cents: 2300, category: 'restaurantes', basis: 'inferred' },
       { on: '2026-10-31', cents: 450, merchant: 'Mercadona', mode: 'corroborated', lines: 2 },
       {
         on: '2026-10-15',
@@ -776,8 +780,10 @@ describe('the expenses of a month (DK-17)', () => {
         merchant: 'Café Sol',
         category: 'restaurantes',
         mode: 'inferred',
+        basis: 'declared',
         lines: 1,
       },
+      { on: '2026-10-20', cents: 1200, category: 'supermercado', basis: 'policy' },
       { on: '2026-09-30', cents: 999 },
       { on: '2026-11-01', cents: 888 },
       { on: '2026-10-10', cents: 1000, status: 'pending' },
@@ -797,6 +803,7 @@ describe('the expenses of a month (DK-17)', () => {
           category: 'restaurantes',
           totalCents: 2300,
           mode: 'declared',
+          categoryMode: 'inferred',
           origin: 'text',
           lines: 0,
         },
@@ -807,8 +814,20 @@ describe('the expenses of a month (DK-17)', () => {
           category: 'restaurantes',
           totalCents: 300,
           mode: 'inferred',
+          categoryMode: 'declared',
           origin: 'receipt',
           lines: 1,
+        },
+        {
+          id: regla,
+          date: '2026-10-20',
+          merchant: null,
+          category: 'supermercado',
+          totalCents: 1200,
+          mode: 'declared',
+          categoryMode: 'policy',
+          origin: 'text',
+          lines: 0,
         },
         {
           id: ticket,
@@ -817,11 +836,12 @@ describe('the expenses of a month (DK-17)', () => {
           category: null,
           totalCents: 450,
           mode: 'corroborated',
+          categoryMode: null,
           origin: 'receipt',
           lines: 2,
         },
       ],
-      totalCents: 3050,
+      totalCents: 4250,
       // RA-1 AC3: the view counts every pending expense, whatever its month (as R-10 AC2 does).
       pending: { count: 2, totalCents: 1500 },
     });

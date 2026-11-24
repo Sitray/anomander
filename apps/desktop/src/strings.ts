@@ -494,6 +494,8 @@ const es = {
       corroborated: 'Deducido y comprobado',
       inferred: 'Deducido',
     } satisfies Record<ExpenseMode, string>,
+    /** How the category was chosen, beside it; nothing when the principal said it. */
+    categoryModes: { policy: 'por tu regla', inferred: 'deducida' },
     total: 'Total',
     pending: (count: number, amount: string) =>
       count === 1
@@ -936,6 +938,7 @@ const en: Strings = {
       corroborated: 'Inferred and checked',
       inferred: 'Inferred',
     },
+    categoryModes: { policy: 'by your rule', inferred: 'inferred' },
     total: 'Total',
     pending: (count: number, amount: string) =>
       count === 1

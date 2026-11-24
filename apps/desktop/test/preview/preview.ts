@@ -383,11 +383,19 @@ const expensesOf = (month: string): Omit<ChatExpenses, 'inReplyTo'> => {
     params.get('expenses') === 'none' || month < '2026-01'
       ? []
       : [
-          { day: '02', merchant: null, category: 'restaurantes', cents: 2300, mode: 'declared' },
+          {
+            day: '02',
+            merchant: null,
+            category: 'restaurantes',
+            basis: 'inferred',
+            cents: 2300,
+            mode: 'declared',
+          },
           {
             day: '05',
             merchant: 'Mercadona',
             category: 'supermercado',
+            basis: 'policy',
             cents: 4785,
             mode: 'corroborated',
             lines: 12,
@@ -396,11 +404,20 @@ const expensesOf = (month: string): Omit<ChatExpenses, 'inReplyTo'> => {
             day: '11',
             merchant: 'Café Sol',
             category: 'restaurantes',
+            basis: 'inferred',
             cents: 320,
             mode: 'inferred',
             lines: 2,
           },
-          { day: '18', merchant: 'Lidl', category: null, cents: 1599, mode: 'confirmed', lines: 4 },
+          {
+            day: '18',
+            merchant: 'Lidl',
+            category: null,
+            basis: null,
+            cents: 1599,
+            mode: 'confirmed',
+            lines: 4,
+          },
         ].map((row, index) => ({
           id: index + 1,
           date: `${month}-${row.day}`,
@@ -408,6 +425,7 @@ const expensesOf = (month: string): Omit<ChatExpenses, 'inReplyTo'> => {
           category: row.category,
           totalCents: row.cents,
           mode: row.mode as ChatExpenses['expenses'][number]['mode'],
+          categoryMode: row.basis as ChatExpenses['expenses'][number]['categoryMode'],
           origin: row.lines === undefined ? ('text' as const) : ('receipt' as const),
           lines: row.lines ?? 0,
         }));

@@ -225,6 +225,13 @@ export interface ChatHistory {
 export const EXPENSE_MODES = ['declared', 'inferred', 'corroborated', 'confirmed'] as const;
 export type ExpenseMode = (typeof EXPENSE_MODES)[number];
 
+/**
+ * How the category of an expense was chosen (`expenses.category_basis`, R-5): the principal said
+ * it, a policy of theirs gave it, or the processor inferred it.
+ */
+export const CATEGORY_MODES = ['declared', 'policy', 'inferred'] as const;
+export type CategoryMode = (typeof CATEGORY_MODES)[number];
+
 /** DK-17: one row of the `gastos` view (RA-1), with its purchase lines counted. */
 export interface ChatExpense {
   id: number;
@@ -235,6 +242,8 @@ export interface ChatExpense {
   totalCents: number;
   /** `modo`: the view gives it for the whole expense, not field by field. */
   mode: ExpenseMode;
+  /** How its category was chosen; `null` without a category or a recorded basis. */
+  categoryMode: CategoryMode | null;
   /** `origen`: `texto` or `ticket`. */
   origin: 'text' | 'receipt';
   /** Its rows in `lineas_de_compra`: `0` for a typed expense. */
