@@ -47,6 +47,7 @@ import {
   type ChatHandlers,
   type LocalChannel,
   type LocalChannelAddress,
+  type StoredConversation,
   startLocalChannel,
 } from './local-channel/server.ts';
 import { createPatternOffers } from './patterns/pattern-offers.ts';
@@ -66,6 +67,7 @@ import { createRetention } from './retention/retention-job.ts';
 import { groundedRoutes } from './routing/grounded-route.ts';
 import { startScheduler } from './scheduler/scheduler.ts';
 import { cachedSetupGaps, describeGap, type SetupGap, setupGuide } from './setup/setup-guide.ts';
+import { storedConversation } from './store/conversation.ts';
 import { acquireDaemonLock } from './store/daemon-lock.ts';
 import { applyMigrations, openDatabase } from './store/database.ts';
 import { type ActionRecord, recordAction } from './store/history.ts';
@@ -201,6 +203,7 @@ const settlesWithin = async (work: Promise<unknown>, ms: number): Promise<boolea
 const startChannel = (
   config: Config,
   handlers: ChatHandlers,
+  conversation: StoredConversation,
   logger: Logger,
   now?: () => Date,
 ): LocalChannel | undefined =>
@@ -210,6 +213,7 @@ const startChannel = (
         token: config.localToken,
         port: config.localPort,
         handlers,
+        conversation,
         logger,
         ...(now === undefined ? {} : { now }),
       });
@@ -313,6 +317,13 @@ export const startSetupGuide = (config: Config, deps: SetupGuideDeps): Anomander
       onComputer: async () => guide,
       onConnect: async () => guide,
     },
+    // No store runs here: the app's chat starts empty, and an erase cannot be done yet.
+    {
+      messages: () => [],
+      clear: () => {
+        throw new Error('the setup guide opens no database');
+      },
+    },
     logger,
   );
 
@@ -381,8 +392,9 @@ export const startAnomander = <M>(config: Config, deps: AnomanderDeps<M>): Anoma
   const ai = budgeted(timed, budget);
 
   const phraser = createPiAiReplyPhraser({ complete: ai, model, logger });
-  // R-16 AC3: every exchange with the principal is a recent turn, kept only in memory.
-  const turns = createRecentTurns({ now });
+  // R-16 AC3, DK-16: every exchange with the principal is a recent turn, kept in the stored
+  // conversation, which survives a restart; the interpreter reads only the latest ones.
+  const turns = createRecentTurns({ db, now, logger });
   // R-13 AC2: S-12 goes out unasked through `notify`, which needs the bot, while the bot needs the
   // handlers that offer it; it is bound below, before the bot starts polling.
   let notify: Notify = async () => {
@@ -440,7 +452,7 @@ export const startAnomander = <M>(config: Config, deps: AnomanderDeps<M>): Anoma
     answers: {
       ...createDecisionAnswers({ phraser, logger, patterns }),
       keep_receipt: createKeepReceiptAnswerHandler({ timeZone: config.timeZone }),
-      // R-16 AC3: a confirmed forget empties the recent turns.
+      // R-16 AC3, DK-16: a confirmed forget erases the stored conversation and so the turns.
       forget_memory: createForgetMemoryAnswerHandler({ clearRecentTurns: turns.clear }),
       // DK-14 AC4: "Sí" erases the history of what ANOMANDER did.
       forget_history: createForgetHistoryAnswerHandler({ clearRecentTurns: turns.clear }),
@@ -482,16 +494,21 @@ export const startAnomander = <M>(config: Config, deps: AnomanderDeps<M>): Anoma
     turns,
     (message) => message.text,
     groundedRoutes(onText, logger),
+    (message) => doorOf(message.channelRef),
   );
-  const recordedButton = recordingTurns(
-    turns,
-    (press) => buttonTurn(pressedOption(db, press.data)),
-    onButton,
-  );
+  // A press is kept at the door it was made at: a stored Telegram reply can be pressed in the app.
+  const recordedButton = (door: Door) =>
+    recordingTurns(
+      turns,
+      (press: ButtonPress) => buttonTurn(pressedOption(db, press.data)),
+      onButton,
+      () => door,
+    );
   const recordedReceipt = recordingTurns(
     turns,
     (receipt) => receiptTurn(receipt.caption),
     receipts.onReceipt,
+    (receipt) => doorOf(receipt.channelRef),
   );
 
   // DK-14 AC2: each action is kept once it ended. A failure to keep it never changes the reply,
@@ -542,6 +559,7 @@ export const startAnomander = <M>(config: Config, deps: AnomanderDeps<M>): Anoma
           return { text: strings.screenNotSeen() };
       }
     },
+    () => 'app',
   );
 
   // DK-10: the next step of a task on the computer. The budgeted call, as a look at the screen.
@@ -577,8 +595,7 @@ export const startAnomander = <M>(config: Config, deps: AnomanderDeps<M>): Anoma
         return { text: plan.text, computer: plan.action, confirm: plan.confirm };
       case 'end':
         // R-16 AC3: how the task ended is a recent turn; its steps are not.
-        turns.add(computerTurn(request.task), plan.text);
-        return { text: plan.text };
+        return turns.add(computerTurn(request.task), { text: plan.text }, 'app');
       case 'budget_exhausted':
         return { text: strings.textLimitReached() };
       case 'provider_limit':
@@ -645,7 +662,7 @@ export const startAnomander = <M>(config: Config, deps: AnomanderDeps<M>): Anoma
   const onButtonAt = (door: Door) => {
     const pressed = guided(async (press: ButtonPress) => {
       const answer = connectionSession.answer(press.data, door);
-      return answer === undefined ? recordedButton(press) : answer;
+      return answer === undefined ? recordedButton(door)(press) : answer;
     });
     return async (press: ButtonPress) => settled(await pressed(press));
   };
@@ -680,8 +697,8 @@ export const startAnomander = <M>(config: Config, deps: AnomanderDeps<M>): Anoma
     config.telegram,
     {
       // R-17 AC7: `/login`, `/logout`, their buttons and the text a running login waits for come
-      // before every other route. They never reach the processor and are never recent turns. A
-      // login is made in Telegram only: its messages go out through the bot.
+      // before every other route. They never reach the processor and are never recent turns, so
+      // never stored (DK-16). A login is made in Telegram only: its messages go out through the bot.
       onText: async (message) => {
         const handled = await login?.handleText(message);
         if (handled !== undefined) return handled.reply;
@@ -750,7 +767,14 @@ export const startAnomander = <M>(config: Config, deps: AnomanderDeps<M>): Anoma
           logger,
         });
 
-  const localChannel = startChannel(config, { ...chat, onButton: onButtonAt('app') }, logger, now);
+  // DK-16: the app shows the stored conversation of both doors and can erase it.
+  const localChannel = startChannel(
+    config,
+    { ...chat, onButton: onButtonAt('app') },
+    { messages: (limit) => storedConversation(db, limit), clear: turns.clear },
+    logger,
+    now,
+  );
 
   telegram.started.then(
     () =>

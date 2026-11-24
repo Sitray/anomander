@@ -4,6 +4,7 @@ import { todayIn } from '@anomander/core';
 import { buttons, decisionButtons, type Notify, strings } from '@anomander/protocol';
 import type Database from 'better-sqlite3';
 import type { Logger } from '../processor/ports.ts';
+import { CONVERSATION_RETENTION_DAYS, forgetConversationBefore } from '../store/conversation.ts';
 import { reopenStaleAwaiting } from '../store/decisions.ts';
 import { forgetActionsEndedBefore } from '../store/history.ts';
 import { finishReading, recordDecisionMessage } from '../store/receipts.ts';
@@ -43,6 +44,8 @@ export interface RetentionResult {
   receiptsAbandoned: number;
   /** R-19 AC6: actions of the history (DK-14) erased for their age. */
   actionsForgotten: number;
+  /** DK-16: messages of the stored conversation erased for their age. */
+  messagesForgotten: number;
 }
 
 export interface Retention {
@@ -164,12 +167,18 @@ export const createRetention = ({
       const receiptsAbandoned = await abandonHalfRead();
       // AC6: kept as long as an inference is (AC1); the text interpreter reads only 7 days.
       const actionsForgotten = forgetActionsEndedBefore(db, new Date(at - 30 * DAY).toISOString());
+      // DK-16: the stored conversation is kept 90 days; the interpreter reads only 30 minutes.
+      const messagesForgotten = forgetConversationBefore(
+        db,
+        new Date(at - CONVERSATION_RETENTION_DAYS * DAY).toISOString(),
+      );
       return {
         inferencesExpired,
         decisionsExpired,
         receiptsDiscarded,
         receiptsAbandoned,
         actionsForgotten,
+        messagesForgotten,
       };
     },
     watchQueuedReceipts: async () => {

@@ -9,7 +9,10 @@ import type { DecisionAnswerHandler } from './types.ts';
 // did. "Sí" erases every action up to the latest one when it was asked; "No" erases nothing.
 
 export interface ForgetHistoryDecisionDeps {
-  /** Empties the recent turns, which also carry the words of what was done (R-16 AC3). */
+  /**
+   * Erases the stored conversation and so the recent turns, which also carry the words of what
+   * was done (R-16 AC3, DK-16).
+   */
   clearRecentTurns: () => void;
 }
 

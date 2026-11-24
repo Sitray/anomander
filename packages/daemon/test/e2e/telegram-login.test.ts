@@ -14,6 +14,7 @@ import type {
   Credential,
   CredentialStore,
 } from '@earendil-works/pi-ai';
+import Database from 'better-sqlite3';
 import { afterEach, beforeEach, describe, expect, it, type Mock, vi } from 'vitest';
 import { type Anomander, startAnomander } from '../../src/app.ts';
 import { createFileCredentialStore } from '../../src/auth/file-credential-store.ts';
@@ -189,6 +190,20 @@ describe('model login from Telegram (R-27)', () => {
     expect(interpreted[0]?.recent).toEqual([]);
     expect(logged()).not.toContain('pasted-code');
     expect(logged()).not.toContain('access-token');
+    // DK-16 S2: nothing of the login is in the stored conversation, the pasted address least of all.
+    const db = new Database(join(scratch, 'anomander.db'), { readonly: true });
+    try {
+      expect(db.prepare('SELECT sender, door, text FROM conversation ORDER BY id').all()).toEqual([
+        { sender: 'principal', door: 'telegram', text: 'hola' },
+        { sender: 'anomander', door: 'telegram', text: chat.text },
+      ]);
+    } finally {
+      db.close();
+    }
+    const path = join(scratch, 'anomander.db');
+    expect([path, `${path}-wal`].some((file) => readFileSync(file).includes('pasted-code'))).toBe(
+      false,
+    );
   });
 
   it('AC2: Kimi Code sends S-63 with the device code and an Abrir link, and needs nothing pasted', async () => {

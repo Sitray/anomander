@@ -348,6 +348,17 @@ describe('conversation memory over Telegram (R-23 AC5, AC6)', () => {
       { status: 'expired' },
     ]);
 
+    // DK-16 S6: the stored conversation is erased for real, S-29 with it; only the press and
+    // S-30, which name no fact, are kept after the erase.
+    expect(query('SELECT sender, text FROM conversation ORDER BY id')).toEqual([
+      { sender: 'principal', text: '[botón: Sí]' },
+      { sender: 'anomander', text: 'Hecho, lo he olvidado.' },
+    ]);
+    const path = join(scratch, 'anomander.db');
+    for (const words of ['olvida que soy vegetariano', 'Es vegetariano']) {
+      expect([path, `${path}-wal`].some((file) => readFileSync(file).includes(words))).toBe(false);
+    }
+
     // The next interpretation sees neither the memory nor the turns that mentioned it.
     await say('¿qué ceno hoy?');
     const next = interpreted.at(-1);

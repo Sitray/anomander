@@ -4,10 +4,13 @@ import type { AddressInfo } from 'node:net';
 import {
   type ButtonPress,
   type ChatEvent,
+  type ChatHistoryRequest,
   type ChatRequest,
+  type ChatStoredMessage,
   type ComputerRequest,
   type ConnectRequest,
   type DoorReply,
+  HISTORY_LIMIT,
   LOCAL_CHANNEL_PROTOCOL,
   MAX_COMPUTER_STEPS,
   type PrincipalText,
@@ -23,7 +26,8 @@ import type { Logger } from '../processor/ports.ts';
 // behind the token the app generated for this launch. Like `apps/telegram`, it decides who may
 // talk and which inputs are supported (R-20); what an input means is the daemon's decision,
 // reached through the same handlers Telegram uses. It only answers: nothing is ever pushed to it
-// unasked (DK-4 AC5). The daemon starts it only while `ANOMANDER_LOCAL_TOKEN` is set.
+// unasked (DK-4 AC5); the app asks for the stored conversation of both doors instead (DK-16).
+// The daemon starts it only while `ANOMANDER_LOCAL_TOKEN` is set.
 
 /** The daemon's handlers, the ones the Telegram front door calls too (DK-4 AC1). */
 export interface ChatHandlers {
@@ -38,12 +42,21 @@ export interface ChatHandlers {
   onConnect: (request: ConnectRequest) => Promise<DoorReply | null>;
 }
 
+/** DK-16: the conversation kept in the local database, from both doors. */
+export interface StoredConversation {
+  /** The latest `limit` messages, oldest first. */
+  messages(limit: number): ChatStoredMessage[];
+  /** Erases it for real, and with it the recent turns. */
+  clear(): void;
+}
+
 export interface LocalChannelDeps {
   /** `ANOMANDER_LOCAL_TOKEN`: never logged (DK-3 AC2). */
   token: string;
   /** `0` lets the system pick a free port, as tests do. */
   port: number;
   handlers: ChatHandlers;
+  conversation: StoredConversation;
   logger: Logger;
   now?: () => Date;
 }
@@ -112,6 +125,9 @@ const requestSchema = z.discriminatedUnion('type', [
     id,
     task: z.string().trim().min(1).max(4096),
   }),
+  // DK-16: a larger limit is capped at `HISTORY_LIMIT`.
+  z.strictObject({ type: z.literal('history'), id, limit: z.int().positive().optional() }),
+  z.strictObject({ type: z.literal('clear_history'), id }),
 ]);
 
 /** The request in a frame, or the `id` it carried when it is not one. */
@@ -145,7 +161,7 @@ const unsupported = (images: ChatRequest & { type: 'receipt' }): string | undefi
 };
 
 export const startLocalChannel = (deps: LocalChannelDeps): LocalChannel => {
-  const { handlers, logger, now = () => new Date() } = deps;
+  const { handlers, conversation, logger, now = () => new Date() } = deps;
   const expected = digest(deps.token);
   // DK-3 AC2: exactly the protocol and then the token, compared in constant time.
   const authorized = (header: string | undefined): boolean => {
@@ -157,7 +173,8 @@ export const startLocalChannel = (deps: LocalChannelDeps): LocalChannel => {
     );
   };
 
-  const answer = (request: ChatRequest): Promise<DoorReply | null> => {
+  /** `history` is answered in `handle`: its answer is not a reply. */
+  const answer = (request: Exclude<ChatRequest, ChatHistoryRequest>): Promise<DoorReply | null> => {
     const channelRef = `desktop:${randomUUID()}`;
     const at = now().toISOString();
     switch (request.type) {
@@ -187,10 +204,9 @@ export const startLocalChannel = (deps: LocalChannelDeps): LocalChannel => {
           channelRef,
           receivedAt: at,
         });
-      // DK-16: not in `requestSchema` yet, so never reached; the conversation-history unit
-      // answers them.
-      case 'history':
+      // DK-16 S5: `done` once it is erased; when it cannot be, the reply says it failed.
       case 'clear_history':
+        conversation.clear();
         return Promise.resolve(null);
       case 'connect':
         return handlers.onConnect({ task: request.task, channelRef, receivedAt: at });
@@ -236,15 +252,24 @@ export const startLocalChannel = (deps: LocalChannelDeps): LocalChannel => {
       await send(socket, { type: 'rejected', inReplyTo: request.rejected });
       return;
     }
-    let reply: DoorReply | null;
+    let answered: DoorReply | ChatStoredMessage[] | null;
     try {
-      reply = await answer(request);
+      // DK-16 S4: the latest messages, oldest first. Their words are never logged.
+      answered =
+        request.type === 'history'
+          ? conversation.messages(Math.min(request.limit ?? HISTORY_LIMIT, HISTORY_LIMIT))
+          : await answer(request);
     } catch (error) {
       logger.error(`The daemon failed to handle a ${request.type} from the local channel`, {
         error,
       });
-      reply = failed();
+      answered = failed();
     }
+    if (Array.isArray(answered)) {
+      await send(socket, { type: 'history', inReplyTo: request.id, messages: answered });
+      return;
+    }
+    const reply = answered;
     if (reply === null) {
       await send(socket, { type: 'done', inReplyTo: request.id });
       return;

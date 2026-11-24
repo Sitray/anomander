@@ -10,6 +10,7 @@ import { createReceiptExpenseCycle } from '../../src/expenses/receipt-expense.ts
 import { verbatimReplies } from '../../src/processor/reply-phraser.ts';
 import { createKeepReceiptAnswerHandler } from '../../src/retention/keep-receipt-decision.ts';
 import { createRetention } from '../../src/retention/retention-job.ts';
+import { recordMessages } from '../../src/store/conversation.ts';
 import { applyMigrations, openDatabase } from '../../src/store/database.ts';
 import { awaitText } from '../../src/store/decisions.ts';
 import { insertAssertion, insertProposal } from '../../src/store/expenses.ts';
@@ -382,6 +383,7 @@ describe('R-19 retention job', () => {
       receiptsDiscarded: 0,
       receiptsAbandoned: 0,
       actionsForgotten: 0,
+      messagesForgotten: 0,
     });
 
     const second = await job.retain();
@@ -391,6 +393,7 @@ describe('R-19 retention job', () => {
       receiptsDiscarded: 0,
       receiptsAbandoned: 0,
       actionsForgotten: 0,
+      messagesForgotten: 0,
     });
     expect(snapshot()).toEqual(after);
     expect(sent).toEqual([]);
@@ -481,5 +484,23 @@ describe('R-19 retention job', () => {
     expect(db.prepare('SELECT ended_at FROM action_history').all()).toEqual([
       { ended_at: ago(29) },
     ]);
+  });
+
+  it('forgets the messages of the conversation sent more than 90 days ago, once (DK-16 S7)', async () => {
+    clock = new Date('2026-12-01T03:00:00.000Z');
+    const message = (at: string) =>
+      recordMessages(db, [
+        { from: 'principal', door: 'telegram', text: 'hola', buttons: [], channelRef: null, at },
+      ]);
+    message(ago(91));
+    message(ago(89));
+
+    const job = retention();
+    const first = await job.retain();
+    const second = await job.retain();
+
+    expect(first.messagesForgotten).toBe(1);
+    expect(second.messagesForgotten).toBe(0);
+    expect(db.prepare('SELECT sent_at FROM conversation').all()).toEqual([{ sent_at: ago(89) }]);
   });
 });
