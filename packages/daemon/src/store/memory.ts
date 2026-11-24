@@ -72,11 +72,35 @@ const SELECT_MEMORY_WHERE = `SELECT a.id, t.text, a.mode
   WHERE`;
 const SELECT_MEMORY = `${SELECT_MEMORY_WHERE} ${CURRENT_MEMORY}`;
 
+/** Lowercase, single-spaced and without accents, so a match ignores all three. */
+const folded = (text: string): string => normalize(text).normalize('NFD').replace(/\p{M}/gu, '');
+
+/**
+ * Whether `text` holds `words` as whole words: no letter or digit right before or after them, so
+ * "sí" is not in "así" nor "23" in "123". Ignores case, spacing and accents. Empty words match
+ * nothing.
+ */
+const saysWords = (words: string): ((text: string) => boolean) => {
+  const wanted = folded(words);
+  if (wanted === '') return () => false;
+  const escaped = wanted.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const pattern = new RegExp(`(?<![\\p{L}\\p{N}])${escaped}(?![\\p{L}\\p{N}])`, 'u');
+  return (text) => pattern.test(folded(text));
+};
+
+/**
+ * A line the daemon wrote for the principal, such as `[botón: Sí]` or `[foto de ticket]`: not
+ * their own words, so a quote is never matched against it.
+ */
+const isMarkerLine = (text: string): boolean => text.startsWith('[');
+
 /**
  * R-23 AC3: erases a replaced memory's text and quote from `memory_texts` and the turns of the
- * stored conversation (R-16 AC3) that hold either, ignoring case and spacing, so its old fact is
- * kept nowhere; the rest of the conversation stays. In the caller's transaction; the caller
- * checkpoints the WAL after it.
+ * stored conversation (R-16 AC3) where the principal said it, so its old fact is kept nowhere: a
+ * principal's message that holds the quote (their own words, never a marker line) or the text,
+ * and a reply that holds the text, each matched as whole words, ignoring case, spacing and
+ * accents; a matched message takes its turn with it. The rest of the conversation stays. In the
+ * caller's transaction; the caller checkpoints the WAL after it.
  */
 const eraseReplacedText = (db: Database.Database, id: number): void => {
   const row = db
@@ -84,9 +108,14 @@ const eraseReplacedText = (db: Database.Database, id: number): void => {
       'SELECT text, quote FROM memory_texts WHERE assertion_id = ?',
     )
     .get(id);
-  const words = row === undefined ? [] : [row.text, row.quote].map(normalize).filter(Boolean);
-  if (words.length > 0) {
-    forgetTurnsHolding(db, (text) => words.some((word) => normalize(text).includes(word)));
+  if (row !== undefined) {
+    const saysQuote = saysWords(row.quote);
+    const saysText = saysWords(row.text);
+    forgetTurnsHolding(
+      db,
+      ({ from, text }) =>
+        saysText(text) || (from === 'principal' && !isMarkerLine(text) && saysQuote(text)),
+    );
   }
   db.prepare('DELETE FROM memory_texts WHERE assertion_id = ?').run(id);
 };

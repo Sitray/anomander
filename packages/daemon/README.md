@@ -246,8 +246,8 @@ that runs is stored before the erase and never after it, the `forget_memory` ans
 (R-23 AC6) and the `forget_history` answer on `Sí` (DK-14 AC4) call it, so the forgotten fact and
 the S-29 question that showed it leave the context and the database. The press itself
 (`[botón: Sí]` and S-30, which names no fact) is then stored as the first turn after the erase. A
-replaced memory erases only the turns that hold its text or quote (`forgetTurnsHolding`, see
-Conversation memory). The retention job erases messages older
+replaced memory erases only the turns where the principal said it, matched as whole words
+(`forgetTurnsHolding`, see Conversation memory). The retention job erases messages older
 than 90 days.
 
 ## Conversation memory (R-23)
@@ -305,9 +305,12 @@ interpreter call as any text, so a spent budget gets S-26 and a failed call S-22
 
 **Forgetting (AC6, AC7).** `forgetMemories` deletes the `memory_texts` rows (the triggers remove
 them from the index) and sets the assertions to `expired`, in one transaction. A replacement
-(`saveMemory` with `replaces`) also erases each turn of the stored conversation that holds the old
-text or quote (ignoring case and spacing), the principal's message and its reply together
-(`forgetTurnsHolding`); the rest of the conversation stays. The erase is real:
+(`saveMemory` with `replaces`) also erases the turns of the stored conversation where the principal
+said it, matched as whole words ignoring case, spacing and accents (so "sí" is not in "así" nor
+"23" in "123"): the old quote in a principal's own message, never a marker line such as
+`[botón: Sí]`, and the old text in any message. A matched message takes its turn, the
+principal's message and its reply, with it (`forgetTurnsHolding`); the rest of the conversation
+stays. The erase is real:
 `openDatabase` turns on `secure_delete`, the index has FTS5 `secure-delete`, and the WAL is
 checkpointed and truncated afterwards, so the text is in neither the database file nor its WAL.
 The test proves it by reading the raw bytes. Never log a memory's text or quote (AC8).

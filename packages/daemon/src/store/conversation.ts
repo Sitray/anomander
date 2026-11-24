@@ -94,7 +94,7 @@ export const forgetConversation = (db: Database.Database): number => {
 };
 
 /**
- * R-23 AC3: erases each turn with a message that `holds` (a replaced memory's text or quote):
+ * R-23 AC3: erases each turn with a message that `holds` (one that said a replaced memory):
  * the message and the one paired with it, the principal's message and the reply it got
  * (`recordMessages` stores them one after the other), so no reply is left without what asked
  * it. Runs in the caller's transaction; the caller checkpoints the WAL after it, as
@@ -102,7 +102,7 @@ export const forgetConversation = (db: Database.Database): number => {
  */
 export const forgetTurnsHolding = (
   db: Database.Database,
-  holds: (text: string) => boolean,
+  holds: (message: Pick<ChatStoredMessage, 'from' | 'text'>) => boolean,
 ): number => {
   const rows = db
     .prepare<[], Pick<Row, 'id' | 'sender' | 'text'>>(
@@ -111,7 +111,7 @@ export const forgetTurnsHolding = (
     .all();
   const erased = new Set<number>();
   rows.forEach((row, index) => {
-    if (!holds(row.text)) return;
+    if (!holds({ from: row.sender, text: row.text })) return;
     erased.add(row.id);
     const paired = row.sender === 'principal' ? rows[index + 1] : rows[index - 1];
     if (

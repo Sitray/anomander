@@ -118,6 +118,39 @@ describe('R-23 AC3: a replaced memory takes the turns that hold its words with i
     expect(onDisk('Zorbtown')).toEqual([]);
     expect(onDisk('zorbtown')).toEqual([]);
   });
+
+  const memo = (text: string, quote: string, replaces: number | null) => ({
+    ...capture(text, quote, replaces),
+    message: quote,
+  });
+  it('a short quote erases only the turn of the old fact', () => {
+    db = openDatabase(path);
+    applyMigrations(db);
+    const turns = createRecentTurns({ db, now: () => AT, logger });
+    turns.add('así que 30 € taxi', { text: 'Apuntado: 30 € en taxi.' }, 'app');
+    turns.add('[botón: Sí]', { text: 'Hecho, lo he olvidado.' }, 'app');
+    turns.add(null, { text: '¿Eres vegetariano?' }, 'telegram');
+    turns.add('sí', { text: 'Tomo nota.' }, 'telegram');
+    const old = saveMemory(db, memo('Es vegetariano', 'sí', null));
+    saveMemory(db, memo('Ya no es vegetariano', 'ya no', old));
+    expect(texts()).toEqual([
+      'así que 30 € taxi',
+      'Apuntado: 30 € en taxi.',
+      '[botón: Sí]',
+      'Hecho, lo he olvidado.',
+      '¿Eres vegetariano?',
+    ]);
+  });
+  it('a numeric quote erases only its turn', () => {
+    db = openDatabase(path);
+    applyMigrations(db);
+    const turns = createRecentTurns({ db, now: () => AT, logger });
+    turns.add('123 € luz', { text: 'Apuntado: 123 € en luz.' }, 'app');
+    turns.add('tengo 23', { text: 'Tomo nota.' }, 'app');
+    const old = saveMemory(db, memo('Tiene 23 años', '23', null));
+    saveMemory(db, memo('Tiene 24 años', '24', old));
+    expect(texts()).toEqual(['123 € luz', 'Apuntado: 123 € en luz.']);
+  });
 });
 
 describe('S7 retention', () => {

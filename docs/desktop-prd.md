@@ -508,8 +508,10 @@ and keep its secrets in the operating system instead of a text file.
   - AC5: a confirmed "olvida" (R-23 AC6) and a confirmed erase of the action history (DK-14 AC4)
     also erase the stored conversation. When an erase fails the question stays open and the reply
     is S-22, so `Sí` can be pressed again. A memory replaced by a new fact (R-23 AC3) erases, the
-    same way, only each turn that holds the old memory's text or quote (ignoring case and
-    spacing), the principal's message and its reply together; the rest of the conversation stays.
+    same way, only the turns where the principal said it, matched as whole words ignoring case,
+    spacing and accents: its quote in a principal's own message (never a line such as
+    `[botón: Sí]`), or its text in any message; the principal's message and its reply go
+    together, and the rest of the conversation stays.
   - AC6: a stored message is kept 90 days; the retention job then erases it, next to the 30 days
     of the action history (DK-14 AC3).
   - AC7: the conversation is local: it lives only in the app's database, is never logged, and
