@@ -312,7 +312,7 @@ and keep its secrets in the operating system instead of a text file.
     then refused, the screen also says the web search was added and stays on, removable in
     Conexiones (not when a server already had the name: nothing was added). Two adds at once (the
     setup, chat presses) save the file once: a later call through the same shell joins the add
-    under way, and one through another shell adds after it, with its own. Unchecked, nothing is added. A complete setup
+    under way, and any other adds after it, with its own. Unchecked, nothing is added. A complete setup
     opened again does not show it: Conexiones does. And when the web search is missing, the
     chat offers it in one press (DK-13 AC5).
   - AC12 (asked on 2026-11-11: "Quiero algo parecido, que tenga como conectores bases que al
@@ -402,8 +402,8 @@ and keep its secrets in the operating system instead of a text file.
     count from the press: an add that has not answered by then says it could not be added, and a
     request whose daemon is not back by then is not asked again: the chat says the daemon did not
     come back. Either way the button can be pressed again, and an answer that comes later is
-    ignored. An add that has not answered in 30 seconds is given up on, so the next press, or the
-    setup, adds again.
+    ignored. An add that has not answered in 30 seconds is given up on; the next press, or the
+    setup, reads and saves only once that add is over, so the server is never saved twice.
 - DK-14 Who the principal is and what ANOMANDER did (asked by the principal on 2026-11-20:
   "También me gustaría que recordara quién soy, que recuerde quien soy y tenga memoria de lo que
   ha hecho"; the proposal "pasarle los recuerdos a todas las rutas, y agregar un historial

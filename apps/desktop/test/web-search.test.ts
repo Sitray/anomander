@@ -109,14 +109,21 @@ describe('addWebSearch', () => {
     expect(other.saveConnection).not.toHaveBeenCalled();
   });
 
-  it('gives up on an add that never answers, so the next call adds again', async () => {
+  it('gives up on an add that never answers; the next call adds once that add is over', async () => {
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
     try {
-      const connections = vi.fn(async () => NO_CONNECTIONS);
-      const saveConnection = vi
-        .fn<(server: ConnectionInput) => Promise<ConnectionsView>>()
-        .mockImplementationOnce(() => new Promise(() => {}))
-        .mockImplementationOnce(async () => NO_CONNECTIONS);
+      let view: ConnectionsView = NO_CONNECTIONS;
+      let finish: () => void = () => {};
+      const connections = vi.fn(async () => view);
+      const saveConnection = vi.fn(
+        (server: ConnectionInput) =>
+          new Promise<ConnectionsView>((resolve) => {
+            finish = () => {
+              view = { servers: [{ ...server, url: '', oauth: false } as never], invalid: null };
+              resolve(view);
+            };
+          }),
+      );
       const shell = { connections, saveConnection };
 
       const hung = addWebSearch(shell);
@@ -126,8 +133,34 @@ describe('addWebSearch', () => {
       await vi.advanceTimersByTimeAsync(1);
       await failed;
 
-      expect(await addWebSearch(shell)).toBe(true);
-      expect(saveConnection).toHaveBeenCalledTimes(2);
+      // The save given up on still runs: a second one would write the same server again.
+      const again = addWebSearch(shell);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(saveConnection).toHaveBeenCalledOnce();
+      finish();
+
+      expect(await again).toBe(false);
+      expect(saveConnection).toHaveBeenCalledOnce();
+      expect(connections).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('gives up on a call that waits on an add that never answers', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    try {
+      const saveConnection = vi.fn(() => new Promise<ConnectionsView>(() => {}));
+      const shell = { connections: vi.fn(async () => NO_CONNECTIONS), saveConnection };
+
+      const hung = addWebSearch(shell).catch((error: Error) => error.message);
+      await vi.advanceTimersByTimeAsync(ADD_LIMIT_MS);
+      expect(await hung).toBe(strings.connections.webSearchTimedOut);
+      const waiting = addWebSearch(shell).catch((error: Error) => error.message);
+      await vi.advanceTimersByTimeAsync(ADD_LIMIT_MS);
+
+      expect(await waiting).toBe(strings.connections.webSearchTimedOut);
+      expect(saveConnection).toHaveBeenCalledOnce();
     } finally {
       vi.useRealTimers();
     }
