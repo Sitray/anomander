@@ -56,6 +56,8 @@ export interface FakeTelegramApi {
   deleted: DeletedMessage[];
   /** The next `count` sendMessage calls fail with `errorCode` and are not recorded in `sent`. */
   refuseNextSends(count: number, errorCode: number): void;
+  /** The next `count` sendDocument calls fail with `errorCode` and are not recorded. */
+  refuseNextDocuments(count: number, errorCode: number): void;
   /** Every `getUpdates` from now on answers 409, as when another process polls the same bot. */
   conflictPolling(): void;
   /** Resolves once at least `count` messages were sent; rejects after `timeoutMs`. */
@@ -87,6 +89,7 @@ export const startFakeTelegramApi = async (): Promise<FakeTelegramApi> => {
   const answeredCallbacks: string[] = [];
   const deleted: DeletedMessage[] = [];
   const refusals = { count: 0, errorCode: 500 };
+  const documentRefusals = { count: 0, errorCode: 500 };
   let pollingConflict = false;
   const onChange = new Set<() => void>();
   const notify = () => {
@@ -214,11 +217,17 @@ export const startFakeTelegramApi = async (): Promise<FakeTelegramApi> => {
       respond(res, 404, { ok: false, error_code: 404, description: 'Not Found' });
       return;
     }
-    if (match[2] === 'sendMessage' && refusals.count > 0) {
-      refusals.count--;
-      respond(res, refusals.errorCode, {
+    const refused =
+      match[2] === 'sendMessage'
+        ? refusals
+        : match[2] === 'sendDocument'
+          ? documentRefusals
+          : undefined;
+    if (refused !== undefined && refused.count > 0) {
+      refused.count--;
+      respond(res, refused.errorCode, {
         ok: false,
-        error_code: refusals.errorCode,
+        error_code: refused.errorCode,
         description: 'Refused by the fake API',
       });
       return;
@@ -257,6 +266,10 @@ export const startFakeTelegramApi = async (): Promise<FakeTelegramApi> => {
     refuseNextSends: (count, errorCode) => {
       refusals.count = count;
       refusals.errorCode = errorCode;
+    },
+    refuseNextDocuments: (count, errorCode) => {
+      documentRefusals.count = count;
+      documentRefusals.errorCode = errorCode;
     },
     conflictPolling: () => {
       pollingConflict = true;

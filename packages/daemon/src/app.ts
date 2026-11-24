@@ -699,6 +699,8 @@ export const startAnomander = <M>(config: Config, deps: AnomanderDeps<M>): Anoma
       return {
         text: strings.exportSent(),
         files: files.map((path) => ({ path, name: basename(path) })),
+        // R-29 AC3: a file Telegram still refuses gets S-80 too.
+        filesFailed: strings.exportFailed(),
       };
     } catch (error) {
       // The error's message names the folder, and the path may name the principal: only its code.

@@ -96,6 +96,19 @@ describe('/exportar over Telegram (R-29 AC3)', () => {
     expect(complete).not.toHaveBeenCalled();
   });
 
+  it('answers S-80 when Telegram keeps refusing a document', async () => {
+    api.refuseNextDocuments(3, 500);
+
+    api.push(updates.text({ chatId: PRINCIPAL }, '/exportar'));
+
+    const sent = await api.waitForSent(2, 5000);
+    expect(sent.map((message) => message.text)).toEqual([
+      'Aquí tienes tus datos: gastos, líneas de compra y pendientes de confirmar, en CSV y en JSON.',
+      'No he podido exportar tus datos. Inténtalo de nuevo en un rato.',
+    ]);
+    expect(api.documents).toEqual([]);
+  });
+
   it('answers S-80 when the export cannot be written, logging no path', async () => {
     // A file where the exports folder goes.
     writeFileSync(join(scratch, 'exports'), '');

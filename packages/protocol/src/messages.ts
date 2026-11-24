@@ -92,6 +92,8 @@ export interface Reply {
    * sends them; the daemon never gives them to the app.
    */
   files?: ReplyFile[];
+  /** With `files`: sent instead of the rest when a file cannot be sent, such as S-80. */
+  filesFailed?: string;
   /** Called once the front door has sent `text`, to record the delivery. */
   onDelivered?: (delivery: Delivery) => void;
 }

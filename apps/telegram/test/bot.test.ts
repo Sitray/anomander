@@ -136,6 +136,59 @@ describe('files (R-29 AC3)', () => {
   });
 });
 
+describe('files that Telegram refuses (R-29 AC3)', () => {
+  const withFiles = async (run: (folder: string) => Promise<void>) => {
+    const folder = mkdtempSync(join(tmpdir(), 'anomander-bot-refused-'));
+    try {
+      writeFileSync(join(folder, 'a.csv'), 'a');
+      writeFileSync(join(folder, 'b.json'), 'b');
+      onText.mockResolvedValueOnce({
+        text: 'Aquí tienes tus datos.',
+        files: [
+          { path: join(folder, 'a.csv'), name: 'gastos.csv' },
+          { path: join(folder, 'b.json'), name: 'ledger.json' },
+        ],
+        filesFailed: 'No he podido exportar tus datos.',
+      });
+      await run(folder);
+    } finally {
+      rmSync(folder, { recursive: true, force: true });
+    }
+  };
+
+  it('sends a document again when Telegram refuses it for a moment', async () => {
+    await withFiles(async () => {
+      api.refuseNextDocuments(1, 500);
+      api.push(updates.text(principal, '/exportar'));
+
+      const documents = await api.waitForDocuments(2, 5000);
+
+      expect(documents.map((document) => document.fileName)).toEqual(['gastos.csv', 'ledger.json']);
+      expect(api.sent.map((message) => message.text)).toEqual(['Aquí tienes tus datos.']);
+    });
+  });
+
+  it('sends filesFailed when a document is still refused, and logs no path', async () => {
+    await withFiles(async (folder) => {
+      api.refuseNextDocuments(3, 500);
+      api.push(updates.text(principal, '/exportar'));
+
+      const sent = await api.waitForSent(2, 5000);
+
+      expect(sent.map((message) => message.text)).toEqual([
+        'Aquí tienes tus datos.',
+        'No he podido exportar tus datos.',
+      ]);
+      expect(api.documents).toEqual([]);
+      expect(logger.error).toHaveBeenCalledWith('Failed to send a file', {
+        file: 'gastos.csv',
+        reason: expect.anything(),
+      });
+      expect(JSON.stringify(logger.error.mock.calls)).not.toContain(folder);
+    });
+  });
+});
+
 describe('R-22 failure reply', () => {
   it('AC1: when the daemon fails, the principal gets S-22 and the error is logged', async () => {
     onText.mockRejectedValueOnce(new Error('store is locked'));
