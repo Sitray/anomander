@@ -318,8 +318,9 @@ and keep its secrets in the operating system instead of a text file.
     already named `Internet` is kept as it is; when the connection cannot be saved the setup is
     not saved either, and the screen says why. When the connection was saved and the setup is
     then refused, the screen also says the web search was added and stays on, removable in
-    Conexiones. Two adds at once (the setup, chat presses) save the file once: a later call joins
-    the add under way. Unchecked, nothing is added. A complete setup
+    Conexiones (not when a server already had the name: nothing was added). Two adds at once (the
+    setup, chat presses) save the file once: a later call through the same shell joins the add
+    under way, and any other adds after it, with its own. Unchecked, nothing is added. A complete setup
     opened again does not show it: Conexiones does. And when the web search is missing, the
     chat offers it in one press (DK-13 AC5).
   - AC12 (asked on 2026-11-11: "Quiero algo parecido, que tenga como conectores bases que al
@@ -404,8 +405,13 @@ and keep its secrets in the operating system instead of a text file.
     daemon that reads it to be back and open, and sends the same text again; while it works the
     button is disabled, and when the connection cannot be saved the chat says so and the button
     stays. When the server was already there the chat says it was already on instead of added,
-    and asks again all the same. A request whose daemon is not back within 60 seconds is not
-    asked again: the chat says the daemon did not come back and the button can be pressed again.
+    and asks again all the same, as soon as the connection is open: pressed while the daemon is
+    still down, it waits for it instead of sending into the channel that is gone. The 60 seconds
+    count from the press: an add that has not answered by then says it could not be added, and a
+    request whose daemon is not back by then is not asked again: the chat says the daemon did not
+    come back. Either way the button can be pressed again, and an answer that comes later is
+    ignored. An add that has not answered in 30 seconds is given up on; the next press, or the
+    setup, reads and saves only once that add is over, so the server is never saved twice.
 - DK-14 Who the principal is and what ANOMANDER did (asked by the principal on 2026-11-20:
   "También me gustaría que recordara quién soy, que recuerde quien soy y tenga memoria de lo que
   ha hecho"; the proposal "pasarle los recuerdos a todas las rutas, y agregar un historial
@@ -518,6 +524,16 @@ and keep its secrets in the operating system instead of a text file.
     spacing and accents: its quote in a principal's own message (never a line such as
     `[botón: Sí]`), or its text in any message; the principal's message and its reply go
     together, and the rest of the conversation stays.
+    The window follows a confirmed forget: once the `Sí` pressed in the app
+    is answered ("Hecho, lo he olvidado.", "Hecho, he borrado mi historial."), and each time the
+    shell shows the window again (closing it only hides it; the shell tells the window, since on
+    Windows the page never learns it was hidden), so one confirmed through Telegram is gone too,
+    the chat asks for the stored conversation and shows it instead of what it showed. Not while an
+    answer is owed, a task runs or waits for "Permitir", or a web search is being added or waits
+    to ask again: it is shown once nothing does any more, and asked again when something changed
+    before it came. What the store cannot give back stays, after it: a message not sent or that
+    it cannot know arrived, a press it cannot know arrived, a look or a task that did not leave or
+    may not have, and a web search offered and not added.
   - AC6: a stored message is kept 90 days; the retention job then erases it, next to the 30 days
     of the action history (DK-14 AC3).
   - AC7: the conversation is local: it lives only in the app's database, is never logged, and

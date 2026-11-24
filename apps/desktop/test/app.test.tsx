@@ -41,6 +41,7 @@ vi.mock('../src/shell.ts', () => ({
     reveal: vi.fn(),
     setTaskRunning: vi.fn(),
     onStopTask: vi.fn(),
+    onChatShown: vi.fn(),
   },
 }));
 
@@ -67,6 +68,7 @@ beforeEach(() => {
   mocked.reveal.mockResolvedValue(undefined);
   mocked.setTaskRunning.mockResolvedValue(undefined);
   mocked.onStopTask.mockResolvedValue(() => {});
+  mocked.onChatShown.mockResolvedValue(() => {});
   mocked.onLoginStep.mockResolvedValue(() => {});
   mocked.connections.mockResolvedValue(NO_CONNECTIONS);
   mocked.saveConnection.mockResolvedValue(NO_CONNECTIONS);
@@ -361,6 +363,38 @@ describe('the setup', () => {
     fireEvent.click(screen.getByRole('button', { name: strings.status.closeSetup }));
 
     expect(screen.getByText('23 € cena')).toBeTruthy();
+  });
+});
+
+describe('the window shown again (B48)', () => {
+  it('shows the stored conversation again each time the shell shows the window', async () => {
+    let shown: () => void = () => {
+      throw new Error('the chat is not listening to the shell');
+    };
+    mocked.onChatShown.mockImplementation(async (handler) => {
+      shown = handler;
+      return unlisten;
+    });
+    FakeWebSocket.history = [
+      {
+        id: 1,
+        from: 'principal',
+        door: 'telegram',
+        text: 'Vivo en Madrid',
+        buttons: [],
+        channelRef: null,
+        at: '2026-11-20T10:00:00.000Z',
+      },
+    ];
+    await open(runningSnapshot());
+    act(() => FakeWebSocket.last.open());
+    expect(await screen.findByText('Vivo en Madrid')).toBeTruthy();
+
+    // Forgotten through Telegram while the window was hidden.
+    FakeWebSocket.history = [];
+    act(() => shown());
+
+    await waitFor(() => expect(screen.queryByText('Vivo en Madrid')).toBeNull());
   });
 });
 

@@ -19,10 +19,11 @@ export interface SetupScreenProps {
   /** DK-15: opens the subscriptions screen, from the models section. */
   onOpenSubscriptions?: () => void;
   /**
-   * DK-11 AC11: adds the web search connection; rejects with the shell's own message. Offered,
-   * checked, on the first setup only.
+   * DK-11 AC11: adds the web search connection; `true` when it was saved, `false` when a server
+   * already had its name. Rejects with the shell's own message. Offered, checked, on the first
+   * setup only.
    */
-  onAddWebSearch?: () => Promise<unknown>;
+  onAddWebSearch?: () => Promise<boolean>;
 }
 
 const { setup: text } = strings;
@@ -193,10 +194,8 @@ function SetupForm(props: FormProps) {
     setSaving(true);
     try {
       // Before the setup: saving it starts the daemon, and saving a connection would restart it.
-      if (offersWebSearch && webSearch) {
-        await onAddWebSearch();
-        setWebSearchKept(true);
-      }
+      // Only a server this save added is said to stay on: one already there was the principal's.
+      if (offersWebSearch && webSearch && (await onAddWebSearch())) setWebSearchKept(true);
       const saved = await onSave(input);
       typedKeys.current.clear();
       onSaved(saved);
