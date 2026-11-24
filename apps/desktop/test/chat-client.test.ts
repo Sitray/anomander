@@ -367,4 +367,17 @@ describe('the stored conversation (DK-16)', () => {
     expect(await lost).toBe('unknown');
     expect(await client.clearHistory()).toBe('not_done');
   });
+
+  it("takes the daemon's failure reply as nothing read and nothing erased, never as an outcome", async () => {
+    // The daemon answers both with `processingFailed` when its database fails (DK-16).
+    const socket = connected();
+    const read = client.requestHistory();
+    socket.receive(reply(socket.lastRequest.id, { text: 'No he podido procesarlo.' }));
+    const erased = client.clearHistory();
+    socket.receive(reply(socket.lastRequest.id, { text: 'No he podido procesarlo.' }));
+
+    expect(await read).toBeNull();
+    expect(await erased).toBe('not_done');
+    expect(outcomes).toEqual([]);
+  });
 });
