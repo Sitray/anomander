@@ -1,0 +1,6 @@
+# The toolchain the shell is built and checked with, here and in CI: the current stable. The
+# oldest compiler it supports is `rust-version` in Cargo.toml, checked by the `msrv` CI job.
+[toolchain]
+channel = "stable"
+components = ["clippy", "rustfmt"]
+profile = "minimal"

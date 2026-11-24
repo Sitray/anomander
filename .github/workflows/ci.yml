@@ -94,6 +94,27 @@ jobs:
       - run: pnpm -r typecheck
       - run: pnpm test
 
+  # The shell still compiles on the oldest compiler it declares: `rust-version` in Cargo.toml,
+  # read from there so the two never drift. rust-toolchain.toml selects stable, so the check names
+  # the toolchain explicitly. macOS, where the shell needs no system libraries.
+  msrv:
+    runs-on: macos-15
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - name: read rust-version
+        id: msrv
+        run: echo "version=$(sed -n 's/^rust-version = "\(.*\)"$/\1/p' apps/desktop/src-tauri/Cargo.toml)" >> "$GITHUB_OUTPUT"
+      - uses: dtolnay/rust-toolchain@df2a88e9fe4098bad09cb42c3dec7187f15861fc # master
+        with:
+          toolchain: ${{ steps.msrv.outputs.version }}
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          workspaces: apps/desktop/src-tauri -> target
+      - name: cargo check on rust-version
+        working-directory: apps/desktop/src-tauri
+        run: cargo +${{ steps.msrv.outputs.version }} check --locked --all-targets
+
   # Smoke build of the Mac app: a debug, unsigned `.app` (no signing identity is configured),
   # so it proves the frontend build and the bundled shell compile, not that the app is
   # distributable.
