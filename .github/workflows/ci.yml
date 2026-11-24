@@ -1,9 +1,11 @@
 name: CI
 
+# Paused: GitHub Actions minutes are not available on the current plan. The same checks run
+# locally before every merge to main with `scripts/ci-local.sh`; it can still be started by hand
+# from the Actions tab. Restore `pull_request` and `push: branches: [main]` once
+# Actions is available again.
 on:
-  pull_request:
-  push:
-    branches: [main]
+  workflow_dispatch:
 
 permissions:
   contents: read
