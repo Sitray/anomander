@@ -302,8 +302,7 @@ and keep its secrets in the operating system instead of a text file.
     2026-11-20). `source_check` asks. The package can turn GitHub cloning off and pin a provider
     only in its `web-search.json`, not by a variable or an argument, so the preset does
     neither; a page fetch asks anyway. The screen says beside the button what leaves the Mac:
-    the package comes with ANOMANDER (the screen's text still says it is downloaded from npm
-    the first time, B9 follow-up); with no key and no `web-search.json`
+    the package comes with ANOMANDER at a fixed version; with no key and no `web-search.json`
     what is searched goes only to Exa's hosted MCP (`mcp.exa.ai`), and another provider or a
     proxy asks first; pages are read from this Mac, after "Permitir"; a
     `~/.pi/agent/web-search.json`, when present, applies its keys, providers and proxy. It needs

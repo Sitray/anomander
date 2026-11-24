@@ -291,7 +291,7 @@ const es = {
     webSearch: 'Búsqueda web',
     webSearchAbout: 'Busca en internet sin usar el ordenador.',
     webSearchNote:
-      'La búsqueda web añade pi-web-access, que se descarga de npm la primera vez. Lo que ANOMANDER busca se envía a Exa (exa.ai), sin cuenta, y busca sin pedirte permiso; para usar otro buscador o un proxy te lo pide antes. Las páginas se leen desde este Mac, siempre después de «Permitir». Si tienes ~/.pi/agent/web-search.json, se usan sus claves, buscadores y proxy.',
+      'La búsqueda web añade pi-web-access, que viene con ANOMANDER en una versión fija. Lo que ANOMANDER busca se envía a Exa (exa.ai), sin cuenta, y busca sin pedirte permiso; para usar otro buscador o un proxy te lo pide antes. Las páginas se leen desde este Mac, siempre después de «Permitir». Si tienes ~/.pi/agent/web-search.json, se usan sus claves, buscadores y proxy.',
     edit: 'Editar',
     editServer: (name: string) => `Editar ${name}`,
     remove: 'Quitar',
@@ -713,7 +713,7 @@ const en: Strings = {
     webSearch: 'Web search',
     webSearchAbout: 'Searches the internet without using the computer.',
     webSearchNote:
-      'Web search adds pi-web-access, which is downloaded from npm the first time. What ANOMANDER searches for is sent to Exa (exa.ai), with no account, and it searches without asking you; to use another search engine or a proxy it asks you first. Pages are read from this Mac, always after “Allow”. If you have ~/.pi/agent/web-search.json, its keys, search engines and proxy are used.',
+      'Web search adds pi-web-access, which comes with ANOMANDER at a fixed version. What ANOMANDER searches for is sent to Exa (exa.ai), with no account, and it searches without asking you; to use another search engine or a proxy it asks you first. Pages are read from this Mac, always after “Allow”. If you have ~/.pi/agent/web-search.json, its keys, search engines and proxy are used.',
     edit: 'Edit',
     editServer: (name: string) => `Edit ${name}`,
     remove: 'Remove',
