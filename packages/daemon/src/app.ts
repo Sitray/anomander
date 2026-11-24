@@ -767,11 +767,13 @@ export const startAnomander = <M>(config: Config, deps: AnomanderDeps<M>): Anoma
           logger,
         });
 
-  // DK-16: the app shows the stored conversation of both doors and can erase it.
+  // DK-16: the app shows the stored conversation of both doors and can erase it. AC4: the erase
+  // waits for the turn that runs, so nothing of that turn is stored after it.
+  const clearInTurn = inTurn(async () => turns.clear());
   const localChannel = startChannel(
     config,
     { ...chat, onButton: onButtonAt('app') },
-    { messages: (limit) => storedConversation(db, limit), clear: turns.clear },
+    { messages: (limit) => storedConversation(db, limit), clear: () => clearInTurn(undefined) },
     logger,
     now,
   );

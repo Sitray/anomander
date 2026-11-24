@@ -66,6 +66,8 @@ let interpreted: {
 }[];
 /** What the text interpreter answers instead of an expense, as its JSON text (DK-13). */
 let routed: string | undefined;
+/** What the text interpreter waits for before it answers. */
+let interpreting: Promise<void>;
 /** The contexts the computer planner received. */
 let plans: Context[];
 /** What the computer planner answers, as the text of its response. */
@@ -110,6 +112,7 @@ const complete = async (_model: string, context: Context): Promise<AssistantMess
   }
   const [turn] = context.messages;
   if (typeof turn?.content === 'string') interpreted.push(JSON.parse(turn.content));
+  await interpreting;
   return routed === undefined ? reply : { ...reply, content: [{ type: 'text', text: routed }] };
 };
 
@@ -252,6 +255,7 @@ beforeEach(async () => {
   sockets = [];
   interpreted = [];
   routed = undefined;
+  interpreting = Promise.resolve();
   screens = [];
   plans = [];
   planned = async () => JSON.stringify(CLICK);
@@ -627,6 +631,26 @@ describe('the stored conversation (DK-16)', () => {
     expect(
       JSON.stringify([logger.info, logger.warn, logger.error].flatMap((log) => log.mock.calls)),
     ).not.toContain(marker);
+  });
+
+  it('B47: clear_history waits for a Telegram turn in progress, and erases it too', async () => {
+    const chat = await client(await start());
+    let release = (): void => {};
+    interpreting = new Promise<void>((resolveHeld) => {
+      release = resolveHeld;
+    });
+    api.push(updates.text({ chatId: PRINCIPAL }, '23 € merienda'));
+    await vi.waitFor(() => expect(interpreted).toHaveLength(1));
+
+    const id = 'clear-in-turn';
+    chat.sendRaw(JSON.stringify({ type: 'clear_history', id }));
+    // Answered outside the turn: once it is, the daemon has the erase too.
+    await chat.ask({ type: 'history' });
+    release();
+    await api.waitForSent(1);
+
+    expect(await chat.answerTo(id)).toEqual({ type: 'done', inReplyTo: id });
+    expect(query('SELECT id FROM conversation')).toEqual([]);
   });
 
   it('when the store cannot be read or erased, answers S-22 and the stored conversation stays', async () => {

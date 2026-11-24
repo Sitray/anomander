@@ -491,7 +491,8 @@ and keep its secrets in the operating system instead of a text file.
     Telegram sigue en Telegram." with "Sí, borrar" and "No borrar". "No borrar" sends nothing.
     "Sí, borrar" sends `clear_history`: the daemon erases the stored conversation and the recent
     turns for real (secure delete, then the WAL checkpoint, as a forget, R-23 AC7) and answers
-    `done`, and the chat empties. When it was not erased the chat keeps its messages and says so;
+    `done`, and the chat empties. The erase waits for a turn of either door that runs, so
+    nothing of that turn is kept after it. When it was not erased the chat keeps its messages and says so;
     when the connection was lost first it says it cannot know. It cannot be pressed while the
     connection is not open, while an answer is owed, or while a task runs or waits for
     "Permitir".

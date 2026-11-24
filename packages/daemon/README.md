@@ -237,7 +237,8 @@ expense's amount must still be written in the current message (R-2 AC6), so a re
 becomes an expense fact.
 
 `clear()` erases the stored conversation for real (`secure_delete`, then a truncating WAL
-checkpoint): the app's `clear_history` ("Borrar conversación") and the `forget_history` answer on `Sí`
+checkpoint): the app's `clear_history` ("Borrar conversación"), run in the chat's turn so a turn
+that runs is stored before the erase and never after it, and the `forget_history` answer on `Sí`
 (DK-14 AC4) call it. A forgotten or replaced memory erases only the turns that hold its text or
 quote (`forgetTurnsHolding`, see Conversation memory). The retention job erases messages older
 than 90 days.
