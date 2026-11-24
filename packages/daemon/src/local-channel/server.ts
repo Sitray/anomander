@@ -187,6 +187,11 @@ export const startLocalChannel = (deps: LocalChannelDeps): LocalChannel => {
           channelRef,
           receivedAt: at,
         });
+      // DK-16: not in `requestSchema` yet, so never reached; the conversation-history unit
+      // answers them.
+      case 'history':
+      case 'clear_history':
+        return Promise.resolve(null);
       case 'connect':
         return handlers.onConnect({ task: request.task, channelRef, receivedAt: at });
       case 'computer':

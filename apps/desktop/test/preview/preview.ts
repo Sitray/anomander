@@ -329,6 +329,7 @@ const answerTo = (request: ChatRequest): Answer => {
   }
   if (request.type === 'screen') return { text: 'Veo una pantalla de un solo color.' };
   if (request.type === 'computer') return { text: 'En esta vista previa no toco nada. Hecho.' };
+  if (request.type === 'history' || request.type === 'clear_history') return 'rejected';
   const text = ('task' in request ? request.task : request.text).toLowerCase();
   if (text.includes('rechaza')) return 'rejected';
   if (text.includes('corta')) return 'drop';

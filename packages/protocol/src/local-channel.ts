@@ -108,13 +108,37 @@ export interface ChatConnect {
   task: string;
 }
 
+/**
+ * DK-16: the stored conversation, oldest first, at most `limit` messages (default and maximum
+ * `HISTORY_LIMIT`). The app asks for it when its chat is empty; answered with a `ChatHistory`.
+ */
+export interface ChatHistoryRequest {
+  type: 'history';
+  id: string;
+  limit?: number;
+}
+
+/**
+ * DK-16: erases the stored conversation and the recent turns, after the principal confirmed it in
+ * the app. Answered with `done`.
+ */
+export interface ChatClearHistory {
+  type: 'clear_history';
+  id: string;
+}
+
 export type ChatRequest =
   | ChatText
   | ChatReceipt
   | ChatButtonPress
   | ChatScreen
   | ChatComputer
-  | ChatConnect;
+  | ChatConnect
+  | ChatHistoryRequest
+  | ChatClearHistory;
+
+/** DK-16: the most stored messages a `history` request returns. */
+export const HISTORY_LIMIT = 500;
 
 /** A button under a reply: it comes back as a `ChatButtonPress`, or opens `url`. */
 export type ChatButton = { label: string; data: string } | { label: string; url: string };
@@ -160,4 +184,29 @@ export interface ChatRejected {
   inReplyTo: string | null;
 }
 
-export type ChatEvent = ChatReply | ChatDone | ChatRejected;
+/**
+ * DK-16: one message of the stored conversation, from either door. No image is stored: a receipt
+ * is its `[foto de ticket]` line, a press its `[botón: …]` line.
+ */
+export interface ChatStoredMessage {
+  /** Ascending, never reused. */
+  id: number;
+  from: 'principal' | 'anomander';
+  door: 'app' | 'telegram';
+  text: string;
+  /** Only on a message from ANOMANDER; `[]` otherwise. */
+  buttons: ChatButton[];
+  /** The reply's own reference, so a press on a stored button still resolves; `null` for the principal. */
+  channelRef: string | null;
+  /** ISO 8601, UTC. */
+  at: string;
+}
+
+/** DK-16: the answer to a `history` request. */
+export interface ChatHistory {
+  type: 'history';
+  inReplyTo: string;
+  messages: ChatStoredMessage[];
+}
+
+export type ChatEvent = ChatReply | ChatDone | ChatRejected | ChatHistory;

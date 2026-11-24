@@ -150,7 +150,7 @@ export const createChatClient = (options: ChatClientOptions): ChatClient => {
     opened.onmessage = (message) => {
       const event = parseEvent(message.data);
       // A `rejected` without an id cannot be one of ours: every request carries its id.
-      if (event === undefined || event.inReplyTo === null) return;
+      if (event === undefined || event.inReplyTo === null || event.type === 'history') return;
       settle(
         event.inReplyTo,
         event.type === 'reply' ? { type: 'reply', reply: event } : { type: event.type },
