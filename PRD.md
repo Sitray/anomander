@@ -918,6 +918,7 @@ Checks every feature document should run:
 
 - One principal per installation; anyone can deploy their own ANOMANDER.
 - Nothing personal in the repository: expenses, categories, policies and permissions live in the local database; tokens and keys live in `.env`.
+- The conversation (desktop PRD DK-16, R-16 AC3) lives only in the local database, for 90 days: one line per message, never an image, a capture or a text pasted for a login. "Borrar conversación", a confirmed forget (R-23 AC6, DK-14 AC4) and the retention job erase it for real (`secure_delete`, then a WAL checkpoint). Its last turns go to the model provider with each message, as R-16 AC3 says.
 - Providers are chosen at install time; the core assumes none.
 - Receipt images leave the server only while being read by the configured vision model, and are deleted afterwards (R-8).
 - The history of what ANOMANDER did (desktop PRD DK-14) lives only in the local database: the words of each task and how it ended, never a capture, a typed text, a tool's arguments or its results. A task with connections gets no remembered fact, since its read-only calls run without asking and go to third-party services (desktop PRD DK-14 AC1, DK-11 AC5; security audit of 2026-11-20).
