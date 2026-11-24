@@ -42,11 +42,18 @@ step "pnpm install --frozen-lockfile"; pnpm install --frozen-lockfile
 step "pnpm biome ci ."; pnpm biome ci .
 step "pnpm -r typecheck"; pnpm -r typecheck
 step "pnpm test"; pnpm test
+step "pnpm audit --audit-level high"; pnpm audit --audit-level high
 
 cd apps/desktop/src-tauri
 step "cargo fmt --check"; cargo fmt --check
 step "cargo clippy --all-targets -- -D warnings"; cargo clippy --all-targets -- -D warnings
 step "cargo test"; cargo test
+# ci.yml installs cargo-audit; here it runs only if it is already installed.
+if command -v cargo-audit >/dev/null 2>&1; then
+  step "cargo audit"; cargo audit
+else
+  echo "skipped: cargo audit (cargo-audit is not installed; the CI audit job runs it)"
+fi
 cd "$root"
 
 if $skip_build; then

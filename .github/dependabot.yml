@@ -1,0 +1,36 @@
+# Weekly update pull requests for the three ecosystems of the repository. Minor and patch updates
+# arrive grouped in one pull request per ecosystem; a major update arrives alone. Run
+# `scripts/ci-local.sh` on each before merging, as for any other change.
+version: 2
+updates:
+  # The pnpm workspace (pnpm-lock.yaml). The cooldown keeps Dependabot behind pnpm's
+  # `minimumReleaseAge` (pnpm-workspace.yaml, one day), which refuses a younger version.
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 2
+    groups:
+      npm-minor-and-patch:
+        update-types: [minor, patch]
+
+  # The desktop shell (apps/desktop/src-tauri/Cargo.lock).
+  - package-ecosystem: cargo
+    directory: /apps/desktop/src-tauri
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 2
+    groups:
+      cargo-minor-and-patch:
+        update-types: [minor, patch]
+
+  # The actions in .github/workflows, pinned by commit SHA with their version in a comment.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      github-actions:
+        patterns: ["*"]
