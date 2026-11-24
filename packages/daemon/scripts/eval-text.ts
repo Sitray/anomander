@@ -181,6 +181,18 @@ for (const modelId of modelIds) {
         capabilities: { reminders: { now: item.now, weekday, pending: item.pending } },
         ...(item.expenses === undefined ? {} : { expenses: item.expenses }),
       });
+      // A provider that refuses (a spent quota, a network error) measures nothing about the
+      // prompt: say so and stop, so it never reads as a wrong answer. The reason is the
+      // provider's, never the message.
+      if (
+        interpretation.kind === 'budget_exhausted' ||
+        (interpretation.kind === 'failed' && interpretation.reason.startsWith('processor '))
+      ) {
+        const reason =
+          interpretation.kind === 'failed' ? interpretation.reason : 'the AI budget is spent';
+        console.error(`\nThe provider failed, so the run stops: ${reason.slice(0, 200)}`);
+        process.exit(1);
+      }
       const envelope = envelopeOf(raw);
       const misses = wants.map((want) => missesOf(want, envelope));
       const best = misses.reduce((a, b) => (b.length < a.length ? b : a));

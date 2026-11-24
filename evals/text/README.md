@@ -14,7 +14,9 @@ pnpm eval:text --runs 1 --file ~/my-cases.json       # another cases file
 
 Each case runs `--runs` times (default 3), with the real provider, so a run costs one processor
 call per case, run and model. A case passes only if every run passes, so an unstable answer
-shows up as a failure. Provider credentials come from the environment, as for the daemon.
+shows up as a failure. Provider credentials come from the environment, as for the daemon. When the provider refuses a call
+(a spent quota, a network error), the run stops with its reason and exit code 1: such a run
+measures nothing about the prompt.
 
 ## Cases
 
