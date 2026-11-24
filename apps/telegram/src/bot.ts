@@ -13,7 +13,7 @@ import {
   type Reply,
   strings,
 } from '@anomander/protocol';
-import { type Api, Bot, type Context, GrammyError, type Transformer } from 'grammy';
+import { type Api, Bot, type Context, GrammyError, InputFile, type Transformer } from 'grammy';
 import type { InlineKeyboardMarkup, Message } from 'grammy/types';
 
 export interface TelegramLogger {
@@ -125,13 +125,19 @@ const retryRefusedSends: Transformer = async (prev, method, payload, signal) => 
   }
 };
 
-/** Sends a reply, with its buttons, and reports the delivery (R-9 AC2, R-17 AC2). */
+/**
+ * Sends a reply, with its buttons, and reports the delivery (R-9 AC2, R-17 AC2); then each of its
+ * files as a document, in order (R-29 AC3).
+ */
 const deliverReply = async (api: Api, chatId: number, reply: TelegramReply): Promise<void> => {
   const sent = await api.sendMessage(chatId, reply.text, keyboard(reply));
   reply.onDelivered?.({
     channelRef: channelRef(sent.message_id),
     deliveredAt: new Date().toISOString(),
   });
+  for (const file of reply.files ?? []) {
+    await api.sendDocument(chatId, new InputFile(file.path, file.name));
+  }
 };
 
 /**

@@ -23,6 +23,15 @@ export interface SentMessage {
   payload: Record<string, unknown>;
 }
 
+/** A `sendDocument` call the bot made, with the file it uploaded. */
+export interface SentDocument {
+  chatId: number;
+  fileName: string;
+  bytes: Uint8Array;
+  /** The `message_id` the fake assigned; it shares the count of `sendMessage`. */
+  messageId: number;
+}
+
 /** A `deleteMessage` call the bot made. */
 export interface DeletedMessage {
   chatId: number;
@@ -39,6 +48,8 @@ export interface FakeTelegramApi {
   /** Serves `bytes` for `file_id` through `getFile` and the file download URL. */
   putFile(fileId: string, bytes: Uint8Array): void;
   sent: SentMessage[];
+  /** Every `sendDocument` call, in order (R-29 AC3). */
+  documents: SentDocument[];
   /** The `callback_query_id` of every `answerCallbackQuery` call, in order. */
   answeredCallbacks: string[];
   /** Every `deleteMessage` call, in order (R-27 AC3). */
@@ -49,6 +60,8 @@ export interface FakeTelegramApi {
   conflictPolling(): void;
   /** Resolves once at least `count` messages were sent; rejects after `timeoutMs`. */
   waitForSent(count: number, timeoutMs?: number): Promise<SentMessage[]>;
+  /** Resolves once at least `count` documents were sent; rejects after `timeoutMs`. */
+  waitForDocuments(count: number, timeoutMs?: number): Promise<SentDocument[]>;
   close(): Promise<void>;
 }
 
@@ -70,6 +83,7 @@ const MAX_HOLD_MS = 1000;
 export const startFakeTelegramApi = async (): Promise<FakeTelegramApi> => {
   const queue: Update[] = [];
   const sent: SentMessage[] = [];
+  const documents: SentDocument[] = [];
   const answeredCallbacks: string[] = [];
   const deleted: DeletedMessage[] = [];
   const refusals = { count: 0, errorCode: 500 };
@@ -82,7 +96,7 @@ export const startFakeTelegramApi = async (): Promise<FakeTelegramApi> => {
   let nextUpdateId = 1;
   let nextMessageId = 1;
 
-  const methods: Record<string, (body: Record<string, unknown>) => Promise<unknown> | unknown> = {
+  const methods: Record<string, (body: Body) => Promise<unknown> | unknown> = {
     getMe: () => BOT_USER,
     deleteWebhook: () => true,
     getUpdates: (body) => getUpdates(body),
@@ -106,6 +120,28 @@ export const startFakeTelegramApi = async (): Promise<FakeTelegramApi> => {
         file_size: bytes.byteLength,
         file_path: `files/${fileId}`,
       };
+    },
+    // grammY uploads a file as multipart: `document` is `attach://<field>`, the file that field.
+    sendDocument: (body) => {
+      const chatId = Number(body.chat_id);
+      const field = /^attach:\/\/(.+)$/.exec(String(body.document))?.[1];
+      const file = field === undefined ? undefined : body[field];
+      if (!(file instanceof UploadedFile)) return undefined;
+      const message = {
+        message_id: nextMessageId++,
+        date: Math.floor(Date.now() / 1000),
+        chat: { id: chatId, type: 'private' },
+        from: BOT_USER,
+        document: { file_id: `document-${nextMessageId}`, file_unique_id: `u${nextMessageId}` },
+      };
+      documents.push({
+        chatId,
+        fileName: file.name,
+        bytes: file.bytes,
+        messageId: message.message_id,
+      });
+      notify();
+      return message;
     },
     sendMessage: (body) => {
       const chatId = Number(body.chat_id);
@@ -173,8 +209,7 @@ export const startFakeTelegramApi = async (): Promise<FakeTelegramApi> => {
     const match = /^\/bot([^/]+)\/([A-Za-z]+)$/.exec(req.url ?? '');
     const chunks: Buffer[] = [];
     for await (const chunk of req) chunks.push(chunk as Buffer);
-    const raw = Buffer.concat(chunks).toString('utf8');
-    const body = (raw === '' ? {} : JSON.parse(raw)) as Record<string, unknown>;
+    const body = await parseBody(Buffer.concat(chunks), req.headers['content-type']);
     if (match?.[1] !== TOKEN) {
       respond(res, 404, { ok: false, error_code: 404, description: 'Not Found' });
       return;
@@ -216,6 +251,7 @@ export const startFakeTelegramApi = async (): Promise<FakeTelegramApi> => {
     apiRoot: `http://127.0.0.1:${port}`,
     token: TOKEN,
     sent,
+    documents,
     answeredCallbacks,
     deleted,
     refuseNextSends: (count, errorCode) => {
@@ -241,12 +277,49 @@ export const startFakeTelegramApi = async (): Promise<FakeTelegramApi> => {
       }
       return sent.slice();
     },
+    waitForDocuments: async (count, timeoutMs = 2000) => {
+      await waitFor(() => documents.length >= count, timeoutMs);
+      if (documents.length < count) {
+        throw new Error(`Expected ${count} sent documents, got ${documents.length}`);
+      }
+      return documents.slice();
+    },
     close: () =>
       new Promise<void>((resolve, reject) => {
         server.close((error) => (error ? reject(error) : resolve()));
         server.closeAllConnections();
       }),
   };
+};
+
+/** A file part of a multipart request. */
+class UploadedFile {
+  readonly name: string;
+  readonly bytes: Uint8Array;
+  constructor(name: string, bytes: Uint8Array) {
+    this.name = name;
+    this.bytes = bytes;
+  }
+}
+
+type Body = Record<string, unknown>;
+
+/** JSON, or multipart when grammY uploads a file: text fields as JSON values or strings. */
+const parseBody = async (raw: Buffer, contentType: string | undefined): Promise<Body> => {
+  if (contentType?.startsWith('multipart/form-data') !== true) {
+    return raw.length === 0 ? {} : (JSON.parse(raw.toString('utf8')) as Body);
+  }
+  const form = await new Response(new Uint8Array(raw), {
+    headers: { 'content-type': contentType },
+  }).formData();
+  const body: Body = {};
+  for (const [key, value] of form) {
+    body[key] =
+      typeof value === 'string'
+        ? value
+        : new UploadedFile(value.name, new Uint8Array(await value.arrayBuffer()));
+  }
+  return body;
 };
 
 const respond = (res: ServerResponse, status: number, body: unknown) => {

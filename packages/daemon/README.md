@@ -542,7 +542,7 @@ Each message is one JSON text frame, typed in `packages/protocol/src/local-chann
 
 A `reply` carries its own `channelRef`, `desktop:<uuid>`, which is recorded as the delivery
 (R-9 AC2) once the frame left through the socket. The channel only answers: what ANOMANDER
-sends unasked goes to Telegram (DK-4 AC5), and the app sees it in the stored conversation. `/login` and `/logout` are Telegram's alone.
+sends unasked goes to Telegram (DK-4 AC5), and the app sees it in the stored conversation. `/login`, `/logout` and `/exportar` are Telegram's alone (`/exportar` replies S-81 in the app).
 
 Both doors call the same handlers, `chat` in `src/app.ts`, wrapped by `oneTurnAtATime`: inputs
 are handled one after another in the order they arrive, so Telegram and the app share the
@@ -774,7 +774,7 @@ polling, while Telegram is configured.
 **Without Telegram** (`src/telegram-door.ts`) `@anomander/telegram` is never imported: nothing
 polls Telegram or is sent there, `started` resolves once the store is ready and `polling` only at
 `stop`. What only Telegram serves is absent: `/login` and `/logout` (the app logs in from its
-Suscripciones screen), `/mcp`, and the setup guide sent at start. The local channel only answers
+Suscripciones screen), `/mcp`, `/exportar`, and the setup guide sent at start. The local channel only answers
 (DK-4 AC5), so the messages sent unasked have no door: the due reminders, the morning digest and
 the weekly summary are not run (a reminder then goes out late once Telegram is set up), nor is
 the budget queue: a queued receipt stays queued, unread, since its reply could not be told
@@ -811,7 +811,13 @@ a header row even with no rows) and all three in `ledger.json`, into a new
 read in one transaction; folders get mode 700 and files 600, and a failed write leaves no partial
 folder. A CSV text that starts with `=`, `+`, `-`, `@`, a tab or a carriage return gets a leading
 `'`, so a spreadsheet never runs a merchant or product name read from a receipt as a formula;
-`ledger.json` keeps the text as stored. No processor is called. No front door calls it yet.
+`ledger.json` keeps the text as stored. No processor is called.
+
+`/exportar` (PRD R-29 AC3) in Telegram calls it with the folder of `ANOMANDER_DB_PATH` and
+replies S-79 with the four files in `files`; `@anomander/telegram` sends the text, then each file
+with `sendDocument`. A failed export replies S-80 and logs only the error code. It runs in the
+chat's turn and gets the setup guide while setup is incomplete. In the app `/exportar` replies
+S-81 and writes nothing. Exports stay under `exports/` until deleted by hand.
 
 ## Configuration
 

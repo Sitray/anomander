@@ -1,3 +1,6 @@
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import type {
   ButtonHandler,
   PrincipalReceipt,
@@ -93,6 +96,43 @@ describe('principal text (R-17 AC5)', () => {
         deliveredAt: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/),
       }),
     );
+  });
+});
+
+describe('files (R-29 AC3)', () => {
+  it('sends the text, then each file of the reply as a document with its name', async () => {
+    const folder = mkdtempSync(join(tmpdir(), 'anomander-bot-files-'));
+    try {
+      writeFileSync(join(folder, 'a.csv'), 'x,y\r\n1,2\r\n');
+      writeFileSync(join(folder, 'b.json'), '{"ok":true}\n');
+      onText.mockResolvedValueOnce({
+        text: 'Aquí tienes tus datos.',
+        files: [
+          { path: join(folder, 'a.csv'), name: 'gastos.csv' },
+          { path: join(folder, 'b.json'), name: 'ledger.json' },
+        ],
+      });
+      api.push(updates.text(principal, '/exportar'));
+
+      const [reply] = await api.waitForSent(1);
+      const documents = await api.waitForDocuments(2);
+
+      expect(reply?.text).toBe('Aquí tienes tus datos.');
+      expect(
+        documents.map(({ chatId, fileName, bytes }) => ({
+          chatId,
+          fileName,
+          text: new TextDecoder().decode(bytes),
+        })),
+      ).toEqual([
+        { chatId: PRINCIPAL, fileName: 'gastos.csv', text: 'x,y\r\n1,2\r\n' },
+        { chatId: PRINCIPAL, fileName: 'ledger.json', text: '{"ok":true}\n' },
+      ]);
+      // The documents come after the text.
+      expect(documents[0]?.messageId).toBeGreaterThan(reply?.messageId ?? Number.POSITIVE_INFINITY);
+    } finally {
+      rmSync(folder, { recursive: true, force: true });
+    }
   });
 });
 
