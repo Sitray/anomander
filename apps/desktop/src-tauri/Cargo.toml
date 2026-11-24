@@ -22,7 +22,7 @@ serde_json = { version = "1", features = ["preserve_order"] }
 tauri-plugin-notification = "2"
 # "Copiar diagnóstico" in the menu bar menu: the report goes to the clipboard (Rust only).
 tauri-plugin-clipboard-manager = "=2.3.3"
-getrandom = "0.3"
+getrandom = "0.4"
 # T1b: the careful words compare as the daemon's do (NFKD, without marks). Both were already in
 # the build, through `url`.
 icu_normalizer = { version = "2.4", default-features = false, features = ["compiled_data"] }
