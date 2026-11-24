@@ -92,41 +92,54 @@ const saysWords = (words: string): ((text: string) => boolean) => {
  * A line the daemon wrote for the principal, such as `[botón: Sí]` or `[foto de ticket]`: not
  * their own words, so a quote is never matched against it.
  */
-const isMarkerLine = (text: string): boolean => text.startsWith('[');
+export const isMarkerLine = (text: string): boolean => text.startsWith('[');
 
 /**
- * R-23 AC3: erases the turns of the stored conversation (R-16 AC3) that say `text` or `quote`: a
- * principal's message that holds the quote (their own words, never a marker line) or the text,
- * and a reply that holds the text, each matched as whole words, ignoring case, spacing and
- * accents; a matched message takes its turn with it. The rest of the conversation stays. In the
- * caller's transaction; the caller checkpoints the WAL after it. DK-18 erases the turns of a
- * forgotten action with it too, its task as both.
+ * DK-18: a phrase of fewer words than this is too common to find a mention of it inside other
+ * words ("sí", "hola"): only a message that is exactly it mentions it.
  */
-export const forgetTurnsSaying = (
-  db: Database.Database,
-  { text, quote }: { text: string; quote: string },
-): void => {
-  const saysQuote = saysWords(quote);
-  const saysText = saysWords(text);
-  forgetTurnsHolding(
-    db,
-    ({ from, text: said }) =>
-      saysText(said) || (from === 'principal' && !isMarkerLine(said) && saysQuote(said)),
-  );
+export const MENTION_MIN_WORDS = 3;
+
+const wordsOf = (text: string): string[] => folded(text).match(/[\p{L}\p{N}]+/gu) ?? [];
+
+/** DK-18: whether a message holds `phrase` as whole words; `null` for a phrase too short to tell. */
+export const saysPhrase = (phrase: string): ((text: string) => boolean) | null =>
+  wordsOf(phrase).length >= MENTION_MIN_WORDS ? saysWords(phrase) : null;
+
+/** DK-18: whether a message is `phrase` and nothing else, ignoring case, accents and punctuation. */
+export const isExactly = (phrase: string): ((text: string) => boolean) => {
+  const wanted = wordsOf(phrase).join(' ');
+  return (text) => wanted !== '' && wordsOf(text).join(' ') === wanted;
 };
 
 /**
- * R-23 AC3: erases a replaced memory's text and quote from `memory_texts` and the turns where the
- * principal said it (`forgetTurnsSaying`), so its old fact is kept nowhere. In the caller's
- * transaction; the caller checkpoints the WAL after it.
+ * R-23 AC3: erases a replaced memory's text and quote from `memory_texts` and the turns of the
+ * stored conversation (R-16 AC3) where the principal said it, so its old fact is kept nowhere: a
+ * principal's message that holds the quote (their own words, never a marker line) or the text,
+ * and a reply that holds the text, each matched as whole words, ignoring case, spacing and
+ * accents; a matched message takes its turn with it. The rest of the conversation stays. With
+ * `mentioned` (DK-18 AC4), a text or quote of fewer than `MENTION_MIN_WORDS` words takes only a
+ * principal's own message that is exactly it. In the caller's transaction; the caller
+ * checkpoints the WAL after it.
  */
-const eraseReplacedText = (db: Database.Database, id: number): void => {
+const eraseReplacedText = (db: Database.Database, id: number, mentioned = false): void => {
   const row = db
     .prepare<[number], { text: string; quote: string }>(
       'SELECT text, quote FROM memory_texts WHERE assertion_id = ?',
     )
     .get(id);
-  if (row !== undefined) forgetTurnsSaying(db, row);
+  if (row !== undefined) {
+    const saysText = mentioned ? saysPhrase(row.text) : saysWords(row.text);
+    const saysQuote = mentioned ? saysPhrase(row.quote) : saysWords(row.quote);
+    const isText = isExactly(row.text);
+    const isQuote = isExactly(row.quote);
+    forgetTurnsHolding(db, ({ from, text }) => {
+      const own = from === 'principal' && !isMarkerLine(text);
+      const byText = saysText === null ? own && isText(text) : saysText(text);
+      const byQuote = own && (saysQuote === null ? isQuote(text) : saysQuote(text));
+      return byText || byQuote;
+    });
+  }
   db.prepare('DELETE FROM memory_texts WHERE assertion_id = ?').run(id);
 };
 
@@ -257,13 +270,14 @@ export const memoryNotesFor = (db: Database.Database, words: string): MemoryNote
 /**
  * DK-18 AC4 (decided by the principal on 2026-11-24: "Solo los mensajes que lo contienen"): forgets
  * one current memory from the app's "Memoria" as `forgetMemories` does, and of the stored
- * conversation only the turns that say it, as a replaced memory's (R-23 AC3). Then the WAL is
- * checkpointed. Returns whether it was a current memory; one that is not is left alone.
+ * conversation only the turns that say it, as a replaced memory's (R-23 AC3), except that a text
+ * or quote of fewer than 3 words takes only a principal's message that is exactly it. Then the WAL
+ * is checkpointed. Returns whether it was a current memory; one that is not is left alone.
  */
 export const forgetMemoryAndItsTurns = (db: Database.Database, id: number): boolean => {
   const forgotten = db.transaction(() => {
     if (!isCurrentMemory(db, id)) return false;
-    eraseReplacedText(db, id);
+    eraseReplacedText(db, id, true);
     db.prepare("UPDATE assertions SET status = 'expired' WHERE id = ?").run(id);
     return true;
   })();

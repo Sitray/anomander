@@ -571,15 +571,22 @@ and keep its secrets in the operating system instead of a text file.
     (decided by the principal on 2026-11-24: "Solo los mensajes que lo contienen" — "Borra de
     verdad la memoria o la acción, y además los mensajes de la conversación que la mencionan, con
     la búsqueda por palabra completa que ya usamos para una memoria reemplazada. El resto del chat
-    se queda."). A memory no longer current is left alone and nothing else is erased.
+    se queda."). A text or quote of fewer than 3 words ("sí", "Es vegetariano") is too common to
+    find inside other words: it takes only a principal's own message that is exactly it, ignoring
+    case, accents and punctuation (verifier finding F1, 2026-11-24, within that decision: the
+    turns that mention it, never unrelated ones). A memory replaced by a new fact (R-23 AC3) keeps
+    its whole-word rule. A memory no longer current is left alone and nothing else is erased.
   - AC5: "Sí, olvidar" on an action sends `forget_action` with its id: the daemon erases that
-    one row of `action_history` for real and, by the same decision and the same matching, the
-    turns that say its task: a principal's own message that holds the task's words, and a reply
-    that holds the whole task (a reply that holds only some of its words stays), each with its
-    turn. The rest of the history and of the conversation stays. Both erases are secure deletes
+    one row of `action_history` for real and, by the same decision, its own turn: the line it was
+    stored as (`[captura de pantalla] …`, `[control del ordenador] …` or `[conexiones] …`) and its
+    reply. When the task has at least 3 words, every turn with a message that holds the whole task
+    as whole words goes too (a message that holds only some of its words stays); a shorter task
+    ("hola") takes only its own turn. The rest of the history and of the conversation stays. Both erases are secure deletes
     followed by the WAL checkpoint (R-23 AC7).
   - Known limit (accepted by the principal with that decision): a reply that said the memory or
-    the task in other words is not matched and stays.
+    the task in other words is not matched and stays, and so does a message that holds a phrase
+    of fewer than 3 words among others; a task with connections the chat routed from a sentence
+    (DK-13 AC2) has no `[conexiones]` line, so its turn goes only by the 3-word rule.
   - AC6: both forgets wait for the chat's turn of either door that runs, as `clear_history`
     does (DK-16 AC4), and are answered `done`; the window then reads both lists again and the
     chat asks for the stored conversation again, as after a forget confirmed in the chat. When it
