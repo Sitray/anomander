@@ -2,7 +2,15 @@
 import { useId, useState } from 'react';
 import type { DaemonStatus } from '../shell.ts';
 import { strings } from '../strings.ts';
-import { ChatIcon, CloseIcon, KeyIcon, Mark, PlugIcon, SlidersIcon } from '../ui/icons.tsx';
+import {
+  ChatIcon,
+  CloseIcon,
+  KeyIcon,
+  Mark,
+  PlugIcon,
+  ReceiptIcon,
+  SlidersIcon,
+} from '../ui/icons.tsx';
 import { describeStatus, type StatusView } from './describe.ts';
 
 export type Command = 'start' | 'stop';
@@ -23,11 +31,14 @@ export interface StatusBarProps {
   connectionsOpen: boolean;
   /** DK-15: the Suscripciones screen; without the handler the header does not offer it. */
   subscriptionsOpen?: boolean;
+  /** DK-17: the Gastos screen; without the handler the header does not offer it. */
+  expensesOpen?: boolean;
   onStart: () => void;
   onStop: () => void;
   onToggleSetup: () => void;
   onToggleConnections: () => void;
   onToggleSubscriptions?: () => void;
+  onToggleExpenses?: () => void;
   onDismissError: () => void;
 }
 
@@ -71,7 +82,15 @@ export function ErrorBlock({ label, children }: { label: string; children: strin
 }
 
 export function StatusBar(props: StatusBarProps) {
-  const { daemon, busy, commandError, setupOpen, connectionsOpen, subscriptionsOpen } = props;
+  const {
+    daemon,
+    busy,
+    commandError,
+    setupOpen,
+    connectionsOpen,
+    subscriptionsOpen,
+    expensesOpen,
+  } = props;
   const { status } = strings;
   const view = daemon === null ? LOADING : describeStatus(daemon);
 
@@ -99,6 +118,18 @@ export function StatusBar(props: StatusBarProps) {
               onClick={action.run}
             >
               {action.label}
+            </button>
+          )}
+          {props.onToggleExpenses !== undefined && (
+            <button
+              type="button"
+              className="icon-button"
+              aria-label={expensesOpen ? status.closeSetup : status.openExpenses}
+              title={expensesOpen ? status.closeSetup : status.openExpenses}
+              disabled={daemon === null}
+              onClick={props.onToggleExpenses}
+            >
+              {expensesOpen ? <ChatIcon /> : <ReceiptIcon />}
             </button>
           )}
           {props.onToggleSubscriptions !== undefined && (

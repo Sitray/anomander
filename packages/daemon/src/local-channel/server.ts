@@ -4,6 +4,8 @@ import type { AddressInfo } from 'node:net';
 import {
   type ButtonPress,
   type ChatEvent,
+  type ChatExpenses,
+  type ChatExpensesRequest,
   type ChatHistoryRequest,
   type ChatRequest,
   type ChatStoredMessage,
@@ -21,6 +23,7 @@ import {
 import { type WebSocket, WebSocketServer } from 'ws';
 import { z } from 'zod';
 import type { Logger } from '../processor/ports.ts';
+import { type ExpensesMonth, isMonth } from '../read-api/month.ts';
 
 // DK-3, DK-4 (docs/desktop-prd.md): the desktop app's front door, a WebSocket on `127.0.0.1`
 // behind the token the app generated for this launch. Like `apps/telegram`, it decides who may
@@ -53,6 +56,12 @@ export interface StoredConversation {
   clear(): Promise<void> | void;
 }
 
+/** DK-17: the expenses of a month, read from the views of RA-1. */
+export interface ExpensesLedger {
+  /** `month` is `YYYY-MM`; absent, the current month in `TZ`. Throws when it cannot be read. */
+  month(month: string | undefined): ExpensesMonth;
+}
+
 export interface LocalChannelDeps {
   /** `ANOMANDER_LOCAL_TOKEN`: never logged (DK-3 AC2). */
   token: string;
@@ -60,6 +69,7 @@ export interface LocalChannelDeps {
   port: number;
   handlers: ChatHandlers;
   conversation: StoredConversation;
+  expenses: ExpensesLedger;
   logger: Logger;
   now?: () => Date;
 }
@@ -131,6 +141,12 @@ const requestSchema = z.discriminatedUnion('type', [
   // DK-16: a larger limit is capped at `HISTORY_LIMIT`.
   z.strictObject({ type: z.literal('history'), id, limit: z.int().positive().optional() }),
   z.strictObject({ type: z.literal('clear_history'), id }),
+  // DK-17: a month of the calendar, `YYYY-MM`.
+  z.strictObject({
+    type: z.literal('expenses'),
+    id,
+    month: z.string().refine(isMonth).optional(),
+  }),
 ]);
 
 /** The request in a frame, or the `id` it carried when it is not one. */
@@ -164,7 +180,7 @@ const unsupported = (images: ChatRequest & { type: 'receipt' }): string | undefi
 };
 
 export const startLocalChannel = (deps: LocalChannelDeps): LocalChannel => {
-  const { handlers, conversation, logger, now = () => new Date() } = deps;
+  const { handlers, conversation, expenses, logger, now = () => new Date() } = deps;
   const expected = digest(deps.token);
   // DK-3 AC2: exactly the protocol and then the token, compared in constant time.
   const authorized = (header: string | undefined): boolean => {
@@ -176,8 +192,10 @@ export const startLocalChannel = (deps: LocalChannelDeps): LocalChannel => {
     );
   };
 
-  /** `history` is answered in `handle`: its answer is not a reply. */
-  const answer = (request: Exclude<ChatRequest, ChatHistoryRequest>): Promise<DoorReply | null> => {
+  /** `history` and `expenses` are answered in `handle`: their answers are not replies. */
+  const answer = (
+    request: Exclude<ChatRequest, ChatHistoryRequest | ChatExpensesRequest>,
+  ): Promise<DoorReply | null> => {
     const channelRef = `desktop:${randomUUID()}`;
     const at = now().toISOString();
     switch (request.type) {
@@ -257,13 +275,16 @@ export const startLocalChannel = (deps: LocalChannelDeps): LocalChannel => {
       await send(socket, { type: 'rejected', inReplyTo: request.rejected });
       return;
     }
-    let answered: DoorReply | ChatStoredMessage[] | null;
+    let answered: DoorReply | ChatStoredMessage[] | ChatExpenses | null;
     try {
       // DK-16 S4: the latest messages, oldest first. Their words are never logged.
+      // DK-17: the month's expenses, never logged either.
       answered =
         request.type === 'history'
           ? conversation.messages(Math.min(request.limit ?? HISTORY_LIMIT, HISTORY_LIMIT))
-          : await answer(request);
+          : request.type === 'expenses'
+            ? { type: 'expenses', inReplyTo: request.id, ...expenses.month(request.month) }
+            : await answer(request);
     } catch (error) {
       logger.error(`The daemon failed to handle a ${request.type} from the local channel`, {
         error,
@@ -272,6 +293,10 @@ export const startLocalChannel = (deps: LocalChannelDeps): LocalChannel => {
     }
     if (Array.isArray(answered)) {
       await send(socket, { type: 'history', inReplyTo: request.id, messages: answered });
+      return;
+    }
+    if (answered !== null && 'type' in answered) {
+      await send(socket, answered);
       return;
     }
     const reply = answered;

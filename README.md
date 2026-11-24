@@ -34,6 +34,7 @@ The Mac app:
 | Memories and history | Looks and computer tasks know what you told it about yourself. A local history of what it did answers "¿qué hiciste ayer?" and is erased on request | DK-14 |
 | The conversation | Kept in the local database, Telegram included, for 90 days: the chat shows it again after you quit the app, and ANOMANDER picks up the last half hour after a restart. It is stored only on your machine (the last turns go to the model provider with each message, as below); "Borrar conversación" or a confirmed "olvida" erases it | DK-16 |
 | Subscription login | Connect ChatGPT or Kimi Code from the Suscripciones screen | DK-15 |
+| Expenses | The Gastos screen shows a month's expenses, read only, with their total and how ANOMANDER knows each one ("Me lo dijiste", "Deducido"); pending ones are counted apart | DK-17 |
 | A ledger from Docker | Imports a ledger copied out of a Docker install into the app's empty one | DK-12 |
 
 Not built yet:

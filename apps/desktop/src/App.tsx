@@ -1,10 +1,12 @@
 // The window: the daemon's status on top, and under it the chat, the setup screen, the
-// connections screen, the subscriptions screen or the import of a ledger. The container: it
+// connections screen, the subscriptions screen, the import of a ledger or the expenses (DK-17).
+// The container: it
 // reads the shell and decides which one is on screen.
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ChatScreen } from './chat/ChatScreen.tsx';
 import { ConnectionsScreen } from './connections/ConnectionsScreen.tsx';
 import { addWebSearch } from './connections/web-search.ts';
+import { ExpensesScreen } from './expenses/ExpensesScreen.tsx';
 import { LedgerScreen } from './ledger/LedgerScreen.tsx';
 import { SubscriptionsScreen } from './login/SubscriptionsScreen.tsx';
 import { isComplete, SetupScreen } from './setup/SetupScreen.tsx';
@@ -17,9 +19,9 @@ export function App() {
   const shell = useShell();
   const { snapshot } = shell;
   /** The screen over the chat, when there is one. */
-  const [open, setOpen] = useState<'setup' | 'connections' | 'subscriptions' | 'ledger' | null>(
-    null,
-  );
+  const [open, setOpen] = useState<
+    'setup' | 'connections' | 'subscriptions' | 'ledger' | 'expenses' | null
+  >(null);
   const main = useRef<HTMLElement>(null);
 
   // DK-5 AC1: nothing works until the setup is complete, so it opens by itself, once each time
@@ -93,11 +95,13 @@ export function App() {
         setupOpen={open === 'setup' || open === 'ledger'}
         connectionsOpen={open === 'connections'}
         subscriptionsOpen={open === 'subscriptions'}
+        expensesOpen={open === 'expenses'}
         onStart={shell.start}
         onStop={shell.stop}
         onToggleSetup={open === 'setup' || open === 'ledger' ? close : () => setOpen('setup')}
         onToggleConnections={open === 'connections' ? close : () => setOpen('connections')}
         onToggleSubscriptions={open === 'subscriptions' ? close : () => setOpen('subscriptions')}
+        onToggleExpenses={open === 'expenses' ? close : () => setOpen('expenses')}
         onDismissError={shell.dismissError}
       />
       <main className="main" ref={main}>
@@ -158,6 +162,11 @@ export function App() {
             {open === 'ledger' && (
               <div className="view">
                 <LedgerScreen onImport={shell.importLedger} onClose={close} />
+              </div>
+            )}
+            {open === 'expenses' && (
+              <div className="view">
+                <ExpensesScreen channel={snapshot.channel} onClose={close} />
               </div>
             )}
             {open === 'connections' && (
