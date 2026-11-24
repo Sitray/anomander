@@ -386,11 +386,12 @@ describe('provider keys', () => {
 });
 
 describe('web search on the first setup', () => {
-  const firstRun = (addWebSearch: () => Promise<void> = async () => {}) => {
+  /** `addWebSearch` answers as the shell's add: `true` when saved, `false` when already there. */
+  const firstRun = (addWebSearch: () => Promise<boolean> = async () => true) => {
     const order: string[] = [];
     const onAddWebSearch = vi.fn(async () => {
       order.push('web search');
-      await addWebSearch();
+      return addWebSearch();
     });
     const onSave = vi.fn(async (_input: SetupInput) => {
       order.push('setup');
@@ -471,13 +472,26 @@ describe('web search on the first setup', () => {
     expect(screen.queryByText(text.webSearchKept)).toBeNull();
   });
 
+  it('does not say the web search was added when a server already had its name', async () => {
+    const { order, onSave } = firstRun(async () => false);
+    onSave.mockImplementation(async () => {
+      order.push('setup');
+      throw new Error('the Keychain refused the token');
+    });
+    save();
+
+    expect(await screen.findByText('the Keychain refused the token')).toBeTruthy();
+    expect(order).toEqual(['web search', 'setup']);
+    expect(screen.queryByText(text.webSearchKept)).toBeNull();
+  });
+
   it('is not offered once the setup is complete: Conexiones has it', () => {
     render(
       <SetupScreen
         setup={FILLED_SETUP}
         onSave={vi.fn(async () => FILLED_SETUP)}
         onClose={vi.fn()}
-        onAddWebSearch={vi.fn(async () => {})}
+        onAddWebSearch={vi.fn(async () => true)}
       />,
     );
 
