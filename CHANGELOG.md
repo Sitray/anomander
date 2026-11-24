@@ -28,6 +28,7 @@ On `main` since 0.1.0. The interface speaks English or Spanish, and the app runs
 
 - On Windows the daemon runs in a Job Object that ends everything it started when it stops, and the data and log folders are readable by their owner only.
 - The daemon log now also hides model provider keys, connection secrets, the model login and OAuth tokens, and logs a crash scrubbed instead of raw.
+- The daemon log also hides a login or OAuth token it gets after its start, a secret written JSON-escaped or URL-encoded, and the provider keys of a crash before the configuration is read; a crash line is written out before the daemon exits.
 
 ## [0.1.0] - 2026-11-21
 
