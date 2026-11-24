@@ -117,8 +117,18 @@ export const useChat = (channel: LocalChannel | null, options: ChatOptions = {})
   const texts = useRef(new Set<string>());
   /** The presses whose answer has not arrived: a forget is answered to one (B48). */
   const presses = useRef(new Set<string>());
-  /** B48: asks for the stored conversation again, to show it instead of what is shown. */
+  /**
+   * B48: the stored conversation is wanted instead of what is shown; it is asked for as soon as
+   * nothing on screen would be lost, and wanted again when something changed before it came.
+   */
+  const wanted = useRef(false);
+  /** A request for it is on its way. */
+  const asking = useRef(false);
   const [reload, setReload] = useState(0);
+  const wantStored = useCallback(() => {
+    wanted.current = true;
+    setReload((count) => count + 1);
+  }, []);
   const [running, setRunning] = useState(false);
   /** The task on the computer (DK-10); it reads the options and the client as they are now. */
   const [session] = useState(
@@ -167,9 +177,7 @@ export const useChat = (channel: LocalChannel | null, options: ChatOptions = {})
         const plain = texts.current.delete(requestId);
         // B48: a forget confirmed here erased the stored conversation; the window follows it.
         const pressed = presses.current.delete(requestId);
-        if (pressed && outcome.type === 'reply' && forgets(outcome.reply.text)) {
-          setReload((count) => count + 1);
-        }
+        if (pressed && outcome.type === 'reply' && forgets(outcome.reply.text)) wantStored();
         const step = session.answer(requestId, outcome);
         // A step on the way to the next one is not an answer to notify.
         if (step === 'routine') return;
@@ -190,7 +198,7 @@ export const useChat = (channel: LocalChannel | null, options: ChatOptions = {})
       created.dispose();
       client.current = null;
     };
-  }, [session]);
+  }, [session, wantStored]);
 
   // A new snapshot with the same channel must not reconnect: depend on its values, not the object.
   const url = channel?.url ?? null;
@@ -419,24 +427,38 @@ export const useChat = (channel: LocalChannel | null, options: ChatOptions = {})
   // B48: the window is hidden, not closed; shown again, it shows what the daemon keeps now, so a
   // forget made through Telegram meanwhile is gone from it too.
   useEffect(() => {
-    const shownAgain = () => {
-      if (document.visibilityState === 'visible') setReload((count) => count + 1);
+    const visible = () => {
+      if (document.visibilityState === 'visible') wantStored();
     };
-    document.addEventListener('visibilitychange', shownAgain);
-    return () => document.removeEventListener('visibilitychange', shownAgain);
-  }, []);
-  // biome-ignore lint/correctness/useExhaustiveDependencies: runs each time it is asked for.
+    document.addEventListener('visibilitychange', visible);
+    return () => document.removeEventListener('visibilitychange', visible);
+  }, [wantStored]);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: tried again on every change.
   useEffect(() => {
-    if (reload === 0) return;
-    const now = shown.current;
+    if (!wanted.current || asking.current) return;
     // Never over something still on its way, or a task that runs or waits for "Permitir".
-    if (now.connection !== 'open' || !isReplaceable(now)) return;
-    if (session.running || askAgain.current.length > 0) return;
-    const replacing = now.messages;
-    void client.current?.requestHistory().then((messages) => {
-      if (messages !== null) dispatch({ type: 'history', messages, replacing });
+    if (conversation.connection !== 'open' || !isReplaceable(conversation)) return;
+    if (running || askAgain.current.length > 0) return;
+    const request = client.current?.requestHistory();
+    if (request === undefined) return;
+    wanted.current = false;
+    asking.current = true;
+    const replacing = conversation.messages;
+    void request.then((messages) => {
+      asking.current = false;
+      // Not answered: tried again on the next change, such as the connection opening again.
+      if (messages === null) {
+        wanted.current = true;
+        return;
+      }
+      // Something changed before it came: what is shown now may not be in it.
+      if (shown.current.messages !== replacing) {
+        wantStored();
+        return;
+      }
+      dispatch({ type: 'history', messages, replacing });
     });
-  }, [reload]);
+  }, [reload, conversation, running, recheck]);
 
   const clear = useCallback(async () => {
     const outcome = (await client.current?.clearHistory()) ?? 'not_done';

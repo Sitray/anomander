@@ -1920,6 +1920,28 @@ describe('the stored conversation (DK-16)', () => {
       ]);
     });
 
+    it('shows the stored conversation once nothing waits any more, when a message waited', async () => {
+      const socket = await shownWithQuestion();
+      pressYes();
+      const press = await sentRequest(socket);
+      say('23 € cena');
+      const asked = await sentRequest(socket, 2);
+      FakeWebSocket.history = afterForget(replies.forgotten());
+      act(() => socket.receive(replyTo(press.id, { text: replies.forgotten() })));
+      await act(async () => {});
+      const answer = 'Apuntado: 23,00 € en restaurantes.';
+      FakeWebSocket.history = [
+        ...afterForget(replies.forgotten()),
+        stored({ id: 8, text: '23 € cena' }),
+        stored({ id: 9, from: 'anomander', text: answer, channelRef: 'desktop:stored-9' }),
+      ];
+      act(() => socket.receive(replyTo(asked.id, { text: answer })));
+
+      await waitFor(() =>
+        expect(shownTexts()).toEqual(['[botón: Sí]', replies.forgotten(), '23 € cena', answer]),
+      );
+    });
+
     describe('when the window is shown again', () => {
       let visibility: DocumentVisibilityState = 'visible';
       beforeEach(() => {
