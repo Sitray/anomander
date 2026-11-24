@@ -13,26 +13,39 @@ const PROVIDER_CREDENTIALS = new Set([
   'HF_TOKEN',
   'AWS_SECRET_ACCESS_KEY',
   'AWS_SESSION_TOKEN',
+  'AWS_BEARER_TOKEN_BEDROCK',
 ]);
 
-/** Every string anywhere in `value`, however deep. */
-const stringLeaves = (value: unknown): string[] => {
-  if (typeof value === 'string') return [value];
-  if (typeof value === 'object' && value !== null)
-    return Object.values(value).flatMap(stringLeaves);
-  return [];
+/** Every string anywhere in `value`, however deep, or only those of the fields `named`. */
+const stringLeaves = (value: unknown, named?: ReadonlySet<string>): string[] => {
+  if (typeof value === 'string') return named === undefined ? [value] : [];
+  if (typeof value !== 'object' || value === null) return [];
+  return Object.entries(value).flatMap(([name, inner]) =>
+    named?.has(name) && typeof inner === 'string' ? [inner] : stringLeaves(inner, named),
+  );
 };
 
 /**
- * The secrets of a variable that holds JSON: `ANOMANDER_MCP_SECRETS` (the Keychain items by name),
- * `ANOMANDER_AUTH_JSON` (the model login) and `ANOMANDER_MCP_OAUTH` (the connections' OAuth
- * clients and tokens). Every string in it, however deep, is one; the names are not. When it is
- * not JSON nothing reads it, yet it may still hold tokens, so the whole of it is one.
+ * The fields of the model login that hold a secret (pi-ai's `Credential`, the shape of
+ * `auth.json`): the rest is metadata such as `enterpriseUrl` or an account ID.
  */
-const jsonSecrets = (raw: string | undefined): string[] => {
+const LOGIN_SECRETS = new Set(['key', 'access', 'refresh']);
+
+/**
+ * The fields of a connection's OAuth state that hold a secret: the rest, such as the client's
+ * name, its grant types, its redirect address or the server's, is ordinary text.
+ */
+const OAUTH_SECRETS = new Set(['access_token', 'refresh_token', 'id_token', 'client_secret']);
+
+/**
+ * The secrets of a variable that holds JSON: every string in it, however deep, or only those of
+ * the fields `named`. When it is not JSON nothing reads it, yet it may still hold tokens, so the
+ * whole of it is one.
+ */
+const jsonSecrets = (raw: string | undefined, named?: ReadonlySet<string>): string[] => {
   if (raw === undefined) return [];
   try {
-    return stringLeaves(JSON.parse(raw));
+    return stringLeaves(JSON.parse(raw), named);
   } catch {
     return [raw];
   }
@@ -40,8 +53,9 @@ const jsonSecrets = (raw: string | undefined): string[] => {
 
 /**
  * Every secret of `config` and of `env`, the environment with the handover laid over it as
- * `loadConfig` read it: the configuration's tokens, every model provider's key, and every string of
- * `ANOMANDER_MCP_SECRETS`, the model login and the connections' OAuth tokens. A blank value is never one: it would match everywhere.
+ * `loadConfig` read it: the configuration's tokens, every model provider's key, every string of
+ * `ANOMANDER_MCP_SECRETS`, and the keys and tokens of the model login and of the connections'
+ * OAuth. A blank value is never one: it would match everywhere.
  */
 export const secretsToScrub = (
   config: Config,
@@ -55,8 +69,9 @@ export const secretsToScrub = (
     config.apiToken,
     config.localToken,
     ...providerKeys,
+    // The Keychain items by name: every value is secret, no name is.
     ...jsonSecrets(config.mcpSecrets),
-    ...jsonSecrets(config.authJson),
-    ...jsonSecrets(config.mcpOAuth),
+    ...jsonSecrets(config.authJson, LOGIN_SECRETS),
+    ...jsonSecrets(config.mcpOAuth, OAUTH_SECRETS),
   ].filter((secret): secret is string => secret !== undefined && secret.trim() !== '');
 };

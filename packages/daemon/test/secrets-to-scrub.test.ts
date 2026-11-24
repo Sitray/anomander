@@ -81,6 +81,57 @@ describe('the secrets the daemon scrubs from its log', () => {
     expect(line).toBe('notion answered 401 to [secret] of the client [secret]');
   });
 
+  it('include the Bedrock bearer token pi-ai reads', () => {
+    const t = 'bedrock-bearer-0123456789abcdef';
+    expect(
+      logged({ ANOMANDER_LOCAL_TOKEN: LOCAL_TOKEN, AWS_BEARER_TOKEN_BEDROCK: t }, `Bearer ${t}`),
+    ).toBe('Bearer [secret]');
+  });
+
+  it('keep the OAuth client metadata visible', () => {
+    const oauth = JSON.stringify({
+      notes: {
+        client: {
+          client_id: 'c-1',
+          client_name: 'ANOMANDER',
+          grant_types: ['authorization_code', 'refresh_token'],
+        },
+        tokens: { access_token: NOTION_ACCESS, token_type: 'Bearer' },
+        redirectUrl: 'http://127.0.0.1:54177/callback',
+        url: 'https://notes.example/mcp',
+      },
+    });
+    expect(
+      logged(
+        { ANOMANDER_LOCAL_TOKEN: LOCAL_TOKEN, ANOMANDER_MCP_OAUTH: oauth },
+        `another ANOMANDER at https://notes.example/mcp ${NOTION_ACCESS}`,
+      ),
+    ).toBe('another ANOMANDER at https://notes.example/mcp [secret]');
+  });
+
+  it('keep the model login metadata visible', () => {
+    const login = JSON.stringify({
+      'github-copilot': {
+        type: 'oauth',
+        access: NOTION_ACCESS,
+        refresh: LOGIN_REFRESH,
+        expires: 1,
+        enterpriseUrl: 'https://github.example.com',
+      },
+      'cloudflare-ai-gateway': {
+        type: 'api_key',
+        key: LOGIN_KEY,
+        env: { CLOUDFLARE_ACCOUNT_ID: 'account-0123456789' },
+      },
+    });
+    expect(
+      logged(
+        { ANOMANDER_LOCAL_TOKEN: LOCAL_TOKEN, ANOMANDER_AUTH_JSON: login },
+        `https://github.example.com account-0123456789 ${NOTION_ACCESS} ${LOGIN_REFRESH} ${LOGIN_KEY}`,
+      ),
+    ).toBe('https://github.example.com account-0123456789 [secret] [secret] [secret]');
+  });
+
   it('take the login or the OAuth tokens whole when they are not JSON', () => {
     const line = logged(
       {
