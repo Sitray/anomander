@@ -171,6 +171,7 @@ describe('upgrading an existing database', () => {
     );
     expect(expense(db)).toEqual(KEPT_EXPENSE);
     expect(names(db, 'table')).toContain('action_history');
+    expect(names(db, 'table')).toContain('conversation');
   });
 
   it('first writes a dated backup, mode 600, of the database as it was', () => {
@@ -248,6 +249,7 @@ describe('upgrading an existing database', () => {
       }
       expect(versions(db)).toHaveLength(4);
       expect(names(db, 'table')).not.toContain('action_history');
+      expect(names(db, 'table')).not.toContain('conversation');
       expect(backups()).toEqual([]);
     },
   );
