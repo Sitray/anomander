@@ -10,6 +10,7 @@
   "scripts": {
     "typecheck": "pnpm -r typecheck",
     "test": "vitest run",
+    "coverage": "vitest run --coverage --testTimeout 30000",
     "eval:receipts": "pnpm -F @anomander/daemon eval:receipts",
     "eval:text": "pnpm -F @anomander/daemon eval:text",
     "login": "pnpm -F @anomander/daemon run login",
@@ -18,6 +19,7 @@
   "devDependencies": {
     "@biomejs/biome": "2.5.15",
     "@types/node": "24.19.2",
+    "@vitest/coverage-v8": "5.0.5",
     "fast-check": "4.10.2",
     "typescript": "7.0.2",
     "vitest": "5.0.5"

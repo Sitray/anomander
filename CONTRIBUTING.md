@@ -23,6 +23,8 @@ pnpm test
 
 While the GitHub Actions workflow is paused, run `scripts/ci-local.sh` before merging to main: it runs the same checks as `.github/workflows/ci.yml` that a Mac can run (the TypeScript and Rust checks, the Mac app build and the daemon image) and says which Windows jobs it skipped.
 
+`pnpm coverage` runs the same tests and measures their coverage: a summary in the terminal and an HTML report in `coverage/` (git-ignored). It has no thresholds; it measures, it does not gate.
+
 The end-to-end tests run with `pnpm test`, against the fake Telegram API. When a processor or prompt changes, also run `pnpm eval:receipts`, which calls live models to measure how well they read the receipts, and `pnpm eval:text`, which measures how well they interpret messages (PRD §15).
 
 ## Rules that are easy to break
