@@ -23,6 +23,7 @@ On `main` since 0.1.0. The interface speaks English or Spanish, and the app runs
 - `pnpm coverage` measures the test coverage with Vitest's V8 provider and prints a summary; no thresholds.
 - Repository: issue templates (bug, feature), a pull request template that asks for `scripts/ci-local.sh`, `CODEOWNERS`, and `apps/desktop/src-tauri/rust-toolchain.toml` (stable, with clippy and rustfmt). A CI `msrv` job checks the shell on the `rust-version` of its `Cargo.toml`; `scripts/ci-local.sh` runs it where that toolchain is installed.
 - The daemon image has a `HEALTHCHECK`: healthy while a daemon holds its database lock. `compose.yaml` rotates the daemon log at 3 files of 10 MB.
+- Dependency updates (croner 11, pi-ai 1.6, better-sqlite3 13.2, grammy 1.48, Tauri 2.12.7, getrandom 0.4, Biome 2.6, CI actions). Custom `ANOMANDER_*_CRON` patterns are now parsed strictly: one that was quietly misread before stops the daemon at start with an error. The every-minute tick keeps running through the repeated hour when the clocks go back.
 
 ### Fixed
 
