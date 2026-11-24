@@ -799,9 +799,10 @@ The daily backup (B5, `src/backup/daily-backup.ts`) runs right after each retent
 startup and at `ANOMANDER_RETENTION_CRON`: it copies the database the same way as
 `<db>.backup-daily-<yyyymmddThhmmssZ>`, unless a copy stamped on the same UTC day is already
 there, and keeps the seven newest daily copies; the copies taken before migrations are pruned
-apart. Taken after retention, a copy never holds what retention had erased; what "Borrar
-conversación" or a confirmed forget erases stays in older daily copies for up to seven days (PRD
-§16). A copy that cannot be written is logged by its error code only, never its path, and is made
+apart. It runs in a `finally`, so also when retention failed; after a successful retention the
+copy holds nothing retention erased. What "Borrar conversación" or a confirmed forget erases stays
+in the older daily copies until seven newer ones replace them: seven days when the daemon runs
+every day, longer when it does not (PRD §16). A copy that cannot be written is logged by its error code only, never its path, and is made
 at the next run; the daemon keeps running. The copies sit on the same disk as the database.
 
 **Ledger export.** `exportLedger` (B5, `src/store/export.ts`) writes the read views of RA-1
