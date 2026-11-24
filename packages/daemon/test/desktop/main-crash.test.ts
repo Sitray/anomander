@@ -35,9 +35,14 @@ const freePort = (): Promise<number> =>
 
 /**
  * Starts `main.ts` as the desktop app does, the secrets handed over on stdin, and has it crash
- * `how` with an error whose message holds them. Resolves with its exit code and its output.
+ * `how` with an error whose message holds them. Resolves with its exit code and all its output,
+ * once its stdout and stderr have closed: an `exit` can come before the last of them is read.
+ * `env` is laid over the child's environment; `handover: false` never writes the secrets.
  */
-const crash = async (how: 'exception' | 'rejection') => {
+const crash = async (
+  how: 'exception' | 'rejection',
+  { env = {}, handover = true }: { env?: Record<string, string>; handover?: boolean } = {},
+) => {
   const port = await freePort();
   const child = spawn(process.execPath, ['--import', CRASH, MAIN], {
     cwd: scratch,
@@ -54,17 +59,20 @@ const crash = async (how: 'exception' | 'rejection') => {
       ANOMANDER_SECRETS_ON_STDIN: '1',
       ANOMANDER_TEST_CRASH: how,
       ANOMANDER_TEST_CRASH_MESSAGE: `the model refused ${OPENAI_KEY} and the server ${NOTES_TOKEN}`,
+      ...env,
     },
     stdio: ['pipe', 'pipe', 'pipe'],
   });
   daemon = child;
-  child.stdin?.write(
-    `${JSON.stringify({
-      ANOMANDER_LOCAL_TOKEN: LOCAL_TOKEN,
-      OPENAI_API_KEY: OPENAI_KEY,
-      ANOMANDER_MCP_SECRETS: JSON.stringify({ 'mcp/notes/env/NOTES_TOKEN': NOTES_TOKEN }),
-    })}\n`,
-  );
+  if (handover) {
+    child.stdin?.write(
+      `${JSON.stringify({
+        ANOMANDER_LOCAL_TOKEN: LOCAL_TOKEN,
+        OPENAI_API_KEY: OPENAI_KEY,
+        ANOMANDER_MCP_SECRETS: JSON.stringify({ 'mcp/notes/env/NOTES_TOKEN': NOTES_TOKEN }),
+      })}\n`,
+    );
+  }
   let output = '';
   child.stdout?.on('data', (chunk) => {
     output += chunk;
@@ -72,7 +80,9 @@ const crash = async (how: 'exception' | 'rejection') => {
   child.stderr?.on('data', (chunk) => {
     output += chunk;
   });
-  const code = await new Promise<number | null>((resolveExit) => child.once('exit', resolveExit));
+  const code = await new Promise<number | null>((resolveClose) =>
+    child.once('close', resolveClose),
+  );
   return { code, output };
 };
 
@@ -105,5 +115,27 @@ describe('main.ts when an error is not caught', () => {
     expect(output).toContain('the model refused [secret] and the server [secret]');
     expect(output).not.toContain(OPENAI_KEY);
     expect(output).not.toContain(NOTES_TOKEN);
+  }, 20_000);
+
+  it('writes the whole crash line before it exits, even behind a full pipe', async () => {
+    const { code, output } = await crash('exception', {
+      env: { ANOMANDER_TEST_CRASH_FLOOD: String(4 * 1024 * 1024) },
+    });
+
+    expect(code).toBe(exitCodes.failed);
+    expect(output).toContain('anomander daemon crashed: uncaught exception');
+    expect(output).toContain('the model refused [secret] and the server [secret]');
+  }, 20_000);
+
+  it('scrubs a crash before the configuration is read of the keys it already has', async () => {
+    // Still waiting for the handover: only the environment's provider key is known.
+    const { code, output } = await crash('exception', {
+      env: { OPENAI_API_KEY: OPENAI_KEY, ANOMANDER_TEST_CRASH_AFTER: 'anomander daemon starting' },
+      handover: false,
+    });
+
+    expect(code).toBe(exitCodes.failed);
+    expect(output).toContain('anomander daemon crashed: uncaught exception');
+    expect(output).not.toContain(OPENAI_KEY);
   }, 20_000);
 });
