@@ -8,13 +8,15 @@ import { type ExitCode, exitCodes } from '@anomander/protocol';
 import { builtinModels } from '@earendil-works/pi-ai/providers/all';
 import { startAnomander, startSetupGuide } from './app.ts';
 import { createDeviceId } from './auth/device-id.ts';
-import { rememberingLogins } from './auth/remembering-logins.ts';
-import { credentialStoreFor } from './auth/shell-credential-store.ts';
 import { loadConfig } from './config.ts';
-import { printOAuthForShell } from './connections/oauth.ts';
 import { exitOnceWritten, reportCrashes } from './crash.ts';
 import { createScrubbingLogger } from './scrubbing-logger.ts';
-import { createSecretList, secretsBeforeConfig, secretsToScrub } from './secrets-to-scrub.ts';
+import {
+  createSecretList,
+  secretsBeforeConfig,
+  secretsToScrub,
+  secretTellingStores,
+} from './secrets-to-scrub.ts';
 import { createConnectionGaps, resolveModels } from './setup/setup-guide.ts';
 import { DaemonAlreadyRunningError } from './store/daemon-lock.ts';
 import {
@@ -65,10 +67,11 @@ const config = (() => {
 })();
 secrets.setFromStart(secretsToScrub(config, env));
 
-// DK-5 AC1: the login the desktop app keeps in the Keychain, or the file of a Docker install.
-const credentials = (() => {
+// DK-5 AC1: the login the desktop app keeps in the Keychain, or the file of a Docker install. B42:
+// a login or an OAuth token got later is scrubbed from the log too.
+const { credentials, printOAuth } = (() => {
   try {
-    return rememberingLogins(credentialStoreFor(config), secrets.acquire);
+    return secretTellingStores(secrets, config);
   } catch (error) {
     return fail(reason(error));
   }
@@ -96,10 +99,7 @@ const anomander = (() => {
       visionModel: resolved.visionModel,
       login,
       logger: log,
-      printOAuth: (entries) => {
-        secrets.acquire('oauth', entries);
-        printOAuthForShell()(entries);
-      },
+      printOAuth,
       setupGaps: createConnectionGaps({
         providerIds: resolved.providerIds,
         checkAuth: (providerId) => models.checkAuth(providerId),

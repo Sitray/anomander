@@ -1,6 +1,10 @@
 // What the daemon's log never shows (security audit M3, B8). `scrubbing-logger.ts` takes them out
 // of every line; this module only says which values they are.
+import type { CredentialStore } from '@earendil-works/pi-ai';
+import { rememberingLogins } from './auth/remembering-logins.ts';
+import { credentialStoreFor } from './auth/shell-credential-store.ts';
 import type { Config } from './config.ts';
+import { type OAuthSet, printOAuthForShell } from './connections/oauth.ts';
 
 /** A provider key as the desktop app names it, such as `OPENAI_API_KEY` (`setup.rs`). */
 const PROVIDER_KEY = /^[A-Z][A-Z0-9_]*_API_KEY$/;
@@ -131,6 +135,26 @@ export const createSecretList = (): SecretList => {
     acquire: (kind, value) => {
       const found = stringLeaves(value, kind === 'login' ? isLoginSecret : isOAuthSecret);
       for (const secret of nonBlank(found)) acquired.add(secret);
+    },
+  };
+};
+
+/**
+ * What `main.ts` hands the daemon, wired to `list` (B42): the model login's store, which tells it
+ * every login it reads or writes, and the printer of the connections' OAuth set, which tells it
+ * a refreshed set before the shell gets it. `write` is the daemon's output.
+ */
+export const secretTellingStores = (
+  list: SecretList,
+  config: Pick<Config, 'authJson' | 'authPath'>,
+  write?: (text: string) => void,
+): { credentials: CredentialStore; printOAuth: (entries: OAuthSet) => void } => {
+  const print = printOAuthForShell(write);
+  return {
+    credentials: rememberingLogins(credentialStoreFor(config, write), list.acquire),
+    printOAuth: (entries) => {
+      list.acquire('oauth', entries);
+      print(entries);
     },
   };
 };

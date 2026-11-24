@@ -8,7 +8,12 @@ import { createShellCredentialStore } from '../src/auth/shell-credential-store.t
 import { loadConfig } from '../src/config.ts';
 import { createOAuthKeeper } from '../src/connections/oauth.ts';
 import { createScrubbingLogger } from '../src/scrubbing-logger.ts';
-import { createSecretList, secretsBeforeConfig, secretsToScrub } from '../src/secrets-to-scrub.ts';
+import {
+  createSecretList,
+  secretsBeforeConfig,
+  secretsToScrub,
+  secretTellingStores,
+} from '../src/secrets-to-scrub.ts';
 
 // B8: a Docker install's log is the daemon's own output; no key of its configuration may show.
 const LOCAL_TOKEN = 'local-channel-token-0123456789abcdef';
@@ -265,6 +270,31 @@ describe('the secrets the daemon gets after its start', () => {
     expect(log(`https://notion.example/mcp refused ${NEW_ACCESS} and ${NEW_REFRESH}`)).toBe(
       'https://notion.example/mcp refused [secret] and [secret]',
     );
+  });
+
+  it('come from the stores main.ts hands the daemon: the login and the OAuth printer', async () => {
+    const list = createSecretList();
+    const log = logOver(list);
+    const out: string[] = [];
+    const { credentials, printOAuth } = secretTellingStores(
+      list,
+      { authJson: '{}', authPath: '/nowhere/auth.json' },
+      (text) => out.push(text),
+    );
+
+    await credentials.modify('openai', async () => ({ type: 'api_key', key: LOGIN_KEY }));
+    printOAuth({
+      notion: {
+        client: { client_id: 'c-1' },
+        tokens: { access_token: NEW_ACCESS, token_type: 'Bearer' },
+        redirectUrl: 'http://127.0.0.1:54177/callback',
+      },
+    });
+
+    expect(log(`401 for ${LOGIN_KEY} and ${NEW_ACCESS}`)).toBe('401 for [secret] and [secret]');
+    expect(out).toHaveLength(2);
+    expect(out[0]).toMatch(/^anomander credentials /);
+    expect(out[1]).toMatch(/^anomander mcp-oauth .*late-access/);
   });
 
   it('keeps logging when a secret holds a lone surrogate', () => {
