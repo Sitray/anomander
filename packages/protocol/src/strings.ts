@@ -164,6 +164,57 @@ const pendingLines = (header: string, items: readonly PendingItem[]): string =>
     items.map(({ text, when }) => (when === null ? `· ${text}` : `· ${text} (${when})`)),
   );
 
+/** What code computed for a free query on the expenses (R-30), for S-90 to S-94. */
+export interface ExpenseQueryAnswer {
+  /** The period, `YYYY-MM-DD`, both included. */
+  from: string;
+  to: string;
+  /** Today in `TZ`: a period outside its year, or across two years, names its years. */
+  today: string;
+  /** The category asked about, as stored; `null` when none. */
+  category: string | null;
+  /** The merchant asked about, as the principal wrote it; `null` when none. */
+  merchant: string | null;
+  /** The sum of the current expenses, in cents. */
+  total: number;
+  /** How many current expenses the total sums. */
+  count: number;
+  /** `{desglose}`, already in its order; a `null` name is `Sin clasificar`. */
+  breakdown: readonly { name: string | null; cents: number }[];
+  /** What the breakdown leaves out, listed last as `Otros`; 0 when nothing is. */
+  others: number;
+  /** The expenses of the period pending confirmation, never in `total`. */
+  pending: number;
+}
+
+/** `{desglose}` of S-90 and S-91: `{Nombre} {importe}` joined by ` · `, as S-9, then the rest. */
+const queryBreakdown = ({ breakdown, others }: ExpenseQueryAnswer, othersLabel: string): string =>
+  [...breakdown, ...(others > 0 ? [{ name: othersLabel, cents: others }] : [])]
+    .map(({ name, cents }) => `${capitalized(name ?? uncategorized())} ${formatAmount(cents)}`)
+    .join(' · ');
+
+const datedOptions: Intl.DateTimeFormatOptions = { ...dateOptions, year: 'numeric' };
+const datedFormats: Record<Locale, Intl.DateTimeFormat> = {
+  es: new Intl.DateTimeFormat('es-ES', datedOptions),
+  en: new Intl.DateTimeFormat('en-GB', datedOptions),
+};
+
+/**
+ * The days of `{periodo}` (S-90 to S-93): `1 de noviembre`, or `1 de noviembre de 2025` when the
+ * period is not within today's year.
+ */
+const queryDays = ({ from, to, today }: ExpenseQueryAnswer): [string, string] => {
+  const year = today.slice(0, 4);
+  const thisYear = from.slice(0, 4) === year && to.slice(0, 4) === year;
+  const format = (date: string) =>
+    thisYear ? formatDate(date) : datedFormats[getLocale()].format(new Date(`${date}T00:00:00Z`));
+  return [format(from), format(to)];
+};
+
+/** `{filtro}` of S-91 and S-93: `supermercado`, `mercadona` or `mercadona (supermercado)`. */
+const queryFilter = ({ category, merchant }: ExpenseQueryAnswer): string | null =>
+  merchant === null ? category : category === null ? merchant : `${merchant} (${category})`;
+
 const es = {
   registered: (total: number, merchant: string, categoryName: string | null) =>
     `Apuntado: ${formatAmount(total)} en ${merchant} (${category(categoryName)}).`,
@@ -405,6 +456,23 @@ const es = {
   /** S-81: `/exportar` in the app (R-29 AC4). */
   exportOnlyInTelegram: () =>
     'De momento la exportación solo llega por Telegram: escribe /exportar allí.',
+  /**
+   * S-90 to S-94 (R-30): S-90 for every expense, S-91 with a filter, S-92 and S-93 when nothing
+   * was spent, each followed by S-94 when some expense of the period is pending confirmation.
+   */
+  expenseQuery: (answer: ExpenseQueryAnswer) => {
+    const [from, to] = queryDays(answer);
+    const period = answer.from === answer.to ? `El ${from}` : `Del ${from} al ${to}`;
+    const filter = queryFilter(answer);
+    const breakdown = queryBreakdown(answer, 'otros');
+    const sentence =
+      answer.count === 0
+        ? `${period} no hay gastos${filter === null ? '' : ` en ${filter}`}.`
+        : `${period}${filter === null ? '' : `, en ${filter}`}: ${formatAmount(answer.total)} en ${answer.count} ${answer.count === 1 ? 'gasto' : 'gastos'}.${breakdown === '' ? '' : ` ${breakdown}.`}`;
+    return answer.pending === 0
+      ? sentence
+      : `${sentence} Pendientes de confirmar: ${answer.pending}.`;
+  },
 } as const;
 
 /**
@@ -600,6 +668,19 @@ const en: typeof es = {
   exportFailed: () => "I couldn't export your data. Try again in a while.",
   exportOnlyInTelegram: () =>
     'For now the export only comes through Telegram: send /exportar there.',
+  expenseQuery: (answer) => {
+    const [from, to] = queryDays(answer);
+    const period = answer.from === answer.to ? `on ${from}` : `from ${from} to ${to}`;
+    const filter = queryFilter(answer);
+    const breakdown = queryBreakdown(answer, 'others');
+    const sentence =
+      answer.count === 0
+        ? `No expenses${filter === null ? '' : ` for ${filter}`} ${period}.`
+        : `${capitalized(period)}${filter === null ? '' : `, for ${filter}`}: ${formatAmount(answer.total)} in ${answer.count} ${answer.count === 1 ? 'expense' : 'expenses'}.${breakdown === '' ? '' : ` ${breakdown}.`}`;
+    return answer.pending === 0
+      ? sentence
+      : `${sentence} Waiting for your confirmation: ${answer.pending}.`;
+  },
 };
 
 /** Every bot phrase, in the language chosen when it is read. */
