@@ -2,6 +2,7 @@ import { type ButtonHandler, strings } from '@anomander/protocol';
 import type Database from 'better-sqlite3';
 import type { Logger } from '../processor/ports.ts';
 import { asOpenDecision, loadDecision, reopenStaleAwaiting } from '../store/decisions.ts';
+import { createAmendExpenseDecision } from './amend-expense-decision.ts';
 import {
   createRegisterExpenseDecision,
   type RegisterExpenseDecisionDeps,
@@ -20,6 +21,8 @@ export type DecisionAnswers = Record<string, DecisionAnswerHandler>;
  */
 export const createDecisionAnswers = (deps: RegisterExpenseDecisionDeps): DecisionAnswers => ({
   register_expense: createRegisterExpenseDecision(deps),
+  // R-7 AC4 to AC6: "Deshacer" and "Corregir" under a typed expense's reply.
+  amend_expense: createAmendExpenseDecision(deps),
 });
 
 export interface ButtonHandlerDeps {

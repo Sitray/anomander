@@ -25,10 +25,18 @@ import {
   capabilityContext,
 } from '../capabilities/capability.ts';
 import { CAPABILITIES } from '../capabilities/registry.ts';
-import type { RecentTurn } from '../conversation/recent-turns.ts';
+import { RECENT_TURN_MAX_AGE_MS, type RecentTurn } from '../conversation/recent-turns.ts';
+import { acceptCorrection, correctedReply } from '../decisions/correction.ts';
+import { verifiedReply } from '../decisions/register-expense-decision.ts';
 import { type PatternOffers, thenOfferPattern } from '../patterns/pattern-offers.ts';
 import type { ConnectedTool, Logger, MemoryFact, TextInterpreter } from '../processor/ports.ts';
 import { checkedPhrasing, type ReplyPhraser } from '../processor/reply-phraser.ts';
+import {
+  amendExpense,
+  closeAmendDecisions,
+  openAmendExpenseDecision,
+  recentExpenses,
+} from '../store/amend-expense.ts';
 import {
   openCreateCategoryDecision,
   openForgetHistoryDecision,
@@ -126,6 +134,11 @@ export const createTextExpenseHandler = (deps: TextExpenseDeps): TextHandler => 
 
     const today = todayIn(timeZone, now());
     const categories = listCategories(db);
+    // R-7 AC7: the expenses registered in the time of the recent turns, for a correction to name.
+    const expenses = recentExpenses(
+      db,
+      new Date(now().getTime() - RECENT_TURN_MAX_AGE_MS).toISOString(),
+    );
     const interpretation = await interpreter({
       text: message.text,
       today,
@@ -137,6 +150,7 @@ export const createTextExpenseHandler = (deps: TextExpenseDeps): TextHandler => 
       connected: await connected(),
       // DK-14 AC3: what ANOMANDER did lately, bounded by code.
       history: historyForPrompt(db, timeZone, now()),
+      expenses,
     });
 
     // R-23 AC1-AC3: the lasting facts of an interpreted message are remembered; a failure to
@@ -294,6 +308,42 @@ export const createTextExpenseHandler = (deps: TextExpenseDeps): TextHandler => 
         },
       };
     }
+    // R-7 AC7: a correction typed without "Corregir". The processor only pointed at the expense
+    // and the values; code takes only a given expense still current and the values written.
+    if (interpretation.kind === 'expense_correct') {
+      if (expenses.length === 0) return { text: strings.nothingToCorrect() };
+      const { expenseId } = interpretation;
+      if (expenseId === null) return { text: strings.whichExpense() };
+      const correction = acceptCorrection({
+        text: message.text,
+        inferences: interpretation.inferences,
+        categories,
+        today,
+        channelRef: message.channelRef,
+        logger,
+      });
+      if (Object.keys(correction).length === 0) return { text: strings.askCorrection() };
+      const at = now().toISOString();
+      const { actionId } = db.transaction(() => {
+        const amended = amendExpense(db, {
+          expenseId,
+          proposalId: null,
+          correction,
+          source: message.channelRef,
+          receivedAt: message.receivedAt,
+          now: at,
+        });
+        // R-7 AC8: the buttons under the corrected expense's reply are closed.
+        closeAmendDecisions(db, expenseId);
+        return amended;
+      })();
+      const text = correctedReply(readExpense(db, expenseId));
+      return thenOfferPattern(
+        verifiedReply(db, actionId, text, now, logger),
+        expenseId,
+        deps.patterns,
+      );
+    }
     // R-12 AC4: the daily AI budget is spent; nothing was stored.
     if (interpretation.kind === 'budget_exhausted') return { text: strings.textLimitReached() };
     // R-22 AC1: the processor failed before anything was stored.
@@ -418,19 +468,39 @@ export const createTextExpenseHandler = (deps: TextExpenseDeps): TextHandler => 
             stored.category ?? uncategorized(),
           ]);
 
-    // R-9 AC2: the delivery of the expense reply verifies the action, without the S-15 after it.
+    // R-7 AC4: the reply carries "Deshacer" and "Corregir", a question about this expense.
+    const amendOptions = [buttons.undo, buttons.correct];
+    const amendId = openAmendExpenseDecision(db, {
+      expenseId,
+      source: message.channelRef,
+      question: text,
+      options: amendOptions,
+      now: now().toISOString(),
+    });
+    const amendButtons = decisionButtons(amendId, amendOptions);
+
+    // R-9 AC2: the delivery of the expense reply verifies the action, without the S-15 after it;
+    // R-17 AC2: it is the message that shows the question.
     const verify = (delivery: Delivery) => {
       if (!recordReplyDelivery(db, actionId, delivery, text, now().toISOString())) {
         logger.warn('reply delivery already recorded', { actionId });
       }
+      if (!recordDecisionMessage(db, amendId, delivery.channelRef)) {
+        logger.warn('decision message already recorded', { decisionId: amendId });
+      }
     };
     // R-13 AC2: S-12 follows as its own message when this expense completes a pattern.
-    if (ask === null)
-      return thenOfferPattern({ text, onDelivered: verify }, expenseId, deps.patterns);
-    // R-18 AC3: one message, the expense reply then S-15, with the S-15 buttons.
+    if (ask === null) {
+      return thenOfferPattern(
+        { text, buttons: amendButtons, onDelivered: verify },
+        expenseId,
+        deps.patterns,
+      );
+    }
+    // R-18 AC3: one message, the expense reply then S-15, with the S-15 buttons, then R-7 AC4's.
     return {
       text: `${text}\n${ask.question}`,
-      buttons: ask.buttons,
+      buttons: [...ask.buttons, ...amendButtons],
       onDelivered: (delivery) => {
         verify(delivery);
         ask.shown(delivery);

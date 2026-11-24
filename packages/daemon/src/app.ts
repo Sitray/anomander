@@ -34,7 +34,7 @@ import {
 } from './conversation/recent-turns.ts';
 import { createButtonHandler, createDecisionAnswers, pressedOption } from './decisions/answer.ts';
 import { createCancelReminderAnswerHandler } from './decisions/cancel-reminder-decision.ts';
-import { createExpenseCorrection } from './decisions/correction.ts';
+import { createAmendExpenseCorrection, createExpenseCorrection } from './decisions/correction.ts';
 import { createCreateCategoryAnswerHandler } from './decisions/create-category-decision.ts';
 import { createCreatePolicyAnswerHandler } from './decisions/create-policy-decision.ts';
 import { createForgetHistoryAnswerHandler } from './decisions/forget-history-decision.ts';
@@ -408,17 +408,20 @@ export const startAnomander = <M>(config: Config, deps: AnomanderDeps<M>): Anoma
     throw new Error('notify used before the bot was created');
   };
   const patterns = createPatternOffers({ db, now, logger, notify: (message) => notify(message) });
+  const correcting = {
+    db,
+    interpreter: createPiAiCorrectionInterpreter({ complete: ai, model, logger }),
+    timeZone: config.timeZone,
+    now,
+    logger,
+    patterns,
+  };
   const onText = createTextRouter({
     db,
     corrections: {
-      register_expense: createExpenseCorrection({
-        db,
-        interpreter: createPiAiCorrectionInterpreter({ complete: ai, model, logger }),
-        timeZone: config.timeZone,
-        now,
-        logger,
-        patterns,
-      }),
+      register_expense: createExpenseCorrection(correcting),
+      // R-7 AC6: the text after "Corregir" under a typed expense's reply.
+      amend_expense: createAmendExpenseCorrection(correcting),
     },
     otherwise: createTextExpenseHandler({
       db,

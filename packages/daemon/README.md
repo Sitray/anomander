@@ -95,7 +95,7 @@ Every incoming message has exactly one destination, decided by code (R-17):
    (DK-14 AC4).
 2. **A text** goes through `createTextRouter` (`src/decisions/router.ts`), in this order:
    - a Telegram reply to the message of an `open` or `awaiting_text` decision corrects that
-     decision (AC2);
+     decision, or the one of them that takes text when the message shows two (AC2);
    - otherwise, the decision `awaiting_text` takes it as its correction (AC3);
    - otherwise, the text expense cycle (AC5).
 
@@ -136,6 +136,31 @@ declaration as `answer_assertion_id`, and the reply is S-8, verbatim, from the r
 failed or gave an answer code cannot use, S-26 past the budget) and the decision is left as it was: one `awaiting_text` keeps
 waiting, and one answered by a Telegram reply (such as `vale`) stays `open`, so the next
 unrelated text is not taken as its correction. Only "Corregir" makes a decision wait (R-17 AC2).
+
+`amend_expense` (`src/decisions/amend-expense-decision.ts`, rows in `src/store/amend-expense.ts`)
+answers the "Deshacer" and "Corregir" that the text expense cycle puts under S-1 or S-2 (R-7 AC4),
+with the S-15 buttons first when S-15 is asked with it:
+
+- **Deshacer (R-7 AC5).** One transaction: the proposal becomes `executed` by an action
+  `authorized_by 'principal'`, the expense `refuted` (it leaves `gastos`; nothing is deleted) and
+  the decision `answered`. The reply is S-100, or S-101 without a merchant, verbatim, and its
+  delivery verifies the action.
+- **Corregir (R-7 AC6).** S-7 and `awaiting_text`, as for a receipt. The text goes to
+  `createAmendExpenseCorrection`, which shares the checks of `createExpenseCorrection`
+  (`acceptCorrection`) and writes them with `amendExpense`: the principal's `declared` assertion
+  is the one superseded and the inference it stood with is refuted too. The reply is S-8, or
+  S-102 without a merchant.
+- **Closed (R-7 AC8).** A press or a text for a decision whose expense is no longer current gets
+  S-19 and closes it. An answered decision, or one expired by retention (R-19 AC2), gets S-19 as
+  any other.
+
+A correction typed without the button (R-7 AC7) is the interpreter's `expense_correct` kind. The
+text expense cycle gives the interpreter `expenses`: the current expenses registered in the last
+30 minutes, at most 5, newest first (`recentExpenses`). The interpreter keeps an `expense_id` only
+if it was given and each value only if its quote is in the message; the cycle then applies
+`acceptCorrection` and `amendExpense` with a new `amend_expense` proposal `executed`, and closes the
+expense's open decision (`closeAmendDecisions`, `expired`), so its buttons get S-19. No expense
+given gets S-104, no clear id S-103, no usable value S-7.
 
 ## The daily AI budget, the queue and retention
 

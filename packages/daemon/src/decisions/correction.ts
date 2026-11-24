@@ -1,10 +1,16 @@
-import { isCalendarDate, isLiteralAmount, todayIn } from '@anomander/core';
+import { isCalendarDate, isLiteralAmount, type ProcessorInference, todayIn } from '@anomander/core';
 import { type PrincipalText, type Reply, strings } from '@anomander/protocol';
 import type Database from 'better-sqlite3';
 import { textValue, writtenIn } from '../expenses/declarations.ts';
 import { type PatternOffers, thenOfferPattern } from '../patterns/pattern-offers.ts';
 import type { CorrectionInterpreter } from '../processor/correction-interpreter.ts';
 import type { Logger } from '../processor/ports.ts';
+import {
+  amendExpense,
+  amendedExpenseOf,
+  closeAmendDecisions,
+  currentExpenseOf,
+} from '../store/amend-expense.ts';
 import {
   answerDecision,
   awaitText,
@@ -13,7 +19,7 @@ import {
   pendingExpenseOf,
   registerByPrincipal,
 } from '../store/decisions.ts';
-import { listCategories, readExpense } from '../store/expenses.ts';
+import { listCategories, readExpense, type StoredExpense } from '../store/expenses.ts';
 import { quotedFrom } from '../store/memory.ts';
 import { verifiedReply } from './register-expense-decision.ts';
 import type { OpenDecision } from './types.ts';
@@ -39,16 +45,106 @@ export interface ExpenseCorrectionDeps {
   patterns?: PatternOffers;
 }
 
-/** The correction of a pending `register_expense` decision: the expense is corrected and registered. */
-export const createExpenseCorrection = ({
-  db,
-  interpreter,
-  timeZone,
-  now,
+export interface CorrectionValues {
+  /** The principal's correction text. */
+  text: string;
+  /** The processor's inferences about it: `total`, `merchant`, `category`, `occurred_on`. */
+  inferences: readonly ProcessorInference[];
+  categories: readonly string[];
+  /** Today in `TZ`. */
+  today: string;
+  channelRef: string;
+  logger: Logger;
+}
+
+/**
+ * R-7 AC2: only what the principal actually wrote counts as their declaration (R-2 AC6, R-3 AC5):
+ * an amount written literally, a merchant and an existing category written in the text, and a
+ * date resting on written words and not after today. Everything else is ignored and logged
+ * without the text.
+ */
+export const acceptCorrection = ({
+  text,
+  inferences,
+  categories,
+  today,
+  channelRef,
   logger,
-  patterns,
-}: ExpenseCorrectionDeps): CorrectionHandler => {
-  /** Only what the principal actually wrote counts as their declaration (R-2 AC6, R-3 AC5). */
+}: CorrectionValues): ExpenseCorrection => {
+  const inferenceFor = (predicate: string) =>
+    inferences.find((inference) => inference.predicate === predicate);
+  const value = (predicate: string) => inferenceFor(predicate)?.value_json ?? null;
+
+  const correction: ExpenseCorrection = {};
+  const total = value('total');
+  if (typeof total === 'number' && total > 0 && isLiteralAmount(text, total)) {
+    correction.total_cents = total;
+  } else if (total !== null) {
+    logger.warn('corrected amount is not written in the message; ignored', { channelRef, total });
+  }
+  const merchant = textValue(value('merchant'));
+  if (merchant !== null && writtenIn(text, merchant)) {
+    correction.merchant = merchant;
+  } else if (merchant !== null) {
+    logger.info('corrected merchant not written in the message; ignored', { channelRef });
+  }
+  const category = textValue(value('category'))?.toLowerCase() ?? null;
+  if (category !== null && writtenIn(text, category) && categories.includes(category)) {
+    correction.category = category;
+  } else if (category !== null) {
+    // R-18 AC3 covers an expense registered at once (a text): a correction answers a pending
+    // decision, so a category that does not exist is ignored and S-15 is not asked.
+    logger.info('corrected category not written or not existing; ignored', { channelRef });
+  }
+  // A date is resolved by the processor ("el 28"), so the words it rests on must be written,
+  // and it may not be after today (R-2 AC7).
+  const date = value('occurred_on');
+  const quote = textValue(
+    (inferenceFor('occurred_on')?.basis_json as { quote?: unknown } | null)?.quote,
+  );
+  if (
+    typeof date === 'string' &&
+    isCalendarDate(date) &&
+    date <= today &&
+    quote !== null &&
+    quotedFrom(quote, text)
+  ) {
+    correction.occurred_on = date;
+  } else if (date !== null) {
+    logger.info('corrected date not written, not a date or after today; ignored', {
+      channelRef,
+    });
+  }
+  return correction;
+};
+
+/** S-8 from the stored row, verbatim (R-21 AC3); S-102 when it has no merchant. */
+export const correctedReply = (stored: StoredExpense): string =>
+  stored.merchant === null
+    ? strings.correctedNoMerchant(stored.total_cents, stored.category)
+    : strings.corrected(stored.total_cents, stored.merchant, stored.category);
+
+/** What a decision's correction is applied to, and how. */
+interface CorrectionTarget {
+  /**
+   * The expense the decision is about; `null` when it can no longer be corrected, and the
+   * question was closed (S-19).
+   */
+  expenseOf: (decision: OpenDecision) => number | null;
+  /** Writes the accepted correction and answers the decision, in one transaction. Returns the action. */
+  apply: (
+    decision: OpenDecision,
+    expenseId: number,
+    correction: ExpenseCorrection,
+    message: PrincipalText,
+    at: string,
+  ) => number;
+}
+
+const createCorrection = (
+  { db, interpreter, timeZone, now, logger, patterns }: ExpenseCorrectionDeps,
+  { expenseOf, apply }: CorrectionTarget,
+): CorrectionHandler => {
   const acceptedCorrection = async (
     text: string,
     expenseId: number,
@@ -75,55 +171,20 @@ export const createExpenseCorrection = ({
       logger.warn('correction not interpreted', { channelRef, reason: interpretation.reason });
       return 'invalid';
     }
-    const inferenceFor = (predicate: string) =>
-      interpretation.inferences.find((inference) => inference.predicate === predicate);
-    const value = (predicate: string) => inferenceFor(predicate)?.value_json ?? null;
-
-    const correction: ExpenseCorrection = {};
-    const total = value('total');
-    if (typeof total === 'number' && total > 0 && isLiteralAmount(text, total)) {
-      correction.total_cents = total;
-    } else if (total !== null) {
-      logger.warn('corrected amount is not written in the message; ignored', { channelRef, total });
-    }
-    const merchant = textValue(value('merchant'));
-    if (merchant !== null && writtenIn(text, merchant)) {
-      correction.merchant = merchant;
-    } else if (merchant !== null) {
-      logger.info('corrected merchant not written in the message; ignored', { channelRef });
-    }
-    const category = textValue(value('category'))?.toLowerCase() ?? null;
-    if (category !== null && writtenIn(text, category) && categories.includes(category)) {
-      correction.category = category;
-    } else if (category !== null) {
-      // R-18 AC3 covers an expense registered at once (a text): a correction answers a pending
-      // decision, so a category that does not exist is ignored and S-15 is not asked.
-      logger.info('corrected category not written or not existing; ignored', { channelRef });
-    }
-    // A date is resolved by the processor ("el 28"), so the words it rests on must be written,
-    // and it may not be after today (R-2 AC7).
-    const date = value('occurred_on');
-    const quote = textValue(
-      (inferenceFor('occurred_on')?.basis_json as { quote?: unknown } | null)?.quote,
-    );
-    if (
-      typeof date === 'string' &&
-      isCalendarDate(date) &&
-      date <= today &&
-      quote !== null &&
-      quotedFrom(quote, text)
-    ) {
-      correction.occurred_on = date;
-    } else if (date !== null) {
-      logger.info('corrected date not written, not a date or after today; ignored', {
-        channelRef,
-      });
-    }
-    return correction;
+    return acceptCorrection({
+      text,
+      inferences: interpretation.inferences,
+      categories,
+      today,
+      channelRef,
+      logger,
+    });
   };
 
   return async ({ decision, message }) => {
-    const expenseId = pendingExpenseOf(db, decision);
+    const expenseId = expenseOf(decision);
+    // R-7 AC8: the expense was undone or corrected meanwhile; its question is closed.
+    if (expenseId === null) return { text: strings.decisionClosed() };
     const correction = await acceptedCorrection(message.text, expenseId, message.channelRef);
     const at = now().toISOString();
     // Only "Corregir" makes a decision wait for text (R-7 AC1). A decision already waiting keeps
@@ -155,8 +216,21 @@ export const createExpenseCorrection = ({
       return { text: strings.askCorrection() };
     }
 
+    const actionId = db.transaction(() => apply(decision, expenseId, correction, message, at))();
+
+    // R-9 AC1: S-8 from the stored row, verbatim (R-21 AC3: only S-1, S-2, S-16, S-21 are phrased).
+    const text = correctedReply(readExpense(db, expenseId));
+    return thenOfferPattern(verifiedReply(db, actionId, text, now, logger), expenseId, patterns);
+  };
+};
+
+/** The correction of a pending `register_expense` decision: the expense is corrected and registered. */
+export const createExpenseCorrection = (deps: ExpenseCorrectionDeps): CorrectionHandler =>
+  createCorrection(deps, {
+    expenseOf: (decision) => pendingExpenseOf(deps.db, decision),
     // R-7 AC2: declare, supersede and refute, update the expense, and register it.
-    const actionId = db.transaction(() => {
+    apply: (decision, expenseId, correction, message, at) => {
+      const { db } = deps;
       const [answer = null] = correctExpense(db, {
         expenseId,
         correction,
@@ -172,11 +246,32 @@ export const createExpenseCorrection = ({
       });
       answerDecision(db, decision.id, answer);
       return registered.actionId;
-    })();
+    },
+  });
 
-    // R-9 AC1: S-8 from the stored row, verbatim (R-21 AC3: only S-1, S-2, S-16, S-21 are phrased).
-    const stored = readExpense(db, expenseId);
-    const text = strings.corrected(stored.total_cents, stored.merchant ?? '', stored.category);
-    return thenOfferPattern(verifiedReply(db, actionId, text, now, logger), expenseId, patterns);
-  };
-};
+/**
+ * R-7 AC6: the correction of a typed expense after "Corregir" (an `amend_expense` decision): the
+ * current expense is corrected as R-7 AC2 writes it, and its other questions are closed (AC8).
+ */
+export const createAmendExpenseCorrection = (deps: ExpenseCorrectionDeps): CorrectionHandler =>
+  createCorrection(deps, {
+    expenseOf: (decision) => {
+      const expenseId = currentExpenseOf(deps.db, decision);
+      if (expenseId === null) closeAmendDecisions(deps.db, amendedExpenseOf(decision));
+      return expenseId;
+    },
+    apply: (decision, expenseId, correction, message, at) => {
+      const { db } = deps;
+      const { actionId, declarations } = amendExpense(db, {
+        expenseId,
+        proposalId: decision.proposal_id,
+        correction,
+        source: message.channelRef,
+        receivedAt: message.receivedAt,
+        now: at,
+      });
+      answerDecision(db, decision.id, declarations[0] ?? null);
+      closeAmendDecisions(db, expenseId);
+      return actionId;
+    },
+  });

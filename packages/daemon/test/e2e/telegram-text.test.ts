@@ -158,7 +158,15 @@ describe('a text expense over Telegram', () => {
 
     const [reply] = await api.waitForSent(1);
     expect(reply).toMatchObject({ chatId: PRINCIPAL, text: PHRASED });
-    expect(reply?.payload.reply_markup).toBeUndefined();
+    // R-7 AC4: the reply carries "Deshacer" and "Corregir".
+    expect(reply?.payload.reply_markup).toEqual({
+      inline_keyboard: [
+        [
+          { text: 'Deshacer', callback_data: 'decision:1:0' },
+          { text: 'Corregir', callback_data: 'decision:1:1' },
+        ],
+      ],
+    });
 
     // R-2 AC1, R-9 AC2: the stored expense and the observation of the reply that was sent.
     await vi.waitFor(() =>
@@ -409,14 +417,16 @@ describe('categories over Telegram (R-18)', () => {
       ],
     ],
   });
+  /** Not the "Deshacer" and "Corregir" under a typed expense (R-7 AC4). */
+  const ASKED = "proposal_id NOT IN (SELECT id FROM proposals WHERE operation = 'amend_expense')";
   /** The one decision asked, once its message is recorded (R-17 AC2). */
   const askedDecision = async () => {
     await vi.waitFor(() =>
-      expect(query('SELECT id FROM pending_decisions WHERE channel_ref IS NOT NULL')).toHaveLength(
-        1,
-      ),
+      expect(
+        query(`SELECT id FROM pending_decisions WHERE channel_ref IS NOT NULL AND ${ASKED}`),
+      ).toHaveLength(1),
     );
-    const [decision] = query<{ id: number }>('SELECT id FROM pending_decisions');
+    const [decision] = query<{ id: number }>(`SELECT id FROM pending_decisions WHERE ${ASKED}`);
     if (decision === undefined) throw new Error('no decision');
     return decision.id;
   };
@@ -556,9 +566,19 @@ describe('categories over Telegram (R-18)', () => {
     const question = await say(text);
     const decisionId = await askedDecision();
 
-    // S-2 (the phrasing fails the check, so it is verbatim), then S-15 with its buttons.
+    // S-2 (the phrasing fails the check, so it is verbatim), then S-15 with its buttons, then
+    // the expense's "Deshacer" and "Corregir" (R-7 AC4).
     expect(question?.text).toBe(`Apuntado: 40,00 € (sin clasificar).\n${S15}`);
-    expect(question?.payload.reply_markup).toEqual(yesNo(decisionId));
+    const [amend] = query<{ id: number }>(`SELECT id FROM pending_decisions WHERE NOT ${ASKED}`);
+    expect(question?.payload.reply_markup).toEqual({
+      inline_keyboard: [
+        [
+          ...(yesNo(decisionId).inline_keyboard[0] ?? []),
+          { text: 'Deshacer', callback_data: `decision:${amend?.id}:0` },
+          { text: 'Corregir', callback_data: `decision:${amend?.id}:1` },
+        ],
+      ],
+    });
     expect(query('SELECT total_cents, category_id, category_basis, status FROM expenses')).toEqual([
       { total_cents: 4000, category_id: null, category_basis: null, status: 'current' },
     ]);

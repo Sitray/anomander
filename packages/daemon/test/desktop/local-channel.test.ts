@@ -359,7 +359,14 @@ describe('the chat over the local channel', () => {
     const chat = await client(await start());
 
     const answer = reply(await chat.ask({ type: 'text', text: '23 € cena' }));
-    expect(answer).toMatchObject({ text: PHRASED, buttons: [] });
+    // R-7 AC4: the same "Deshacer" and "Corregir" as in Telegram.
+    expect(answer).toMatchObject({
+      text: PHRASED,
+      buttons: [
+        { label: 'Deshacer', data: 'decision:1:0' },
+        { label: 'Corregir', data: 'decision:1:1' },
+      ],
+    });
     expect(answer.channelRef).toMatch(/^desktop:[0-9a-f-]{36}$/);
 
     await vi.waitFor(() =>
@@ -530,7 +537,7 @@ describe('the stored conversation (DK-16)', () => {
         from: 'anomander',
         door: 'app',
         text: PHRASED,
-        buttons: [],
+        buttons: answer.buttons,
         channelRef: answer.channelRef,
         at: AT,
       },
@@ -548,7 +555,10 @@ describe('the stored conversation (DK-16)', () => {
         from: 'anomander',
         door: 'telegram',
         text: PHRASED,
-        buttons: [],
+        buttons: [
+          { label: 'Deshacer', data: 'decision:2:0' },
+          { label: 'Corregir', data: 'decision:2:1' },
+        ],
         channelRef: `telegram:${sent?.messageId}`,
         at: AT,
       },

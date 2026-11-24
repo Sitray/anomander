@@ -2,7 +2,7 @@ import type { TextHandler } from '@anomander/protocol';
 import type Database from 'better-sqlite3';
 import {
   findAwaitingDecision,
-  findDecisionShownIn,
+  findDecisionsShownIn,
   reopenStaleAwaiting,
 } from '../store/decisions.ts';
 import type { CorrectionHandler } from './correction.ts';
@@ -27,11 +27,13 @@ export const createTextRouter =
     const takesText = (decision: ReturnType<typeof findAwaitingDecision>) =>
       decision === null ? undefined : corrections[decision.operation];
 
-    // AC2: a Telegram reply to a decision's message corrects that decision.
+    // AC2: a Telegram reply to a decision's message corrects that decision: the one shown there
+    // that takes text, when the message shows more than one (R-7 AC4).
     if (message.replyTo !== undefined) {
-      const decision = findDecisionShownIn(db, message.replyTo);
-      const correct = takesText(decision);
-      if (decision !== null && correct !== undefined) return correct({ decision, message });
+      for (const decision of findDecisionsShownIn(db, message.replyTo)) {
+        const correct = takesText(decision);
+        if (correct !== undefined) return correct({ decision, message });
+      }
     }
     // AC3: otherwise the decision awaiting text takes it.
     const awaiting = findAwaitingDecision(db);
