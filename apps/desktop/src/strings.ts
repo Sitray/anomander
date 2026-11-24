@@ -121,6 +121,10 @@ const es = {
     webSearchAdded: 'Búsqueda web añadida. ANOMANDER vuelve a buscarlo en cuanto esté listo.',
     webSearchFailed:
       'No se ha podido añadir la búsqueda web. Inténtalo otra vez o añádela en Conexiones.',
+    webSearchAlreadyOn: 'La búsqueda web ya estaba activada. ANOMANDER vuelve a buscarlo.',
+    /** The daemon did not come back within a minute: the request is not asked again. */
+    webSearchNotBack:
+      'La búsqueda web está añadida, pero ANOMANDER no ha vuelto a arrancar en un minuto. Pulsa otra vez cuando esté en marcha.',
     /** The connection was lost while a look or the first step of a task was on its way. */
     startUnknown:
       'Se cortó la conexión y no sé si me llegó. Pídemelo otra vez si aún lo necesitas.',
@@ -249,6 +253,9 @@ const es = {
     savedIncomplete: 'Guardado. Para arrancar aún falta el modelo.',
     /** DK-11 AC11: the web search, checked on the first setup. */
     webSearch: 'Añadir la búsqueda web: busca en internet sin usar el ordenador',
+    /** The web search was saved before the setup was refused: it stays. */
+    webSearchKept:
+      'La búsqueda web sí se ha añadido y sigue activada; puedes quitarla en Conexiones.',
   },
 
   /** DK-11: the servers of `mcp.json`. */
@@ -561,6 +568,9 @@ const en: Strings = {
     addingWebSearch: 'Adding…',
     webSearchAdded: 'Web search added. ANOMANDER searches again as soon as it is ready.',
     webSearchFailed: "Web search couldn't be added. Try again, or add it in Connections.",
+    webSearchAlreadyOn: 'Web search was already on. ANOMANDER searches again.',
+    webSearchNotBack:
+      "Web search is added, but ANOMANDER didn't start again within a minute. Press again once it is running.",
     startUnknown:
       "The connection dropped and I don't know if it reached me. Ask me again if you still need it.",
 
@@ -672,6 +682,7 @@ const en: Strings = {
     savedIncomplete: 'Saved. It still needs the model to start.',
     /** DK-11 AC11: the web search, checked on the first setup. */
     webSearch: 'Add web search: searches the internet without using the computer',
+    webSearchKept: 'Web search was added and stays on; you can remove it in Connections.',
   },
 
   connections: {

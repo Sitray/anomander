@@ -224,14 +224,20 @@ const OfferCard = ({
   offer: NonNullable<BotMessage['offer']>;
   onAdd: (message: BotMessage) => void;
 }) => {
-  if (offer.state === 'added') {
-    return <p className="message-note">{strings.chat.webSearchAdded}</p>;
+  if (offer.state === 'added' || offer.state === 'already') {
+    const note =
+      offer.state === 'added' ? strings.chat.webSearchAdded : strings.chat.webSearchAlreadyOn;
+    return <p className="message-note">{note}</p>;
   }
   const adding = offer.state === 'adding';
   return (
     <div className="offer">
       <p className="message-note">{strings.connections.webSearchNote}</p>
-      {offer.state === 'failed' && <Problem>{strings.chat.webSearchFailed}</Problem>}
+      {offer.state === 'failed' && (
+        <Problem>
+          {offer.why === 'not_back' ? strings.chat.webSearchNotBack : strings.chat.webSearchFailed}
+        </Problem>
+      )}
       <button
         type="button"
         className="button small"

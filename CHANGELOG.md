@@ -2,9 +2,34 @@
 
 All notable changes to ANOMANDER are recorded here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+On `main` since 0.1.0. The interface speaks English or Spanish, and the app runs on macOS and on Windows.
+
+### Added
+
+- **English**: the app's window and the notch speak the system's language (Spanish on a Spanish system, English otherwise). The daemon and Telegram speak the language of `ANOMANDER_LOCALE`, `es` by default or `en`; the app sets it from the system's language.
+- **Windows**: the same app, built from this repository, with the chat, the setup, connections, subscription login and Telegram. Secrets go to the Windows Credential Manager; the tray icon shows the working wave and the finished drop appears at the top of the screen; an unsigned NSIS installer. A look at the screen and tasks on the computer stay macOS-only (see [`docs/windows-check.md`](docs/windows-check.md)).
+- **Web search by default**: the first setup shows "Búsqueda web" checked, with a note on what leaves the computer.
+- **Web search from the chat**: when a request needs web search and it is missing, the chat offers "Añadir búsqueda web". The button adds the connection, waits for the daemon to restart and sends the same text again. Telegram gets the text alone.
+
+### Changed
+
+- The CI workflow runs only by hand while GitHub Actions minutes are unavailable. `scripts/ci-local.sh` runs the same checks locally before a merge to `main`.
+
+### Fixed
+
+- Several presses of "Añadir búsqueda web" during a daemon restart all wait for the new daemon; before, only one request was kept.
+- The check that a task comes from the message keeps English negations and contractions, and locale tags such as `es@euro` count as Spanish.
+
+### Security
+
+- On Windows the daemon runs in a Job Object that ends everything it started when it stops, and the data and log folders are readable by their owner only.
+- The daemon log now also hides model provider keys, connection secrets, the model login and OAuth tokens, and logs a crash scrubbed instead of raw.
+
 ## [0.1.0] - 2026-11-21
 
-The first tagged version. There is no packaged download: you build and run it from this repository, with Docker or as the Mac app (see the [README](README.md)). The interface is in Spanish only, and the Mac app runs on macOS only.
+The first tagged version. There is no packaged download: you build and run it from this repository, with Docker or as the Mac app (see the [README](README.md)). In this version the interface is in Spanish only and the Mac app runs on macOS only; English and Windows came later (see [Unreleased](#unreleased)).
 
 ### Added
 

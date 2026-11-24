@@ -69,11 +69,18 @@ export interface ChatOptions {
 
 /** DK-11 AC13: a request to ask again once the daemon that reads the new connection is there. */
 interface AskAgain {
+  /** The reply that offered the web search. */
+  id: string;
   text: string;
   /** The channel when the press was made, and how many times the channel had gone since. */
   channel: string | null;
   gone: number;
+  /** Gives up on it once the daemon has not come back in `GIVE_UP_MS`. */
+  timer: ReturnType<typeof setTimeout>;
 }
+
+/** DK-11 AC13: how long a request waits for the daemon that reads the web search. */
+const GIVE_UP_MS = 60_000;
 
 /** A task started while a look waited for its turn: the screen is the task's. */
 const BUSY = Symbol('busy');
@@ -184,6 +191,13 @@ export const useChat = (channel: LocalChannel | null, options: ChatOptions = {})
   /** In the order pressed; each waits for the daemon started after its own press. */
   const askAgain = useRef<AskAgain[]>([]);
   const [recheck, setRecheck] = useState(0);
+  useEffect(
+    () => () => {
+      for (const waiting of askAgain.current) clearTimeout(waiting.timer);
+      askAgain.current = [];
+    },
+    [],
+  );
 
   const deliver = useCallback(async (id: string, text: string, attachments: Attachment[]) => {
     let requestId: string | null = null;
@@ -305,7 +319,10 @@ export const useChat = (channel: LocalChannel | null, options: ChatOptions = {})
     const back = (waiting: AskAgain) => now !== waiting.channel || gone !== waiting.gone;
     const ready = askAgain.current.filter(back);
     askAgain.current = askAgain.current.filter((waiting) => !back(waiting));
-    for (const waiting of ready) say(waiting.text, []);
+    for (const waiting of ready) {
+      clearTimeout(waiting.timer);
+      say(waiting.text, []);
+    }
   }, [channelKey, connection, recheck, say]);
 
   const addWebSearch = useCallback(
@@ -313,12 +330,12 @@ export const useChat = (channel: LocalChannel | null, options: ChatOptions = {})
       const { offer } = message;
       const add = latest.current.addWebSearch;
       if (offer === null || add === undefined) return;
-      if (offer.state === 'adding' || offer.state === 'added') return;
+      if (offer.state === 'adding' || offer.state === 'added' || offer.state === 'already') return;
       dispatch({ type: 'offer', id: message.id, state: 'adding' });
       const before = { ...current.current };
       void add().then(
         (saved) => {
-          dispatch({ type: 'offer', id: message.id, state: 'added' });
+          dispatch({ type: 'offer', id: message.id, state: saved ? 'added' : 'already' });
           // Already there: it waits for the restart an earlier press started, if one is coming;
           // otherwise it is asked again now.
           const earlier = askAgain.current.at(-1);
@@ -327,10 +344,19 @@ export const useChat = (channel: LocalChannel | null, options: ChatOptions = {})
             return;
           }
           const waitFor = saved || earlier === undefined ? before : earlier;
-          askAgain.current = [
-            ...askAgain.current,
-            { text: offer.ask, channel: waitFor.channel, gone: waitFor.gone },
-          ];
+          const waiting: AskAgain = {
+            id: message.id,
+            text: offer.ask,
+            channel: waitFor.channel,
+            gone: waitFor.gone,
+            // The daemon may never come back (stopped, failing): say so, and let it be pressed again.
+            timer: setTimeout(() => {
+              if (!askAgain.current.includes(waiting)) return;
+              askAgain.current = askAgain.current.filter((other) => other !== waiting);
+              dispatch({ type: 'offer', id: waiting.id, state: 'failed', why: 'not_back' });
+            }, GIVE_UP_MS),
+          };
+          askAgain.current = [...askAgain.current, waiting];
           // The daemon may be back already, and the effect above only runs on a change.
           setRecheck((count) => count + 1);
         },
