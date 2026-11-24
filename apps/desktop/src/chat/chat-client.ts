@@ -2,14 +2,18 @@
 // request ids, the requests in flight and the reconnection, and tells its owner what happened to
 // each request. The token lives only in this closure: never in a URL, a log or storage (DK-3 AC3).
 import {
+  CATEGORY_MODES,
   type ChatButtonPress,
   type ChatComputer,
   type ChatEvent,
+  type ChatExpense,
+  type ChatExpenses,
   type ChatReceipt,
   type ChatReply,
   type ChatScreen,
   type ChatStoredMessage,
   type ChatText,
+  EXPENSE_MODES,
   LOCAL_CHANNEL_PROTOCOL,
 } from '@anomander/protocol';
 import type { LocalChannel } from '../shell.ts';
@@ -67,6 +71,12 @@ export interface ChatClient {
    * connection was lost first, so it may have been.
    */
   clearHistory(): Promise<'done' | 'not_done' | 'unknown'>;
+  /**
+   * DK-17: the expenses of `month` (`YYYY-MM`; absent, the daemon's current month). `failed`: the
+   * daemon answered without them; `lost`: nothing was sent, or the connection was lost first.
+   * It only reads, so asking again is always safe.
+   */
+  requestExpenses(month?: string): Promise<ChatExpenses | 'failed' | 'lost'>;
   dispose(): void;
 }
 
@@ -114,6 +124,51 @@ const isStored = (value: unknown): value is ChatStoredMessage => {
   );
 };
 
+const isCount = (value: unknown): value is number => Number.isInteger(value);
+
+/** DK-17: an expense only as the window can show it. */
+const isExpense = (value: unknown): value is ChatExpense => {
+  if (typeof value !== 'object' || value === null) return false;
+  const { id, date, merchant, category, totalCents, mode, categoryMode, origin, lines } =
+    value as Record<string, unknown>;
+  return (
+    isCount(id) &&
+    typeof date === 'string' &&
+    (merchant === null || typeof merchant === 'string') &&
+    (category === null || typeof category === 'string') &&
+    isCount(totalCents) &&
+    EXPENSE_MODES.some((known) => known === mode) &&
+    (categoryMode === null || CATEGORY_MODES.some((known) => known === categoryMode)) &&
+    (origin === 'text' || origin === 'receipt') &&
+    isCount(lines)
+  );
+};
+
+/** DK-17: the expenses of a month, keeping only the rows the window can show. */
+const parseExpenses = (event: Record<string, unknown>): ChatExpenses | undefined => {
+  const { inReplyTo, month, expenses, totalCents, pending } = event;
+  const { count, totalCents: pendingCents } = (pending ?? {}) as Record<string, unknown>;
+  if (
+    typeof inReplyTo !== 'string' ||
+    typeof month !== 'string' ||
+    !/^\d{4}-(0[1-9]|1[0-2])$/.test(month) ||
+    !Array.isArray(expenses) ||
+    !isCount(totalCents) ||
+    !isCount(count) ||
+    !isCount(pendingCents)
+  ) {
+    return undefined;
+  }
+  return {
+    type: 'expenses',
+    inReplyTo,
+    month,
+    expenses: expenses.filter(isExpense),
+    totalCents,
+    pending: { count, totalCents: pendingCents },
+  };
+};
+
 const parseEvent = (data: unknown): ChatEvent | undefined => {
   if (typeof data !== 'string') return undefined;
   try {
@@ -125,6 +180,7 @@ const parseEvent = (data: unknown): ChatEvent | undefined => {
         ? { ...(event as ChatEvent & { type: 'history' }), messages: messages.filter(isStored) }
         : undefined;
     }
+    if (event?.type === 'expenses') return parseExpenses(event as Record<string, unknown>);
     return event?.type === 'done' || event?.type === 'rejected' ? (event as ChatEvent) : undefined;
   } catch {
     return undefined;
@@ -144,7 +200,7 @@ export const createChatClient = (options: ChatClientOptions): ChatClient => {
   let failures = 0;
   let state: ConnectionState = 'offline';
   const inFlight = new Set<string>();
-  /** DK-16: the history and clear requests in flight; `null` when the connection was lost. */
+  /** DK-16, DK-17: the history, clear and expenses requests in flight; `null` once lost. */
   const awaited = new Map<string, (event: ChatEvent | null) => void>();
 
   const report = (next: ConnectionState): void => {
@@ -168,7 +224,7 @@ export const createChatClient = (options: ChatClientOptions): ChatClient => {
 
   /** Sends `request` and waits for its answer: `undefined` when nothing was sent. */
   const ask = (
-    request: { type: 'history' } | { type: 'clear_history' },
+    request: { type: 'history' } | { type: 'clear_history' } | { type: 'expenses'; month?: string },
   ): Promise<ChatEvent | null | undefined> => {
     if (socket === null || socket.readyState !== OPEN) return Promise.resolve(undefined);
     const id = crypto.randomUUID();
@@ -208,7 +264,7 @@ export const createChatClient = (options: ChatClientOptions): ChatClient => {
         waiting(event);
         return;
       }
-      if (event.type === 'history') return;
+      if (event.type === 'history' || event.type === 'expenses') return;
       settle(
         event.inReplyTo,
         event.type === 'reply' ? { type: 'reply', reply: event } : { type: event.type },
@@ -249,6 +305,11 @@ export const createChatClient = (options: ChatClientOptions): ChatClient => {
       const event = await ask({ type: 'clear_history' });
       if (event === null) return 'unknown';
       return event?.type === 'done' ? 'done' : 'not_done';
+    },
+    async requestExpenses(month) {
+      const event = await ask({ type: 'expenses', ...(month === undefined ? {} : { month }) });
+      if (event === null || event === undefined) return 'lost';
+      return event.type === 'expenses' ? event : 'failed';
     },
     dispose() {
       release();
