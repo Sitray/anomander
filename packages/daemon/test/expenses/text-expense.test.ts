@@ -131,6 +131,8 @@ describe('text expense handler', () => {
       connected: [],
       // DK-14 AC3: nothing done yet.
       history: [],
+      // R-7 AC7: no recent expense to correct.
+      expenses: [],
     });
     expect(reply.text).toBe('Apuntado: 23,00\u00a0€ (restaurantes).');
     const row = onlyExpense();
@@ -169,8 +171,10 @@ describe('text expense handler', () => {
       status: 'executed',
       verification_assertion_id: null,
     });
+    // R-7 AC4: the reply asks whether to undo or correct it.
     expect(db.prepare('SELECT matter_id, operation, status FROM proposals').all()).toEqual([
       { matter_id: 1, operation: 'register_expense', status: 'executed' },
+      { matter_id: 1, operation: 'amend_expense', status: 'asked' },
     ]);
 
     reply.onDelivered?.({ channelRef: 'telegram:43', deliveredAt: '2026-10-30T23:30:01.000Z' });

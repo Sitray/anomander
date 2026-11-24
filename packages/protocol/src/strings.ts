@@ -269,6 +269,19 @@ const es = {
     'Algo ha fallado y no he podido procesar tu mensaje. ¿Me lo vuelves a enviar en un rato?',
   discarded: (total: number, merchant: string) =>
     `Descartado: no he apuntado ${formatAmount(total)} en ${merchant}.`,
+  /** S-100: "Deshacer" took a typed expense out of the ledger (R-7 AC5). */
+  undone: (total: number, merchant: string) =>
+    `Deshecho: he quitado ${formatAmount(total)} en ${merchant} de tus gastos.`,
+  /** S-101: S-100 when the expense has no merchant. */
+  undoneNoMerchant: (total: number) => `Deshecho: he quitado ${formatAmount(total)} de tus gastos.`,
+  /** S-102: S-8 when the expense, a receipt's or a text's, has no merchant (R-7 AC2). */
+  correctedNoMerchant: (total: number, categoryName: string | null) =>
+    `Corregido: ${formatAmount(total)} (${category(categoryName)}).`,
+  /** S-103: a typed correction that does not say which expense (R-7 AC7). */
+  whichExpense: () =>
+    `¿Qué gasto corrijo? Dímelo con su importe, por ejemplo: el de ${formatAmount(2340)}.`,
+  /** S-104: a typed correction with no recent expense to correct (R-7 AC7). */
+  nothingToCorrect: () => 'No encuentro un gasto reciente que corregir.',
   receiptKept: (lastDay: string) =>
     `Vale, lo guardo hasta poder leerlo, como mucho hasta el ${formatDate(lastDay)}.`,
   receiptNotKept: () => 'Vale, si no consigo leerlo antes, lo borro en una hora.',
@@ -483,6 +496,8 @@ const esButtons = {
   register: 'Apuntar',
   correct: 'Corregir',
   discard: 'Descartar',
+  /** R-7 AC4: under the S-1 or S-2 of a typed expense, with `Corregir`. */
+  undo: 'Deshacer',
   yes: 'Sí',
   no: 'No',
   chatGpt: 'ChatGPT',
@@ -534,6 +549,14 @@ const en: typeof es = {
     "Something went wrong and I couldn't process your message. Can you send it again in a while?",
   discarded: (total, merchant) =>
     `Discarded: I haven't logged ${formatAmount(total)} at ${merchant}.`,
+  undone: (total, merchant) =>
+    `Undone: I removed ${formatAmount(total)} at ${merchant} from your expenses.`,
+  undoneNoMerchant: (total) => `Undone: I removed ${formatAmount(total)} from your expenses.`,
+  correctedNoMerchant: (total, categoryName) =>
+    `Corrected: ${formatAmount(total)} (${category(categoryName)}).`,
+  whichExpense: () =>
+    `Which expense should I fix? Tell me its amount, for example: the ${formatAmount(2340)} one.`,
+  nothingToCorrect: () => "I can't find a recent expense to fix.",
   receiptKept: (lastDay) =>
     `OK, I'll keep it until I can read it, until ${formatDate(lastDay)} at the latest.`,
   receiptNotKept: () => "OK, if I can't read it before then, I'll delete it in an hour.",
@@ -690,6 +713,7 @@ const enButtons: typeof esButtons = {
   register: 'Log',
   correct: 'Edit',
   discard: 'Discard',
+  undo: 'Undo',
   yes: 'Yes',
   no: 'No',
   chatGpt: 'ChatGPT',

@@ -3,6 +3,7 @@ import type { ComputerAction, RouteKind } from '@anomander/protocol';
 import type { AssistantMessage, Context } from '@earendil-works/pi-ai';
 import type { CapabilityCall } from '../capabilities/capability.ts';
 import type { RecentTurn } from '../conversation/recent-turns.ts';
+import type { RecentExpense } from '../store/amend-expense.ts';
 import type { HistoryEntry } from '../store/history.ts';
 import type { Memory, MemoryNote } from '../store/memory.ts';
 
@@ -40,6 +41,8 @@ export interface TextInterpreterInput {
   history?: readonly HistoryEntry[];
   /** The tools of the servers the principal connected (DK-11, T17); none when absent. */
   connected?: readonly ConnectedTool[];
+  /** The recent current expenses a correction may point at (R-7 AC7); none when absent. */
+  expenses?: readonly RecentExpense[];
 }
 
 /**
@@ -96,6 +99,12 @@ export type Interpretation =
   | { kind: 'route_elsewhere'; to: RouteKind }
   /** T17: a lookup on the internet, and no connection can search; nothing is started. */
   | { kind: 'no_web_search' }
+  /**
+   * R-7 AC7: the principal corrects a recent expense by text ("no eran 23, eran 32"): the id of
+   * the expense among the ones the processor was given, or `null` when it is not clear which, and
+   * the new values, each quoting the message. Code checks both before writing anything.
+   */
+  | { kind: 'expense_correct'; expenseId: number | null; inferences: ProcessorInference[] }
   | { kind: 'invalid'; reason: string }
   /** The processor failed or did not answer in time: nothing to interpret (R-22 AC1). */
   | { kind: 'failed'; reason: string }

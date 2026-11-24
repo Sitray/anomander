@@ -56,18 +56,18 @@ export const loadDecision = (db: Database.Database, id: number): StoredDecision 
 /** R-17 AC1: only `open` and `awaiting_text` decisions take an answer. */
 export const asOpenDecision = toOpen;
 
-/** R-17 AC2: the open or awaiting decision shown in that message. */
-export const findDecisionShownIn = (
-  db: Database.Database,
-  channelRef: string,
-): OpenDecision | null => {
-  const row = db
+/**
+ * R-17 AC2: the open or awaiting decisions shown in that message, oldest first. A typed expense's
+ * reply can show two: its "Deshacer" and "Corregir" and the S-15 asked with it (R-7 AC4).
+ */
+export const findDecisionsShownIn = (db: Database.Database, channelRef: string): OpenDecision[] =>
+  db
     .prepare<[string], DecisionRow>(
-      `${SELECT_DECISION} WHERE d.channel_ref = ? AND d.status IN ('open', 'awaiting_text')`,
+      `${SELECT_DECISION} WHERE d.channel_ref = ? AND d.status IN ('open', 'awaiting_text')
+       ORDER BY d.id`,
     )
-    .get(channelRef);
-  return row === undefined ? null : toOpen(toDecision(row));
-};
+    .all(channelRef)
+    .flatMap((row) => toOpen(toDecision(row)) ?? []);
 
 /** R-17 AC3: the one decision waiting for text, if any (index `one_awaiting_text`). */
 export const findAwaitingDecision = (db: Database.Database): OpenDecision | null => {
@@ -251,6 +251,12 @@ export interface CorrectionRegistration {
   source: string;
   receivedAt: string;
   now: string;
+  /**
+   * A registered expense is corrected (R-7 AC6, AC7): the principal's declaration, when there is
+   * one, is the assertion superseded, and the inferences it stood with are refuted too, so no
+   * standing value contradicts the correction. Left out for a pending receipt expense (R-7 AC2).
+   */
+  registered?: boolean;
 }
 
 /**
@@ -262,16 +268,17 @@ export const correctExpense = (
   db: Database.Database,
   registration: CorrectionRegistration,
 ): number[] => {
-  const { expenseId, correction, source, receivedAt, now } = registration;
-  const corrected = db.prepare<[number, string], { id: number }>(
+  const { expenseId, correction, source, receivedAt, now, registered = false } = registration;
+  const standing = db.prepare<[number, string], { id: number }>(
     `SELECT id FROM assertions
      WHERE subject_type = 'expense' AND subject_id = ? AND predicate = ?
        AND mode IN ('inferred', 'declared') AND status IN ('current', 'confirmed')
-     ORDER BY id DESC LIMIT 1`,
+     ORDER BY ${registered ? "mode = 'declared' DESC, " : ''}id DESC`,
   );
   const refute = db.prepare("UPDATE assertions SET status = 'refuted' WHERE id = ?");
   const declare = (predicate: string, value: string | number): number => {
-    const old = corrected.get(expenseId, predicate)?.id ?? null;
+    const [corrected, ...others] = standing.all(expenseId, predicate);
+    const old = corrected?.id ?? null;
     const id = insertAssertion(
       db,
       {
@@ -293,6 +300,7 @@ export const correctExpense = (
       now,
     );
     if (old !== null) refute.run(old);
+    if (registered) for (const other of others) refute.run(other.id);
     return id;
   };
 
