@@ -80,7 +80,8 @@ refuted expenses are never served as expenses; pending ones are counted apart (R
     `GET /v1/lineas?desde=…&hasta=…&producto=…` and `GET /v1/pendientes` return the matching
     view rows as JSON. Response bodies are never logged.
   - AC6: the queries behind each endpoint live in one place in the daemon, so the later MCP
-    server (decision 2) exposes the same ones instead of writing its own.
+    server (decision 2) exposes the same ones instead of writing its own. The desktop app's
+    "Gastos" screen reads through them too (DK-17 in `docs/desktop-prd.md`).
 
 ## 6. Decisions
 

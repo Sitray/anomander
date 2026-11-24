@@ -87,6 +87,40 @@ describe('the bot text in English', () => {
     expect(strings.weeklySummary('2026-10-19', '2026-10-25', 3000, [], 3000, 0)).toBe(
       'Week of 19 October to 25 October: €30.00. Uncategorized €30.00. Waiting for your confirmation: 0.',
     );
+    const query = {
+      from: '2026-11-01',
+      to: '2026-11-24',
+      today: '2026-11-24',
+      category: null,
+      merchant: null,
+      others: 0,
+    };
+    expect(
+      strings.expenseQuery({
+        ...query,
+        total: 3800,
+        count: 2,
+        breakdown: [
+          { name: 'supermercado', cents: 3000 },
+          { name: null, cents: 800 },
+        ],
+        pending: 1,
+      }),
+    ).toBe(
+      'From 1 November to 24 November: €38.00 in 2 expenses. Supermercado €30.00 · Uncategorized €8.00. Waiting for your confirmation: 1.',
+    );
+    expect(
+      strings.expenseQuery({
+        ...query,
+        from: '2025-11-01',
+        to: '2025-11-01',
+        merchant: 'mercadona',
+        total: 0,
+        count: 0,
+        breakdown: [],
+        pending: 0,
+      }),
+    ).toBe('No expenses for mercadona on 1 November 2025.');
     expect(UNCATEGORIZED).toBe('sin clasificar');
     expect(uncategorized()).toBe('uncategorized');
     expect(buttons.yes).toBe('Yes');
