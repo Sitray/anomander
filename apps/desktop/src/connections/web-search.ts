@@ -24,12 +24,23 @@ export interface WebSearchShell {
   saveConnection: (server: ConnectionInput) => Promise<ConnectionsView>;
 }
 
+/** The add under way: there is one `mcp.json`, so one add at a time for the whole window. */
+let adding: Promise<boolean> | null = null;
+
 /**
  * Adds the web search, unless a server already has its name: `true` when it was saved, which
- * starts the daemon again. Rejects with the shell's message.
+ * starts the daemon again. Rejects with the shell's message. A call while an add is under way
+ * joins it, so the file is saved and the daemon restarted once.
  */
-export const addWebSearch = async (shell: WebSearchShell): Promise<boolean> => {
-  if (hasWebSearch(await shell.connections())) return false;
-  await shell.saveConnection(webSearchInput());
-  return true;
+export const addWebSearch = (shell: WebSearchShell): Promise<boolean> => {
+  if (adding !== null) return adding;
+  const add = (async () => {
+    if (hasWebSearch(await shell.connections())) return false;
+    await shell.saveConnection(webSearchInput());
+    return true;
+  })();
+  adding = add.finally(() => {
+    adding = null;
+  });
+  return adding;
 };

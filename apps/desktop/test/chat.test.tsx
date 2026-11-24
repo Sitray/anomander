@@ -1475,11 +1475,54 @@ describe('a missing web search (DK-11 AC13)', () => {
     expect(screen.queryByRole('button', { name: strings.chat.addWebSearch })).toBeNull();
   });
 
-  it('asks again at once when the web search was already there', async () => {
+  it('says it was already on and asks again at once when the web search was already there', async () => {
     const { first } = await toldMissing(async () => false);
     fireEvent.click(addButton());
 
     expect(await sentRequest(first, 2)).toMatchObject({ type: 'text', text: ASKED });
+    expect(screen.getByText(strings.chat.webSearchAlreadyOn)).toBeTruthy();
+    expect(screen.queryByText(strings.chat.webSearchAdded)).toBeNull();
+    expect(screen.queryByRole('button', { name: strings.chat.addWebSearch })).toBeNull();
+  });
+
+  it('gives up after a minute without the new daemon, says so, and can be pressed again', async () => {
+    let saves = 0;
+    // As `addWebSearch`: the first press saves; a later one finds the server already there.
+    const { first, onAddWebSearch, rerender } = await toldMissing(async () => {
+      saves += 1;
+      return saves === 1;
+    });
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    try {
+      fireEvent.click(addButton());
+      await act(async () => {});
+      rerender(STARTING, null);
+      await act(async () => vi.advanceTimersByTime(59_999));
+      expect(screen.getByText(strings.chat.webSearchAdded)).toBeTruthy();
+      expect(screen.queryByText(strings.chat.webSearchNotBack)).toBeNull();
+
+      await act(async () => vi.advanceTimersByTime(1));
+      expect(screen.getByText(strings.chat.webSearchNotBack)).toBeTruthy();
+      expect(screen.queryByText(strings.chat.webSearchAdded)).toBeNull();
+      expect(addButton().hasAttribute('disabled')).toBe(false);
+      // A daemon back after it gave up is asked nothing by itself.
+      rerender(RUNNING, BACK);
+      const back = FakeWebSocket.last;
+      act(() => back.open());
+      await act(async () => {});
+      expect(first.requests).toHaveLength(1);
+      expect(back.requests).toHaveLength(0);
+
+      // Pressed again, the server is already there: asked again at once.
+      fireEvent.click(addButton());
+      await act(async () => {});
+      expect(onAddWebSearch).toHaveBeenCalledTimes(2);
+      expect(back.requests).toHaveLength(1);
+      expect(back.requests[0]).toMatchObject({ type: 'text', text: ASKED });
+      expect(screen.getByText(strings.chat.webSearchAlreadyOn)).toBeTruthy();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('says when it could not be added, and can be pressed again', async () => {

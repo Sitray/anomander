@@ -97,6 +97,8 @@ function SetupForm(props: FormProps) {
   const [errors, setErrors] = useState<Errors>({});
   const [saving, setSaving] = useState(false);
   const [rejection, setRejection] = useState<string | null>(null);
+  /** The web search was saved on this screen: a setup refused after it does not undo it. */
+  const [webSearchKept, setWebSearchKept] = useState(false);
 
   const botToken = useRef<HTMLInputElement>(null);
   const keyValue = useRef<HTMLInputElement>(null);
@@ -191,7 +193,10 @@ function SetupForm(props: FormProps) {
     setSaving(true);
     try {
       // Before the setup: saving it starts the daemon, and saving a connection would restart it.
-      if (offersWebSearch && webSearch) await onAddWebSearch();
+      if (offersWebSearch && webSearch) {
+        await onAddWebSearch();
+        setWebSearchKept(true);
+      }
       const saved = await onSave(input);
       typedKeys.current.clear();
       onSaved(saved);
@@ -445,6 +450,7 @@ function SetupForm(props: FormProps) {
           <div className="setup-alert" role="alert">
             <p>{text.rejected}</p>
             <ErrorBlock label={strings.status.errorDetail}>{rejection}</ErrorBlock>
+            {webSearchKept && <p>{text.webSearchKept}</p>}
           </div>
         )}
         <p className="setup-message" role="status" data-kind={hasErrors ? 'error' : 'note'}>
