@@ -49,6 +49,31 @@ describe('the scrubbing logger', () => {
     expect(out.info).toHaveBeenCalledWith('anomander local channel listening on 127.0.0.1:51234');
   });
 
+  it('hides a secret written JSON-escaped, as in a request body it quotes', () => {
+    const out = sink();
+    const secret = 'pass"word\\0123456789';
+    const logger = createScrubbingLogger(out, () => [secret]);
+
+    logger.error(`the server refused the body {"key":${JSON.stringify(secret)}}`);
+
+    expect(out.error).toHaveBeenCalledWith('the server refused the body {"key":"[secret]"}');
+  });
+
+  it('hides a secret written URL-encoded, as in an address or a form it quotes', () => {
+    const out = sink();
+    const secret = 'a/b+c=d&e f0123456789';
+    const logger = createScrubbingLogger(out, () => [secret]);
+    const form = new URLSearchParams({ token: secret }).toString();
+
+    logger.error(
+      `GET https://x.example/cb?token=${encodeURIComponent(secret)} failed; sent ${form}`,
+    );
+
+    expect(out.error).toHaveBeenCalledWith(
+      'GET https://x.example/cb?token=[secret] failed; sent token=[secret]',
+    );
+  });
+
   it('writes everything else as the console would', () => {
     const out = sink();
     const logger = createScrubbingLogger(out, () => [TOKEN, '']);
