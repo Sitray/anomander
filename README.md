@@ -127,6 +127,26 @@ ANOMANDER is an open-source project in a public repository, released under the [
 3. **Providers are chosen at install time.** Whoever runs it picks their model (API, subscription or local) and their front door; the core assumes none.
 4. **The ontology is public.** These documents are the specification: every contribution must respect it, and any app can be built on top of it.
 
+## What leaves your machine
+
+Your data stays on the machine that runs ANOMANDER, except for what goes to these places:
+
+| Where it goes | What goes there |
+| --- | --- |
+| The model provider you chose | What you write, the last turns of the conversation (at most 10, from the last 30 minutes), your memories, the recent history of what ANOMANDER did, the tools of your connections, receipt photos, and the screen capture of a look at the screen or of a task on the computer |
+| Telegram, if you set up a bot | Your messages and receipt photos to the bot, and its replies and reminders |
+| Exa (exa.ai), if web search is on | What ANOMANDER searches for, with no account. Another search engine or a proxy asks first; pages are read from your machine, after "Permitir" |
+| The servers you connect (Notion, Linear, Atlassian or your own) | The calls ANOMANDER makes to their tools. A tool marked read-only runs without asking; any other call waits for "Permitir" |
+| Apps holding your read API token | The views `gastos`, `lineas_de_compra` and `pendientes_de_confirmar`. Off unless `ANOMANDER_API_TOKEN` is set; an address off the machine also needs `ANOMANDER_API_ALLOW_PLAIN_HTTP=1` |
+
+What stays local:
+
+- The data folder: the SQLite database (expenses, categories, policies, memories and the history of what ANOMANDER did) and the receipt photos, readable by their owner only.
+- Secrets: in the macOS Keychain or the Windows Credential Manager for the app, in `.env` and the login file at `ANOMANDER_AUTH_PATH` for Docker.
+- Screen captures are never stored, and the last turns of the conversation live only in memory, lost on restart.
+
+See [PRD](PRD.md) §16 for the full rules.
+
 ## Getting started
 
 This runs the daemon with Docker, reached over Telegram. For the Mac app, see [Run the Mac app](#run-the-mac-app).
@@ -176,7 +196,7 @@ You need:
 | Node 24 and pnpm | The app runs the daemon with the first `node` on `PATH` (plus `/opt/homebrew/bin` and `/usr/local/bin`) |
 | Rust 1.85 or later and the Xcode Command Line Tools | To build the Tauri shell |
 | A code-signing identity | macOS ties each Keychain entry to the app's signature. An unsigned build gets a new one each time, so after every rebuild macOS asks for your login keychain password |
-| A Telegram bot and your user ID | The app does not start without them today ([Getting started](#getting-started), steps 1 and 2) |
+| A Telegram bot and your user ID, if you want | Only to talk to ANOMANDER over Telegram too ([Getting started](#getting-started), steps 1 and 2). Without them the app's chat works on its own |
 | A model | An API key, or a ChatGPT or Kimi Code subscription |
 
 Steps:
