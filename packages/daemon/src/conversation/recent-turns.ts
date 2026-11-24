@@ -13,7 +13,8 @@ import {
 // "lo de antes". DK-16: every turn is kept in the local database as the stored conversation, so
 // the app shows it again and the turns survive a restart; the interpreter still gets only the
 // latest ones. They are never logged, and are erased on "Borrar conversación", on a confirmed
-// forget and after 90 days.
+// forget and after 90 days; a replaced memory takes the turns that hold its words with it
+// (R-23 AC3).
 
 export const RECENT_TURN_LIMIT = 10;
 export const RECENT_TURN_MAX_AGE_MS = 30 * 60 * 1000;
@@ -55,7 +56,8 @@ export interface RecentTurns {
   /**
    * Erases the stored conversation, and so the turns. "Borrar conversación" (DK-16), and the
    * `forget_memory` and `forget_history` answers on `Sí` (R-23 AC6, DK-14 AC4) call it, so the
-   * forgotten fact and the question that showed it leave the context and the database.
+   * forgotten fact and the question that showed it leave the context and the database. A failure
+   * to erase throws: the caller says it failed.
    */
   clear(): void;
 }
@@ -147,7 +149,8 @@ export const recordingTurns =
 
 /**
  * Records each message sent to the principal unasked as a turn with no principal part, once it
- * was sent: they go to Telegram only (DK-4 AC5).
+ * was delivered: they go to Telegram only (DK-4 AC5). A send that fails or ends without
+ * delivering it stores nothing (DK-16 AC1).
  */
 export const recordingNotices =
   (turns: RecentTurns, notify: Notify): Notify =>
@@ -160,7 +163,7 @@ export const recordingNotices =
         message.onDelivered?.(delivery);
       },
     });
-    turns.add(null, message, 'telegram', channelRef);
+    if (channelRef !== undefined) turns.add(null, message, 'telegram', channelRef);
   };
 
 /** How a task on the computer appears in the recent turns: what was asked, never the screen. */

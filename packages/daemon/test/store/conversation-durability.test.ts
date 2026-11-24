@@ -13,6 +13,7 @@ import {
 } from '../../src/store/conversation.ts';
 import { applyMigrations, MIGRATIONS_DIR, openDatabase } from '../../src/store/database.ts';
 import { recordAction } from '../../src/store/history.ts';
+import { saveMemory } from '../../src/store/memory.ts';
 
 // DK-16: the stored conversation survives the 0009 migration and is erased for real.
 const AT = new Date('2026-11-24T10:00:00.000Z');
@@ -83,6 +84,72 @@ describe('S5/S6 real erasure', () => {
 
     expect(onDisk('zorbsecret')).toEqual([]);
     expect(turns.recent()).toEqual([{ principal: '[botón: Sí]', reply: 'Hecho, lo he olvidado.' }]);
+  });
+});
+
+describe('R-23 AC3: a replaced memory takes the turns that hold its words with it', () => {
+  const at = AT.toISOString();
+  const capture = (text: string, quote: string, replaces: number | null) => ({
+    text,
+    quote,
+    said: true,
+    confidence: 1,
+    message: quote,
+    source: 'telegram:1',
+    replaces,
+    receivedAt: at,
+    now: at,
+  });
+  const texts = () => storedConversation(db, HISTORY_LIMIT).map(({ text }) => text);
+
+  it('R-23 AC3: a replacement erases the turns of the old fact, from the db, -wal and -shm, and keeps the rest', () => {
+    db = openDatabase(path);
+    applyMigrations(db);
+    const turns = createRecentTurns({ db, now: () => AT, logger });
+    turns.add('23 € cena', { text: 'Apuntado.' }, 'app');
+    turns.add('Vivo en Zorbtown', { text: 'Tomo nota de que vives en zorbtown.' }, 'telegram');
+    turns.add(null, { text: 'Recordatorio: llamar.' }, 'telegram');
+    const old = saveMemory(db, capture('Vive en Zorbtown', 'Vivo en Zorbtown', null));
+    expect(onDisk('Zorbtown')).not.toEqual([]);
+
+    saveMemory(db, capture('Vive en Lisboa', 'ya vivo en Lisboa', old));
+
+    expect(texts()).toEqual(['23 € cena', 'Apuntado.', 'Recordatorio: llamar.']);
+    expect(onDisk('Zorbtown')).toEqual([]);
+    expect(onDisk('zorbtown')).toEqual([]);
+  });
+
+  const memo = (text: string, quote: string, replaces: number | null) => ({
+    ...capture(text, quote, replaces),
+    message: quote,
+  });
+  it('a short quote erases only the turn of the old fact', () => {
+    db = openDatabase(path);
+    applyMigrations(db);
+    const turns = createRecentTurns({ db, now: () => AT, logger });
+    turns.add('así que 30 € taxi', { text: 'Apuntado: 30 € en taxi.' }, 'app');
+    turns.add('[botón: Sí]', { text: 'Hecho, lo he olvidado.' }, 'app');
+    turns.add(null, { text: '¿Eres vegetariano?' }, 'telegram');
+    turns.add('sí', { text: 'Tomo nota.' }, 'telegram');
+    const old = saveMemory(db, memo('Es vegetariano', 'sí', null));
+    saveMemory(db, memo('Ya no es vegetariano', 'ya no', old));
+    expect(texts()).toEqual([
+      'así que 30 € taxi',
+      'Apuntado: 30 € en taxi.',
+      '[botón: Sí]',
+      'Hecho, lo he olvidado.',
+      '¿Eres vegetariano?',
+    ]);
+  });
+  it('a numeric quote erases only its turn', () => {
+    db = openDatabase(path);
+    applyMigrations(db);
+    const turns = createRecentTurns({ db, now: () => AT, logger });
+    turns.add('123 € luz', { text: 'Apuntado: 123 € en luz.' }, 'app');
+    turns.add('tengo 23', { text: 'Tomo nota.' }, 'app');
+    const old = saveMemory(db, memo('Tiene 23 años', '23', null));
+    saveMemory(db, memo('Tiene 24 años', '24', old));
+    expect(texts()).toEqual(['123 € luz', 'Apuntado: 123 € en luz.']);
   });
 });
 

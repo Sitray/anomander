@@ -106,6 +106,8 @@ A capability answers inside one interpreter call. These three need more than one
 | Kept in the history (DK-14 AC2) | The question and how it ended | How it ended and the steps it took | How it ended and the calls made or refused |
 | macOS permission | Screen Recording | Screen Recording and Accessibility | None |
 
+Not every command is a capability. `/start`, `/login`, `/logout` and `/exportar` (PRD R-29) are handled by code in `src/app.ts` before the interpreter, so they use no AI budget; `/exportar` answers with files, which only Telegram sends (`files` on the reply, `sendDocument` in `@anomander/telegram`).
+
 Every processor call counts against the daily AI limit (R-12). A look is a recent turn as its question only; a task, as how it ended (R-16 AC3).
 
 ### How a message reaches one

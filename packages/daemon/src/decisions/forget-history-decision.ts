@@ -27,15 +27,18 @@ export const createForgetHistoryAnswerHandler =
     const { up_to_id: upToId } = forgetHistoryPayload.parse(decision.payload);
     const at = now().toISOString();
 
+    // Erased before the answer is recorded, as `forget_memory` erases: when an erase fails the
+    // question stays open, so "Sí" can be pressed again; erasing twice changes nothing.
+    if (option === buttons.yes) {
+      clearRecentTurns();
+      forgetHistory(db, upToId);
+    }
     db.transaction(() => {
       answerDecision(db, decision.id, null);
       settleProposal(db, decision.proposal_id, option === buttons.yes ? 'executed' : 'rejected');
       if (option === buttons.yes) insertAction(db, decision.proposal_id, 'principal', at);
     })();
-    if (option === buttons.no) return { text: strings.historyNotForgotten() };
-
-    // Erased after the answer is recorded: the WAL checkpoint cannot run inside a transaction.
-    forgetHistory(db, upToId);
-    clearRecentTurns();
-    return { text: strings.historyForgotten() };
+    return {
+      text: option === buttons.yes ? strings.historyForgotten() : strings.historyNotForgotten(),
+    };
   };

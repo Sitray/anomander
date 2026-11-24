@@ -4,11 +4,21 @@
 export const WEB_SEARCH_PACKAGE = 'pi-web-access';
 
 /**
- * Search the web without the computer: `pi-web-access` (MIT) as a local MCP server. Pinned, so
- * what runs is the version that was read, never whatever npm calls latest; `-y` only lets `npx`
- * fetch that version without a question nobody would see, and `npm_config_ignore_scripts` keeps
- * npm from running an install script of it or of what it brings (those are not pinned). With no
- * key and no `web-search.json` it searches only through Exa's hosted MCP (`mcp.exa.ai`).
+ * B9: the one version of it that runs. The daemon depends on this exact version, so
+ * `pnpm-lock.yaml` pins it and everything it brings, and a server that names it is started from
+ * that installed copy (`packages/daemon/src/connections/web-search.ts`).
+ */
+export const WEB_SEARCH_VERSION = '0.48.0';
+
+/**
+ * Search the web without the computer: `pi-web-access` (MIT) as a local MCP server. `mcp.json`
+ * keeps it as the `npx` line any MCP client can run, with its version in sight; the daemon does
+ * not run `npx` for it: it starts the copy installed with it, whose dependencies the lockfile
+ * pins, with its own `node`. Files written before keep working, since the line is the same.
+ * Outside ANOMANDER, `-y` only lets `npx` fetch that version without a question nobody would
+ * see, and `npm_config_ignore_scripts` keeps npm from running an install script of it or of what
+ * it brings. With no key and no `web-search.json` it searches only through Exa's hosted MCP
+ * (`mcp.exa.ai`).
  *
  * A search and paging through its stored results run without asking; reading a page always
  * asks, with its exact address, and so does a search that picks its provider, goes through a
@@ -18,7 +28,7 @@ export const WEB_SEARCH_PACKAGE = 'pi-web-access';
 export const WEB_SEARCH_CONNECTION = {
   name: 'Internet',
   command: 'npx',
-  args: ['-y', `${WEB_SEARCH_PACKAGE}@0.48.0`],
+  args: ['-y', `${WEB_SEARCH_PACKAGE}@${WEB_SEARCH_VERSION}`],
   env: { npm_config_ignore_scripts: 'true' },
   readOnly: ['web_search', 'get_search_content'],
   /**

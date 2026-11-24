@@ -1,3 +1,6 @@
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import type {
   ButtonHandler,
   PrincipalReceipt,
@@ -93,6 +96,96 @@ describe('principal text (R-17 AC5)', () => {
         deliveredAt: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/),
       }),
     );
+  });
+});
+
+describe('files (R-29 AC3)', () => {
+  it('sends the text, then each file of the reply as a document with its name', async () => {
+    const folder = mkdtempSync(join(tmpdir(), 'anomander-bot-files-'));
+    try {
+      writeFileSync(join(folder, 'a.csv'), 'x,y\r\n1,2\r\n');
+      writeFileSync(join(folder, 'b.json'), '{"ok":true}\n');
+      onText.mockResolvedValueOnce({
+        text: 'Aquí tienes tus datos.',
+        files: [
+          { path: join(folder, 'a.csv'), name: 'gastos.csv' },
+          { path: join(folder, 'b.json'), name: 'ledger.json' },
+        ],
+      });
+      api.push(updates.text(principal, '/exportar'));
+
+      const [reply] = await api.waitForSent(1);
+      const documents = await api.waitForDocuments(2);
+
+      expect(reply?.text).toBe('Aquí tienes tus datos.');
+      expect(
+        documents.map(({ chatId, fileName, bytes }) => ({
+          chatId,
+          fileName,
+          text: new TextDecoder().decode(bytes),
+        })),
+      ).toEqual([
+        { chatId: PRINCIPAL, fileName: 'gastos.csv', text: 'x,y\r\n1,2\r\n' },
+        { chatId: PRINCIPAL, fileName: 'ledger.json', text: '{"ok":true}\n' },
+      ]);
+      // The documents come after the text.
+      expect(documents[0]?.messageId).toBeGreaterThan(reply?.messageId ?? Number.POSITIVE_INFINITY);
+    } finally {
+      rmSync(folder, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('files that Telegram refuses (R-29 AC3)', () => {
+  const withFiles = async (run: (folder: string) => Promise<void>) => {
+    const folder = mkdtempSync(join(tmpdir(), 'anomander-bot-refused-'));
+    try {
+      writeFileSync(join(folder, 'a.csv'), 'a');
+      writeFileSync(join(folder, 'b.json'), 'b');
+      onText.mockResolvedValueOnce({
+        text: 'Aquí tienes tus datos.',
+        files: [
+          { path: join(folder, 'a.csv'), name: 'gastos.csv' },
+          { path: join(folder, 'b.json'), name: 'ledger.json' },
+        ],
+        filesFailed: 'No he podido exportar tus datos.',
+      });
+      await run(folder);
+    } finally {
+      rmSync(folder, { recursive: true, force: true });
+    }
+  };
+
+  it('sends a document again when Telegram refuses it for a moment', async () => {
+    await withFiles(async () => {
+      api.refuseNextDocuments(1, 500);
+      api.push(updates.text(principal, '/exportar'));
+
+      const documents = await api.waitForDocuments(2, 5000);
+
+      expect(documents.map((document) => document.fileName)).toEqual(['gastos.csv', 'ledger.json']);
+      expect(api.sent.map((message) => message.text)).toEqual(['Aquí tienes tus datos.']);
+    });
+  });
+
+  it('sends filesFailed when a document is still refused, and logs no path', async () => {
+    await withFiles(async (folder) => {
+      api.refuseNextDocuments(3, 500);
+      api.push(updates.text(principal, '/exportar'));
+
+      const sent = await api.waitForSent(2, 5000);
+
+      expect(sent.map((message) => message.text)).toEqual([
+        'Aquí tienes tus datos.',
+        'No he podido exportar tus datos.',
+      ]);
+      expect(api.documents).toEqual([]);
+      expect(logger.error).toHaveBeenCalledWith('Failed to send a file', {
+        file: 'gastos.csv',
+        reason: expect.anything(),
+      });
+      expect(JSON.stringify(logger.error.mock.calls)).not.toContain(folder);
+    });
   });
 });
 

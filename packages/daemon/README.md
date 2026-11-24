@@ -189,8 +189,8 @@ by default: `send` sends nothing unless a `send_weekly_summary` permission is in
 which only the principal grants (see the weekly summary capability below).
 
 **Scheduler.** `startScheduler` (`src/scheduler/scheduler.ts`, croner) runs retention, the queue
-and the receipt watch once at startup. After that, it runs retention at `ANOMANDER_RETENTION_CRON`
-and the weekly summary at `ANOMANDER_WEEKLY_SUMMARY_CRON`, both in `TZ`, and the queue and the
+and the receipt watch once at startup. After that, it runs retention at `ANOMANDER_RETENTION_CRON`,
+followed by the daily backup (see "Migrations and backups" below), and the weekly summary at `ANOMANDER_WEEKLY_SUMMARY_CRON`, both in `TZ`, and the queue and the
 receipt watch every minute, so S-13's "lo borro en una hora" holds. The weekly summary never runs
 at startup. The jobs share one serial queue and never overlap. `stop()` waits for the job in
 progress.
@@ -224,8 +224,12 @@ So the interpreter understands "ese" or "lo de antes", the text interpreter gets
 exchanges with the principal, none older than 30 minutes, as `recent`. `app.ts` records them at the
 front door, with the door they went through: `recordingTurns` wraps the text, receipt and button
 handlers (a receipt is `[foto de ticket]` and its caption, a press `[botón: Apuntar]`), and
-`recordingNotices` wraps `notify`, so a message sent unasked, once sent, is a turn with no principal
-part. A login's messages (R-17 AC7) go around both, so a pasted code is never a turn.
+`recordingNotices` wraps `notify`, so a message sent unasked, once delivered, is a turn with no
+principal part; a send that fails or delivers nothing stores nothing. A text the interpreter routes
+to a task with connections is stored once, with its announcement; the task's answer follows with
+no `[conexiones]` line (`connectionSession.run(task, door, true)`). A login's messages (R-17 AC7)
+go around both, so a pasted code is never a turn, from either door: the app's chat hands its text
+to `login.takePasted` first.
 
 `src/conversation/recent-turns.ts` keeps them in the local database (desktop PRD DK-16, table
 `conversation`, `src/store/conversation.ts`): one row per message, the principal's and the reply,
@@ -237,11 +241,14 @@ expense's amount must still be written in the current message (R-2 AC6), so a re
 becomes an expense fact.
 
 `clear()` erases the stored conversation for real (`secure_delete`, then a truncating WAL
-checkpoint): the app's `clear_history` ("Borrar conversación"), the `forget_memory` answer on `Sí`
+checkpoint): the app's `clear_history` ("Borrar conversación"), run in the chat's turn so a turn
+that runs is stored before the erase and never after it, the `forget_memory` answer on `Sí`
 (R-23 AC6) and the `forget_history` answer on `Sí` (DK-14 AC4) call it, so the forgotten fact and
 the S-29 question that showed it leave the context and the database. The press itself
-(`[botón: Sí]` and S-30, which names no fact) is then stored as the first turn after the erase. The
-retention job erases messages older than 90 days.
+(`[botón: Sí]` and S-30, which names no fact) is then stored as the first turn after the erase. A
+replaced memory erases only the turns where the principal said it, matched as whole words
+(`forgetTurnsHolding`, see Conversation memory). The retention job erases messages older
+than 90 days.
 
 ## Conversation memory (R-23)
 
@@ -289,14 +296,21 @@ into `pending_decisions`. A text sent as a reply to S-29 is not a correction: th
 correction for `forget_memory`, so it goes to the interpreter (R-17).
 
 **Answering (AC6).** `createForgetMemoryAnswerHandler` (`src/decisions/forget-memory-decision.ts`)
-records the answer first. `No` rejects the proposal, erases nothing and replies S-31. `Sí`
-executes the proposal with an action authorized by the principal, then calls `forgetMemories`
-with the ids (a memory forgotten or replaced since the question is skipped), empties the recent
-turns and replies S-30. Listing and forgetting go through the same interpreter call as any text,
-so a spent budget gets S-26 and a failed call S-22 (S5).
+on `Sí` first calls `forgetMemories` with the ids (a memory forgotten or replaced since the
+question is skipped) and empties the stored conversation and the recent turns, then records the
+answer: an erase that fails leaves the question open, so `Sí` can be pressed again. `No` rejects
+the proposal, erases nothing and replies S-31. `Sí` executes the proposal with an action
+authorized by the principal and replies S-30. Listing and forgetting go through the same
+interpreter call as any text, so a spent budget gets S-26 and a failed call S-22 (S5).
 
 **Forgetting (AC6, AC7).** `forgetMemories` deletes the `memory_texts` rows (the triggers remove
-them from the index) and sets the assertions to `expired`, in one transaction. The erase is real:
+them from the index) and sets the assertions to `expired`, in one transaction. A replacement
+(`saveMemory` with `replaces`) also erases the turns of the stored conversation where the principal
+said it, matched as whole words ignoring case, spacing and accents (so "sí" is not in "así" nor
+"23" in "123"): the old quote in a principal's own message, never a marker line such as
+`[botón: Sí]`, and the old text in any message. A matched message takes its turn, the
+principal's message and its reply, with it (`forgetTurnsHolding`); the rest of the conversation
+stays. The erase is real:
 `openDatabase` turns on `secure_delete`, the index has FTS5 `secure-delete`, and the WAL is
 checkpointed and truncated afterwards, so the text is in neither the database file nor its WAL.
 The test proves it by reading the raw bytes. Never log a memory's text or quote (AC8).
@@ -542,7 +556,7 @@ Each message is one JSON text frame, typed in `packages/protocol/src/local-chann
 
 A `reply` carries its own `channelRef`, `desktop:<uuid>`, which is recorded as the delivery
 (R-9 AC2) once the frame left through the socket. The channel only answers: what ANOMANDER
-sends unasked goes to Telegram (DK-4 AC5), and the app sees it in the stored conversation. `/login` and `/logout` are Telegram's alone.
+sends unasked goes to Telegram (DK-4 AC5), and the app sees it in the stored conversation. `/login`, `/logout` and `/exportar` are Telegram's alone (`/exportar` replies S-81 in the app).
 
 Both doors call the same handlers, `chat` in `src/app.ts`, wrapped by `oneTurnAtATime`: inputs
 are handled one after another in the order they arrive, so Telegram and the app share the
@@ -710,7 +724,9 @@ key (R-15 AC3).
   abandons the running one, with no S-65. `/logout` replies S-66 with one button per connected
   account, or S-68; pressing one deletes it (S-67). These commands, their buttons (`login:<provider>`
   and `logout:<provider>`, apart from `decision:` data) and the awaited text are handled in
-  `app.ts` before every other route, so they work when no model is reachable (R-17 AC7).
+  `app.ts` before every other route, so they work when no model is reachable (R-17 AC7). While a
+  login waits, a text sent in the desktop app's chat goes to it too (`takePasted`), answered
+  `done`; the app never takes `/login` or `/logout` (desktop PRD DK-4 AC7).
 - **From a terminal on the server.** `pnpm run login [provider]` and `pnpm run logout <provider>`
   (`scripts/login.ts`, `scripts/logout.ts`) do the same and print the link or device code. Plain
   `pnpm login` is pnpm's own npm-registry login, so `run` is needed. Run them from the directory
@@ -774,7 +790,7 @@ polling, while Telegram is configured.
 **Without Telegram** (`src/telegram-door.ts`) `@anomander/telegram` is never imported: nothing
 polls Telegram or is sent there, `started` resolves once the store is ready and `polling` only at
 `stop`. What only Telegram serves is absent: `/login` and `/logout` (the app logs in from its
-Suscripciones screen), `/mcp`, and the setup guide sent at start. The local channel only answers
+Suscripciones screen), `/mcp`, `/exportar`, and the setup guide sent at start. The local channel only answers
 (DK-4 AC5), so the messages sent unasked have no door: the due reminders, the morning digest and
 the weekly summary are not run (a reminder then goes out late once Telegram is set up), nor is
 the budget queue: a queued receipt stays queued, unread, since its reply could not be told
@@ -794,6 +810,31 @@ it is first copied with `VACUUM INTO` beside its file as
 such files are kept and older ones deleted. A fresh database gets no copy, and a copy that cannot
 be written stops the start with nothing applied. To go back, stop the daemon and put a backup in
 place of the database file, removing its `-wal` and `-shm`.
+
+The daily backup (B5, `src/backup/daily-backup.ts`) runs right after each retention run, so at
+startup and at `ANOMANDER_RETENTION_CRON`: it copies the database the same way as
+`<db>.backup-daily-<yyyymmddThhmmssZ>`, unless a copy stamped on the same UTC day is already
+there, and keeps the seven newest daily copies; the copies taken before migrations are pruned
+apart. It runs in a `finally`, so also when retention failed; after a successful retention the
+copy holds nothing retention erased. What "Borrar conversación" or a confirmed forget erases stays
+in the older daily copies until seven newer ones replace them: seven days when the daemon runs
+every day, longer when it does not (PRD §16). A copy that cannot be written is logged by its error code only, never its path, and is made
+at the next run; the daemon keeps running. The copies sit on the same disk as the database.
+
+**Ledger export.** `exportLedger` (B5, `src/store/export.ts`) writes the read views of RA-1
+(`gastos`, `lineas_de_compra`, `pendientes_de_confirmar`) as one CSV file each (RFC 4180, CRLF,
+a header row even with no rows) and all three in `ledger.json`, into a new
+`<data folder>/exports/<yyyymmddThhmmssZ>/` (`-1`, `-2`, … within the same second). The views are
+read in one transaction; folders get mode 700 and files 600, and a failed write leaves no partial
+folder. A CSV text that starts with `=`, `+`, `-`, `@`, a tab or a carriage return gets a leading
+`'`, so a spreadsheet never runs a merchant or product name read from a receipt as a formula;
+`ledger.json` keeps the text as stored. No processor is called.
+
+`/exportar` (PRD R-29 AC3) in Telegram calls it with the folder of `ANOMANDER_DB_PATH` and
+replies S-79 with the four files in `files`; `@anomander/telegram` sends the text, then each file
+with `sendDocument`. A failed export replies S-80 and logs only the error code. It runs in the
+chat's turn and gets the setup guide while setup is incomplete. In the app `/exportar` replies
+S-81 and writes nothing. Exports stay under `exports/` until deleted by hand.
 
 ## Configuration
 
