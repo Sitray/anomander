@@ -1,7 +1,19 @@
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
+import { createFileCredentialStore } from '../src/auth/file-credential-store.ts';
+import { rememberingLogins } from '../src/auth/remembering-logins.ts';
+import { createShellCredentialStore } from '../src/auth/shell-credential-store.ts';
 import { loadConfig } from '../src/config.ts';
+import { createOAuthKeeper } from '../src/connections/oauth.ts';
 import { createScrubbingLogger } from '../src/scrubbing-logger.ts';
-import { secretsToScrub } from '../src/secrets-to-scrub.ts';
+import {
+  createSecretList,
+  secretsBeforeConfig,
+  secretsToScrub,
+  secretTellingStores,
+} from '../src/secrets-to-scrub.ts';
 
 // B8: a Docker install's log is the daemon's own output; no key of its configuration may show.
 const LOCAL_TOKEN = 'local-channel-token-0123456789abcdef';
@@ -177,5 +189,135 @@ describe('the secrets the daemon scrubs from its log', () => {
     );
 
     expect(secrets).toEqual([LOCAL_TOKEN]);
+  });
+});
+
+// B42: what the daemon gets after its start (a refreshed or new login, a refreshed OAuth token)
+// is scrubbed too, by the same rules as what it read at the start.
+describe('the secrets the daemon gets after its start', () => {
+  const NEW_ACCESS = 'late-access-0123456789abcdef';
+  const NEW_REFRESH = 'late-refresh-0123456789abcdef';
+
+  /** The log `main.ts` builds over `list`, and what it wrote last. */
+  const logOver = (list: ReturnType<typeof createSecretList>) => {
+    const sink = { info: vi.fn(), warn: vi.fn(), error: vi.fn() };
+    const logger = createScrubbingLogger(sink, list.current);
+    return (message: string): string => {
+      logger.error(message);
+      return String(sink.error.mock.calls.at(-1)?.[0]);
+    };
+  };
+
+  it('include a login refreshed or made after the start', async () => {
+    const list = createSecretList();
+    list.setFromStart([LOCAL_TOKEN]);
+    const log = logOver(list);
+    const store = rememberingLogins(
+      createShellCredentialStore('{}', () => {}),
+      list.acquire,
+    );
+
+    await store.modify('openai-codex', async () => ({
+      type: 'oauth',
+      access: NEW_ACCESS,
+      refresh: NEW_REFRESH,
+      expires: 1,
+      accountId: 'account-0123456789',
+    }));
+
+    expect(log(`refresh of ${NEW_ACCESS} failed with ${NEW_REFRESH} for account-0123456789`)).toBe(
+      'refresh of [secret] failed with [secret] for account-0123456789',
+    );
+    expect(log(`local ${LOCAL_TOKEN}`)).toBe('local [secret]');
+  });
+
+  it('include a login another process wrote to the file after the start', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'anomander-late-login-'));
+    try {
+      const path = join(dir, 'auth.json');
+      const list = createSecretList();
+      const log = logOver(list);
+      const store = rememberingLogins(createFileCredentialStore(path), list.acquire);
+      writeFileSync(path, JSON.stringify({ openai: { type: 'api_key', key: LOGIN_KEY } }));
+
+      await store.read('openai');
+
+      expect(log(`401 for ${LOGIN_KEY}`)).toBe('401 for [secret]');
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("include a connection's OAuth tokens refreshed after the start", () => {
+    const list = createSecretList();
+    const log = logOver(list);
+    const keeper = createOAuthKeeper(
+      {
+        notion: {
+          client: { client_id: 'c-1' },
+          tokens: { access_token: NOTION_ACCESS, token_type: 'Bearer' },
+          redirectUrl: 'http://127.0.0.1:54177/callback',
+          url: 'https://notion.example/mcp',
+        },
+      },
+      (entries) => list.acquire('oauth', entries),
+    );
+
+    keeper
+      .providerFor('notion', 'https://notion.example/mcp')
+      ?.saveTokens({ access_token: NEW_ACCESS, refresh_token: NEW_REFRESH, token_type: 'Bearer' });
+
+    expect(log(`https://notion.example/mcp refused ${NEW_ACCESS} and ${NEW_REFRESH}`)).toBe(
+      'https://notion.example/mcp refused [secret] and [secret]',
+    );
+  });
+
+  it('come from the stores main.ts hands the daemon: the login and the OAuth printer', async () => {
+    const list = createSecretList();
+    const log = logOver(list);
+    const out: string[] = [];
+    const { credentials, printOAuth } = secretTellingStores(
+      list,
+      { authJson: '{}', authPath: '/nowhere/auth.json' },
+      (text) => out.push(text),
+    );
+
+    await credentials.modify('openai', async () => ({ type: 'api_key', key: LOGIN_KEY }));
+    printOAuth({
+      notion: {
+        client: { client_id: 'c-1' },
+        tokens: { access_token: NEW_ACCESS, token_type: 'Bearer' },
+        redirectUrl: 'http://127.0.0.1:54177/callback',
+      },
+    });
+
+    expect(log(`401 for ${LOGIN_KEY} and ${NEW_ACCESS}`)).toBe('401 for [secret] and [secret]');
+    expect(out).toHaveLength(2);
+    expect(out[0]).toMatch(/^anomander credentials /);
+    expect(out[1]).toMatch(/^anomander mcp-oauth .*late-access/);
+  });
+
+  it('keeps logging when a secret holds a lone surrogate', () => {
+    const list = createSecretList();
+    list.acquire('oauth', JSON.parse('{"access_token":"abcdefgh\\ud800ijkl"}'));
+    const lines: string[] = [];
+    const sink = { info: (m: string) => lines.push(m), warn: () => {}, error: () => {} };
+    const log = createScrubbingLogger(sink, list.current);
+
+    expect(() => log.info('anomander daemon stopping (SIGTERM)')).not.toThrow();
+    expect(lines).toEqual(['anomander daemon stopping (SIGTERM)']);
+  });
+
+  it('include, before the configuration is read, every provider key and every handed value', () => {
+    expect(
+      secretsBeforeConfig(
+        { OPENAI_API_KEY: OPENAI_KEY, HOME: '/home/someone-long' },
+        {
+          ANOMANDER_LOCAL_TOKEN: LOCAL_TOKEN,
+          OPENAI_API_KEY: OPENAI_KEY,
+          ANOMANDER_MCP_SECRETS: '',
+        },
+      ),
+    ).toEqual([OPENAI_KEY, LOCAL_TOKEN]);
   });
 });

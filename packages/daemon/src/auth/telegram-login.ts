@@ -46,6 +46,13 @@ export interface TelegramLoginDeps {
 export interface TelegramLogin {
   /** `undefined` when the text is not for a login; then the other routes decide. */
   handleText(message: PrincipalText): Promise<{ reply: DoorReply | null } | undefined>;
+  /**
+   * R-17 AC7, R-27 AC3: hands `text` to a login that waits for a pasted code or address, and
+   * says whether one took it. Never a command: the desktop app's chat passes its texts here
+   * first, so a code pasted there reaches the login too, while `/login` and `/logout` stay in
+   * Telegram (desktop PRD DK-4 AC7). It deletes nothing: the caller does, in Telegram.
+   */
+  takePasted(text: string): boolean;
   /** `undefined` when the press is not on a login button. */
   handleButton(press: ButtonPress): Promise<{ reply: DoorReply | null } | undefined>;
   /** Abandons the running login, if any, without a reply. */
@@ -263,7 +270,16 @@ export const createTelegramLogin = (deps: TelegramLoginDeps): TelegramLogin => {
         };
   };
 
+  const takePasted = (text: string): boolean => {
+    const waiting = current?.waiting;
+    if (current === undefined || waiting === undefined) return false;
+    current.waiting = undefined;
+    waiting.resolve(text);
+    return true;
+  };
+
   return {
+    takePasted,
     handleText: async (message) => {
       const asked = command(message.text);
       if (asked === 'login') {
@@ -280,11 +296,8 @@ export const createTelegramLogin = (deps: TelegramLoginDeps): TelegramLogin => {
         };
       }
       if (asked === 'logout') return { reply: await logoutChoices() };
-      const waiting = current?.waiting;
-      if (current === undefined || waiting === undefined) return undefined;
       // R-27 AC3: the pasted code or address goes to the login, and leaves the chat.
-      current.waiting = undefined;
-      waiting.resolve(message.text);
+      if (!takePasted(message.text)) return undefined;
       await deleteMessage(message.channelRef).catch(() => {
         logger.warn('Could not delete a pasted login message', { channelRef: message.channelRef });
       });

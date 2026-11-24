@@ -8,11 +8,15 @@ import { type ExitCode, exitCodes } from '@anomander/protocol';
 import { builtinModels } from '@earendil-works/pi-ai/providers/all';
 import { startAnomander, startSetupGuide } from './app.ts';
 import { createDeviceId } from './auth/device-id.ts';
-import { credentialStoreFor } from './auth/shell-credential-store.ts';
 import { loadConfig } from './config.ts';
-import { reportCrashes } from './crash.ts';
+import { exitOnceWritten, reportCrashes } from './crash.ts';
 import { createScrubbingLogger } from './scrubbing-logger.ts';
-import { secretsToScrub } from './secrets-to-scrub.ts';
+import {
+  createSecretList,
+  secretsBeforeConfig,
+  secretsToScrub,
+  secretTellingStores,
+} from './secrets-to-scrub.ts';
 import { createConnectionGaps, resolveModels } from './setup/setup-guide.ts';
 import { DaemonAlreadyRunningError } from './store/daemon-lock.ts';
 import {
@@ -23,11 +27,18 @@ import {
   stopWhenParentGoes,
 } from './supervised.ts';
 
-// Security audit M3: nothing the daemon writes holds a secret of its configuration.
-let secrets: readonly string[] = [];
-const log = createScrubbingLogger(console, () => secrets);
-// A crash is written through the same log, so its message and stack are scrubbed too.
-reportCrashes(process, log, (code) => process.exit(code));
+// Security audit M3: nothing the daemon writes holds a secret of its configuration, nor one it
+// gets later (B42). Before the configuration is read, the environment's provider keys count.
+const secrets = createSecretList();
+secrets.setFromStart(secretsBeforeConfig(process.env));
+const log = createScrubbingLogger(console, secrets.current);
+// A crash is written through the same log, so its message and stack are scrubbed too, and the
+// daemon exits once that line is out.
+reportCrashes(
+  process,
+  log,
+  exitOnceWritten([process.stdout, process.stderr], (code) => process.exit(code)),
+);
 
 // The exit code tells whoever started the daemon why it stopped (`exitCodes`).
 const fail = (message: string, code: ExitCode = exitCodes.failed): never => {
@@ -46,6 +57,7 @@ const handed = secretsOnStdin(process.env)
   : {};
 
 const env = { ...process.env, ...handed };
+secrets.setFromStart(secretsBeforeConfig(env, handed));
 const config = (() => {
   try {
     return loadConfig(env);
@@ -53,12 +65,13 @@ const config = (() => {
     return fail(reason(error));
   }
 })();
-secrets = secretsToScrub(config, env);
+secrets.setFromStart(secretsToScrub(config, env));
 
-// DK-5 AC1: the login the desktop app keeps in the Keychain, or the file of a Docker install.
-const credentials = (() => {
+// DK-5 AC1: the login the desktop app keeps in the Keychain, or the file of a Docker install. B42:
+// a login or an OAuth token got later is scrubbed from the log too.
+const { credentials, printOAuth } = (() => {
   try {
-    return credentialStoreFor(config);
+    return secretTellingStores(secrets, config);
   } catch (error) {
     return fail(reason(error));
   }
@@ -86,6 +99,7 @@ const anomander = (() => {
       visionModel: resolved.visionModel,
       login,
       logger: log,
+      printOAuth,
       setupGaps: createConnectionGaps({
         providerIds: resolved.providerIds,
         checkAuth: (providerId) => models.checkAuth(providerId),

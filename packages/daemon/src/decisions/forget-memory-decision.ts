@@ -28,15 +28,17 @@ export const createForgetMemoryAnswerHandler =
     const { memory_ids: memoryIds } = forgetMemoryPayload.parse(decision.payload);
     const at = now().toISOString();
 
+    // Erased before the answer is recorded, each in a transaction of its own (the WAL checkpoint
+    // cannot run inside one): when an erase fails the question stays open, so "Sí" can be
+    // pressed again; erasing twice changes nothing.
+    if (option === buttons.yes) {
+      forgetMemories(db, memoryIds);
+      clearRecentTurns();
+    }
     db.transaction(() => {
       answerDecision(db, decision.id, null);
       settleProposal(db, decision.proposal_id, option === buttons.yes ? 'executed' : 'rejected');
       if (option === buttons.yes) insertAction(db, decision.proposal_id, 'principal', at);
     })();
-    if (option === buttons.no) return { text: strings.notForgotten() };
-
-    // Erased after the answer is recorded: the WAL checkpoint cannot run inside a transaction.
-    forgetMemories(db, memoryIds);
-    clearRecentTurns();
-    return { text: strings.forgotten() };
+    return { text: option === buttons.yes ? strings.forgotten() : strings.notForgotten() };
   };

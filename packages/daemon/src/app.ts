@@ -1,3 +1,4 @@
+import { basename, dirname } from 'node:path';
 import {
   type ButtonPress,
   type ComputerRequest,
@@ -12,6 +13,7 @@ import {
   strings,
 } from '@anomander/protocol';
 import { createTelegramLogin, type TelegramLoginDeps } from './auth/telegram-login.ts';
+import { createDailyBackup } from './backup/daily-backup.ts';
 import { budgeted, createAiBudget } from './budget/ai-budget.ts';
 import { createReceiptQueue } from './budget/receipt-queue.ts';
 import type { Config } from './config.ts';
@@ -70,6 +72,7 @@ import { cachedSetupGaps, describeGap, type SetupGap, setupGuide } from './setup
 import { storedConversation } from './store/conversation.ts';
 import { acquireDaemonLock } from './store/daemon-lock.ts';
 import { applyMigrations, openDatabase } from './store/database.ts';
+import { exportLedger } from './store/export.ts';
 import { type ActionRecord, recordAction } from './store/history.ts';
 import { memoryNotesFor } from './store/memory.ts';
 import { createWeeklySummary } from './summary/weekly-summary.ts';
@@ -227,6 +230,9 @@ const connectionCommand = (text: string): string | undefined => {
   return command === null ? undefined : (command[1] ?? '').trim();
 };
 
+/** R-29: `/exportar` or `/exportar@bot`, with anything after it. */
+const isExport = (text: string) => /^\/exportar(?:@\w+)?(?:\s|$)/.test(text.trim());
+
 /** The front door a message came through: the local channel names its messages `desktop:…`. */
 const doorOf = (channelRef: string): Door =>
   channelRef.startsWith('desktop:') ? 'app' : 'telegram';
@@ -310,7 +316,8 @@ export const startSetupGuide = (config: Config, deps: SetupGuideDeps): Anomander
   const localChannel = startChannel(
     config,
     {
-      onText: async () => guide,
+      // R-17 AC7: a code pasted in the app's chat while a login waits goes to it, never stored.
+      onText: async (message) => (login?.takePasted(message.text) === true ? null : guide),
       onReceipt: async () => guide,
       onButton: async () => guide,
       onScreen: async () => guide,
@@ -676,12 +683,37 @@ export const startAnomander = <M>(config: Config, deps: AnomanderDeps<M>): Anoma
   const connectFromTelegram = onConnectAt('telegram');
   const answered = guided(async (message: PrincipalText): Promise<DoorReply | Later | null> => {
     if (isStart(message.text)) return { text: strings.hello() };
+    // R-29 AC4: Telegram handles `/exportar` before this; the app gets S-81.
+    if (isExport(message.text)) return { text: strings.exportOnlyInTelegram() };
     const reply = await recordedText(message);
     // DK-13 AC2: a task with connections asked in words runs as one asked with `connect`.
     const { route } = reply;
     if (route?.to !== 'connect') return reply;
     // Telegram's answer goes out by itself when the task ends: the announcement goes now.
-    return connectionSession.run(route.task, doorOf(message.channelRef)) ?? { text: reply.text };
+    // DK-16 AC1: its words are stored once, with the announcement, above.
+    const run = connectionSession.run(route.task, doorOf(message.channelRef), true);
+    return run ?? { text: reply.text };
+  });
+
+  // R-29 AC3: the ledger's files, sent by Telegram after S-79; no processor call.
+  const exportFromTelegram = guided(async (): Promise<DoorReply> => {
+    try {
+      const { files } = exportLedger(db, dirname(config.dbPath), now());
+      return {
+        text: strings.exportSent(),
+        files: files.map((path) => ({ path, name: basename(path) })),
+        // R-29 AC3: a file Telegram still refuses gets S-80 too.
+        filesFailed: strings.exportFailed(),
+      };
+    } catch (error) {
+      // The error's message names the folder, and the path may name the principal: only its code.
+      logger.error('the ledger export failed', {
+        reason:
+          (error as NodeJS.ErrnoException).code ??
+          (error instanceof Error ? error.name : 'unknown'),
+      });
+      return { text: strings.exportFailed() };
+    }
   });
 
   const chat: ChatHandlers = {
@@ -702,6 +734,7 @@ export const startAnomander = <M>(config: Config, deps: AnomanderDeps<M>): Anoma
       onText: async (message) => {
         const handled = await login?.handleText(message);
         if (handled !== undefined) return handled.reply;
+        if (isExport(message.text)) return exportFromTelegram(undefined);
         // DK-11: `/mcp <tarea>` asks for a task with connections, as `connect` does in the app.
         const task = connectionCommand(message.text);
         return task === undefined ? chat.onText(message) : connectFromTelegram(task);
@@ -734,6 +767,8 @@ export const startAnomander = <M>(config: Config, deps: AnomanderDeps<M>): Anoma
     notify,
     logger,
   });
+  // B5: right after retention, so the day's copy holds nothing retention erased (§16).
+  const dailyBackup = createDailyBackup({ db, now, logger });
   const summary = createWeeklySummary({ db, timeZone: config.timeZone, now, notify });
   const queue = createReceiptQueue({ db, readQueued: receipts.readQueued, notify, now, logger });
   const dueReminders = createDueReminders({ db, timeZone: config.timeZone, now, notify, logger });
@@ -743,7 +778,13 @@ export const startAnomander = <M>(config: Config, deps: AnomanderDeps<M>): Anoma
     weeklySummaryCron: config.weeklySummaryCron,
     timeZone: config.timeZone,
     jobs: {
-      retain: retention.retain,
+      retain: async () => {
+        try {
+          return await retention.retain();
+        } finally {
+          await dailyBackup.run();
+        }
+      },
       sendMorningDigest: unasked(digest.send),
       sendDueReminders: unasked(dueReminders.send),
       // T13 F1: a receipt is read only where its reply can be told; it waits for Telegram.
@@ -767,11 +808,21 @@ export const startAnomander = <M>(config: Config, deps: AnomanderDeps<M>): Anoma
           logger,
         });
 
-  // DK-16: the app shows the stored conversation of both doors and can erase it.
+  // DK-16: the app shows the stored conversation of both doors and can erase it. AC4: the erase
+  // waits for the turn that runs, so nothing of that turn is stored after it.
+  const clearInTurn = inTurn(async () => turns.clear());
   const localChannel = startChannel(
     config,
-    { ...chat, onButton: onButtonAt('app') },
-    { messages: (limit) => storedConversation(db, limit), clear: turns.clear },
+    {
+      ...chat,
+      // R-17 AC7: while a login waits, the app's next text goes to it first, before any other
+      // route: it is never stored, logged, a recent turn or sent to the model. `/login` and
+      // `/logout` are not taken here: they stay in Telegram (DK-4 AC7).
+      onText: async (message) =>
+        login?.takePasted(message.text) === true ? null : chat.onText(message),
+      onButton: onButtonAt('app'),
+    },
+    { messages: (limit) => storedConversation(db, limit), clear: () => clearInTurn(undefined) },
     logger,
     now,
   );

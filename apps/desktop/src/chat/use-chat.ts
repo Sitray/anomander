@@ -1,6 +1,7 @@
 // DK-4: binds the chat client to React. It owns the connection for as long as the chat is on
 // screen and turns what the client reports into the conversation.
 
+import { strings as replies } from '@anomander/protocol';
 import { useCallback, useEffect, useReducer, useRef, useState } from 'react';
 import type { LocalChannel } from '../shell.ts';
 import { strings } from '../strings.ts';
@@ -11,6 +12,7 @@ import {
   type BotMessage,
   type Conversation,
   emptyConversation,
+  isReplaceable,
   type OwnMessage,
   type Route,
   reduceConversation,
@@ -46,6 +48,11 @@ export interface Chat {
    * `not_done`: nothing was erased; `unknown`: the connection was lost first.
    */
   clear(): Promise<'done' | 'not_done' | 'unknown'>;
+  /**
+   * B48: the window was shown again: it shows the stored conversation instead, once nothing on
+   * screen would be lost.
+   */
+  shownAgain(): void;
 }
 
 export interface ChatOptions {
@@ -75,11 +82,16 @@ interface AskAgain {
   /** The channel when the press was made, and how many times the channel had gone since. */
   channel: string | null;
   gone: number;
-  /** Gives up on it once the daemon has not come back in `GIVE_UP_MS`. */
+  /**
+   * Any open connection will do: nothing was saved, so no new daemon is coming; it only waits
+   * for the channel to be there (B39).
+   */
+  anyOpen: boolean;
+  /** Gives up on it once `GIVE_UP_MS` passed since the press. */
   timer: ReturnType<typeof setTimeout>;
 }
 
-/** DK-11 AC13: how long a request waits for the daemon that reads the web search. */
+/** DK-11 AC13: how long a press waits for its add and for the daemon that reads it. */
 const GIVE_UP_MS = 60_000;
 
 /** A task started while a look waited for its turn: the screen is the task's. */
@@ -108,6 +120,20 @@ export const useChat = (channel: LocalChannel | null, options: ChatOptions = {})
   latest.current = options;
   /** The plain texts whose answer has not arrived: only theirs may carry a route (DK-13). */
   const texts = useRef(new Set<string>());
+  /** The presses whose answer has not arrived: a forget is answered to one (B48). */
+  const presses = useRef(new Set<string>());
+  /**
+   * B48: the stored conversation is wanted instead of what is shown; it is asked for as soon as
+   * nothing on screen would be lost, and wanted again when something changed before it came.
+   */
+  const wanted = useRef(false);
+  /** A request for it is on its way. */
+  const asking = useRef(false);
+  const [reload, setReload] = useState(0);
+  const wantStored = useCallback(() => {
+    wanted.current = true;
+    setReload((count) => count + 1);
+  }, []);
   const [running, setRunning] = useState(false);
   /** The task on the computer (DK-10); it reads the options and the client as they are now. */
   const [session] = useState(
@@ -154,6 +180,9 @@ export const useChat = (channel: LocalChannel | null, options: ChatOptions = {})
       onOutcome: (requestId, outcome) => {
         // DK-13: a route is followed only in the answer to a plain text.
         const plain = texts.current.delete(requestId);
+        // B48: a forget confirmed here erased the stored conversation; the window follows it.
+        const pressed = presses.current.delete(requestId);
+        if (pressed && outcome.type === 'reply' && forgets(outcome.reply.text)) wantStored();
         const step = session.answer(requestId, outcome);
         // A step on the way to the next one is not an answer to notify.
         if (step === 'routine') return;
@@ -174,7 +203,7 @@ export const useChat = (channel: LocalChannel | null, options: ChatOptions = {})
       created.dispose();
       client.current = null;
     };
-  }, [session]);
+  }, [session, wantStored]);
 
   // A new snapshot with the same channel must not reconnect: depend on its values, not the object.
   const url = channel?.url ?? null;
@@ -190,10 +219,13 @@ export const useChat = (channel: LocalChannel | null, options: ChatOptions = {})
   }, [url, token]);
   /** In the order pressed; each waits for the daemon started after its own press. */
   const askAgain = useRef<AskAgain[]>([]);
+  /** Every press's give-up timer, from the press until it is over. */
+  const giveUps = useRef(new Set<ReturnType<typeof setTimeout>>());
   const [recheck, setRecheck] = useState(0);
   useEffect(
     () => () => {
-      for (const waiting of askAgain.current) clearTimeout(waiting.timer);
+      for (const timer of giveUps.current) clearTimeout(timer);
+      giveUps.current.clear();
       askAgain.current = [];
     },
     [],
@@ -223,6 +255,7 @@ export const useChat = (channel: LocalChannel | null, options: ChatOptions = {})
   const press = useCallback((message: BotMessage, data: string) => {
     const requestId =
       client.current?.send({ type: 'button', data, channelRef: message.channelRef }) ?? null;
+    if (requestId !== null) presses.current.add(requestId);
     dispatch({ type: 'pressed', id: message.id, data, requestId });
   }, []);
 
@@ -316,11 +349,13 @@ export const useChat = (channel: LocalChannel | null, options: ChatOptions = {})
     if (askAgain.current.length === 0 || channelKey === null || connection !== 'open') return;
     if (opened.current !== channelKey) return;
     const { channel: now, gone } = current.current;
-    const back = (waiting: AskAgain) => now !== waiting.channel || gone !== waiting.gone;
+    const back = (waiting: AskAgain) =>
+      waiting.anyOpen || now !== waiting.channel || gone !== waiting.gone;
     const ready = askAgain.current.filter(back);
     askAgain.current = askAgain.current.filter((waiting) => !back(waiting));
     for (const waiting of ready) {
       clearTimeout(waiting.timer);
+      giveUps.current.delete(waiting.timer);
       say(waiting.text, []);
     }
   }, [channelKey, connection, recheck, say]);
@@ -333,38 +368,103 @@ export const useChat = (channel: LocalChannel | null, options: ChatOptions = {})
       if (offer.state === 'adding' || offer.state === 'added' || offer.state === 'already') return;
       dispatch({ type: 'offer', id: message.id, state: 'adding' });
       const before = { ...current.current };
+      /** What waits for the daemon once the add answered; `null` until then. */
+      let waiting: AskAgain | null = null;
+      let over = false;
+      // B40: the minute starts at the press, so an add that never answers gives up too. The
+      // daemon may also never come back (stopped, failing): say so, and let it be pressed again.
+      const timer = setTimeout(() => {
+        over = true;
+        giveUps.current.delete(timer);
+        if (waiting === null) {
+          dispatch({ type: 'offer', id: message.id, state: 'failed' });
+          return;
+        }
+        const gaveUp = waiting;
+        if (!askAgain.current.includes(gaveUp)) return;
+        askAgain.current = askAgain.current.filter((other) => other !== gaveUp);
+        dispatch({ type: 'offer', id: message.id, state: 'failed', why: 'not_back' });
+      }, GIVE_UP_MS);
+      giveUps.current.add(timer);
+      const end = () => {
+        over = true;
+        clearTimeout(timer);
+        giveUps.current.delete(timer);
+      };
       void add().then(
         (saved) => {
+          // Given up on already: what it says now is too late to act on.
+          if (over) return;
           dispatch({ type: 'offer', id: message.id, state: saved ? 'added' : 'already' });
           // Already there: it waits for the restart an earlier press started, if one is coming;
-          // otherwise it is asked again now.
+          // otherwise it is asked again as soon as the channel is open, now if it is (B39).
           const earlier = askAgain.current.at(-1);
-          if (!saved && earlier === undefined) {
+          const open =
+            shown.current.connection === 'open' && opened.current === current.current.channel;
+          if (!saved && earlier === undefined && open) {
+            end();
             say(offer.ask, []);
             return;
           }
-          const waitFor = saved || earlier === undefined ? before : earlier;
-          const waiting: AskAgain = {
+          const waitFor = saved || earlier === undefined ? { ...before, anyOpen: !saved } : earlier;
+          waiting = {
             id: message.id,
             text: offer.ask,
             channel: waitFor.channel,
             gone: waitFor.gone,
-            // The daemon may never come back (stopped, failing): say so, and let it be pressed again.
-            timer: setTimeout(() => {
-              if (!askAgain.current.includes(waiting)) return;
-              askAgain.current = askAgain.current.filter((other) => other !== waiting);
-              dispatch({ type: 'offer', id: waiting.id, state: 'failed', why: 'not_back' });
-            }, GIVE_UP_MS),
+            anyOpen: waitFor.anyOpen,
+            timer,
           };
           askAgain.current = [...askAgain.current, waiting];
           // The daemon may be back already, and the effect above only runs on a change.
           setRecheck((count) => count + 1);
         },
-        () => dispatch({ type: 'offer', id: message.id, state: 'failed' }),
+        () => {
+          if (over) return;
+          end();
+          dispatch({ type: 'offer', id: message.id, state: 'failed' });
+        },
       );
     },
     [say],
   );
+
+  // B48: the window is hidden, not closed; shown again, it shows what the daemon keeps now, so a
+  // forget made through Telegram meanwhile is gone from it too. The shell says when it shows the
+  // window (`shownAgain`); the page's own visibility is a second, harmless sign of it.
+  useEffect(() => {
+    const visible = () => {
+      if (document.visibilityState === 'visible') wantStored();
+    };
+    document.addEventListener('visibilitychange', visible);
+    return () => document.removeEventListener('visibilitychange', visible);
+  }, [wantStored]);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: tried again on every change.
+  useEffect(() => {
+    if (!wanted.current || asking.current) return;
+    // Never over something still on its way, or a task that runs or waits for "Permitir".
+    if (conversation.connection !== 'open' || !isReplaceable(conversation)) return;
+    if (running || askAgain.current.length > 0) return;
+    const request = client.current?.requestHistory();
+    if (request === undefined) return;
+    wanted.current = false;
+    asking.current = true;
+    const replacing = conversation.messages;
+    void request.then((messages) => {
+      asking.current = false;
+      // Not answered: tried again on the next change, such as the connection opening again.
+      if (messages === null) {
+        wanted.current = true;
+        return;
+      }
+      // Something changed before it came: what is shown now may not be in it.
+      if (shown.current.messages !== replacing) {
+        wantStored();
+        return;
+      }
+      dispatch({ type: 'history', messages, replacing });
+    });
+  }, [reload, conversation, running, recheck]);
 
   const clear = useCallback(async () => {
     const outcome = (await client.current?.clearHistory()) ?? 'not_done';
@@ -384,9 +484,14 @@ export const useChat = (channel: LocalChannel | null, options: ChatOptions = {})
     stop,
     addWebSearch,
     clear,
+    shownAgain: wantStored,
   };
 };
 
 /** Whether the window can start `route` at all: it needs the shell's side of it. */
 const startable = (route: Route, options: ChatOptions): boolean =>
   (route.to === 'computer' ? options.computer : options.look) !== undefined;
+
+/** B48: the answer to a "Sí" that forgot a memory or erased the history, as the daemon says it. */
+const forgets = (text: string): boolean =>
+  text === replies.forgotten() || text === replies.historyForgotten();

@@ -91,7 +91,9 @@ and keep its secrets in the operating system instead of a text file.
     S-20 for an image over 20 MB.
   - AC7: `/login` and `/logout` stay in Telegram (R-27): their messages go out through the bot.
     The app has its own place for the same logins, the Suscripciones screen (DK-15); the chat
-    does not offer them.
+    does not offer them. While a login started in Telegram waits for a pasted code or address,
+    the next text sent in the app's chat goes to it, as in Telegram (R-17 AC7): it is answered
+    `done` and is never stored, logged, a recent turn or sent to the model.
 - DK-5 Secrets in the Keychain.
   - AC1: the Telegram bot token (optional, AC4), the provider API keys and the subscription login are stored
     in the macOS Keychain, entered once in the app's setup screen. The login is made from
@@ -284,9 +286,15 @@ and keep its secrets in the operating system instead of a text file.
     necesidad"): the Conexiones screen offers "Añadir búsqueda web" while no server is named
     `Internet`. One press saves, through the same path as the form, the server `Internet`:
     `npx -y pi-web-access@0.48.0` (MIT, pinned: never what npm calls latest), the variable
-    `npm_config_ignore_scripts=true` (npm runs no install script; the package's own dependencies
-    are ranges, not pinned), and `web_search` and `get_search_content` marked read-only. The
-    preset is `WEB_SEARCH_CONNECTION` in `packages/protocol`. A search runs without "Permitir"
+    `npm_config_ignore_scripts=true` (npm runs no install script), and `web_search` and
+    `get_search_content` marked read-only. The preset is `WEB_SEARCH_CONNECTION` in
+    `packages/protocol`. The daemon does not run that `npx` line (B9, 2026-11-24): the daemon
+    depends on that exact version, so `pnpm-lock.yaml` pins it and everything it brings, and a
+    server whose command and arguments are exactly the preset's starts that installed copy with
+    the daemon's own `node`, in the Mac app, on Windows and in Docker alike. A file written
+    before holds the same line and runs pinned too, with nothing to migrate; another version or
+    another command runs as written. If the installed copy is missing or is another version, the
+    server is left out, never run unpinned. A search runs without "Permitir"
     and AC4 holds for what it answered. Reading a page (`fetch_content`) always asks, showing
     its exact address, and so does a search carrying `provider`, `proxy` or `includeContent`:
     the daemon applies these argument rules (`asksWith`) to any program that runs
@@ -296,7 +304,7 @@ and keep its secrets in the operating system instead of a text file.
     2026-11-20). `source_check` asks. The package can turn GitHub cloning off and pin a provider
     only in its `web-search.json`, not by a variable or an argument, so the preset does
     neither; a page fetch asks anyway. The screen says beside the button what leaves the Mac:
-    `npx` fetches the package from npm the first time; with no key and no `web-search.json`
+    the package comes with ANOMANDER at a fixed version; with no key and no `web-search.json`
     what is searched goes only to Exa's hosted MCP (`mcp.exa.ai`), and another provider or a
     proxy asks first; pages are read from this Mac, after "Permitir"; a
     `~/.pi/agent/web-search.json`, when present, applies its keys, providers and proxy. It needs
@@ -310,8 +318,9 @@ and keep its secrets in the operating system instead of a text file.
     already named `Internet` is kept as it is; when the connection cannot be saved the setup is
     not saved either, and the screen says why. When the connection was saved and the setup is
     then refused, the screen also says the web search was added and stays on, removable in
-    Conexiones. Two adds at once (the setup, chat presses) save the file once: a later call joins
-    the add under way. Unchecked, nothing is added. A complete setup
+    Conexiones (not when a server already had the name: nothing was added). Two adds at once (the
+    setup, chat presses) save the file once: a later call through the same shell joins the add
+    under way, and any other adds after it, with its own. Unchecked, nothing is added. A complete setup
     opened again does not show it: Conexiones does. And when the web search is missing, the
     chat offers it in one press (DK-13 AC5).
   - AC12 (asked on 2026-11-11: "Quiero algo parecido, que tenga como conectores bases que al
@@ -396,8 +405,13 @@ and keep its secrets in the operating system instead of a text file.
     daemon that reads it to be back and open, and sends the same text again; while it works the
     button is disabled, and when the connection cannot be saved the chat says so and the button
     stays. When the server was already there the chat says it was already on instead of added,
-    and asks again all the same. A request whose daemon is not back within 60 seconds is not
-    asked again: the chat says the daemon did not come back and the button can be pressed again.
+    and asks again all the same, as soon as the connection is open: pressed while the daemon is
+    still down, it waits for it instead of sending into the channel that is gone. The 60 seconds
+    count from the press: an add that has not answered by then says it could not be added, and a
+    request whose daemon is not back by then is not asked again: the chat says the daemon did not
+    come back. Either way the button can be pressed again, and an answer that comes later is
+    ignored. An add that has not answered in 30 seconds is given up on; the next press, or the
+    setup, reads and saves only once that add is over, so the server is never saved twice.
 - DK-14 Who the principal is and what ANOMANDER did (asked by the principal on 2026-11-20:
   "También me gustaría que recordara quién soy, que recuerde quien soy y tenga memoria de lo que
   ha hecho"; the proposal "pasarle los recuerdos a todas las rutas, y agregar un historial
@@ -473,7 +487,14 @@ and keep its secrets in the operating system instead of a text file.
     app's database (DK-8), one row per message: who (`principal` or `anomander`), the door, the
     text, the buttons and `channelRef` of a reply, and when. What ANOMANDER sends unasked is kept
     as its message. No image is kept: a receipt is its `[foto de ticket]` line and a press its
-    `[botón: …]` line. A text pasted for a login (R-17 AC7) is never kept.
+    `[botón: …]` line. A text pasted for a login (R-17 AC7) is never kept. What ANOMANDER sends
+    unasked is kept only once it was delivered. A text the chat routes to a task with
+    connections (DK-13 AC2) is kept once, with its announcement; the task's answer follows as a
+    message of its own. Unlike the action history of DK-14, which keeps only the request and how it
+    ended, the stored conversation keeps the reply to a look at the screen, the end of a task on the
+    computer and the final answer of a task with connections (what was read or what the tools
+    answered); the capture itself is never kept (decided by the principal on 2026-11-24: "Dejarlo
+    así").
   - AC2: the text interpreter's recent turns are read from it, with R-16 AC3's bounds unchanged:
     at most the last 10, none older than 30 minutes. A restart within 30 minutes keeps the
     context; lasting facts are the memories of R-23.
@@ -491,12 +512,28 @@ and keep its secrets in the operating system instead of a text file.
     Telegram sigue en Telegram." with "Sí, borrar" and "No borrar". "No borrar" sends nothing.
     "Sí, borrar" sends `clear_history`: the daemon erases the stored conversation and the recent
     turns for real (secure delete, then the WAL checkpoint, as a forget, R-23 AC7) and answers
-    `done`, and the chat empties. When it was not erased the chat keeps its messages and says so;
+    `done`, and the chat empties. The erase waits for a turn of either door that runs, so
+    nothing of that turn is kept after it. When it was not erased the chat keeps its messages and says so;
     when the connection was lost first it says it cannot know. It cannot be pressed while the
     connection is not open, while an answer is owed, or while a task runs or waits for
     "Permitir".
   - AC5: a confirmed "olvida" (R-23 AC6) and a confirmed erase of the action history (DK-14 AC4)
-    also erase the stored conversation.
+    also erase the stored conversation. When an erase fails the question stays open and the reply
+    is S-22, so `Sí` can be pressed again. A memory replaced by a new fact (R-23 AC3) erases, the
+    same way, only the turns where the principal said it, matched as whole words ignoring case,
+    spacing and accents: its quote in a principal's own message (never a line such as
+    `[botón: Sí]`), or its text in any message; the principal's message and its reply go
+    together, and the rest of the conversation stays.
+    The window follows a confirmed forget: once the `Sí` pressed in the app
+    is answered ("Hecho, lo he olvidado.", "Hecho, he borrado mi historial."), and each time the
+    shell shows the window again (closing it only hides it; the shell tells the window, since on
+    Windows the page never learns it was hidden), so one confirmed through Telegram is gone too,
+    the chat asks for the stored conversation and shows it instead of what it showed. Not while an
+    answer is owed, a task runs or waits for "Permitir", or a web search is being added or waits
+    to ask again: it is shown once nothing does any more, and asked again when something changed
+    before it came. What the store cannot give back stays, after it: a message not sent or that
+    it cannot know arrived, a press it cannot know arrived, a look or a task that did not leave or
+    may not have, and a web search offered and not added.
   - AC6: a stored message is kept 90 days; the retention job then erases it, next to the 30 days
     of the action history (DK-14 AC3).
   - AC7: the conversation is local: it lives only in the app's database, is never logged, and

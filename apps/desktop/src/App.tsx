@@ -8,7 +8,7 @@ import { addWebSearch } from './connections/web-search.ts';
 import { LedgerScreen } from './ledger/LedgerScreen.tsx';
 import { SubscriptionsScreen } from './login/SubscriptionsScreen.tsx';
 import { isComplete, SetupScreen } from './setup/SetupScreen.tsx';
-import type { SetupInput } from './shell.ts';
+import { shell as native, type SetupInput } from './shell.ts';
 import { ErrorBlock, StatusBar } from './status/StatusBar.tsx';
 import { useShell } from './status/use-shell.ts';
 import { strings } from './strings.ts';
@@ -65,6 +65,25 @@ export function App() {
     [connections, saveConnection],
   );
 
+  // B48: the shell shows the window again (closing it only hides it); the chat then shows what
+  // the daemon keeps now. Subscribed as `useShell` subscribes "Detener tarea".
+  const subscribeShown = useCallback((shown: () => void) => {
+    let gone = false;
+    let unlisten: (() => void) | undefined;
+    native.onChatShown(shown).then(
+      (off) => {
+        // The chat went away before the subscription was ready.
+        if (gone) off();
+        else unlisten = off;
+      },
+      () => {},
+    );
+    return () => {
+      gone = true;
+      unlisten?.();
+    };
+  }, []);
+
   return (
     <div className="window">
       <StatusBar
@@ -106,6 +125,7 @@ export function App() {
                 onReveal={shell.reveal}
                 onTaskRunning={shell.setTaskRunning}
                 subscribeStop={shell.onStopTask}
+                subscribeShown={subscribeShown}
                 model={snapshot.setup.model}
                 onStart={shell.start}
                 onAddWebSearch={onAddWebSearch}

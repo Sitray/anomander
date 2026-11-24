@@ -26,7 +26,7 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
-use tauri::{AppHandle, Emitter, Manager, RunEvent, WindowEvent};
+use tauri::{AppHandle, Emitter, Manager, RunEvent, Runtime, WindowEvent};
 use tauri_plugin_clipboard_manager::ClipboardExt;
 use tauri_plugin_notification::NotificationExt;
 
@@ -48,6 +48,8 @@ use crate::snapshot::{DaemonState, Snapshot};
 pub const SNAPSHOT_EVENT: &str = "shell://snapshot";
 /// `STOP_TASK_EVENT` of `shell.ts`.
 pub const STOP_TASK_EVENT: &str = "shell://stop-task";
+/// `CHAT_SHOWN_EVENT` of `shell.ts`: the chat window was shown again (B48).
+pub const CHAT_SHOWN_EVENT: &str = "shell://chat-shown";
 /// `LOGIN_EVENT` of `shell.ts`: a `login::Step` while a subscription login runs (DK-15).
 pub const LOGIN_EVENT: &str = "shell://login";
 const MAIN_WINDOW: &str = "main";
@@ -150,7 +152,10 @@ impl Publisher {
     }
 }
 
-fn show_chat(app: &AppHandle) {
+/// Every way of showing the chat comes through here. Closing it only hides it, and on Windows the
+/// page never learns it was hidden: the window is told, so it shows the stored conversation again
+/// (B48).
+fn show_chat<R: Runtime>(app: &AppHandle<R>) {
     if let Some(window) = app.get_webview_window(MAIN_WINDOW) {
         let shown = window
             .unminimize()
@@ -158,6 +163,9 @@ fn show_chat(app: &AppHandle) {
             .and_then(|()| window.set_focus());
         if let Err(error) = shown {
             eprintln!("could not open the chat: {error}");
+        }
+        if let Err(error) = app.emit_to(MAIN_WINDOW, CHAT_SHOWN_EVENT, ()) {
+            eprintln!("could not tell the window it was shown: {error}");
         }
     }
 }
@@ -747,6 +755,36 @@ pub fn run() {
 mod tests {
     use super::*;
     use locale::Locale;
+
+    /// B48: every way of showing the chat tells the window, which then shows the stored
+    /// conversation again: on Windows the page never learns it was hidden by itself.
+    #[test]
+    fn showing_the_chat_tells_the_window_it_was_shown_again() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        use tauri::Listener;
+
+        let app = tauri::test::mock_builder()
+            .build(tauri::generate_context!(test = true))
+            .expect("the mock app builds");
+        let window = match app.get_webview_window(MAIN_WINDOW) {
+            Some(window) => window,
+            None => tauri::WebviewWindowBuilder::new(&app, MAIN_WINDOW, Default::default())
+                .build()
+                .expect("the window builds"),
+        };
+        let heard = Arc::new(AtomicUsize::new(0));
+        let counter = Arc::clone(&heard);
+        window.listen(CHAT_SHOWN_EVENT, move |_| {
+            counter.fetch_add(1, Ordering::SeqCst);
+        });
+
+        show_chat(app.handle());
+
+        assert_eq!(heard.load(Ordering::SeqCst), 1);
+        // The name `shell.ts` listens for.
+        assert!(include_str!("../../src/shell.ts")
+            .contains(&format!("CHAT_SHOWN_EVENT = '{CHAT_SHOWN_EVENT}'")));
+    }
 
     #[test]
     fn the_daemon_is_handed_the_language_the_shell_read_whatever_the_app_was_started_with() {

@@ -167,6 +167,15 @@ describe('recent turns', () => {
     expect(stored()).toEqual([]);
   });
 
+  it('B50: stores nothing for a message unasked whose send ended without delivering it', async () => {
+    const turns = createRecentTurns({ db, now: () => AT, logger });
+    const notify = recordingNotices(turns, async () => {});
+
+    await notify({ text: 'Recordatorio' });
+
+    expect(stored()).toEqual([]);
+  });
+
   it('a failure to store a turn never changes the reply, and is logged without its words', () => {
     const turns = createRecentTurns({ db, now: () => AT, logger });
     db.exec('DROP TABLE conversation');
