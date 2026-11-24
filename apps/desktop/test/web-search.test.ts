@@ -1,7 +1,8 @@
 import { WEB_SEARCH_CONNECTION } from '@anomander/protocol';
 import { describe, expect, it, vi } from 'vitest';
-import { addWebSearch, webSearchInput } from '../src/connections/web-search.ts';
+import { ADD_LIMIT_MS, addWebSearch, webSearchInput } from '../src/connections/web-search.ts';
 import type { ConnectionInput, ConnectionsView } from '../src/shell.ts';
+import { strings } from '../src/strings.ts';
 import { NO_CONNECTIONS } from './fixtures.ts';
 
 // DK-11 AC13: the setup and every chat press add the web search through `addWebSearch`; a save
@@ -76,5 +77,59 @@ describe('addWebSearch', () => {
     expect(await Promise.all([first, second])).toEqual([false, false]);
     expect(connections).toHaveBeenCalledOnce();
     expect(saveConnection).not.toHaveBeenCalled();
+  });
+
+  it('adds through its own shell when another shell is adding: after it, never with its answer', async () => {
+    let finish: () => void = () => {};
+    const busy = {
+      connections: vi.fn(async () => NO_CONNECTIONS),
+      saveConnection: vi.fn(
+        () => new Promise<ConnectionsView>((resolve) => (finish = () => resolve(NO_CONNECTIONS))),
+      ),
+    };
+    const present: ConnectionsView = {
+      servers: [{ ...webSearchInput(), url: '', oauth: false } as never],
+      invalid: null,
+    };
+    const other = {
+      connections: vi.fn(async () => present),
+      saveConnection: vi.fn(async () => present),
+    };
+
+    const first = addWebSearch(busy);
+    const second = addWebSearch(other);
+    await vi.waitFor(() => expect(busy.saveConnection).toHaveBeenCalledOnce());
+    // One add at a time: the other shell waits for the add under way.
+    expect(other.connections).not.toHaveBeenCalled();
+    finish();
+
+    expect(await first).toBe(true);
+    expect(await second).toBe(false);
+    expect(other.connections).toHaveBeenCalledOnce();
+    expect(other.saveConnection).not.toHaveBeenCalled();
+  });
+
+  it('gives up on an add that never answers, so the next call adds again', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    try {
+      const connections = vi.fn(async () => NO_CONNECTIONS);
+      const saveConnection = vi
+        .fn<(server: ConnectionInput) => Promise<ConnectionsView>>()
+        .mockImplementationOnce(() => new Promise(() => {}))
+        .mockImplementationOnce(async () => NO_CONNECTIONS);
+      const shell = { connections, saveConnection };
+
+      const hung = addWebSearch(shell);
+      const failed = expect(hung).rejects.toThrow(strings.connections.webSearchTimedOut);
+      await vi.advanceTimersByTimeAsync(ADD_LIMIT_MS - 1);
+      expect(addWebSearch(shell)).toBe(hung);
+      await vi.advanceTimersByTimeAsync(1);
+      await failed;
+
+      expect(await addWebSearch(shell)).toBe(true);
+      expect(saveConnection).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

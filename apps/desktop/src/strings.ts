@@ -290,6 +290,8 @@ const es = {
     /** T17: the web search connection. */
     webSearch: 'Búsqueda web',
     webSearchAbout: 'Busca en internet sin usar el ordenador.',
+    /** DK-11 AC13: an add of the web search that did not answer in time. */
+    webSearchTimedOut: 'La búsqueda web no se ha guardado a tiempo. Inténtalo otra vez.',
     webSearchNote:
       'La búsqueda web añade pi-web-access, que se descarga de npm la primera vez. Lo que ANOMANDER busca se envía a Exa (exa.ai), sin cuenta, y busca sin pedirte permiso; para usar otro buscador o un proxy te lo pide antes. Las páginas se leen desde este Mac, siempre después de «Permitir». Si tienes ~/.pi/agent/web-search.json, se usan sus claves, buscadores y proxy.',
     edit: 'Editar',
@@ -712,6 +714,7 @@ const en: Strings = {
     },
     webSearch: 'Web search',
     webSearchAbout: 'Searches the internet without using the computer.',
+    webSearchTimedOut: "Web search wasn't saved in time. Try again.",
     webSearchNote:
       'Web search adds pi-web-access, which is downloaded from npm the first time. What ANOMANDER searches for is sent to Exa (exa.ai), with no account, and it searches without asking you; to use another search engine or a proxy it asks you first. Pages are read from this Mac, always after “Allow”. If you have ~/.pi/agent/web-search.json, its keys, search engines and proxy are used.',
     edit: 'Edit',
