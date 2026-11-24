@@ -305,7 +305,10 @@ and keep its secrets in the operating system instead of a text file.
     checked, with AC11's note beside it; saving with it checked adds AC11's server through the
     same path as the card, before the setup is saved, so the daemon starts once. A server
     already named `Internet` is kept as it is; when the connection cannot be saved the setup is
-    not saved either, and the screen says why. Unchecked, nothing is added. A complete setup
+    not saved either, and the screen says why. When the connection was saved and the setup is
+    then refused, the screen also says the web search was added and stays on, removable in
+    Conexiones. Two adds at once (the setup, chat presses) save the file once: a later call joins
+    the add under way. Unchecked, nothing is added. A complete setup
     opened again does not show it: Conexiones does. And when the web search is missing, the
     chat offers it in one press (DK-13 AC5).
   - AC12 (asked on 2026-11-11: "Quiero algo parecido, que tenga como conectores bases que al
@@ -389,7 +392,9 @@ and keep its secrets in the operating system instead of a text file.
     One press adds AC11's server (a server already named `Internet` is kept), waits for the
     daemon that reads it to be back and open, and sends the same text again; while it works the
     button is disabled, and when the connection cannot be saved the chat says so and the button
-    stays.
+    stays. When the server was already there the chat says it was already on instead of added,
+    and asks again all the same. A request whose daemon is not back within 60 seconds is not
+    asked again: the chat says the daemon did not come back and the button can be pressed again.
 - DK-14 Who the principal is and what ANOMANDER did (asked by the principal on 2026-11-20:
   "También me gustaría que recordara quién soy, que recuerde quien soy y tenga memoria de lo que
   ha hecho"; the proposal "pasarle los recuerdos a todas las rutas, y agregar un historial

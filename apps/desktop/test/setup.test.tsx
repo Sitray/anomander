@@ -445,6 +445,32 @@ describe('web search on the first setup', () => {
     expect(checkbox()).toBeTruthy();
   });
 
+  it('says the web search stays on when the setup is then not saved', async () => {
+    const { order, onSave } = firstRun();
+    onSave.mockImplementation(async () => {
+      order.push('setup');
+      throw new Error('the Keychain refused the token');
+    });
+    save();
+
+    expect(await screen.findByText('the Keychain refused the token')).toBeTruthy();
+    expect(screen.getByText(text.rejected)).toBeTruthy();
+    expect(screen.getByText(text.webSearchKept)).toBeTruthy();
+    expect(order).toEqual(['web search', 'setup']);
+  });
+
+  it('does not say the web search stays on when it was not added', async () => {
+    const { onSave } = firstRun();
+    fireEvent.click(checkbox());
+    onSave.mockImplementation(async () => {
+      throw new Error('the Keychain refused the token');
+    });
+    save();
+
+    expect(await screen.findByText('the Keychain refused the token')).toBeTruthy();
+    expect(screen.queryByText(text.webSearchKept)).toBeNull();
+  });
+
   it('is not offered once the setup is complete: Conexiones has it', () => {
     render(
       <SetupScreen

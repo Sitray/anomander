@@ -79,7 +79,13 @@ export interface BotMessage {
 export interface Offer {
   /** The text the reply answered, asked again once the web search is there. */
   ask: string;
-  state: 'offered' | 'adding' | 'failed' | 'added';
+  /** `already`: a server had its name before the press, so nothing was saved. */
+  state: 'offered' | 'adding' | 'failed' | 'added' | 'already';
+  /**
+   * Why it `failed`: `not_back` when it was added but the daemon that reads it did not come back
+   * in time, so the request was not asked again; `null` when it could not be added.
+   */
+  why: 'not_back' | null;
 }
 
 export type Message = OwnMessage | BotMessage;
@@ -126,7 +132,7 @@ export type ConversationAction =
   /** The principal stopped at the proposal of the reply `id`. */
   | { type: 'refused'; id: string }
   /** DK-11 AC13: the web search offered by the reply `id` is being added, was, or was not. */
-  | { type: 'offer'; id: string; state: Offer['state'] };
+  | { type: 'offer'; id: string; state: Offer['state']; why?: Offer['why'] };
 
 export const emptyConversation: Conversation = { connection: 'offline', messages: [] };
 
@@ -155,7 +161,7 @@ const offerFor = (
   );
   if (asked?.kind !== 'own' || asked.attachments.length > 0 || asked.text.trim() === '')
     return null;
-  return { ask: asked.text, state: 'offered' };
+  return { ask: asked.text, state: 'offered', why: null };
 };
 
 const settle = (message: Message, requestId: string, delivery: Delivery): Message => {
@@ -266,7 +272,10 @@ export const reduceConversation = (
     case 'offer':
       return mapped((message) =>
         message.kind === 'bot' && message.id === action.id && message.offer !== null
-          ? { ...message, offer: { ...message.offer, state: action.state } }
+          ? {
+              ...message,
+              offer: { ...message.offer, state: action.state, why: action.why ?? null },
+            }
           : message,
       );
     case 'restarted':
