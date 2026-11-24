@@ -73,6 +73,13 @@ export const KeyIcon = () => (
   </Icon>
 );
 
+/** DK-18: a bookmark, for what ANOMANDER keeps about the principal. */
+export const MemoryIcon = () => (
+  <Icon>
+    <path d="M4.5 2.25h7a.75.75 0 0 1 .75.75v10.75L8 11l-4.25 2.75V3a.75.75 0 0 1 .75-.75z" />
+  </Icon>
+);
+
 export const FileIcon = () => (
   <Icon>
     <path d="M9 2.25H5A1.25 1.25 0 0 0 3.75 3.5v9A1.25 1.25 0 0 0 5 13.75h6a1.25 1.25 0 0 0 1.25-1.25v-7zM9 2.25V5.5h3.25" />

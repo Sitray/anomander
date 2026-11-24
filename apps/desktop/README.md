@@ -63,6 +63,7 @@ local channel is a scripted socket. It is never part of a build. The URL picks t
 | `connections` | `none`, `invalid` (an `mcp.json` the daemon would not read); by default two servers |
 | `subscriptions` | `connected`: ChatGPT and Claude are connected; by default none |
 | `history` | `none`: nothing is kept of the conversation; by default four messages, two from Telegram (DK-16) |
+| `memory` | `none`: nothing remembered or done; `failing`: the daemon cannot read or forget them; by default three memories and three actions (DK-18) |
 
 The scripted daemon answers by what is typed: `mercadona` asks a Sí/No question, `rechaza` is
 rejected, `corta` loses the connection, `lento` never answers, `largo` answers at length and
@@ -116,6 +117,10 @@ is framework-free, so it is tested against a fake `WebSocket` (`test/fake-web-so
   the chat shows messages adds nothing. "Borrar conversación" asks first, sends `clear_history`
   and empties the chat on `done`; otherwise the messages stay and the chat says why. Opening the
   setup hides the chat without unmounting it.
+- **Memoria** (DK-18) opens its own connection to the channel and asks for `memories` and
+  `actions` each time it opens. "Olvidar" asks first and sends `forget_memory` or
+  `forget_action`; a forgotten memory erases the stored conversation too, so the chat then asks
+  for it again. Nothing of either list is kept by the window.
 - **A reply is plain text** (DK-4 AC1): shown exactly as received, line breaks kept, never HTML
   or Markdown.
 - **Delivery honesty.** A `rejected` request did nothing: the window says it was not sent and

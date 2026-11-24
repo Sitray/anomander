@@ -473,6 +473,58 @@ describe('the connections', () => {
 });
 
 // DK-15: the subscription logins, connected and disconnected through the shell.
+describe('Memoria (DK-18)', () => {
+  const heading = () => screen.queryByRole('heading', { name: strings.memory.title });
+
+  it('opens from the status area, forgets a memory, and the chat shows the stored conversation again', async () => {
+    FakeWebSocket.history = [
+      {
+        id: 1,
+        from: 'principal',
+        door: 'app',
+        text: 'Me llamo Eric',
+        buttons: [],
+        channelRef: null,
+        at: '2026-11-20T10:00:00.000Z',
+      },
+    ];
+    await open(runningSnapshot());
+    act(() => FakeWebSocket.last.open());
+    expect(await screen.findByText('Me llamo Eric')).toBeTruthy();
+
+    fireEvent.click(screen.getByRole('button', { name: strings.status.openMemory }));
+    expect(heading()).toBeTruthy();
+    expect(composer().closest('[hidden]')).toBeTruthy();
+    // Its own connection to the channel of the shell.
+    const socket = FakeWebSocket.last;
+    expect(FakeWebSocket.instances).toHaveLength(2);
+    act(() => socket.open());
+    await waitFor(() => expect(socket.requests.map(({ type }) => type)).toContain('actions'));
+    const [memories, actions] = socket.requests;
+    act(() =>
+      socket.receive({
+        type: 'memories',
+        inReplyTo: memories?.id ?? '',
+        memories: [{ id: 3, text: 'Se llama Eric', mode: 'declared' }],
+      }),
+    );
+    act(() => socket.receive({ type: 'actions', inReplyTo: actions?.id ?? '', actions: [] }));
+
+    fireEvent.click(
+      await screen.findByRole('button', { name: strings.memory.forgetLabel('Se llama Eric') }),
+    );
+    fireEvent.click(screen.getByRole('button', { name: strings.memory.confirmYes }));
+    await waitFor(() => expect(socket.lastRequest.type).toBe('forget_memory'));
+    // The daemon erased the stored conversation with it (DK-16 AC5).
+    FakeWebSocket.history = [];
+    act(() => socket.receive({ type: 'done', inReplyTo: socket.lastRequest.id }));
+
+    fireEvent.click(screen.getByRole('button', { name: strings.status.closeSetup }));
+    expect(heading()).toBeNull();
+    await waitFor(() => expect(screen.queryByText('Me llamo Eric')).toBeNull());
+  });
+});
+
 describe('the subscriptions', () => {
   const heading = () => screen.queryByRole('heading', { name: strings.subscriptions.title });
   const CHAT_GPT = { providerId: 'openai', connected: false, login: true };

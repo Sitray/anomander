@@ -13,6 +13,7 @@ On `main` since 0.1.0. The interface speaks English or Spanish, and the app runs
 - **Web search by default**: the first setup shows "Búsqueda web" checked, with a note on what leaves the computer.
 - **Web search from the chat**: when a request needs web search and it is missing, the chat offers "Añadir búsqueda web". The button adds the connection, waits for the daemon to restart and sends the same text again. Telegram gets the text alone.
 - **Daily backup**: right after the retention job, the daemon copies the database beside it as `<db>.backup-daily-<stamp>` (mode 600) once a day and keeps the 7 newest, apart from the copies taken before migrations. Erased conversation and memory text stays in the older copies until 7 newer daily copies replace them (PRD §16).
+- **Memoria** (DK-18): a screen in the app with what ANOMANDER remembers about you, each memory marked "Me lo dijiste" or "Lo deduje", and what it has done for you. Each item has "Olvidar", asked first: a forgotten memory is erased for real with the stored conversation, as a confirmed "olvida"; a forgotten action erases only that row.
 - **`/exportar`**: in Telegram, sends the ledger (`gastos`, `lineas_de_compra`, `pendientes_de_confirmar`) as CSV files and `ledger.json`, also kept under `exports/` in the data folder. In the app it says the export comes through Telegram for now (PRD R-29).
 
 ### Changed

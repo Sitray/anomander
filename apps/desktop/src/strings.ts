@@ -46,6 +46,8 @@ const es = {
     openSetup: 'Configuración',
     openConnections: 'Conexiones',
     openSubscriptions: 'Suscripciones',
+    /** DK-18 */
+    openMemory: 'Memoria',
     closeSetup: 'Volver al chat',
 
     lastError: 'Último error',
@@ -427,6 +429,65 @@ const es = {
     close: 'Cerrar',
   },
 
+  /** DK-18: what ANOMANDER remembers about the principal and what it did, each to forget. */
+  memory: {
+    title: 'Memoria',
+    intro:
+      'Lo que recuerdo de ti y lo que he hecho por ti. Todo está en este Mac, y puedes hacer que olvide cualquier cosa.',
+    known: 'Lo que sé de ti',
+    done: 'Lo que he hecho',
+    /** Principle 2: a memory always says whether the principal said it or it was deduced. */
+    declared: 'Me lo dijiste',
+    inferred: 'Lo deduje',
+    knownNone: 'Aún no recuerdo nada de ti. Lo que me cuentes de ti en el chat aparecerá aquí.',
+    doneNone:
+      'Aún no he hecho nada por ti: ni mirar tu pantalla, ni tareas en tu ordenador o con tus conexiones.',
+    what: {
+      screen: 'Miré tu pantalla',
+      computer: 'Tarea en tu ordenador',
+      connect: 'Tarea con tus conexiones',
+    },
+    /** How an action ended, from its code word (DK-14 AC2); one it does not know, as it is. */
+    outcome: (code: string): string =>
+      (
+        ({
+          answer: 'Te respondí',
+          done: 'Hecha',
+          cannot: 'No se pudo hacer',
+          failed: 'Falló',
+          stopped: 'La paraste',
+          replaced: 'La sustituyó otra',
+          too_many_steps: 'Demasiados pasos',
+          budget_exhausted: 'Sin llamadas de IA ese día',
+          provider_limit: 'El proveedor no dejó',
+        }) as Record<string, string>
+      )[code] ?? code,
+    viaTelegram: 'Por Telegram',
+    when: (at: string): string =>
+      new Intl.DateTimeFormat('es-ES', { dateStyle: 'medium', timeStyle: 'short' }).format(
+        new Date(at),
+      ),
+    forget: 'Olvidar',
+    forgetLabel: (words: string) => `Olvidar «${words}»`,
+    /** DK-16 AC5: a forgotten memory takes the stored conversation with it, as in the chat. */
+    confirmMemory:
+      '¿Lo olvido? Lo borro de este Mac y, como cuando me lo pides en el chat, borro también la conversación guardada.',
+    confirmAction: '¿Lo olvido? Lo borro de este Mac y no podré recuperarlo.',
+    confirmYes: 'Sí, olvidar',
+    keep: 'No olvidar',
+    forgetting: 'Olvidando…',
+    forgetFailed: 'No lo he olvidado. Inténtalo otra vez.',
+    forgetUnknown:
+      'Se cortó la conexión y no sé si lo he olvidado. Mira la lista cuando vuelva a conectar.',
+    loading: 'Leyendo…',
+    failed: 'No he podido leerlo. Inténtalo otra vez.',
+    retry: 'Reintentar',
+    /** No channel: the daemon is not running. */
+    closed: 'ANOMANDER no está en marcha. Arráncalo para ver lo que recuerda y lo que ha hecho.',
+    connecting: 'Conectando…',
+    close: 'Cerrar',
+  },
+
   ledger: {
     title: 'Traer el ledger de Docker',
     /** In the setup screen: opens this one. */
@@ -502,6 +563,7 @@ const en: Strings = {
     openSetup: 'Settings',
     openConnections: 'Connections',
     openSubscriptions: 'Subscriptions',
+    openMemory: 'Memory',
     closeSetup: 'Back to chat',
 
     lastError: 'Last error',
@@ -839,6 +901,62 @@ const en: Strings = {
     close: 'Close',
   },
 
+  memory: {
+    title: 'Memory',
+    intro:
+      'What I remember about you and what I have done for you. All of it is on this Mac, and you can make me forget anything.',
+    known: 'What I know about you',
+    done: 'What I have done',
+    declared: 'You told me',
+    inferred: 'I deduced it',
+    knownNone:
+      "I don't remember anything about you yet. What you tell me about yourself in the chat will show up here.",
+    doneNone:
+      "I haven't done anything for you yet: no look at your screen, no task on your computer or with your connections.",
+    what: {
+      screen: 'I looked at your screen',
+      computer: 'Task on your computer',
+      connect: 'Task with your connections',
+    },
+    outcome: (code: string): string =>
+      (
+        ({
+          answer: 'I answered',
+          done: 'Done',
+          cannot: 'Could not be done',
+          failed: 'Failed',
+          stopped: 'You stopped it',
+          replaced: 'Replaced by another',
+          too_many_steps: 'Too many steps',
+          budget_exhausted: 'No AI calls left that day',
+          provider_limit: 'The provider did not allow it',
+        }) as Record<string, string>
+      )[code] ?? code,
+    viaTelegram: 'Via Telegram',
+    when: (at: string): string =>
+      new Intl.DateTimeFormat('en-GB', { dateStyle: 'medium', timeStyle: 'short' }).format(
+        new Date(at),
+      ),
+    forget: 'Forget',
+    forgetLabel: (words: string) => `Forget “${words}”`,
+    confirmMemory:
+      'Shall I forget it? I erase it from this Mac and, as when you ask me in the chat, I erase the stored conversation too.',
+    confirmAction:
+      "Shall I forget it? I erase it from this Mac and I won't be able to get it back.",
+    confirmYes: 'Yes, forget',
+    keep: "Don't forget",
+    forgetting: 'Forgetting…',
+    forgetFailed: "I didn't forget it. Try again.",
+    forgetUnknown:
+      "The connection dropped and I don't know whether I forgot it. Check the list once it reconnects.",
+    loading: 'Reading…',
+    failed: "I couldn't read it. Try again.",
+    retry: 'Retry',
+    closed: "ANOMANDER isn't running. Start it to see what it remembers and what it has done.",
+    connecting: 'Connecting…',
+    close: 'Close',
+  },
+
   ledger: {
     title: 'Bring the ledger from Docker',
     open: 'Coming from a Docker install? Bring your ledger',
@@ -881,5 +999,6 @@ export const strings: Strings = {
     es: es.subscriptions,
     en: en.subscriptions,
   }),
+  memory: perLocale<Strings['memory']>({ es: es.memory, en: en.memory }),
   ledger: perLocale<Strings['ledger']>({ es: es.ledger, en: en.ledger }),
 };

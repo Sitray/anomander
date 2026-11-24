@@ -2,7 +2,15 @@
 import { useId, useState } from 'react';
 import type { DaemonStatus } from '../shell.ts';
 import { strings } from '../strings.ts';
-import { ChatIcon, CloseIcon, KeyIcon, Mark, PlugIcon, SlidersIcon } from '../ui/icons.tsx';
+import {
+  ChatIcon,
+  CloseIcon,
+  KeyIcon,
+  Mark,
+  MemoryIcon,
+  PlugIcon,
+  SlidersIcon,
+} from '../ui/icons.tsx';
 import { describeStatus, type StatusView } from './describe.ts';
 
 export type Command = 'start' | 'stop';
@@ -28,6 +36,9 @@ export interface StatusBarProps {
   onToggleSetup: () => void;
   onToggleConnections: () => void;
   onToggleSubscriptions?: () => void;
+  /** DK-18: the Memoria screen; without the handler the header does not offer it. */
+  memoryOpen?: boolean;
+  onToggleMemory?: () => void;
   onDismissError: () => void;
 }
 
@@ -99,6 +110,18 @@ export function StatusBar(props: StatusBarProps) {
               onClick={action.run}
             >
               {action.label}
+            </button>
+          )}
+          {props.onToggleMemory !== undefined && (
+            <button
+              type="button"
+              className="icon-button"
+              aria-label={props.memoryOpen ? status.closeSetup : status.openMemory}
+              title={props.memoryOpen ? status.closeSetup : status.openMemory}
+              disabled={daemon === null}
+              onClick={props.onToggleMemory}
+            >
+              {props.memoryOpen ? <ChatIcon /> : <MemoryIcon />}
             </button>
           )}
           {props.onToggleSubscriptions !== undefined && (
