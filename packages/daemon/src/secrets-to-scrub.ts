@@ -15,28 +15,33 @@ const PROVIDER_CREDENTIALS = new Set([
   'AWS_SESSION_TOKEN',
 ]);
 
+/** Every string anywhere in `value`, however deep. */
+const stringLeaves = (value: unknown): string[] => {
+  if (typeof value === 'string') return [value];
+  if (typeof value === 'object' && value !== null)
+    return Object.values(value).flatMap(stringLeaves);
+  return [];
+};
+
 /**
- * The values of `ANOMANDER_MCP_SECRETS`, a JSON object of the Keychain items by name: the values
- * are secret, the names are not. When it is not such an object the connections use none of it
- * (`connections/config.ts`), yet it may still hold tokens, so the whole of it is secret.
+ * The secrets of a variable that holds JSON: `ANOMANDER_MCP_SECRETS` (the Keychain items by name),
+ * `ANOMANDER_AUTH_JSON` (the model login) and `ANOMANDER_MCP_OAUTH` (the connections' OAuth
+ * clients and tokens). Every string in it, however deep, is one; the names are not. When it is
+ * not JSON nothing reads it, yet it may still hold tokens, so the whole of it is one.
  */
-const mcpSecretValues = (raw: string | undefined): string[] => {
+const jsonSecrets = (raw: string | undefined): string[] => {
   if (raw === undefined) return [];
   try {
-    const parsed: unknown = JSON.parse(raw);
-    if (typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)) {
-      return Object.values(parsed).filter((value): value is string => typeof value === 'string');
-    }
+    return stringLeaves(JSON.parse(raw));
   } catch {
-    // Not JSON: scrubbed whole, below.
+    return [raw];
   }
-  return [raw];
 };
 
 /**
  * Every secret of `config` and of `env`, the environment with the handover laid over it as
- * `loadConfig` read it: the configuration's tokens, every model provider's key and every value of
- * `ANOMANDER_MCP_SECRETS`. A blank value is never one: it would match everywhere.
+ * `loadConfig` read it: the configuration's tokens, every model provider's key, and every string of
+ * `ANOMANDER_MCP_SECRETS`, the model login and the connections' OAuth tokens. A blank value is never one: it would match everywhere.
  */
 export const secretsToScrub = (
   config: Config,
@@ -50,6 +55,8 @@ export const secretsToScrub = (
     config.apiToken,
     config.localToken,
     ...providerKeys,
-    ...mcpSecretValues(config.mcpSecrets),
+    ...jsonSecrets(config.mcpSecrets),
+    ...jsonSecrets(config.authJson),
+    ...jsonSecrets(config.mcpOAuth),
   ].filter((secret): secret is string => secret !== undefined && secret.trim() !== '');
 };
