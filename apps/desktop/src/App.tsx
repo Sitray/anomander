@@ -1,6 +1,6 @@
 // The window: the daemon's status on top, and under it the chat, the setup screen, the
-// connections screen, the subscriptions screen, the import of a ledger or the expenses (DK-17).
-// The container: it
+// connections screen, the subscriptions screen, the import of a ledger, the expenses (DK-17)
+// or Memoria (DK-18). The container: it
 // reads the shell and decides which one is on screen.
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ChatScreen } from './chat/ChatScreen.tsx';
@@ -9,6 +9,7 @@ import { addWebSearch } from './connections/web-search.ts';
 import { ExpensesScreen } from './expenses/ExpensesScreen.tsx';
 import { LedgerScreen } from './ledger/LedgerScreen.tsx';
 import { SubscriptionsScreen } from './login/SubscriptionsScreen.tsx';
+import { MemoryScreen } from './memory/MemoryScreen.tsx';
 import { isComplete, SetupScreen } from './setup/SetupScreen.tsx';
 import { shell as native, type SetupInput } from './shell.ts';
 import { ErrorBlock, StatusBar } from './status/StatusBar.tsx';
@@ -20,7 +21,7 @@ export function App() {
   const { snapshot } = shell;
   /** The screen over the chat, when there is one. */
   const [open, setOpen] = useState<
-    'setup' | 'connections' | 'subscriptions' | 'ledger' | 'expenses' | null
+    'setup' | 'connections' | 'subscriptions' | 'ledger' | 'expenses' | 'memory' | null
   >(null);
   const main = useRef<HTMLElement>(null);
 
@@ -69,7 +70,14 @@ export function App() {
 
   // B48: the shell shows the window again (closing it only hides it); the chat then shows what
   // the daemon keeps now. Subscribed as `useShell` subscribes "Detener tarea".
+  // DK-18: a forget in Memoria erased the turns of the stored conversation that said it; the chat
+  // follows it as it follows the window shown again.
+  const forgottenListeners = useRef(new Set<() => void>());
+  const onForgotten = useCallback(() => {
+    for (const listener of forgottenListeners.current) listener();
+  }, []);
   const subscribeShown = useCallback((shown: () => void) => {
+    forgottenListeners.current.add(shown);
     let gone = false;
     let unlisten: (() => void) | undefined;
     native.onChatShown(shown).then(
@@ -83,6 +91,7 @@ export function App() {
     return () => {
       gone = true;
       unlisten?.();
+      forgottenListeners.current.delete(shown);
     };
   }, []);
 
@@ -102,6 +111,8 @@ export function App() {
         onToggleConnections={open === 'connections' ? close : () => setOpen('connections')}
         onToggleSubscriptions={open === 'subscriptions' ? close : () => setOpen('subscriptions')}
         onToggleExpenses={open === 'expenses' ? close : () => setOpen('expenses')}
+        memoryOpen={open === 'memory'}
+        onToggleMemory={open === 'memory' ? close : () => setOpen('memory')}
         onDismissError={shell.dismissError}
       />
       <main className="main" ref={main}>
@@ -156,6 +167,15 @@ export function App() {
                   onDisconnect={shell.disconnectSubscription}
                   subscribeSteps={shell.onLoginStep}
                   onClose={close}
+                />
+              </div>
+            )}
+            {open === 'memory' && (
+              <div className="view">
+                <MemoryScreen
+                  channel={snapshot.channel}
+                  onClose={close}
+                  onForgotten={onForgotten}
                 />
               </div>
             )}
