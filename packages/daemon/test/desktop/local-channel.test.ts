@@ -2121,6 +2121,36 @@ describe('who the principal is and what ANOMANDER did (DK-14)', () => {
     expect(interpreted.map(({ history: given }) => given)).toEqual([[entry], [entry]]);
   });
 
+  it('B48, R-23 AC6: "Sí" to a forget erases the turns that hold the fact, and only those', async () => {
+    const chat = await client(await start());
+    await chat.ask({ type: 'text', text: '23 € cena' });
+    rememberName();
+    const [memory] = query<{ id: number }>(
+      "SELECT id FROM assertions WHERE predicate = 'memory' AND status = 'current'",
+    );
+    routed = JSON.stringify({ kind: 'forget', ids: [memory?.id] });
+    const question = reply(await chat.ask({ type: 'text', text: 'olvida que me llamo Eric' }));
+    expect(question.text).toBe(`¿Olvido esto?\n· ${NAME.text}`);
+    routed = undefined;
+
+    const [yes] = question.buttons as { data: string }[];
+    const done = reply(
+      await chat.ask({ type: 'button', data: yes?.data, channelRef: question.channelRef }),
+    );
+
+    expect(done.text).toBe('Hecho, lo he olvidado.');
+    expect(query('SELECT text FROM conversation ORDER BY id')).toEqual([
+      { text: '23 € cena' },
+      { text: PHRASED },
+      { text: '[botón: Sí]' },
+      { text: 'Hecho, lo he olvidado.' },
+    ]);
+    const path = join(scratch, 'anomander.db');
+    expect([path, `${path}-wal`].some((file) => readFileSync(file).includes('llamo Eric'))).toBe(
+      false,
+    );
+  });
+
   describe('AC4: the principal can erase it, after "Sí"', () => {
     const FORGET = JSON.stringify({ kind: 'forget_history' });
 
@@ -2157,6 +2187,30 @@ describe('who the principal is and what ANOMANDER did (DK-14)', () => {
         { principal: '[botón: Sí]', reply: 'Hecho, he borrado mi historial.' },
       ]);
       expect(interpreted.at(-1)?.history).toEqual([]);
+    });
+
+    it('R4-001: when the erase fails, the question stays open and a second "Sí" erases', async () => {
+      const chat = await client(await start());
+      planned = async () => JSON.stringify({ kind: 'done', message: 'Hecho.' });
+      await chat.ask({ type: 'computer', task: 'abre Notas', image: png(), done: [] });
+      routed = FORGET;
+      const question = reply(await chat.ask({ type: 'text', text: 'borra tu historial' }));
+      const [yes] = question.buttons as { data: string }[];
+      const press = { type: 'button', data: yes?.data, channelRef: question.channelRef } as const;
+      const db = new Database(join(scratch, 'anomander.db'));
+      db.exec('ALTER TABLE conversation RENAME TO conversation_moved');
+
+      expect(reply(await chat.ask(press)).text).toBe(strings.processingFailed());
+      expect(history()).toHaveLength(1);
+
+      db.exec('ALTER TABLE conversation_moved RENAME TO conversation');
+      db.close();
+      expect(reply(await chat.ask(press)).text).toBe('Hecho, he borrado mi historial.');
+      expect(history()).toEqual([]);
+      expect(query('SELECT text FROM conversation ORDER BY id')).toEqual([
+        { text: '[botón: Sí]' },
+        { text: 'Hecho, he borrado mi historial.' },
+      ]);
     });
 
     it('"No" erases nothing, and with nothing kept there is nothing to ask', async () => {

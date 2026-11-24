@@ -495,8 +495,12 @@ and keep its secrets in the operating system instead of a text file.
     when the connection was lost first it says it cannot know. It cannot be pressed while the
     connection is not open, while an answer is owed, or while a task runs or waits for
     "Permitir".
-  - AC5: a confirmed "olvida" (R-23 AC6) and a confirmed erase of the action history (DK-14 AC4)
-    also erase the stored conversation.
+  - AC5: a confirmed erase of the action history (DK-14 AC4) also erases the stored
+    conversation. A confirmed "olvida" (R-23 AC6) and a memory replaced by a new fact (R-23 AC3)
+    erase, the same way, each turn that holds the memory's text or quote (ignoring case and
+    spacing), the principal's message and its reply together, so S-29 and the message that asked
+    go with it; the rest of the conversation stays. When an erase fails the question stays open
+    and the reply is S-22, so `Sí` can be pressed again.
   - AC6: a stored message is kept 90 days; the retention job then erases it, next to the 30 days
     of the action history (DK-14 AC3).
   - AC7: the conversation is local: it lives only in the app's database, is never logged, and

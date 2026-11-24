@@ -4,8 +4,9 @@ import type Database from 'better-sqlite3';
 // DK-16 (docs/desktop-prd.md): the conversation with the principal, from either door, kept in the
 // local database (`conversation`, migration `0009`), so the app shows it again and the text
 // interpreter picks up its recent turns after a restart (R-16 AC3). No image is kept, nor a text
-// pasted for a login (R-17 AC7). It is erased on "Borrar conversación", on a confirmed forget and
-// after 90 days. Nothing here logs a message's words.
+// pasted for a login (R-17 AC7). It is erased on "Borrar conversación", on a confirmed erase of
+// the history and after 90 days; a forgotten or replaced memory erases the turns that hold its
+// words (R-23 AC3, AC6). Nothing here logs a message's words.
 
 /** S7: the retention job erases the messages older than this. */
 export const CONVERSATION_RETENTION_DAYS = 90;
@@ -91,6 +92,40 @@ export const forgetConversation = (db: Database.Database): number => {
   const { changes } = db.prepare('DELETE FROM conversation').run();
   if (changes > 0) db.pragma('wal_checkpoint(TRUNCATE)');
   return changes;
+};
+
+/**
+ * R-23 AC3, AC6: erases each turn with a message that `holds` (a replaced or forgotten memory's
+ * text or quote): the message and the one paired with it, the principal's message and the reply
+ * it got (`recordMessages` stores them one after the other), so no reply is left without what
+ * asked it. Runs in the caller's transaction; the caller checkpoints the WAL after it, as
+ * `forgetConversation` does. Returns how many messages were erased.
+ */
+export const forgetTurnsHolding = (
+  db: Database.Database,
+  holds: (text: string) => boolean,
+): number => {
+  const rows = db
+    .prepare<[], Pick<Row, 'id' | 'sender' | 'text'>>(
+      'SELECT id, sender, text FROM conversation ORDER BY id',
+    )
+    .all();
+  const erased = new Set<number>();
+  rows.forEach((row, index) => {
+    if (!holds(row.text)) return;
+    erased.add(row.id);
+    const paired = row.sender === 'principal' ? rows[index + 1] : rows[index - 1];
+    if (
+      paired !== undefined &&
+      paired.sender !== row.sender &&
+      Math.abs(paired.id - row.id) === 1
+    ) {
+      erased.add(paired.id);
+    }
+  });
+  const erase = db.prepare('DELETE FROM conversation WHERE id = ?');
+  for (const id of erased) erase.run(id);
+  return erased.size;
 };
 
 /** S7: the retention job erases the messages sent before `before`, as `forgetConversation` does. */

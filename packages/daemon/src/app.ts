@@ -452,8 +452,8 @@ export const startAnomander = <M>(config: Config, deps: AnomanderDeps<M>): Anoma
     answers: {
       ...createDecisionAnswers({ phraser, logger, patterns }),
       keep_receipt: createKeepReceiptAnswerHandler({ timeZone: config.timeZone }),
-      // R-16 AC3, DK-16: a confirmed forget erases the stored conversation and so the turns.
-      forget_memory: createForgetMemoryAnswerHandler({ clearRecentTurns: turns.clear }),
+      // A confirmed forget erases the turns that hold the forgotten text (R-23 AC6).
+      forget_memory: createForgetMemoryAnswerHandler(),
       // DK-14 AC4: "Sí" erases the history of what ANOMANDER did.
       forget_history: createForgetHistoryAnswerHandler({ clearRecentTurns: turns.clear }),
       // R-18 AC1, AC3: "Sí" to S-15 creates the category.

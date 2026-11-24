@@ -13,6 +13,7 @@ import {
 } from '../../src/store/conversation.ts';
 import { applyMigrations, MIGRATIONS_DIR, openDatabase } from '../../src/store/database.ts';
 import { recordAction } from '../../src/store/history.ts';
+import { forgetMemories, saveMemory } from '../../src/store/memory.ts';
 
 // DK-16: the stored conversation survives the 0009 migration and is erased for real.
 const AT = new Date('2026-11-24T10:00:00.000Z');
@@ -83,6 +84,55 @@ describe('S5/S6 real erasure', () => {
 
     expect(onDisk('zorbsecret')).toEqual([]);
     expect(turns.recent()).toEqual([{ principal: '[botón: Sí]', reply: 'Hecho, lo he olvidado.' }]);
+  });
+});
+
+describe('B48: a memory replaced or forgotten takes the turns that hold its words with it', () => {
+  const at = AT.toISOString();
+  const capture = (text: string, quote: string, replaces: number | null) => ({
+    text,
+    quote,
+    said: true,
+    confidence: 1,
+    message: quote,
+    source: 'telegram:1',
+    replaces,
+    receivedAt: at,
+    now: at,
+  });
+  const texts = () => storedConversation(db, HISTORY_LIMIT).map(({ text }) => text);
+
+  it('R-23 AC3: a replacement erases the turns of the old fact, from the db, -wal and -shm, and keeps the rest', () => {
+    db = openDatabase(path);
+    applyMigrations(db);
+    const turns = createRecentTurns({ db, now: () => AT, logger });
+    turns.add('23 € cena', { text: 'Apuntado.' }, 'app');
+    turns.add('Vivo en Zorbtown', { text: 'Tomo nota de que vives en zorbtown.' }, 'telegram');
+    turns.add(null, { text: 'Recordatorio: llamar.' }, 'telegram');
+    const old = saveMemory(db, capture('Vive en Zorbtown', 'Vivo en Zorbtown', null));
+    expect(onDisk('Zorbtown')).not.toEqual([]);
+
+    saveMemory(db, capture('Vive en Lisboa', 'ya vivo en Lisboa', old));
+
+    expect(texts()).toEqual(['23 € cena', 'Apuntado.', 'Recordatorio: llamar.']);
+    expect(onDisk('Zorbtown')).toEqual([]);
+    expect(onDisk('zorbtown')).toEqual([]);
+  });
+
+  it('R-23 AC6: a forget erases the turns that hold its text or quote, S-29 and the message that asked included, and keeps the rest', () => {
+    db = openDatabase(path);
+    applyMigrations(db);
+    const turns = createRecentTurns({ db, now: () => AT, logger });
+    turns.add('soy zorbvegano', { text: 'Tomo nota.' }, 'telegram');
+    turns.add('23 € cena', { text: 'Apuntado.' }, 'app');
+    turns.add('olvida que soy  ZORBVEGANO', { text: '¿Olvido esto?\n· Es zorbvegano' }, 'app');
+    const id = saveMemory(db, capture('Es zorbvegano', 'soy zorbvegano', null));
+
+    expect(forgetMemories(db, [id])).toEqual([id]);
+
+    expect(texts()).toEqual(['23 € cena', 'Apuntado.']);
+    expect(onDisk('orbvegano')).toEqual([]);
+    expect(onDisk('ORBVEGANO')).toEqual([]);
   });
 });
 

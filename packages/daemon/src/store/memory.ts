@@ -1,4 +1,5 @@
 import type Database from 'better-sqlite3';
+import { forgetTurnsHolding } from './conversation.ts';
 import { insertAssertion } from './expenses.ts';
 
 // Rows of PRD §13 for conversation memory (R-23). Each memory is an assertion about the
@@ -71,6 +72,24 @@ const SELECT_MEMORY_WHERE = `SELECT a.id, t.text, a.mode
   WHERE`;
 const SELECT_MEMORY = `${SELECT_MEMORY_WHERE} ${CURRENT_MEMORY}`;
 
+/**
+ * R-23 AC3, AC6: erases the memory's text and quote from `memory_texts` and the turns of the
+ * stored conversation (R-16 AC3) that hold either, ignoring case and spacing. In the caller's
+ * transaction; the caller checkpoints the WAL after it.
+ */
+const eraseMemoryText = (db: Database.Database, id: number): void => {
+  const row = db
+    .prepare<[number], { text: string; quote: string }>(
+      'SELECT text, quote FROM memory_texts WHERE assertion_id = ?',
+    )
+    .get(id);
+  const words = row === undefined ? [] : [row.text, row.quote].map(normalize).filter(Boolean);
+  if (words.length > 0) {
+    forgetTurnsHolding(db, (text) => words.some((word) => normalize(text).includes(word)));
+  }
+  db.prepare('DELETE FROM memory_texts WHERE assertion_id = ?').run(id);
+};
+
 const isCurrentMemory = (db: Database.Database, id: number): boolean =>
   db
     .prepare<[number]>(`SELECT 1 FROM assertions a WHERE a.id = ? AND ${CURRENT_MEMORY}`)
@@ -81,7 +100,8 @@ const isCurrentMemory = (db: Database.Database, id: number): boolean =>
  * quote in `memory_texts`, in one transaction. It is `declared` by the principal only when the
  * processor says they said it and the quote is in the message; otherwise `inferred` by the
  * processor. When it replaces a current memory, it supersedes it, the old one is `refuted` and
- * its text is erased as a forget erases it (AC6, AC7), so no outdated text is ever kept; a
+ * its text is erased as a forget erases it (AC6, AC7), with the turns of the stored conversation
+ * that hold its text or quote, so no outdated text is ever kept; a
  * `replaces` that names no current memory is ignored and the fact is stored as new. Returns the
  * new memory's id.
  */
@@ -117,7 +137,7 @@ export const saveMemory = (db: Database.Database, capture: MemoryCapture): numbe
     );
     if (replaced !== null) {
       db.prepare("UPDATE assertions SET status = 'refuted' WHERE id = ?").run(replaced);
-      db.prepare('DELETE FROM memory_texts WHERE assertion_id = ?').run(replaced);
+      eraseMemoryText(db, replaced);
     }
     return { id, replaced };
   })();
@@ -196,8 +216,9 @@ export const memoryNotesFor = (db: Database.Database, words: string): MemoryNote
 
 /**
  * R-23 AC6, AC7: forgets the given current memories. In one transaction each one's text and
- * quote are deleted from `memory_texts` (the triggers remove them from `memory_search`) and its
- * assertion becomes `expired`, the mark that something was remembered and forgotten. Then the
+ * quote are deleted from `memory_texts` (the triggers remove them from `memory_search`), with
+ * the turns of the stored conversation that hold either (S-29 and the message that asked among
+ * them), and its assertion becomes `expired`, the mark that something was remembered and forgotten. Then the
  * WAL is checkpointed and truncated so the erased text survives in no file; with
  * `secure_delete` and FTS5 `secure-delete` on, the freed pages hold zeros. Ids that are not
  * current memories are left alone. Returns the ids forgotten.
@@ -206,7 +227,7 @@ export const forgetMemories = (db: Database.Database, ids: readonly number[]): n
   const forgotten = db.transaction(() =>
     ids.filter((id) => {
       if (!isCurrentMemory(db, id)) return false;
-      db.prepare('DELETE FROM memory_texts WHERE assertion_id = ?').run(id);
+      eraseMemoryText(db, id);
       db.prepare("UPDATE assertions SET status = 'expired' WHERE id = ?").run(id);
       return true;
     }),
