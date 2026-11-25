@@ -1,5 +1,6 @@
 import type { ProbeOutcome } from '@anomander/protocol';
 import type { AiBudget } from '../budget/ai-budget.ts';
+import type { Config } from '../config.ts';
 import type { Complete, Logger } from '../processor/ports.ts';
 import { isProviderLimit } from '../processor/provider-limit.ts';
 import { ProcessorTimeoutError, withTimeout } from '../processor/timeout.ts';
@@ -12,8 +13,14 @@ import type { SetupGap } from './setup-guide.ts';
 // neither the window nor the log ever gets its words: only the outcome, in a code word.
 
 /** What a probe answers while the setup names no usable model: no call can be made. */
-export const probeWithoutModel = (gaps: readonly SetupGap[]): ProbeOutcome =>
-  gaps.some((gap) => gap.kind === 'model_unknown') ? 'model_unknown' : 'model_unset';
+export const probeWithoutModel = (
+  gaps: readonly SetupGap[],
+  { model, visionModel }: Pick<Config, 'model' | 'visionModel'>,
+): ProbeOutcome => {
+  if (gaps.some((gap) => gap.kind === 'model_unknown')) return 'model_unknown';
+  // The model is saved and only the one for photos is missing: say that one.
+  return model !== undefined && visionModel === undefined ? 'vision_model_unset' : 'model_unset';
+};
 
 /** The outcome a provider's error text says, never the text itself. */
 export const probeOutcomeOf = (errorMessage: string | undefined): ProbeOutcome => {

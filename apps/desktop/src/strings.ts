@@ -240,9 +240,12 @@ const es = {
     modelPlaceholder: 'p. ej. openai/gpt-4o-mini',
     visionModel: 'Modelo para fotos',
     visionModelHelp:
-      'Lee las fotos de los tickets. Mismo formato que el anterior; vacío, usa el mismo modelo.',
+      'Lee las fotos de los tickets. Mismo formato que el anterior; con un modelo propuesto, vacío usa el mismo.',
     modelInvalid: 'Escríbelo con el proveedor delante, como openai/gpt-4o-mini.',
     modelMissing: 'Falta el modelo. Sin él ANOMANDER no puede contestarte.',
+    /** DK-23 AC2: a model not offered by name may not read photos, so the one for photos is asked. */
+    visionModelMissing:
+      'Falta el modelo para fotos: escribe uno que lea imágenes, o elige un proveedor de la lista.',
 
     keys: 'Claves de proveedores',
     keysHelp: 'La clave de API del proveedor de cada modelo. Está en su panel de desarrollador.',
@@ -279,6 +282,8 @@ const es = {
     probeOutcome: {
       ok: 'Funciona: el modelo ha contestado.',
       model_unset: 'Aún no hay un modelo guardado.',
+      vision_model_unset:
+        'Falta el modelo para fotos. Escribe uno que lea imágenes en «Modelo para fotos» y guarda.',
       model_unknown: 'ANOMANDER no conoce ese modelo. Elige otro.',
       not_connected: 'Falta la clave del proveedor, o conectar tu suscripción.',
       budget_exhausted: 'Hoy ya se ha llegado al límite diario de llamadas a la IA. Prueba mañana.',
@@ -819,9 +824,11 @@ const en: Strings = {
     modelPlaceholder: 'e.g. openai/gpt-4o-mini',
     visionModel: 'Model for photos',
     visionModelHelp:
-      'It reads the photos of receipts. Same format as the one above; empty, it uses the same model.',
+      'It reads the photos of receipts. Same format as the one above; with a suggested model, empty uses the same.',
     modelInvalid: 'Write it with the provider first, like openai/gpt-4o-mini.',
     modelMissing: "The model is missing. Without it ANOMANDER can't answer you.",
+    visionModelMissing:
+      'The model for photos is missing: write one that reads images, or choose a provider from the list.',
 
     keys: 'Provider keys',
     keysHelp: "The API key of each model's provider. It's in their developer dashboard.",
@@ -856,6 +863,8 @@ const en: Strings = {
     probeOutcome: {
       ok: 'It works: the model answered.',
       model_unset: 'No model is saved yet.',
+      vision_model_unset:
+        'The model for photos is missing. Write one that reads images in "Model for photos" and save.',
       model_unknown: "ANOMANDER doesn't know that model. Choose another one.",
       not_connected: "The provider's key is missing, or your subscription is not connected.",
       budget_exhausted: 'The daily limit of AI calls has been reached today. Try tomorrow.',

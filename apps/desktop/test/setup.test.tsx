@@ -201,21 +201,21 @@ describe('saving', () => {
   it('saves without Telegram when both of its fields are empty (T13)', async () => {
     const { onSave } = renderSetup(EMPTY_SETUP, async () => ({
       ...EMPTY_SETUP,
-      model: 'openai/gpt-4o-mini',
+      model: 'openai/gpt-5-mini',
     }));
-    fill(text.model, 'openai/gpt-4o-mini');
+    fill(text.model, 'openai/gpt-5-mini');
     save();
 
     const input = await saved(onSave);
     expect(input).toEqual({
       principalChatId: '',
-      model: 'openai/gpt-4o-mini',
+      model: 'openai/gpt-5-mini',
       // DK-23 AC2: left empty, photos are read with the same model.
-      visionModel: 'openai/gpt-4o-mini',
+      visionModel: 'openai/gpt-5-mini',
       providerKeys: {},
     });
     // Saved and able to start: nothing is said to be missing.
-    await waitFor(() => expect(field(text.model).value).toBe('openai/gpt-4o-mini'));
+    await waitFor(() => expect(field(text.model).value).toBe('openai/gpt-5-mini'));
     expect(screen.queryByText(text.savedIncomplete)).toBeNull();
   });
 
@@ -411,7 +411,7 @@ describe('web search on the first setup', () => {
         onAddWebSearch={onAddWebSearch}
       />,
     );
-    fill(text.model, 'openai/gpt-4o-mini');
+    fill(text.model, 'openai/gpt-5-mini');
     return { order, onAddWebSearch, onSave };
   };
   const checkbox = (): HTMLInputElement => screen.getByRole('checkbox', { name: text.webSearch });
@@ -542,7 +542,29 @@ describe('onboarding (DK-23)', () => {
     expect(picker().value).toBe('other');
     save();
 
-    expect(await saved(onSave)).toMatchObject({ model: 'groq/llama-3.3-70b-versatile' });
+    expect(onSave).not.toHaveBeenCalled();
+    // Nothing says it reads photos: the photo model is asked for, never assumed.
+    expect(screen.getByText(text.visionModelMissing)).toBeTruthy();
+    expect(field(text.visionModel).getAttribute('aria-invalid')).toBe('true');
+    fill(text.visionModel, 'google/gemini-2.5-flash');
+    save();
+
+    expect(await saved(onSave)).toMatchObject({
+      model: 'groq/llama-3.3-70b-versatile',
+      visionModel: 'google/gemini-2.5-flash',
+    });
+  });
+
+  it('keeps a photo model of its own when a provider is chosen', () => {
+    renderSetup(EMPTY_SETUP);
+    pick('google');
+    pick('openai');
+    expect(field(text.visionModel).value).toBe('openai/gpt-5-mini');
+
+    fill(text.visionModel, 'google/gemini-2.5-pro');
+    pick('anthropic');
+    expect(field(text.model).value).toBe('anthropic/claude-haiku-4-5');
+    expect(field(text.visionModel).value).toBe('google/gemini-2.5-pro');
   });
 
   it('follows a model typed with a provider it offers', () => {

@@ -377,7 +377,7 @@ export const startSetupGuide = (config: Config, deps: SetupGuideDeps): Anomander
     logger,
     undefined,
     // DK-23 AC4: no model can be called; the probe says why.
-    async () => probeWithoutModel(gaps),
+    async () => probeWithoutModel(gaps, config),
   );
 
   // A failed start is the caller's to report, through `started`.

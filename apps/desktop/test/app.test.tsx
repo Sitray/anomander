@@ -255,19 +255,19 @@ describe('the setup', () => {
     mocked.saveSetup.mockResolvedValue({
       daemon: STARTING,
       channel: null,
-      setup: { ...EMPTY_SETUP, model: 'openai/gpt-4o-mini' },
+      setup: { ...EMPTY_SETUP, model: 'openai/gpt-5-mini' },
     });
     fireEvent.change(screen.getByLabelText(strings.setup.model), {
-      target: { value: 'openai/gpt-4o-mini' },
+      target: { value: 'openai/gpt-5-mini' },
     });
     fireEvent.click(screen.getByRole('button', { name: strings.setup.save }));
 
     await waitFor(() => expect(setupHeading()).toBeNull());
     expect(mocked.saveSetup).toHaveBeenCalledWith({
       principalChatId: '',
-      model: 'openai/gpt-4o-mini',
+      model: 'openai/gpt-5-mini',
       // DK-23 AC2: left empty, photos are read with the same model.
-      visionModel: 'openai/gpt-4o-mini',
+      visionModel: 'openai/gpt-5-mini',
       providerKeys: {},
     });
   });
@@ -277,10 +277,10 @@ describe('the setup', () => {
     mocked.saveSetup.mockResolvedValue({
       daemon: STARTING,
       channel: null,
-      setup: { ...EMPTY_SETUP, model: 'openai/gpt-4o-mini' },
+      setup: { ...EMPTY_SETUP, model: 'openai/gpt-5-mini' },
     });
     fireEvent.change(screen.getByLabelText(strings.setup.model), {
-      target: { value: 'openai/gpt-4o-mini' },
+      target: { value: 'openai/gpt-5-mini' },
     });
     fireEvent.click(screen.getByRole('button', { name: strings.setup.save }));
 
@@ -307,10 +307,10 @@ describe('the setup', () => {
     mocked.saveSetup.mockResolvedValue({
       daemon: STARTING,
       channel: null,
-      setup: { ...EMPTY_SETUP, model: 'openai/gpt-4o-mini' },
+      setup: { ...EMPTY_SETUP, model: 'openai/gpt-5-mini' },
     });
     fireEvent.change(screen.getByLabelText(strings.setup.model), {
-      target: { value: 'openai/gpt-4o-mini' },
+      target: { value: 'openai/gpt-5-mini' },
     });
     fireEvent.click(screen.getByRole('button', { name: strings.setup.save }));
 

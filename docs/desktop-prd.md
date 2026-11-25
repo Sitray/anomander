@@ -651,9 +651,12 @@ and keep its secrets in the operating system instead of a text file.
     (Google Gemini, OpenAI, Anthropic Claude, OpenRouter, Mistral, DeepSeek, xAI Grok, Kimi Code;
     `apps/desktop/src/setup/providers.ts`), each with a suggested model that pi-ai knows and that
     reads photos (a test checks both). Choosing one fills "Modelo" and "Modelo para fotos" with its
-    suggestion. "Otro modelo…" keeps the free `provider/model` field, still checked only by shape;
-    a model typed with a listed provider selects it. "Modelo para fotos" left empty is saved as
-    the model, so the daemon never starts with half of R-28 AC2's pair.
+    suggestion, keeping a photo model the principal typed. "Otro modelo…" keeps the free
+    `provider/model` field, still checked only by shape; a model typed with a listed provider
+    selects it. "Modelo para fotos" left empty is saved as the model only when that is a suggested
+    one, known to read photos; otherwise the screen asks for it ("Falta el modelo para fotos:
+    escribe uno que lea imágenes, o elige un proveedor de la lista."), so the daemon never starts
+    with half of R-28 AC2's pair nor reads receipts with a model that cannot see them.
   - AC3: the key of the chosen provider is asked beside the model and named by whose it is,
     "Clave de Google AI Studio", "Clave de OpenAI", never by its variable; it is stored as before
     (DK-5 AC1), in the Keychain under the variable pi-ai reads (`GEMINI_API_KEY`). A stored key is
@@ -671,8 +674,10 @@ and keep its secrets in the operating system instead of a text file.
     ha contestado a tiempo. Prueba otra vez en un rato.", "El proveedor ha dado un error. Prueba
     otra vez en un rato.", and without a call "Falta la clave del proveedor, o conectar tu
     suscripción." (R-28 AC2's connection gap), "Hoy ya se ha llegado al límite diario de llamadas a
-    la IA. Prueba mañana." and, while the setup guide runs, "Aún no hay un modelo guardado." or
-    "ANOMANDER no conoce ese modelo. Elige otro.". The provider's own error text can quote the key,
+    la IA. Prueba mañana." and, while the setup guide runs, "Aún no hay un modelo guardado.",
+    "Falta el modelo para fotos. Escribe uno que lea imágenes en «Modelo para fotos» y guarda."
+    (the model is saved, the one for photos is not) or "ANOMANDER no conoce ese modelo. Elige
+    otro.". The provider's own error text can quote the key,
     so it never reaches the window or the log: the daemon classifies it and logs only the outcome.
     "Probar" tests what is saved: it is disabled, saying "Guarda primero: Probar usa el modelo y la
     clave guardados.", while the model or a key has changes, and "Para probar, ANOMANDER tiene

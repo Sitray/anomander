@@ -79,8 +79,11 @@ const start = async (
   return anomander;
 };
 
-const guide = async (gaps: readonly SetupGap[]): Promise<Anomander> => {
-  anomander = startSetupGuide(config(), { gaps, logger });
+const guide = async (
+  gaps: readonly SetupGap[],
+  models: { model?: undefined; visionModel?: undefined } = {},
+): Promise<Anomander> => {
+  anomander = startSetupGuide({ ...config(), ...models }, { gaps, logger });
   await anomander.started;
   return anomander;
 };
@@ -264,13 +267,22 @@ describe('"Probar" (DK-23 AC4)', () => {
   });
 
   it('says why while the setup names no usable model', async () => {
-    expect(await probe(await guide([{ kind: 'model_unset' }]))).toBe('model_unset');
+    expect(
+      await probe(
+        await guide([{ kind: 'model_unset' }], { model: undefined, visionModel: undefined }),
+      ),
+    ).toBe('model_unset');
     await anomander?.stop();
     expect(
       await probe(
         await guide([{ kind: 'model_unknown', variable: 'ANOMANDER_MODEL', model: 'google/x' }]),
       ),
     ).toBe('model_unknown');
+  });
+
+  it('says the photo model is missing when only that one is unset', async () => {
+    const daemon = await guide([{ kind: 'model_unset' }], { visionModel: undefined });
+    expect(await probe(daemon)).toBe('vision_model_unset');
   });
 });
 

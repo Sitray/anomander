@@ -15,6 +15,7 @@ import type { ProbeResult } from './probe.ts';
 import {
   providerOfKey,
   providerOfModel,
+  readsPhotos,
   SETUP_PROVIDERS,
   type SetupProvider,
   suggestedModel,
@@ -162,9 +163,10 @@ function SetupForm(props: FormProps) {
     const offered = SETUP_PROVIDERS.find((one) => one.id === id);
     setOtherModel(id === OTHER);
     if (offered === undefined) return;
-    // Both models: every suggestion reads photos too.
+    // Every suggestion reads photos too; a photo model of the principal's own is kept.
+    const ownVision = visionModel.trim() !== '' && visionModel.trim() !== model.trim();
     setModel(suggestedModel(offered));
-    setVisionModel(suggestedModel(offered));
+    if (!ownVision || readsPhotos(visionModel.trim())) setVisionModel(suggestedModel(offered));
   };
 
   // DK-23 AC4: "Probar" calls what is saved, so it waits for a save of anything it would use.
@@ -221,8 +223,9 @@ function SetupForm(props: FormProps) {
     const input: SetupInput = {
       principalChatId: chatId.trim(),
       model: model.trim(),
-      // DK-23 AC2: left empty, photos are read with the same model.
-      visionModel: visionModel.trim() === '' ? model.trim() : visionModel.trim(),
+      // DK-23 AC2: left empty, photos are read with the same model when it is known to read them.
+      visionModel:
+        visionModel.trim() === '' && readsPhotos(model.trim()) ? model.trim() : visionModel.trim(),
       providerKeys: {},
     };
     // Omitted keeps the stored token.
@@ -243,7 +246,11 @@ function SetupForm(props: FormProps) {
         : isModelId(input.model)
           ? {}
           : { model: text.modelInvalid }),
-      ...(isModelId(input.visionModel) ? {} : { visionModel: text.modelInvalid }),
+      ...(!isModelId(input.visionModel)
+        ? { visionModel: text.modelInvalid }
+        : input.model !== '' && input.visionModel === ''
+          ? { visionModel: text.visionModelMissing }
+          : {}),
       // A key typed but not added is still meant to be saved.
       ...takeTypedKey(false),
     };

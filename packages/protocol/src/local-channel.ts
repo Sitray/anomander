@@ -372,13 +372,15 @@ export interface ChatExpenses {
 
 /**
  * DK-23 AC4: how a probe of the model ended, never the provider's own words, which can quote the
- * key: `ok`; `model_unset` or `model_unknown` while the setup names no usable model;
+ * key: `ok`; `model_unset`, `vision_model_unset` (the model is saved, the one for photos is not) or
+ * `model_unknown` while the setup names no usable model;
  * `not_connected` without a key or a login; `budget_exhausted` (R-12, no call made); and from the
  * call itself `key_refused`, `model_unavailable`, `provider_limit`, `timed_out` or `failed`.
  */
 export const PROBE_OUTCOMES = [
   'ok',
   'model_unset',
+  'vision_model_unset',
   'model_unknown',
   'not_connected',
   'budget_exhausted',

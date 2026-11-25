@@ -91,6 +91,13 @@ export const providerOfModel = (model: string): SetupProvider | undefined => {
 export const providerOfKey = (keyName: string): SetupProvider | undefined =>
   SETUP_PROVIDERS.find((provider) => provider.keyName === keyName);
 
+/**
+ * Whether `model` is known to read photos: only the suggested models, which a daemon test checks
+ * against pi-ai's metadata. The window does not load pi-ai, so any other model is not assumed to.
+ */
+export const readsPhotos = (model: string): boolean =>
+  SETUP_PROVIDERS.some((provider) => suggestedModel(provider) === model);
+
 /** `google/gemini-2.5-flash`. */
 export const suggestedModel = (provider: SetupProvider): string =>
   `${provider.id}/${provider.suggested}`;
