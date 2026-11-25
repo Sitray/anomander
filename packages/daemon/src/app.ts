@@ -10,6 +10,7 @@ import {
 } from '@anomander/protocol';
 import { createAppTasks } from './app/app-tasks.ts';
 import { connectionCommand, doorOf, isExport, isStart } from './app/commands.ts';
+import { setUpConnections } from './app/connections.ts';
 import { createHandlers } from './app/handlers.ts';
 import { startJobs } from './app/jobs.ts';
 import { startChannel } from './app/local-channel.ts';
@@ -18,11 +19,7 @@ import { oneTurnAtATime, sayingStopped, settled } from './app/turns.ts';
 import type { Anomander, AnomanderDeps } from './app/types.ts';
 import { createTelegramLogin } from './auth/telegram-login.ts';
 import type { Config } from './config.ts';
-import { readConnections } from './connections/config.ts';
-import { createConnections } from './connections/mcp-client.ts';
-import { oauthKeeperFrom, printOAuthForShell } from './connections/oauth.ts';
 import { createConnectionSession, type Door, type Later } from './connections/session.ts';
-import { createConnectionTasks } from './connections/task.ts';
 import {
   type AppNotices,
   buttonTurn,
@@ -33,6 +30,7 @@ import {
 import { pressedOption } from './decisions/answer.ts';
 import { type RowOption, rowButton, rowLabel } from './decisions/window-amend.ts';
 import { type ChatHandlers, NO_APP } from './local-channel/server.ts';
+import type { ConnectedTool } from './processor/ports.ts';
 import { readExpensesMonth } from './read-api/month.ts';
 import { startReadApi } from './read-api/server.ts';
 import { groundedRoutes } from './routing/grounded-route.ts';
@@ -44,11 +42,9 @@ import { exportLedger } from './store/export.ts';
 import { forgetAction, listActions } from './store/history.ts';
 import { forgetMemoryAndItsTurns, listMemories } from './store/memory.ts';
 import {
-  connectionToolGranted,
   connectionToolGrants,
   grantConnectionTool,
   revokeConnectionTool,
-  revokeConnectionToolsNotIn,
 } from './store/permissions.ts';
 import { openTelegramDoor } from './telegram-door.ts';
 
@@ -123,7 +119,7 @@ export const startAnomander = <M>(config: Config, deps: AnomanderDeps<M>): Anoma
     notify: (message) => notify(message),
     // T17: what the connected servers can do, so a search on the web goes to them and not to
     // the computer. Never connects a server: one not connected yet offers its read-only tools.
-    connected: async () =>
+    connected: async (): Promise<readonly ConnectedTool[]> =>
       deps.connections === undefined
         ? (servers?.known() ?? [])
         : (await deps.connections()).flatMap(({ name, tools }) =>
@@ -184,43 +180,15 @@ export const startAnomander = <M>(config: Config, deps: AnomanderDeps<M>): Anoma
     logger,
   });
 
-  // DK-11: a task with the servers the principal connected. The processor asks for calls and
-  // `connectionTasks` decides each one; a call that needs permission comes back with buttons.
-  const read =
-    deps.connections === undefined
-      ? readConnections(config.mcpConfigPath, logger, config.mcpSecrets)
-      : undefined;
-  // DK-24 AC2, AC3: a "Permitir siempre" holds only for its server as `mcp.json` has it now, so
-  // one of a server removed, renamed or changed is revoked at the start; a file that cannot be
-  // read changes none.
-  if (read !== undefined && !read.invalid) {
-    const revoked = revokeConnectionToolsNotIn(db, read.identities, now().toISOString());
-    if (revoked > 0) logger.info(`revoked ${revoked} connection grants of changed servers`);
-  }
-  const servers =
-    read === undefined
-      ? undefined
-      : createConnections({
-          config: read.config,
-          identities: read.identities,
-          logger,
-          oauth: oauthKeeperFrom(config.mcpOAuth, deps.printOAuth ?? printOAuthForShell(), logger),
-        });
-  const connectionTasks = createConnectionTasks({
-    complete: ai,
+  const { servers, connectionTasks } = setUpConnections({
+    config,
+    db,
+    deps,
+    ai,
     model,
-    connections: deps.connections ?? (async () => (await servers?.get()) ?? []),
-    problems:
-      deps.connectionProblems ??
-      (() => ({
-        invalid: read?.invalid ?? false,
-        unreachable: [...(read?.leftOut ?? []), ...(servers?.unreachable() ?? [])],
-      })),
-    logger,
-    // DK-14 AC2: which calls were sent or refused, never their arguments or results.
     decided: (call) => connectionSession.decided(call),
-    // DK-24: code checks the principal's grant, never the processor.
-    alwaysAllowed: (call) => connectionToolGranted(db, call),
+    now,
+    logger,
   });
 
   // What every front door calls (DK-4 AC1). R-28: `/start`, and the guide while a provider is
