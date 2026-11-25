@@ -9,6 +9,7 @@ import {
   type ChatExpensesRequest,
   type ChatHistoryRequest,
   type ChatMemory,
+  type ChatProbe,
   type ChatRequest,
   type ChatStoredMessage,
   type ComputerRequest,
@@ -18,6 +19,7 @@ import {
   LOCAL_CHANNEL_PROTOCOL,
   MAX_COMPUTER_STEPS,
   type PrincipalText,
+  type ProbeOutcome,
   type ReceiptHandler,
   type ScreenQuestion,
   strings,
@@ -113,6 +115,11 @@ export interface LocalChannelDeps {
   grants?: ConnectionGrants;
   logger: Logger;
   now?: () => Date;
+  /**
+   * DK-23 AC4: "Probar": one minimal call to the saved model, outside the chat's turn. It never
+   * throws; without it a probe answers `failed`.
+   */
+  probe?: () => Promise<ProbeOutcome>;
 }
 
 export interface LocalChannelAddress {
@@ -199,6 +206,8 @@ const requestSchema = z.discriminatedUnion('type', [
   // DK-24 AC3
   z.strictObject({ type: z.literal('connection_grants'), id }),
   z.strictObject({ type: z.literal('revoke_connection_grant'), id, grantId: z.int().positive() }),
+  // DK-23 AC4
+  z.strictObject({ type: z.literal('probe_model'), id }),
 ]);
 
 /** The request in a frame, or the `id` it carried when it is not one. */
@@ -239,6 +248,7 @@ export const startLocalChannel = (deps: LocalChannelDeps): LocalChannel => {
       throw new Error('no store to revoke a grant from');
     },
   };
+  const { probe = async (): Promise<ProbeOutcome> => 'failed' } = deps;
   const expected = digest(deps.token);
   // DK-3 AC2: exactly the protocol and then the token, compared in constant time.
   const authorized = (header: string | undefined): boolean => {
@@ -254,7 +264,7 @@ export const startLocalChannel = (deps: LocalChannelDeps): LocalChannel => {
   type Listing =
     | ChatHistoryRequest
     | ChatExpensesRequest
-    | { type: 'memories' | 'actions' | 'connection_grants' };
+    | { type: 'memories' | 'actions' | 'connection_grants' | 'probe_model' };
   /** DK-18: the list a `memories` or `actions` request asks for. Their words are never logged. */
   const listed = (request: ChatRequest & { type: 'memories' | 'actions' }): ChatEvent =>
     request.type === 'memories'
@@ -351,7 +361,7 @@ export const startLocalChannel = (deps: LocalChannelDeps): LocalChannel => {
     }
   };
 
-  const send = (socket: WebSocket, event: ChatEvent): Promise<void> =>
+  const send = (socket: WebSocket, event: ChatEvent | ChatProbe): Promise<void> =>
     new Promise((resolve, reject) => {
       socket.send(JSON.stringify(event), (error) => (error ? reject(error) : resolve()));
     });
@@ -363,7 +373,7 @@ export const startLocalChannel = (deps: LocalChannelDeps): LocalChannel => {
       await send(socket, { type: 'rejected', inReplyTo: request.rejected });
       return;
     }
-    let answered: DoorReply | ChatStoredMessage[] | ChatEvent | null;
+    let answered: DoorReply | ChatStoredMessage[] | ChatEvent | ChatProbe | null;
     try {
       // DK-16 S4: the latest messages, oldest first. Their words are never logged.
       // DK-17: the month's expenses, never logged either.
@@ -376,6 +386,8 @@ export const startLocalChannel = (deps: LocalChannelDeps): LocalChannel => {
               ? { type: 'expenses', inReplyTo: request.id, ...expenses.month(request.month) }
               : request.type === 'connection_grants'
                 ? { type: 'connection_grants', inReplyTo: request.id, grants: grants.list() }
+              : request.type === 'probe_model'
+                ? { type: 'probe', inReplyTo: request.id, outcome: await probe() }
                 : await answer(request);
     } catch (error) {
       logger.error(`The daemon failed to handle a ${request.type} from the local channel`, {

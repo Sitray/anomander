@@ -212,6 +212,15 @@ export interface ChatRevokeConnectionGrant {
   grantId: number;
 }
 
+/**
+ * DK-23 AC4: "Probar" in the setup screen: one minimal call to the saved model
+ * (`ANOMANDER_MODEL`), counted against the daily AI budget (R-12). Answered with a `ChatProbe`.
+ */
+export interface ChatProbeModel {
+  type: 'probe_model';
+  id: string;
+}
+
 export type ChatRequest =
   | ChatText
   | ChatReceipt
@@ -229,7 +238,8 @@ export type ChatRequest =
   | ChatUndoExpense
   | ChatCorrectExpense
   | ChatConnectionGrantsRequest
-  | ChatRevokeConnectionGrant;
+  | ChatRevokeConnectionGrant
+  | ChatProbeModel;
 
 /** DK-16: the most stored messages a `history` request returns. */
 export const HISTORY_LIMIT = 500;
@@ -395,6 +405,38 @@ export interface ChatConnectionGrants {
   type: 'connection_grants';
   inReplyTo: string;
   grants: ChatConnectionGrant[];
+}
+
+/**
+ * DK-23 AC4: how a probe of the model ended, never the provider's own words, which can quote the
+ * key: `ok`; `model_unset`, `vision_model_unset` (the model is saved, the one for photos is not) or
+ * `model_unknown` while the setup names no usable model;
+ * `not_connected` without a key or a login; `budget_exhausted` (R-12, no call made); and from the
+ * call itself `key_refused`, `model_unavailable`, `provider_limit`, `timed_out` or `failed`.
+ */
+export const PROBE_OUTCOMES = [
+  'ok',
+  'model_unset',
+  'vision_model_unset',
+  'model_unknown',
+  'not_connected',
+  'budget_exhausted',
+  'key_refused',
+  'model_unavailable',
+  'provider_limit',
+  'timed_out',
+  'failed',
+] as const;
+export type ProbeOutcome = (typeof PROBE_OUTCOMES)[number];
+
+/**
+ * DK-23 AC4: the answer to a `probe_model` request. The window asks it on a connection of its own,
+ * so it is not one of the chat's `ChatEvent`s.
+ */
+export interface ChatProbe {
+  type: 'probe';
+  inReplyTo: string;
+  outcome: ProbeOutcome;
 }
 
 export type ChatEvent =

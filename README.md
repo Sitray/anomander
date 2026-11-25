@@ -212,7 +212,7 @@ Steps:
    APPLE_SIGNING_IDENTITY="<identity name or hash>" pnpm --dir apps/desktop tauri build --debug
    ```
    The app is `apps/desktop/src-tauri/target/debug/bundle/macos/ANOMANDER.app`.
-4. **Set it up.** Open the app and fill in the setup screen: the models and a key, or connect a subscription from Suscripciones. Telegram is optional: add the bot token and your Telegram ID to talk to ANOMANDER there too, or leave both empty to use the app's chat alone. "Búsqueda web" comes checked: leave it so to let ANOMANDER search the internet (the note beside it says what leaves the Mac), or uncheck it and add it later from Conexiones.
+4. **Set it up.** Open the app and fill in the setup screen: choose the model's provider (a model is suggested for it) and paste its key, or connect a subscription from Suscripciones; "Probar" checks the saved model with one real call. Telegram is optional: add the bot token and your Telegram ID to talk to ANOMANDER there too, or leave both empty to use the app's chat alone. "Búsqueda web" comes checked: leave it so to let ANOMANDER search the internet (the note beside it says what leaves the Mac), or uncheck it and add it later from Conexiones.
 5. **Allow it.** In System Settings › Privacy & Security, turn ANOMANDER on under Screen Recording (for a look at the screen) and Accessibility (for tasks on the computer). Until then the app says how and does nothing.
 
 Good to know:
@@ -221,11 +221,12 @@ Good to know:
 | --- | --- |
 | You moved or deleted this checkout | Build again. The app runs the daemon from `packages/daemon/src/main.ts` of the checkout it was built in |
 | You want to work on the window | `pnpm --dir apps/desktop tauri dev`, or the window alone in a browser. See [`apps/desktop/README.md`](apps/desktop/README.md) |
+| You want the chat from any app | Cmd+Shift+Space opens it, and hides it again when it is in front (Ctrl+Shift+Space on Windows). Cmd+, opens the setup (Ctrl+, on Windows). If another app holds the hotkey, ANOMANDER works without it |
 | macOS asks for the keychain password once | Entries stored by an unsigned build ask once. [`apps/desktop/README.md`](apps/desktop/README.md#signing-the-build) says how to clear them |
 
 ## Run the app on Windows
 
-The same app, built from this repository on your Windows PC, with the chat, the setup, connections, subscription login and Telegram. A look at the screen and tasks on the computer are macOS-only for now: on Windows the app answers them with its macOS permission message. As on the Mac, stop a Docker install first (DK-2 AC2).
+The same app, built from this repository on your Windows PC, with the chat, the setup, connections, subscription login and Telegram. A look at the screen and tasks on the computer are macOS-only for now: on Windows the app says they are not on Windows yet, and its text speaks of the Credential Manager and "este equipo", never of macOS (DK-20). As on the Mac, stop a Docker install first (DK-2 AC2).
 
 You need:
 

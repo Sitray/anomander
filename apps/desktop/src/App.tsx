@@ -10,8 +10,10 @@ import { ExpensesScreen } from './expenses/ExpensesScreen.tsx';
 import { LedgerScreen } from './ledger/LedgerScreen.tsx';
 import { SubscriptionsScreen } from './login/SubscriptionsScreen.tsx';
 import { MemoryScreen } from './memory/MemoryScreen.tsx';
+import { probeModel } from './setup/probe.ts';
 import { isComplete, SetupScreen } from './setup/SetupScreen.tsx';
 import { shell as native, type SetupInput } from './shell.ts';
+import { useSetupShortcut } from './shortcuts.ts';
 import { ErrorBlock, StatusBar } from './status/StatusBar.tsx';
 import { useShell } from './status/use-shell.ts';
 import { strings } from './strings.ts';
@@ -49,6 +51,9 @@ export function App() {
     requestAnimationFrame(() => main.current?.querySelector('textarea')?.focus());
   }, []);
 
+  // DK-20: Cmd+, (Ctrl+, on Windows) as the status area's button.
+  useSetupShortcut(open === 'setup' || open === 'ledger' ? close : () => setOpen('setup'));
+
   const { saveSetup } = shell;
   const save = useCallback(
     async (input: SetupInput) => {
@@ -60,6 +65,10 @@ export function App() {
     },
     [saveSetup, close],
   );
+
+  // DK-23 AC4: "Probar" asks the daemon, so only while it runs.
+  const channel = snapshot?.channel ?? null;
+  const onProbe = channel === null ? undefined : () => probeModel(channel);
 
   const { connections, saveConnection } = shell;
   // DK-11 AC11: from the first setup and from the chat; a server already named so is kept.
@@ -156,6 +165,7 @@ export function App() {
                   onOpenLedger={() => setOpen('ledger')}
                   onOpenSubscriptions={() => setOpen('subscriptions')}
                   onAddWebSearch={onAddWebSearch}
+                  {...(onProbe === undefined ? {} : { onProbe })}
                 />
               </div>
             )}

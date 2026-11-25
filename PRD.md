@@ -450,7 +450,7 @@ The principal can connect ANOMANDER to a model through their subscription (ChatG
 When something the daemon needs from `.env` is missing, it says what instead of failing silently.
 - AC1: `/start` replies S-69 when setup is complete, or the guide otherwise. It is handled by code (R-17 AC8) and is never a recent turn.
 - AC2: Setup is incomplete when `ANOMANDER_MODEL` or `ANOMANDER_VISION_MODEL` is unset (S-71), names a model pi-ai does not know (S-72, once per variable), or a provider of those models has neither a login nor an API key (S-73, once per provider, named by its `/login` button label, or by its pi-ai provider ID when it has none).
-- AC3: The guide is S-70 followed by one line per gap, in the order of AC2. While setup is incomplete, the daemon sends it once when it starts and replies it to every text, receipt and button press except the routes of R-17 AC7. The same gaps are logged in English at start.
+- AC3: The guide is S-70 followed by one line per gap, in the order of AC2. While setup is incomplete, the daemon sends it once when it starts and replies it to every text, receipt and button press except the routes of R-17 AC7. The same gaps are logged in English at start. In the desktop app's chat the lines are S-171 to S-173, which name the app's window instead of `.env` and `/login` (desktop PRD DK-23 AC5).
 - AC4: The connection gaps are checked on every message, so a login (R-27) completes setup without a restart. The check runs before the message's turn and gives up after 5 seconds, counting setup as complete; a complete setup is not checked again for 30 seconds (T14). A model gap needs a change to `.env` and a restart; until then no processor call, store access or scheduled job runs.
 - AC5: The daemon needs at least one front door: Telegram (`TELEGRAM_BOT_TOKEN` with `ANOMANDER_PRINCIPAL_CHAT_ID`) or the desktop app's local channel (`ANOMANDER_LOCAL_TOKEN`, `docs/desktop-prd.md` DK-3). Without either, nobody can talk to it, so it exits and its log names both, with where to get the Telegram ones (@BotFather, @userinfobot). Half of Telegram, one variable without the other, is an error that names the missing one. Without Telegram nothing polls or is sent there, and what only Telegram serves (`/login`, `/logout`, `/mcp`, `/exportar`, messages sent unasked) is absent.
 
@@ -573,6 +573,9 @@ Amounts are formatted with `Intl.NumberFormat('es-ES', { style: 'currency', curr
 | S-102 | `Corregido: {total} ({categoria}).` (S-8 for an expense with no merchant, R-7 AC2) |
 | S-103 | `¿Qué gasto corrijo? Dímelo con su importe, por ejemplo: el de 23,40 €.` |
 | S-104 | `No encuentro un gasto reciente que corregir.` |
+| S-171 | `- Elegir el modelo: abre Configuración, en la barra de arriba.` (S-71 in the desktop app's chat, desktop PRD DK-23 AC5) |
+| S-172 | `- Un modelo que exista: {modelo} no lo encuentro. Elige otro en Configuración.` (S-72 in the app's chat, once per model) |
+| S-173 | `- Conectar tu cuenta de {proveedor}: pon su clave en Configuración o conéctala en Suscripciones.` (S-73 in the app's chat) |
 | S-180 | `Permitir siempre` (desktop PRD DK-24 AC1: a button under a call of a task with connections) |
 | S-181 | `Quiero usar «{herramienta}» de «{servidor}» con: {resumen}` followed, on the next line, by the exact JSON of the arguments (DK-24 AC4) |
 | S-182 | `Quiero usar «{herramienta}» de «{servidor}», sin datos.` followed by `{}`, for a call with no arguments (DK-24 AC4) |

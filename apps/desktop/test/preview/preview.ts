@@ -337,7 +337,8 @@ type Said = Exclude<
       | 'actions'
       | 'forget_action'
       | 'connection_grants'
-      | 'revoke_connection_grant';
+      | 'revoke_connection_grant'
+      | 'probe_model';
   }
 >;
 
@@ -630,6 +631,15 @@ class ScriptedSocket extends FakeWebSocket {
             : { type: 'done', inReplyTo: request.id },
         );
       }, 300);
+      return;
+    }
+    // DK-23 AC4: "Probar" in the setup, on its own connection.
+    if (request.type === 'probe_model') {
+      const outcome = params.get('probe') ?? 'ok';
+      setTimeout(
+        () => this.receiveRaw(JSON.stringify({ type: 'probe', inReplyTo: request.id, outcome })),
+        700,
+      );
       return;
     }
     if (request.type === 'history' || request.type === 'clear_history') {
