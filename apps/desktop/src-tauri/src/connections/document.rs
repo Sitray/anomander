@@ -239,4 +239,90 @@ mod tests {
         assert!(store.names().is_empty());
         Ok(())
     }
+
+    /// DK-11: the cases of `mcp.json` the daemon, the shell and the app's form all run, so the
+    /// three cannot drift apart.
+    fn conformance() -> Value {
+        serde_json::from_str(include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../../packages/protocol/fixtures/mcp-json-conformance.json"
+        )))
+        .unwrap_or_else(|e| panic!("mcp-json-conformance.json is not JSON: {e}"))
+    }
+
+    /// The texts of `value`, a list of them.
+    fn texts_of(value: &Value) -> Vec<&str> {
+        value
+            .as_array()
+            .unwrap_or_else(|| panic!("not a list: {value}"))
+            .iter()
+            .map(|item| {
+                item.as_str()
+                    .unwrap_or_else(|| panic!("not a text: {item}"))
+            })
+            .collect()
+    }
+
+    /// Whether the shell takes the case, unless the fixture records it disagreeing.
+    fn expected(cases: &Value, list: &str, case: &str, valid: bool) -> bool {
+        cases["expectedDifferences"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .find(|difference| {
+                difference["validator"] == "shell"
+                    && difference["list"] == list
+                    && difference["case"] == case
+            })
+            .map_or(valid, |difference| difference["valid"] == true)
+    }
+
+    /// Where the shell says `file` is wrong, or `None` when it reads it.
+    fn refused_at(file: &Value) -> Option<String> {
+        servers_of(file).err()
+    }
+
+    #[test]
+    fn the_shared_documents_are_read_or_refused_where_the_cases_say() {
+        let cases = conformance();
+        let documents = cases["documents"].as_array().cloned().unwrap_or_default();
+        assert!(!documents.is_empty());
+        for case in documents {
+            let name = case["name"].as_str().unwrap_or_default();
+            let valid = case["valid"] == true;
+            let at = refused_at(&case["document"]);
+            if expected(&cases, "documents", name, valid) {
+                assert_eq!(at, None, "{name}");
+            } else {
+                assert_eq!(at.as_deref(), case["at"].as_str(), "{name}");
+            }
+        }
+    }
+
+    #[test]
+    fn the_shared_server_names_and_addresses_are_taken_as_the_cases_say() {
+        let cases = conformance();
+        for (list, wrap) in [
+            (
+                "serverNames",
+                (|name: &str| json!({ "mcpServers": { name: { "command": "x" } } }))
+                    as fn(&str) -> Value,
+            ),
+            (
+                "urls",
+                |url: &str| json!({ "mcpServers": { "s": { "url": url } } }),
+            ),
+        ] {
+            for (kind, valid) in [("valid", true), ("invalid", false)] {
+                for case in texts_of(&cases[list][kind]) {
+                    let taken = refused_at(&wrap(case)).is_none();
+                    assert_eq!(
+                        taken,
+                        expected(&cases, list, case, valid),
+                        "{list}: {case:?}"
+                    );
+                }
+            }
+        }
+    }
 }
