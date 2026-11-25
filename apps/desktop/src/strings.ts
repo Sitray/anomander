@@ -293,6 +293,10 @@ const es = {
       'La búsqueda web sí se ha añadido y sigue activada; puedes quitarla en Conexiones.',
     /** DK-21: today's processor calls and the daily limit (R-12), as the daemon counts them. */
     aiUsage: (calls: number, limit: number) => `Hoy: ${calls} de ${limit} llamadas a la IA`,
+    /** DK-21: `ANOMANDER_DAILY_AI_CALL_LIMIT`, saved with the setup; empty keeps it. */
+    aiLimit: 'Límite diario de llamadas a la IA',
+    aiLimitHelp: 'De 1 a 10000. Déjalo vacío para no cambiarlo. Se aplica al reiniciar.',
+    aiLimitInvalid: 'Tiene que ser un número entero de 1 a 10000.',
   },
 
   /** DK-11: the servers of `mcp.json`. */
@@ -535,6 +539,8 @@ const es = {
     howCommands:
       'docker compose stop\ndocker compose cp daemon:/app/data/anomander.db ~/Downloads/anomander.db',
     path: 'Archivo de datos',
+    /** DK-21: the system's file dialog, for the data file. */
+    choose: 'Elegir archivo…',
     pathHelp: 'La ruta completa del archivo. Puedes pegarla.',
     pathMissing: 'Escribe la ruta del archivo.',
     pathNotFull: 'Escribe la ruta completa: empieza por / o por ~/.',
@@ -848,6 +854,9 @@ const en: Strings = {
     webSearch: 'Add web search: searches the internet without using the computer',
     webSearchKept: 'Web search was added and stays on; you can remove it in Connections.',
     aiUsage: (calls: number, limit: number) => `Today: ${calls} of ${limit} AI calls`,
+    aiLimit: 'Daily limit of AI calls',
+    aiLimitHelp: 'From 1 to 10000. Leave it empty to keep it. It applies on restart.',
+    aiLimitInvalid: 'It must be a whole number from 1 to 10000.',
   },
 
   connections: {
@@ -1067,6 +1076,7 @@ const en: Strings = {
     howCommands:
       'docker compose stop\ndocker compose cp daemon:/app/data/anomander.db ~/Downloads/anomander.db',
     path: 'Data file',
+    choose: 'Choose file…',
     pathHelp: 'The full path of the file. You can paste it.',
     pathMissing: 'Write the path of the file.',
     pathNotFull: 'Write the full path: it starts with / or ~/.',

@@ -22,6 +22,8 @@ serde_json = { version = "1", features = ["preserve_order"] }
 tauri-plugin-notification = "2"
 # "Copiar diagnóstico" in the menu bar menu: the report goes to the clipboard (Rust only).
 tauri-plugin-clipboard-manager = "=2.5.0"
+# DK-21: the system's file dialog, for the data file of the ledger import; open only.
+tauri-plugin-dialog = "=2.8.4"
 getrandom = "0.4"
 # T1b: the careful words compare as the daemon's do (NFKD, without marks). Both were already in
 # the build, through `url`.

@@ -187,7 +187,14 @@ export function App() {
             )}
             {open === 'ledger' && (
               <div className="view">
-                <LedgerScreen onImport={shell.importLedger} onClose={close} />
+                <LedgerScreen
+                  onImport={shell.importLedger}
+                  onClose={close}
+                  // DK-21: absent where the shell offers no dialog, as in tests.
+                  {...(native.pickLedgerFile === undefined
+                    ? {}
+                    : { onPick: native.pickLedgerFile })}
+                />
               </div>
             )}
             {open === 'expenses' && (

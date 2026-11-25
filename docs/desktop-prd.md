@@ -350,8 +350,8 @@ and keep its secrets in the operating system instead of a text file.
   - AC1: the principal brings the ledger out of the Docker volume themselves (`docker compose
     stop`, then `docker compose cp daemon:/app/data/anomander.db <path>`): the app cannot reach
     the volume. In the setup screen, "¿Vienes de una instalación con Docker? Trae tu ledger"
-    opens a screen where they type or paste its full path (or one from `~/`); there is no file
-    dialog. The link reads "¿Vienes de una instalación con Docker? Trae tus datos" since DK-21
+    opens a screen where they type or paste its full path (or one from `~/`), or choose the file
+    in the system's dialog (DK-21 AC6). The link reads "¿Vienes de una instalación con Docker? Trae tus datos" since DK-21
     AC4.
   - AC2: the import runs only into an app whose ledger holds no expense, and only a file that is
     an ANOMANDER ledger this build can migrate (every version in `schema_migrations` is known to
@@ -657,8 +657,11 @@ and keep its secrets in the operating system instead of a text file.
     `ANOMANDER_DAILY_AI_CALL_LIMIT`. The window asks for them on the local channel with
     `ai_usage` each time the setup opens; the daemon answers outside the chat's turn and counts
     no call for it. While no database is open (the setup guide, R-28) the answer is S-22 and the
-    line is not shown. Changing the limit from the window is not done yet: the setup is saved by
-    the shell (`settings.json`), which does not pass the limit to the daemon.
+    line is not shown. Under it, "Límite diario de llamadas a la IA" takes a whole number from 1
+    to 10000 (the window and the shell both refuse any other, and nothing is saved); empty keeps
+    the stored one. The shell keeps it in `settings.json` as `dailyAiCallLimit` and hands it to
+    the daemon as `ANOMANDER_DAILY_AI_CALL_LIMIT` at each start; unset, the daemon's default
+    (200). It applies on restart, which saving the setup does.
   - AC2: "Adjuntar fotos" offers only images (`image/*`, as R-20 reads them). A file that is not
     an image, dropped, pasted or picked, stays out of the draft, and the composer says "Solo puedo
     leer fotos e imágenes de tickets. Los PDF y otros archivos se quedan fuera."; the images
@@ -673,8 +676,10 @@ and keep its secrets in the operating system instead of a text file.
     The bar over the conversation has "Buscar en la conversación": it finds the words in the
     messages loaded in the window, ignoring case and accents, marks each match, says how many
     there are and brings the first into view.
-  - Not done: a file dialog for the import of a ledger (DK-12 AC1) would need the Tauri dialog
-    plugin, which the app does not have; the path is still typed or pasted.
+  - AC6: the import of a ledger (DK-12 AC1) has "Elegir archivo…": the system's file dialog
+    (`tauri-plugin-dialog`, pinned; the window may only open it, `dialog:allow-open`), showing
+    SQLite files (`.db`, `.sqlite`, `.sqlite3`), fills in the path chosen. Nothing chosen keeps
+    what was typed.
 
 ## 6. Decisions
 

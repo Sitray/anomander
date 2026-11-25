@@ -1,5 +1,5 @@
 // DK-12: the import of a ledger brought from a Docker install. Presentational: a path out, and
-// the shell's answer in. The path is typed or pasted: a file dialog would be a new plugin.
+// the shell's answer in. The path is typed, pasted, or chosen in the system's dialog (DK-21).
 import { type FormEvent, useEffect, useRef, useState } from 'react';
 import { Field } from '../setup/SetupScreen.tsx';
 import type { LedgerImport, LedgerOutcome } from '../shell.ts';
@@ -11,6 +11,8 @@ export interface LedgerScreenProps {
   /** Imports the ledger at the path; rejects with the shell's own message. */
   onImport: (path: string) => Promise<LedgerImport>;
   onClose: () => void;
+  /** DK-21: the system's file dialog; the path chosen, or `null` when none was. */
+  onPick?: () => Promise<string | null>;
 }
 
 const { ledger: text } = strings;
@@ -18,7 +20,7 @@ const { ledger: text } = strings;
 /** What the shell itself takes: a full path, or one from the home folder. */
 const isFullPath = (path: string): boolean => path.startsWith('/') || path.startsWith('~/');
 
-export function LedgerScreen({ onImport, onClose }: LedgerScreenProps) {
+export function LedgerScreen({ onImport, onClose, onPick }: LedgerScreenProps) {
   const [path, setPath] = useState('');
   const [error, setError] = useState<string | undefined>(undefined);
   const [importing, setImporting] = useState(false);
@@ -28,6 +30,18 @@ export function LedgerScreen({ onImport, onClose }: LedgerScreenProps) {
 
   // The screen replaces the chat: start reading it from its title.
   useEffect(() => heading.current?.focus(), []);
+
+  const pick = async () => {
+    try {
+      const picked = await onPick?.();
+      if (picked == null) return;
+      setPath(picked);
+      setError(undefined);
+    } catch (rejected) {
+      // The dialog did not open: the path can still be typed.
+      setError(messageOf(rejected));
+    }
+  };
 
   const submit = async (event: FormEvent) => {
     event.preventDefault();
@@ -87,6 +101,16 @@ export function LedgerScreen({ onImport, onClose }: LedgerScreenProps) {
               />
             )}
           </Field>
+          {onPick !== undefined && (
+            <button
+              type="button"
+              className="button"
+              disabled={importing}
+              onClick={() => void pick()}
+            >
+              {text.choose}
+            </button>
+          )}
         </div>
       </div>
 

@@ -4,6 +4,7 @@
 import type { ComputerAction } from '@anomander/protocol';
 import { invoke } from '@tauri-apps/api/core';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
+import { open as openDialog } from '@tauri-apps/plugin-dialog';
 
 /** DK-6 AC1: what the menu bar icon shows. `starting` is a daemon launched and not yet listening. */
 export type DaemonState = 'starting' | 'running' | 'stopped' | 'failing';
@@ -67,6 +68,8 @@ export interface SetupInput {
   visionModel: string;
   /** By provider variable, such as `OPENAI_API_KEY`: a string stores the key, `null` removes it. */
   providerKeys: Record<string, string | null>;
+  /** DK-21: `ANOMANDER_DAILY_AI_CALL_LIMIT`, from 1 to 10000; omitted keeps the stored one. */
+  dailyAiCallLimit?: number;
 }
 
 /** DK-11: a value of a server (a variable of its environment or a header): its name, never the value. */
@@ -177,6 +180,9 @@ export const STOP_TASK_EVENT = 'shell://stop-task';
 /** B48: the event the shell emits each time it shows the chat window, hidden until then. */
 export const CHAT_SHOWN_EVENT = 'shell://chat-shown';
 
+/** DK-21: what the import of a ledger reads: a SQLite file, as `anomander.db` is. */
+export const LEDGER_EXTENSIONS = ['db', 'sqlite', 'sqlite3'];
+
 export const shell = {
   snapshot: (): Promise<Snapshot> => invoke('get_snapshot'),
   /** Saves the setup and starts the daemon again with it. */
@@ -198,6 +204,18 @@ export const shell = {
    * started again after if it ran. Rejects, with the app's ledger as it was, when the import fails.
    */
   importLedger: (path: string): Promise<LedgerImport> => invoke('import_ledger', { path }),
+  /**
+   * DK-21: the system's dialog for the data file of a Docker install; the path chosen, or `null`
+   * when the principal chose none. Only SQLite files are offered: `anomander.db` is one.
+   */
+  pickLedgerFile: async (): Promise<string | null> => {
+    const picked = await openDialog({
+      multiple: false,
+      directory: false,
+      filters: [{ name: 'SQLite', extensions: LEDGER_EXTENSIONS }],
+    });
+    return typeof picked === 'string' ? picked : null;
+  },
   /**
    * DK-11: connects the HTTP server `name` with OAuth: the shell opens the browser and waits, up
    * to 5 minutes, for the principal to authorize the app. Then the daemon starts again with the

@@ -153,7 +153,9 @@ is framework-free, so it is tested against a fake `WebSocket` (`test/fake-web-so
   it says so. A task with connections asked in words is run by the daemon itself.
 - **The model** (`ANOMANDER_MODEL` of the setup) is named under the composer in small type, as
   the setup holds it; nothing is shown when none is set. Pressed, it opens the setup (DK-21 AC3),
-  which shows today's AI calls and the daily limit, asked with `ai_usage` (`use-ai-usage.ts`).
+  which shows today's AI calls and the daily limit, asked with `ai_usage` (`use-ai-usage.ts`),
+  and takes a new limit (1 to 10000), saved as `dailyAiCallLimit` in `settings.json` and handed
+  to the daemon as `ANOMANDER_DAILY_AI_CALL_LIMIT` at its next start.
 - **The screen** (DK-9) is captured when the daemon routes the principal's words to a look, with
   the window hidden for that moment. The capture is shown in the conversation and sent at once
   as a `screen` request with the principal's words. The shell keeps its file only while reading
@@ -351,11 +353,11 @@ is framework-free, so it is tested against a fake `WebSocket` (`test/fake-web-so
   daemon logs references, reasons and amounts, never what the principal wrote (§16); an error
   from a provider or a connected server is logged as it came.
 - **A ledger from Docker** (DK-12) is imported from the setup screen's link: the principal
-  pastes the full path of a file they copied out of the volume. The shell runs
+  pastes the full path of a file they copied out of the volume, or chooses it with "Elegir
+  archivo…" (DK-21: `tauri-plugin-dialog`, only `dialog:allow-open`, SQLite files shown). The shell runs
   `packages/daemon/scripts/import-ledger.ts` with the daemon stopped (`Supervisor::while_stopped`:
   no start runs meanwhile) and shows the one word it printed. Only an empty ledger is replaced,
-  and it is moved aside, never deleted; the source is only read. There is no file dialog: it
-  would be a new plugin and capability.
+  and it is moved aside, never deleted; the source is only read.
 
 ## Design
 
