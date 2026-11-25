@@ -1,15 +1,29 @@
 import { todayIn } from '@anomander/core';
-import type { CategoryMode, ChatExpense, ChatExpenses, ExpenseMode } from '@anomander/protocol';
+import {
+  type CategoryMode,
+  type ChatExpense,
+  type ChatExpenses,
+  type ExpenseMode,
+  getCurrency,
+  type Money,
+  sumByCurrency,
+} from '@anomander/protocol';
 import type Database from 'better-sqlite3';
-import { readGastos, readLineas, readPendientes } from './queries.ts';
+import { readGastos, readLineas } from './queries.ts';
 
 // DK-17 (docs/desktop-prd.md): the expenses of one month for the window's "Gastos" screen,
 // through the same queries as the read API (RA-2 AC6). The views give one mode per expense; how
-// its category was chosen is read beside them, from `expenses.category_basis`, since this is the
-// daemon's own window and not an outside reader (read access §4).
+// its category was chosen and its currency (DK-25) are read beside them, from `expenses`, since
+// this is the daemon's own window and not an outside reader (read access §4).
 
 /** What the local channel answers to an `expenses` request, without the request's id. */
 export type ExpensesMonth = Omit<ChatExpenses, 'type' | 'inReplyTo'>;
+
+/** Sums per currency (DK-25); nothing is zero in the principal's currency. */
+const perCurrency = (amounts: readonly Money[]): Money[] => {
+  const sums = sumByCurrency(amounts);
+  return sums.length === 0 ? [{ cents: 0, currency: getCurrency() }] : sums;
+};
 
 /** `YYYY-MM`: a month of the calendar. */
 export const isMonth = (value: string): boolean => /^\d{4}-(0[1-9]|1[0-2])$/.test(value);
@@ -35,14 +49,17 @@ export const readExpensesMonth = (
   for (const line of readLineas(db, range)) {
     lines.set(line.gasto_id, (lines.get(line.gasto_id) ?? 0) + 1);
   }
-  const bases = new Map(
+  const beside = new Map(
     db
-      .prepare<[string, string], { id: number; category_basis: CategoryMode | null }>(
-        `SELECT id, category_basis FROM expenses
+      .prepare<
+        [string, string],
+        { id: number; category_basis: CategoryMode | null; currency: string }
+      >(
+        `SELECT id, category_basis, currency FROM expenses
          WHERE status = 'current' AND occurred_on BETWEEN ? AND ?`,
       )
       .all(range.desde, range.hasta)
-      .map((row) => [row.id, row.category_basis]),
+      .map((row) => [row.id, row]),
   );
   const expenses = readGastos(db, range).map(
     (gasto): ChatExpense => ({
@@ -51,19 +68,33 @@ export const readExpensesMonth = (
       merchant: gasto.comercio,
       category: gasto.categoria,
       totalCents: gasto.total_cents,
+      // Every expense the view lists is current, so it is in `beside`; the fallback is for the type.
+      currency: beside.get(gasto.id)?.currency ?? getCurrency(),
       // The view's CHECK on `expenses.mode` allows only these.
       mode: gasto.modo as ExpenseMode,
       // A basis left from a category since removed says nothing about this row.
-      categoryMode: gasto.categoria === null ? null : (bases.get(gasto.id) ?? null),
+      categoryMode:
+        gasto.categoria === null ? null : (beside.get(gasto.id)?.category_basis ?? null),
       origin: gasto.origen === 'ticket' ? 'receipt' : 'text',
       lines: lines.get(gasto.id) ?? 0,
     }),
   );
-  const pending = readPendientes(db);
+  // DK-25: `pendientes_de_confirmar` adds every currency, so the pending ones are summed here.
+  const pending = db
+    .prepare<[], Money & { count: number }>(
+      `SELECT currency, SUM(total_cents) AS cents, COUNT(*) AS count FROM expenses
+       WHERE status = 'pending' GROUP BY currency`,
+    )
+    .all();
   return {
     month: asked,
     expenses,
-    totalCents: expenses.reduce((sum, expense) => sum + expense.totalCents, 0),
-    pending: { count: pending.cantidad, totalCents: pending.total_cents },
+    totals: perCurrency(
+      expenses.map(({ totalCents, currency }) => ({ cents: totalCents, currency })),
+    ),
+    pending: {
+      count: pending.reduce((sum, { count }) => sum + count, 0),
+      totals: perCurrency(pending),
+    },
   };
 };

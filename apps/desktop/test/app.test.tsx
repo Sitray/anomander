@@ -627,14 +627,15 @@ describe('the expenses (DK-17)', () => {
             merchant: null,
             category: null,
             totalCents: 2300,
+            currency: 'EUR',
             mode: 'declared',
             categoryMode: null,
             origin: 'text',
             lines: 0,
           },
         ],
-        totalCents: 2300,
-        pending: { count: 0, totalCents: 0 },
+        totals: [{ cents: 2300, currency: 'EUR' }],
+        pending: { count: 0, totals: [] },
       }),
     );
 

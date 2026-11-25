@@ -446,6 +446,7 @@ const expensesOf = (month: string): Omit<ChatExpenses, 'inReplyTo'> => {
           merchant: row.merchant,
           category: row.category,
           totalCents: row.cents,
+          currency: 'EUR',
           mode: row.mode as ChatExpenses['expenses'][number]['mode'],
           categoryMode: row.basis as ChatExpenses['expenses'][number]['categoryMode'],
           origin: row.lines === undefined ? ('text' as const) : ('receipt' as const),
@@ -455,8 +456,8 @@ const expensesOf = (month: string): Omit<ChatExpenses, 'inReplyTo'> => {
     type: 'expenses',
     month,
     expenses: shown,
-    totalCents: shown.reduce((sum, row) => sum + row.totalCents, 0),
-    pending: { count: 2, totalCents: 1500 },
+    totals: [{ cents: shown.reduce((sum, row) => sum + row.totalCents, 0), currency: 'EUR' }],
+    pending: { count: 2, totals: [{ cents: 1500, currency: 'EUR' }] },
   };
 };
 
