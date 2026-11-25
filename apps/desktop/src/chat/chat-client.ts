@@ -89,13 +89,13 @@ export interface ChatClient {
   requestExpenses(month?: string): Promise<ChatExpenses | 'failed' | 'lost'>;
   /**
    * DK-17 AC6: "Deshacer" or "Corregir" on a row of "Gastos"; the daemon's reply, as the expense's
-   * button in the chat gets it. `not_sent`: no open connection, or the daemon rejected it;
-   * `unknown`: the connection was lost first, so it may have been done.
+   * button in the chat gets it. `not_sent`: no open connection; `rejected`: the daemon did not
+   * take it, so nothing was done; `unknown`: the connection was lost first, so it may have been.
    */
   amendExpense(
     action: 'undo' | 'correct',
     expenseId: number,
-  ): Promise<ChatReply | 'not_sent' | 'unknown'>;
+  ): Promise<ChatReply | 'not_sent' | 'rejected' | 'unknown'>;
   dispose(): void;
 }
 
@@ -403,7 +403,8 @@ export const createChatClient = (options: ChatClientOptions): ChatClient => {
         expenseId,
       });
       if (event === null) return 'unknown';
-      return event?.type === 'reply' ? event : 'not_sent';
+      if (event === undefined) return 'not_sent';
+      return event.type === 'reply' ? event : 'rejected';
     },
     dispose() {
       release();

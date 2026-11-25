@@ -118,9 +118,10 @@ is framework-free, so it is tested against a fake `WebSocket` (`test/fake-web-so
   the chat shows messages adds nothing. "Borrar conversación" asks first, sends `clear_history`
   and empties the chat on `done`; otherwise the messages stay and the chat says why. Opening the
   setup hides the chat without unmounting it.
-- **The expenses** are read by the window, never written by it (DK-17): the Gastos screen opens
-  its own connection to the local channel, asks for a month (`expenses`) and shows what the daemon
-  read from its views, with each expense's mode. It keeps nothing once closed. A row's "Corregir"
+- **The expenses** are read by the window and changed only by the daemon (DK-17): the Gastos
+  screen opens its own connection to the local channel, asks for a month (`expenses`) and shows
+  what the daemon read from its views, with each expense's mode. It keeps nothing once closed. A
+  row's "Corregir"
   and "Deshacer" (AC6) send `correct_expense` or `undo_expense`, "Deshacer" only after a question
   in the window; the daemon presses the expense's own button of the chat and stores the press and
   its reply, so the chat asks for the stored conversation again and the month is read again. A

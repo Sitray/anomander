@@ -26,7 +26,7 @@ export interface Expenses {
 }
 
 /** What became of a row's press: the daemon's reply, or why there is none (`ChatClient`). */
-export type Amended = ChatReply | 'not_sent' | 'unknown';
+export type Amended = ChatReply | 'not_sent' | 'rejected' | 'unknown';
 
 /** `2026-01` and `-1` → `2025-12`. */
 export const shiftMonth = (month: string, by: number): string => {

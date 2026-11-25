@@ -45,8 +45,16 @@ export function ExpensesScreen({ channel, onClose, onAmended, onCorrecting }: Ex
     const outcome = await amend(action, expenseId);
     setAmending(false);
     setAsking(null);
-    if (outcome === 'not_sent' || outcome === 'unknown') {
-      setNote(outcome === 'unknown' ? text.amendUnknown : text.amendNotSent);
+    // The row may be gone, and its buttons with it: reading goes on from the screen's title.
+    if (action === 'undo') heading.current?.focus();
+    if (typeof outcome === 'string') {
+      setNote(
+        outcome === 'unknown'
+          ? text.amendUnknown
+          : outcome === 'rejected'
+            ? text.amendFailed
+            : text.amendNotSent,
+      );
       if (outcome === 'unknown') onAmended?.();
       return;
     }

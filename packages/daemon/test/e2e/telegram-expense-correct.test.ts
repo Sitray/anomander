@@ -585,6 +585,40 @@ describe('"Corregir" and "Deshacer" from the window\'s "Gastos" (DK-17 AC6)', ()
     ).toEqual([{ mode: 'declared', status: 'current' }]);
   });
 
+  it('a registered receipt corrected from a row keeps one current value per predicate', async () => {
+    const expenseId = await receiptRegistered();
+    const chat = await appChat();
+    await chat.ask({ type: 'correct_expense', expenseId });
+    await chat.ask({ type: 'text', text: 'total 28,40' });
+    expect(
+      query(`SELECT predicate, count(*) n FROM assertions WHERE subject_type = 'expense'
+             AND subject_id = ${expenseId} AND status = 'current' GROUP BY predicate HAVING n > 1`),
+    ).toEqual([]);
+    chat.close();
+  });
+
+  it('Corregir from a row, then plain text in Telegram, is the correction (R-17 AC3)', async () => {
+    await registered();
+    const chat = await appChat();
+    expect((await chat.ask({ type: 'correct_expense', expenseId: 1 })).text).toBe(S7);
+    expect((await say('total 28,40')).text).toBe(S102(2840));
+    chat.close();
+  });
+
+  it('a pending receipt from a row gets S-19 and its question stays open', async () => {
+    api.putFile('receipt', pngBytes(1));
+    api.push(updates.photo({ chatId: PRINCIPAL }, { fileId: 'receipt' }));
+    await api.waitForSent(1);
+    const [pending] = query<{ id: number }>('SELECT id FROM expenses');
+    const chat = await appChat();
+
+    expect((await chat.ask({ type: 'undo_expense', expenseId: pending?.id })).text).toBe(S19);
+    expect((await chat.ask({ type: 'correct_expense', expenseId: pending?.id })).text).toBe(S19);
+    expect(query('SELECT status FROM expenses')).toEqual([{ status: 'pending' }]);
+    expect(query('SELECT status FROM pending_decisions')).toEqual([{ status: 'open' }]);
+    chat.close();
+  });
+
   it('undo_expense on a registered receipt replies S-100', async () => {
     const expenseId = await receiptRegistered();
     const chat = await appChat();

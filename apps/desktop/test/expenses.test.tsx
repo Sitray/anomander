@@ -236,6 +236,8 @@ describe('"Corregir" and "Deshacer" on a row (DK-17 AC6)', () => {
     await act(async () => socket.receive(replyTo(request.id, { text: S100 })));
 
     expect(notes()).toContain(S100);
+    // The row and its buttons are gone: reading goes on from the screen's title.
+    expect(document.activeElement).toBe(screen.getByRole('heading', { name: text.title }));
     expect(socket.lastRequest).toEqual({ type: 'expenses', id: expect.any(String) });
     expect(onAmended).toHaveBeenCalledOnce();
     expect(onCorrecting).not.toHaveBeenCalled();
@@ -275,6 +277,17 @@ describe('"Corregir" and "Deshacer" on a row (DK-17 AC6)', () => {
     expect(notes()).toContain(failed);
     await answer(socket, NOVEMBER);
     expect(rows()).toHaveLength(4);
+  });
+
+  it('a request the daemon rejected says it could not be done, never that it is not connected', async () => {
+    const socket = await shown();
+
+    fireEvent.click(screen.getByRole('button', { name: correctOf('2026-11-02') }));
+    await act(async () => socket.receive({ type: 'rejected', inReplyTo: socket.lastRequest.id }));
+
+    expect(notes()).toContain(text.amendFailed);
+    expect(notes()).not.toContain(text.amendNotSent);
+    expect(onCorrecting).not.toHaveBeenCalled();
   });
 
   it('while it waits for the daemon the buttons do nothing, and a lost connection says it cannot know', async () => {

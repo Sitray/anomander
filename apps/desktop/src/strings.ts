@@ -559,6 +559,8 @@ const es = {
     amendUnknown: 'Se perdió la conexión antes de la respuesta: no sé si se ha hecho.',
     /** Nothing was sent: the connection is not open. */
     amendNotSent: 'No se ha podido enviar: ANOMANDER no está conectado.',
+    /** The daemon did not take the request: nothing was done. */
+    amendFailed: 'No se ha podido hacer; el gasto sigue como estaba. Vuelve a intentarlo.',
     noMerchant: 'Sin comercio',
     noCategory: 'Sin categoría',
     lines: (count: number) => (count === 1 ? '1 línea' : `${count} líneas`),
@@ -1070,6 +1072,7 @@ const en: Strings = {
     keep: 'Do not undo',
     amendUnknown: 'The connection was lost before the answer: I cannot know whether it was done.',
     amendNotSent: 'It could not be sent: ANOMANDER is not connected.',
+    amendFailed: 'It could not be done; the expense is as it was. Try again.',
     noMerchant: 'No merchant',
     noCategory: 'No category',
     lines: (count: number) => (count === 1 ? '1 line' : `${count} lines`),
