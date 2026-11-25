@@ -96,6 +96,11 @@ export interface ChatClient {
     action: 'undo' | 'correct',
     expenseId: number,
   ): Promise<ChatReply | 'not_sent' | 'rejected' | 'unknown'>;
+  /**
+   * DK-21: today's AI calls and the daily limit, or `null` when they did not come, as
+   * `requestHistory`. It only reads, so asking again is always safe.
+   */
+  requestAiUsage(): Promise<{ calls: number; limit: number } | null>;
   dispose(): void;
 }
 
@@ -249,6 +254,10 @@ const parseEvent = (data: unknown): ChatEvent | undefined => {
         : undefined;
     }
     if (event?.type === 'expenses') return parseExpenses(event as Record<string, unknown>);
+    if (event?.type === 'ai_usage') {
+      const { calls, limit } = event as Record<string, unknown>;
+      return isCount(calls) && isCount(limit) ? (event as ChatEvent) : undefined;
+    }
     return event?.type === 'done' || event?.type === 'rejected' ? (event as ChatEvent) : undefined;
   } catch {
     return undefined;
@@ -293,7 +302,7 @@ export const createChatClient = (options: ChatClientOptions): ChatClient => {
   /** Sends `request` and waits for its answer: `undefined` when nothing was sent. */
   const ask = (
     request:
-      | { type: 'history' | 'clear_history' | 'memories' | 'actions' }
+      | { type: 'history' | 'clear_history' | 'memories' | 'actions' | 'ai_usage' }
       | { type: 'expenses'; month?: string }
       | { type: 'forget_memory'; memoryId: number }
       | { type: 'forget_action'; actionId: number }
@@ -341,7 +350,8 @@ export const createChatClient = (options: ChatClientOptions): ChatClient => {
         event.type === 'history' ||
         event.type === 'expenses' ||
         event.type === 'memories' ||
-        event.type === 'actions'
+        event.type === 'actions' ||
+        event.type === 'ai_usage'
       ) {
         return;
       }
@@ -405,6 +415,10 @@ export const createChatClient = (options: ChatClientOptions): ChatClient => {
       if (event === null) return 'unknown';
       if (event === undefined) return 'not_sent';
       return event.type === 'reply' ? event : 'rejected';
+    },
+    async requestAiUsage() {
+      const event = await ask({ type: 'ai_usage' });
+      return event?.type === 'ai_usage' ? { calls: event.calls, limit: event.limit } : null;
     },
     dispose() {
       release();

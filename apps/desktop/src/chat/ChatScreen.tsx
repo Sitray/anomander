@@ -9,6 +9,7 @@ import './chat.css';
 import { Composer } from './Composer.tsx';
 import { type Conversation, isWaiting } from './conversation.ts';
 import { emptyStateFor, MessageList } from './MessageList.tsx';
+import { matchesIn } from './search.ts';
 import { useChat } from './use-chat.ts';
 import { useDraft } from './use-draft.ts';
 
@@ -51,6 +52,8 @@ export interface ChatScreenProps {
    * there. Absent where the window cannot add one: the chat then only says it is missing.
    */
   onAddWebSearch?: () => Promise<boolean>;
+  /** DK-21: opens the setup from the model's name under the composer. */
+  onOpenSetup?: () => void;
 }
 
 /** Why there is no channel, in the principal's words. */
@@ -100,6 +103,15 @@ export function ChatScreen(props: ChatScreenProps) {
   const [dropping, setDropping] = useState(false);
   const [erase, setErase] = useState<Erase>('idle');
   const eraseQuestion = useId();
+  /** DK-21: what the principal searches for in the loaded conversation. */
+  const [search, setSearch] = useState('');
+  const found =
+    search.trim() === ''
+      ? null
+      : chat.conversation.messages.reduce(
+          (count, message) => count + matchesIn(message.text, search).length,
+          0,
+        );
   /** `dragenter` minus `dragleave`: both also fire for every child the pointer crosses. */
   const dragDepth = useRef(0);
 
@@ -178,6 +190,18 @@ export function ChatScreen(props: ChatScreenProps) {
     >
       {chat.conversation.messages.length > 0 && (
         <div className="chat-bar">
+          <span className="chat-search">
+            <input
+              type="search"
+              aria-label={strings.chat.search}
+              placeholder={strings.chat.search}
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+            />
+            <span className="chat-search-count" aria-live="polite">
+              {found === null ? '' : strings.chat.searchCount(found)}
+            </span>
+          </span>
           {erase === 'not_done' || erase === 'unknown' ? (
             <p className="message-problem" role="alert">
               <AlertIcon />
@@ -232,6 +256,7 @@ export function ChatScreen(props: ChatScreenProps) {
         onAllow={chat.allow}
         onRefuse={chat.refuse}
         onAddWebSearch={onAddWebSearch === undefined ? undefined : chat.addWebSearch}
+        search={search}
       />
       {chat.running && (
         <div className="task-bar">
@@ -250,6 +275,7 @@ export function ChatScreen(props: ChatScreenProps) {
         onText={draft.setText}
         onFiles={draft.addFiles}
         model={model}
+        onOpenSetup={props.onOpenSetup}
         onRemove={draft.remove}
         onSubmit={submit}
       />

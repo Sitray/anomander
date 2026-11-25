@@ -109,3 +109,14 @@ describe('the ledger import', () => {
     expect(onClose).toHaveBeenCalledOnce();
   });
 });
+
+describe('its words (DK-21)', () => {
+  it('speaks of the principal\'s data, never of a "ledger"', () => {
+    renderScreen(async () => ({ outcome: 'imported' }));
+
+    expect(document.body.textContent).not.toMatch(/ledger/i);
+    const words = (value: unknown): string[] =>
+      typeof value === 'string' ? [value] : Object.values(value as object).flatMap(words);
+    expect(words(text).filter((line) => /ledger/i.test(line))).toEqual([]);
+  });
+});

@@ -24,6 +24,8 @@ export interface SetupScreenProps {
    * setup only.
    */
   onAddWebSearch?: () => Promise<boolean>;
+  /** DK-21: today's AI calls and the daily limit (R-12); absent or `null` until the daemon said. */
+  aiUsage?: { calls: number; limit: number } | null;
 }
 
 const { setup: text } = strings;
@@ -312,6 +314,11 @@ function SetupForm(props: FormProps) {
               </button>
             </p>
           )}
+          {props.aiUsage != null && (
+            <p className="fieldset-note">
+              {text.aiUsage(props.aiUsage.calls, props.aiUsage.limit)}
+            </p>
+          )}
         </fieldset>
 
         {offersWebSearch && (
@@ -470,6 +477,7 @@ function SetupForm(props: FormProps) {
 
 export function SetupScreen(props: SetupScreenProps) {
   const { setup, onSave, onClose, onOpenLedger, onOpenSubscriptions, onAddWebSearch } = props;
+  const { aiUsage } = props;
   // After a save the form starts over from what was stored, with every secret field empty.
   const [stored, setStored] = useState({ setup, saves: 0 });
   return (
@@ -482,6 +490,7 @@ export function SetupScreen(props: SetupScreenProps) {
       {...(onOpenLedger === undefined ? {} : { onOpenLedger })}
       {...(onOpenSubscriptions === undefined ? {} : { onOpenSubscriptions })}
       {...(onAddWebSearch === undefined ? {} : { onAddWebSearch })}
+      {...(aiUsage === undefined ? {} : { aiUsage })}
       onSaved={(saved) => setStored({ setup: saved, saves: stored.saves + 1 })}
     />
   );

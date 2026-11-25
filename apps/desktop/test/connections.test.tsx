@@ -461,3 +461,15 @@ describe('removing a server', () => {
     expect(servers().textContent).toContain('remote');
   });
 });
+
+describe('its words (DK-21)', () => {
+  it('says what connections are without MCP, mcp.json, proxy or package names', async () => {
+    await renderScreen();
+    click(text.advanced);
+
+    expect(document.body.textContent).not.toMatch(/\bMCP\b|mcp\.json|proxy|pi-web-access|npm/i);
+    for (const line of [text.intro, text.advancedNote, text.webSearchNote]) {
+      expect(line).not.toMatch(/\bMCP\b|mcp\.json|proxy|pi-web-access|npm/i);
+    }
+  });
+});
