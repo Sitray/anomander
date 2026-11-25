@@ -234,6 +234,8 @@ const startChannel = (
   grants?: ConnectionGrants,
   /** DK-23 AC4: "Probar". */
   probe?: () => Promise<ProbeOutcome>,
+  /** DK-21: absent while no database is open. */
+  aiUsage?: () => { calls: number; limit: number },
 ): LocalChannel | undefined =>
   config.localToken === undefined
     ? undefined
@@ -248,6 +250,7 @@ const startChannel = (
         ...(now === undefined ? {} : { now }),
         ...(grants === undefined ? {} : { grants }),
         ...(probe === undefined ? {} : { probe }),
+        ...(aiUsage === undefined ? {} : { aiUsage }),
       });
 
 /** `/start`, `/start@bot` or `/start anything`, as Telegram sends a command. */
@@ -982,6 +985,8 @@ export const startAnomander = <M>(config: Config, deps: AnomanderDeps<M>): Anoma
       revoke: (id) => revokeConnectionTool(db, id, now().toISOString()),
     },
     probe,
+    // DK-21: today's AI calls, for the setup screen.
+    budget.usage,
   );
 
   telegram.started.then(

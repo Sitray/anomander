@@ -12,6 +12,7 @@ import { SubscriptionsScreen } from './login/SubscriptionsScreen.tsx';
 import { MemoryScreen } from './memory/MemoryScreen.tsx';
 import { probeModel } from './setup/probe.ts';
 import { isComplete, SetupScreen } from './setup/SetupScreen.tsx';
+import { useAiUsage } from './setup/use-ai-usage.ts';
 import { shell as native, type SetupInput } from './shell.ts';
 import { useSetupShortcut } from './shortcuts.ts';
 import { ErrorBlock, StatusBar } from './status/StatusBar.tsx';
@@ -26,6 +27,8 @@ export function App() {
     'setup' | 'connections' | 'subscriptions' | 'ledger' | 'expenses' | 'memory' | null
   >(null);
   const main = useRef<HTMLElement>(null);
+  // DK-21: today's AI calls, read while the setup is open.
+  const aiUsage = useAiUsage(open === 'setup' ? (snapshot?.channel ?? null) : null);
 
   // DK-5 AC1: nothing works until the setup is complete, so it opens by itself, once each time
   // the daemon turns out not to be configured. Closing it is the principal's choice.
@@ -152,6 +155,7 @@ export function App() {
                 subscribeStop={shell.onStopTask}
                 subscribeShown={subscribeShown}
                 model={snapshot.setup.model}
+                onOpenSetup={() => setOpen('setup')}
                 onStart={shell.start}
                 onAddWebSearch={onAddWebSearch}
               />
@@ -165,6 +169,7 @@ export function App() {
                   onOpenLedger={() => setOpen('ledger')}
                   onOpenSubscriptions={() => setOpen('subscriptions')}
                   onAddWebSearch={onAddWebSearch}
+                  aiUsage={aiUsage}
                   {...(onProbe === undefined ? {} : { onProbe })}
                 />
               </div>
@@ -192,7 +197,14 @@ export function App() {
             )}
             {open === 'ledger' && (
               <div className="view">
-                <LedgerScreen onImport={shell.importLedger} onClose={close} />
+                <LedgerScreen
+                  onImport={shell.importLedger}
+                  onClose={close}
+                  // DK-21: absent where the shell offers no dialog, as in tests.
+                  {...(native.pickLedgerFile === undefined
+                    ? {}
+                    : { onPick: native.pickLedgerFile })}
+                />
               </div>
             )}
             {open === 'expenses' && (

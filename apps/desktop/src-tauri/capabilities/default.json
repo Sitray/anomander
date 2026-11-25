@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "The chat window: core defaults, listening to the shell's events, and the app's commands its script calls (`src/shell.ts`).",
+  "description": "The chat window: core defaults, listening to the shell's events, the app's commands its script calls (`src/shell.ts`), and the file dialog's open for the ledger import (DK-21).",
   "windows": ["main"],
   "permissions": [
     "core:default",
@@ -26,6 +26,7 @@
     "allow-capture-screen",
     "allow-perform-action",
     "allow-reveal",
-    "allow-set-task-running"
+    "allow-set-task-running",
+    "dialog:allow-open"
   ]
 }

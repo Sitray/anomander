@@ -88,7 +88,8 @@ and keep its secrets in the operating system instead of a text file.
     sent. What goes out is kept in the stored conversation (DK-16), so the app's chat shows it
     the next time it loads the conversation.
   - AC6: an input R-20 does not support gets the same reply as in Telegram: S-18 for a PDF,
-    S-20 for an image over 20 MB.
+    S-20 for an image over 20 MB. The composer itself takes only images (DK-21 AC2), so a PDF
+    reaches the daemon only from another client of the local channel.
   - AC7: `/login` and `/logout` stay in Telegram (R-27): their messages go out through the bot.
     The app has its own place for the same logins, the Suscripciones screen (DK-15); the chat
     does not offer them. While a login started in Telegram waits for a pasted code or address,
@@ -350,8 +351,9 @@ and keep its secrets in the operating system instead of a text file.
   - AC1: the principal brings the ledger out of the Docker volume themselves (`docker compose
     stop`, then `docker compose cp daemon:/app/data/anomander.db <path>`): the app cannot reach
     the volume. In the setup screen, "¿Vienes de una instalación con Docker? Trae tu ledger"
-    opens a screen where they type or paste its full path (or one from `~/`); there is no file
-    dialog.
+    opens a screen where they type or paste its full path (or one from `~/`), or choose the file
+    in the system's dialog (DK-21 AC6). The link reads "¿Vienes de una instalación con Docker? Trae tus datos" since DK-21
+    AC4.
   - AC2: the import runs only into an app whose ledger holds no expense, and only a file that is
     an ANOMANDER ledger this build can migrate (every version in `schema_migrations` is known to
     it) and whose integrity check passes. Each refusal is said in its own sentence, and nothing
@@ -754,6 +756,41 @@ and keep its secrets in the operating system instead of a text file.
   - Assumption: the readable line keeps ANOMANDER's first person ("Quiero usar…"), as every other
     question of the daemon does.
 
+- DK-21 Usage frictions (backlog B30 and B31, 2026-11-25: "The daily AI limit (200 by default,
+  `daemon/src/config.ts:121-125`) is invisible until it is hit. Show today's use and let it be
+  changed."; "Small frictions: "Adjuntar fotos" accepts any file (PDF sent whole, then refused);
+  ledger import path typed by hand though drop works; jargon in Spanish ("ledger", "servidores
+  MCP… mcp.json", "npm… proxy"); model under the composer not clickable; messages without time,
+  copy button or search.").
+  - AC1: the setup screen says, under the models, "Hoy: 12 de 200 llamadas a la IA": the
+    processor calls the daemon counted today in `TZ` (R-12, `ai_usage`) and
+    `ANOMANDER_DAILY_AI_CALL_LIMIT`. The window asks for them on the local channel with
+    `ai_usage` each time the setup opens; the daemon answers outside the chat's turn and counts
+    no call for it. While no database is open (the setup guide, R-28) the answer is S-22 and the
+    line is not shown. Under it, "Límite diario de llamadas a la IA" takes a whole number from 1
+    to 10000 (the window and the shell both refuse any other, and nothing is saved); empty keeps
+    the stored one. The shell keeps it in `settings.json` as `dailyAiCallLimit` and hands it to
+    the daemon as `ANOMANDER_DAILY_AI_CALL_LIMIT` at each start; unset, the daemon's default
+    (200). It applies on restart, which saving the setup does.
+  - AC2: "Adjuntar fotos" offers only images (`image/*`, as R-20 reads them). A file that is not
+    an image, dropped, pasted or picked, stays out of the draft, and the composer says "Solo puedo
+    leer fotos e imágenes de tickets. Los PDF y otros archivos se quedan fuera."; the images
+    offered with it are kept.
+  - AC3: the model named under the composer (S2) is a button that opens the setup.
+  - AC4: the window says what things are in plain words: the import of a Docker install's ledger
+    speaks of "tus datos" ("¿Vienes de una instalación con Docker? Trae tus datos"), and
+    "Conexiones" of services and programs, never of MCP servers, a proxy or a package. `mcp.json`
+    is named only where the principal must fix it by hand.
+  - AC5: every message of the chat shows when it was sent, in local time (the day too when it
+    was not today), and has a "Copiar mensaje" button that copies its text and says "Copiado".
+    The bar over the conversation has "Buscar en la conversación": it finds the words in the
+    messages loaded in the window, ignoring case and accents, marks each match, says how many
+    there are and brings the first into view.
+  - AC6: the import of a ledger (DK-12 AC1) has "Elegir archivo…": the system's file dialog
+    (`tauri-plugin-dialog`, pinned; the window may only open it, `dialog:allow-open`), showing
+    SQLite files (`.db`, `.sqlite`, `.sqlite3`), fills in the path chosen. Nothing chosen keeps
+    what was typed.
+
 ## 6. Decisions
 
 1. **Where the daemon runs.** Decided (2026-11-10): on the principal's machine, started by the
@@ -791,7 +828,7 @@ the principal to confirm:
 | The token (DK-3 AC2) | `ANOMANDER_LOCAL_TOKEN`, handed over on the daemon's stdin by the app (DK-5 AC2), at least 32 characters of `A-Z a-z 0-9 . _ ~ + -`. Unset: the channel is off and no port opens, as under Docker |
 | The port | `ANOMANDER_LOCAL_PORT`, default `4312`, always on `127.0.0.1`. The app picks a free one at each launch |
 | Presenting the token | As the second WebSocket subprotocol: `new WebSocket(url, ['anomander.v1', token])` |
-| Messages | `ChatRequest` (`text`, `receipt`, `button`, `screen`, `computer`, `connect`, `history`, `clear_history`, `expenses`, `memories`, `forget_memory`, `actions`, `forget_action`, `connection_grants`, `revoke_connection_grant`) and `ChatEvent` (`reply`, `done`, `rejected`, `history`, `expenses`, `memories`, `actions`, `connection_grants`) in `packages/protocol/src/local-channel.ts` |
+| Messages | `ChatRequest` (`text`, `receipt`, `button`, `screen`, `computer`, `connect`, `history`, `clear_history`, `expenses`, `memories`, `forget_memory`, `actions`, `forget_action`, `ai_usage`, `connection_grants`, `revoke_connection_grant`) and `ChatEvent` (`reply`, `done`, `rejected`, `history`, `expenses`, `memories`, `actions`, `ai_usage`, `connection_grants`) in `packages/protocol/src/local-channel.ts` |
 | Why the daemon stopped (DK-2 AC3) | Exit code `3`: another daemon runs on the same database. `4`: another process uses the bot. `1`: anything else. `exitCodes` in `packages/protocol` |
 | The single-daemon lock (DK-2 AC1) | `<database>.lock` beside the database, held while the daemon runs and freed by the operating system when it ends, so a crash leaves nothing stale |
 

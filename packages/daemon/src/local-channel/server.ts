@@ -113,6 +113,11 @@ export interface LocalChannelDeps {
   expenses: ExpensesLedger;
   /** Absent, as in the setup guide, the list is empty and nothing can be revoked. */
   grants?: ConnectionGrants;
+  /**
+   * DK-21: today's processor calls and the daily limit (R-12). Absent while no database is open
+   * (the setup guide): the window is told it could not be read (S-22).
+   */
+  aiUsage?: () => { calls: number; limit: number };
   logger: Logger;
   now?: () => Date;
   /**
@@ -208,6 +213,8 @@ const requestSchema = z.discriminatedUnion('type', [
   z.strictObject({ type: z.literal('revoke_connection_grant'), id, grantId: z.int().positive() }),
   // DK-23 AC4
   z.strictObject({ type: z.literal('probe_model'), id }),
+  // DK-21
+  z.strictObject({ type: z.literal('ai_usage'), id }),
 ]);
 
 /** The request in a frame, or the `id` it carried when it is not one. */
@@ -264,7 +271,12 @@ export const startLocalChannel = (deps: LocalChannelDeps): LocalChannel => {
   type Listing =
     | ChatHistoryRequest
     | ChatExpensesRequest
-    | { type: 'memories' | 'actions' | 'connection_grants' | 'probe_model' };
+    | { type: 'memories' | 'actions' | 'ai_usage' | 'connection_grants' | 'probe_model' };
+  /** DK-21: today's AI calls; without a database to read them from, the request fails. */
+  const usage = (request: ChatRequest & { type: 'ai_usage' }): ChatEvent => {
+    if (deps.aiUsage === undefined) throw new Error('no database is open to read the AI budget');
+    return { type: 'ai_usage', inReplyTo: request.id, ...deps.aiUsage() };
+  };
   /** DK-18: the list a `memories` or `actions` request asks for. Their words are never logged. */
   const listed = (request: ChatRequest & { type: 'memories' | 'actions' }): ChatEvent =>
     request.type === 'memories'
@@ -388,7 +400,9 @@ export const startLocalChannel = (deps: LocalChannelDeps): LocalChannel => {
                 ? { type: 'connection_grants', inReplyTo: request.id, grants: grants.list() }
                 : request.type === 'probe_model'
                   ? { type: 'probe', inReplyTo: request.id, outcome: await probe() }
-                  : await answer(request);
+                  : request.type === 'ai_usage'
+                    ? usage(request)
+                    : await answer(request);
     } catch (error) {
       logger.error(`The daemon failed to handle a ${request.type} from the local channel`, {
         error,

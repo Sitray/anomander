@@ -95,8 +95,8 @@ const WINDOWS_WORDING: [string, (text: Strings) => string, string, string][] = [
   [
     'connections.intro',
     (t) => t.connections.intro,
-    'sus valores, en el Administrador de credenciales de Windows.',
-    'their values, in the Windows Credential Manager.',
+    'Sus claves se guardan en el Administrador de credenciales de Windows.',
+    'Their keys are kept in the Windows Credential Manager.',
   ],
   [
     'connections.webSearchNote',
@@ -113,8 +113,8 @@ const WINDOWS_WORDING: [string, (text: Strings) => string, string, string][] = [
   [
     'connections.advancedNote',
     (t) => t.connections.advancedNote,
-    'un programa de este equipo o una dirección',
-    'a program on this computer or an address',
+    'un programa de este equipo o una dirección web',
+    'a program on this computer or a web address',
   ],
   [
     'connections.urlHelp',
@@ -161,8 +161,8 @@ const WINDOWS_WORDING: [string, (text: Strings) => string, string, string][] = [
   [
     'ledger.intro',
     (t) => t.ledger.intro,
-    'copia su ledger a este equipo y',
-    'copy its ledger to this computer and',
+    'copia su archivo de datos a este equipo y',
+    'copy its data file to this computer and',
   ],
 ];
 

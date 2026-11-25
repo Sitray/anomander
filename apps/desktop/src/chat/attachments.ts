@@ -1,5 +1,5 @@
-// DK-4 AC2, AC6: the files waiting in the composer. Images get a thumbnail; anything else is
-// carried as it is, so the daemon answers a PDF or an odd file exactly as Telegram would.
+// DK-4 AC2: the files waiting in the composer, each with its thumbnail. Only images get here
+// (DK-21): R-20 reads nothing else, so the composer leaves a PDF out and says why.
 import type { ChatImage } from '@anomander/protocol';
 
 export interface Attachment {
@@ -17,6 +17,9 @@ export interface Attachment {
  * together the files of one message stay under this many bytes.
  */
 const MAX_MESSAGE_BYTES = 45 * 1024 * 1024;
+
+/** DK-21: what R-20 reads as a receipt: a file whose MIME type is `image/*`. */
+export const isImage = (file: File): boolean => file.type.startsWith('image/');
 
 export const toAttachment = (file: File): Attachment => {
   const mimeType = file.type === '' ? 'application/octet-stream' : file.type;

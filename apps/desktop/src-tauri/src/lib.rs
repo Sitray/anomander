@@ -698,6 +698,8 @@ pub fn run() {
         .plugin(platform::plugin())
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_clipboard_manager::init())
+        // DK-21: the file dialog of the ledger import; the window may only open it.
+        .plugin(tauri_plugin_dialog::init())
         .invoke_handler(tauri::generate_handler![
             get_snapshot,
             save_setup,

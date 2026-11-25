@@ -770,6 +770,32 @@ describe('notifications', () => {
   });
 });
 
+describe('usage frictions (DK-21)', () => {
+  it("shows in the setup today's AI calls and the daily limit, as the daemon counts them", async () => {
+    await open(runningSnapshot());
+    fireEvent.click(screen.getByRole('button', { name: strings.status.openSetup }));
+    const socket = FakeWebSocket.last;
+    act(() => socket.open());
+    expect(socket.lastRequest.type).toBe('ai_usage');
+
+    act(() =>
+      socket.receive({ type: 'ai_usage', inReplyTo: socket.lastRequest.id, calls: 12, limit: 200 }),
+    );
+
+    expect(await screen.findByText('Hoy: 12 de 200 llamadas a la IA')).toBeTruthy();
+  });
+
+  it('opens the setup from the model named under the composer', async () => {
+    await open(runningSnapshot());
+
+    fireEvent.click(
+      screen.getByRole('button', { name: `${strings.chat.model} openai/gpt-4o-mini` }),
+    );
+
+    expect(setupHeading()).toBeTruthy();
+  });
+});
+
 // DK-23 AC4: "Probar" asks the daemon on its own connection to the local channel.
 describe('"Probar" in the setup', () => {
   const KEY = 'sk-secret-key-the-provider-quoted';

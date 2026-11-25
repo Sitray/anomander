@@ -27,6 +27,8 @@ export interface ComposerProps {
   onFiles: (files: File[]) => void;
   /** The model in use (S2), named under the box; `null` names none. */
   model: string | null;
+  /** DK-21: opens the setup from the model's name; without it the name is only text. */
+  onOpenSetup?: (() => void) | undefined;
   onRemove: (id: string) => void;
   onSubmit: () => void;
 }
@@ -34,7 +36,7 @@ export interface ComposerProps {
 export function Composer(props: ComposerProps) {
   const { text, attachments, notice, disabled, blocked, onText, onFiles, onRemove, onSubmit } =
     props;
-  const { model } = props;
+  const { model, onOpenSetup } = props;
   const reasonId = useId();
   const textarea = useRef<HTMLTextAreaElement>(null);
   const picker = useRef<HTMLInputElement>(null);
@@ -110,6 +112,7 @@ export function Composer(props: ComposerProps) {
           <input
             ref={picker}
             type="file"
+            accept="image/*"
             multiple
             hidden
             tabIndex={-1}
@@ -161,12 +164,24 @@ export function Composer(props: ComposerProps) {
         </div>
       </div>
       {/* S2: subtle, under the box; the name is the setup's, as it is. */}
-      {model !== null && (
-        <p className="composer-model">
-          <span className="sr-only">{`${strings.chat.model} `}</span>
-          {model}
-        </p>
-      )}
+      {model !== null &&
+        (onOpenSetup === undefined ? (
+          <p className="composer-model">
+            <span className="sr-only">{`${strings.chat.model} `}</span>
+            {model}
+          </p>
+        ) : (
+          // DK-21: the name opens the setup, where the model is changed.
+          <button
+            type="button"
+            className="composer-model link"
+            aria-label={`${strings.chat.model} ${model}`}
+            title={strings.chat.changeModel}
+            onClick={onOpenSetup}
+          >
+            {model}
+          </button>
+        ))}
     </form>
   );
 }

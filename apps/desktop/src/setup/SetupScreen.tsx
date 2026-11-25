@@ -37,6 +37,8 @@ export interface SetupScreenProps {
    * setup only.
    */
   onAddWebSearch?: () => Promise<boolean>;
+  /** DK-21: today's AI calls and the daily limit (R-12); absent or `null` until the daemon said. */
+  aiUsage?: { calls: number; limit: number } | null;
   /**
    * DK-23 AC4: "Probar": one call to the saved model through the daemon. Absent while the daemon
    * is not running.
@@ -46,11 +48,23 @@ export interface SetupScreenProps {
 
 const { setup: text } = strings;
 const OTHER = 'other';
+/** DK-21: the daily limit of AI calls the shell takes, as typed: a whole number from 1 to 10000. */
+const aiLimitOf = (typed: string): number | undefined => {
+  const limit = /^\d{1,5}$/.test(typed) ? Number(typed) : Number.NaN;
+  return limit >= 1 && limit <= 10_000 ? limit : undefined;
+};
 
 /** How a stored key is listed: by whose it is, or by its variable for a provider not offered. */
 const keyLabel = (name: string): string => providerOfKey(name)?.keyOwner ?? name;
 
-type FieldName = 'botToken' | 'chatId' | 'model' | 'visionModel' | 'keyName' | 'keyValue';
+type FieldName =
+  | 'botToken'
+  | 'chatId'
+  | 'model'
+  | 'visionModel'
+  | 'keyName'
+  | 'keyValue'
+  | 'aiLimit';
 type Errors = Partial<Record<FieldName, string>>;
 /** What saving will do to a provider key. */
 type KeyChange = 'store' | 'remove';
@@ -113,6 +127,8 @@ function SetupForm(props: FormProps) {
   const [chatId, setChatId] = useState(setup.principalChatId ?? '');
   const [model, setModel] = useState(setup.model ?? '');
   const [visionModel, setVisionModel] = useState(setup.visionModel ?? '');
+  /** DK-21: empty keeps the stored limit. */
+  const [aiLimit, setAiLimit] = useState('');
   /** "Otro modelo…" was chosen while the model is still empty. */
   const [otherModel, setOtherModel] = useState(false);
   /** Whether a key was typed for the model's provider; never the key itself. */
@@ -251,6 +267,9 @@ function SetupForm(props: FormProps) {
         : input.model !== '' && input.visionModel === ''
           ? { visionModel: text.visionModelMissing }
           : {}),
+      ...(aiLimit.trim() === '' || aiLimitOf(aiLimit.trim()) !== undefined
+        ? {}
+        : { aiLimit: text.aiLimitInvalid }),
       // A key typed but not added is still meant to be saved.
       ...takeTypedKey(false),
     };
@@ -269,6 +288,8 @@ function SetupForm(props: FormProps) {
       input.providerKeys[chosen.keyName] = typedModelKey;
     }
     if (token !== '') input.telegramBotToken = token;
+    const limit = aiLimitOf(aiLimit.trim());
+    if (limit !== undefined) input.dailyAiCallLimit = limit;
 
     setSaving(true);
     try {
@@ -418,6 +439,26 @@ function SetupForm(props: FormProps) {
               </button>
             </p>
           )}
+          {props.aiUsage != null && (
+            <p className="fieldset-note">
+              {text.aiUsage(props.aiUsage.calls, props.aiUsage.limit)}
+            </p>
+          )}
+          <Field label={text.aiLimit} help={text.aiLimitHelp} error={errors.aiLimit}>
+            {({ id, describedBy, invalid }) => (
+              <input
+                id={id}
+                inputMode="numeric"
+                autoComplete="off"
+                spellCheck={false}
+                placeholder={props.aiUsage == null ? '' : String(props.aiUsage.limit)}
+                value={aiLimit}
+                aria-describedby={describedBy}
+                aria-invalid={invalid}
+                onChange={(event) => setAiLimit(event.target.value)}
+              />
+            )}
+          </Field>
         </fieldset>
 
         {offersWebSearch && (
@@ -609,7 +650,7 @@ function SetupForm(props: FormProps) {
 
 export function SetupScreen(props: SetupScreenProps) {
   const { setup, onSave, onClose, onOpenLedger, onOpenSubscriptions, onAddWebSearch } = props;
-  const { onProbe } = props;
+  const { aiUsage, onProbe } = props;
   // After a save the form starts over from what was stored, with every secret field empty.
   const [stored, setStored] = useState({ setup, saves: 0 });
   return (
@@ -622,6 +663,7 @@ export function SetupScreen(props: SetupScreenProps) {
       {...(onOpenLedger === undefined ? {} : { onOpenLedger })}
       {...(onOpenSubscriptions === undefined ? {} : { onOpenSubscriptions })}
       {...(onAddWebSearch === undefined ? {} : { onAddWebSearch })}
+      {...(aiUsage === undefined ? {} : { aiUsage })}
       {...(onProbe === undefined ? {} : { onProbe })}
       onSaved={(saved) => setStored({ setup: saved, saves: stored.saves + 1 })}
     />

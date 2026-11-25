@@ -196,6 +196,15 @@ export interface ChatCorrectExpense {
 }
 
 /**
+ * DK-21: today's processor calls and the daily limit (R-12), for the window. Answered with a
+ * `ChatAiUsage`. Only reads: asking counts no call.
+ */
+export interface ChatAiUsageRequest {
+  type: 'ai_usage';
+  id: string;
+}
+
+/**
  * DK-24 AC3: the tools the principal allowed with "Permitir siempre", for the window's
  * "Conexiones". Answered with `ChatConnectionGrants`. Only reads.
  */
@@ -222,6 +231,7 @@ export interface ChatProbeModel {
 }
 
 export type ChatRequest =
+  | ChatAiUsageRequest
   | ChatText
   | ChatReceipt
   | ChatButtonPress
@@ -390,6 +400,16 @@ export interface ChatExpenses {
   pending: { count: number; totalCents: number };
 }
 
+/** DK-21: the answer to an `ai_usage` request. */
+export interface ChatAiUsage {
+  type: 'ai_usage';
+  inReplyTo: string;
+  /** The processor calls counted today in `TZ`. */
+  calls: number;
+  /** `ANOMANDER_DAILY_AI_CALL_LIMIT`. */
+  limit: number;
+}
+
 /** DK-24: a tool the principal allowed always, for that server as it is configured now. */
 export interface ChatConnectionGrant {
   id: number;
@@ -440,6 +460,7 @@ export interface ChatProbe {
 }
 
 export type ChatEvent =
+  | ChatAiUsage
   | ChatReply
   | ChatDone
   | ChatRejected

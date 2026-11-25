@@ -3304,3 +3304,53 @@ describe('hardening (T14)', () => {
     );
   });
 });
+
+describe("today's AI calls in the window (DK-21)", () => {
+  it('answers ai_usage with the calls counted today in TZ and the limit, counting none', async () => {
+    const chat = await client(
+      await start(
+        { ANOMANDER_LOCAL_TOKEN: TOKEN, ANOMANDER_DAILY_AI_CALL_LIMIT: '50', TZ: 'Europe/Madrid' },
+        // 23:30 UTC on 30 November is already 1 December in Madrid.
+        { now: () => new Date('2026-11-30T23:30:00.000Z') },
+      ),
+    );
+    const db = new Database(join(scratch, 'anomander.db'));
+    db.prepare('INSERT INTO ai_usage (day, calls) VALUES (?, ?), (?, ?)').run(
+      '2026-11-30',
+      40,
+      '2026-12-01',
+      12,
+    );
+    db.close();
+
+    expect(await chat.ask({ type: 'ai_usage' })).toEqual({
+      type: 'ai_usage',
+      inReplyTo: expect.any(String),
+      calls: 12,
+      limit: 50,
+    });
+    expect(await chat.ask({ type: 'ai_usage' })).toMatchObject({ calls: 12 });
+    expect(query('SELECT day, calls FROM ai_usage ORDER BY day')).toEqual([
+      { day: '2026-11-30', calls: 40 },
+      { day: '2026-12-01', calls: 12 },
+    ]);
+  });
+
+  it('rejects fields it does not know', async () => {
+    const chat = await client(await start());
+
+    expect((await chat.ask({ type: 'ai_usage', limit: 10 })).type).toBe('rejected');
+  });
+
+  it('while setup is incomplete, answers S-22: there is no database to read', async () => {
+    const guide = startSetupGuide(
+      { ...config({ ANOMANDER_LOCAL_TOKEN: TOKEN }), localPort: 0 },
+      { gaps: [{ kind: 'model_unset' }], telegramApiRoot: api.apiRoot, logger },
+    );
+    anomander = guide;
+    await guide.started;
+    const chat = await client(guide);
+
+    expect(reply(await chat.ask({ type: 'ai_usage' })).text).toBe(strings.processingFailed());
+  });
+});

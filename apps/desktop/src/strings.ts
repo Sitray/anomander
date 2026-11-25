@@ -23,6 +23,19 @@ const monthTitle = (locale: string, month: string): string =>
     new Date(`${month}-01T00:00:00Z`),
   );
 
+/**
+ * DK-21: when a message was sent, in local time: the hour alone today, with the day otherwise.
+ */
+const messageTime = (locale: string, at: string, now: Date): string => {
+  const date = new Date(at);
+  const today = date.toDateString() === now.toDateString();
+  return new Intl.DateTimeFormat(locale, {
+    ...(today ? {} : { day: 'numeric', month: 'short' }),
+    hour: '2-digit',
+    minute: '2-digit',
+  }).format(date);
+};
+
 /** DK-20: the text that names the computer or its secret store is chosen as it is read. */
 const onWindows = (): boolean => platform() === 'windows';
 const esPlace = (): string => (onWindows() ? 'este equipo' : 'este Mac');
@@ -124,6 +137,19 @@ const es = {
     dropHere: 'Suelta aquí el ticket',
     tooMany: `Caben ${MAX_ATTACHMENTS} archivos por mensaje. Me quedo con los ${MAX_ATTACHMENTS} primeros.`,
     tooHeavy: 'Pesan demasiado para ir juntos. Envíalos en varios mensajes.',
+    /** DK-21: R-20 reads images only; anything else stays out of the draft. */
+    onlyImages:
+      'Solo puedo leer fotos e imágenes de tickets. Los PDF y otros archivos se quedan fuera.',
+
+    /** DK-21: under each message. */
+    messageTime: (at: string, now: Date): string => messageTime('es-ES', at, now),
+    copy: 'Copiar mensaje',
+    copied: 'Copiado',
+    search: 'Buscar en la conversación',
+    searchCount: (count: number): string =>
+      count === 0 ? 'Sin resultados' : count === 1 ? '1 resultado' : `${count} resultados`,
+    /** DK-21: the model under the composer opens the setup. */
+    changeModel: 'Cambiar en Configuración',
 
     /** The model of the setup, under the composer (S2); read before its name. */
     model: 'Modelo:',
@@ -326,19 +352,25 @@ const es = {
     /** The web search was saved before the setup was refused: it stays. */
     webSearchKept:
       'La búsqueda web sí se ha añadido y sigue activada; puedes quitarla en Conexiones.',
+    /** DK-21: today's processor calls and the daily limit (R-12), as the daemon counts them. */
+    aiUsage: (calls: number, limit: number) => `Hoy: ${calls} de ${limit} llamadas a la IA`,
+    /** DK-21: `ANOMANDER_DAILY_AI_CALL_LIMIT`, saved with the setup; empty keeps it. */
+    aiLimit: 'Límite diario de llamadas a la IA',
+    aiLimitHelp: 'De 1 a 10000. Déjalo vacío para no cambiarlo. Se aplica al reiniciar.',
+    aiLimitInvalid: 'Tiene que ser un número entero de 1 a 10000.',
   },
 
   /** DK-11: the servers of `mcp.json`. */
   connections: {
     title: 'Conexiones',
     get intro() {
-      return `Los servidores MCP que ANOMANDER usa en una tarea con conexiones. Están en el archivo mcp.json; sus valores, en ${esStore()}.`;
+      return `Los servicios y programas que ANOMANDER puede usar en una tarea con conexiones. Sus claves se guardan en ${esStore()}.`;
     },
     loading: 'Leyendo…',
     loadFailed: 'No se han podido leer las conexiones.',
     /** The file is not as the daemon reads it; where, in the shell's own words, follows. */
     invalid:
-      'El archivo mcp.json no está como ANOMANDER lo lee, así que no se conecta ningún servidor. Corrígelo a mano: desde aquí no se cambia nada.',
+      'El archivo de las conexiones (mcp.json, en la carpeta de datos) tiene un error, así que no se conecta ninguna. Corrígelo a mano: desde aquí no se cambia nada.',
     servers: 'Servidores',
     none: 'Todavía no hay ninguno.',
     add: 'Añadir servidor',
@@ -364,7 +396,7 @@ const es = {
     /** DK-11 AC13: an add of the web search that did not answer in time. */
     webSearchTimedOut: 'La búsqueda web no se ha guardado a tiempo. Inténtalo otra vez.',
     get webSearchNote() {
-      return `La búsqueda web añade pi-web-access, que viene con ANOMANDER en una versión fija. Lo que ANOMANDER busca se envía a Exa (exa.ai), sin cuenta, y busca sin pedirte permiso; para usar otro buscador o un proxy te lo pide antes. Las páginas se leen desde ${esPlace()}, siempre después de «Permitir». Si tienes ~/.pi/agent/web-search.json, se usan sus claves, buscadores y proxy.`;
+      return `La búsqueda web viene con ANOMANDER y no se actualiza sola. Lo que ANOMANDER busca se envía a Exa (exa.ai), sin cuenta, y busca sin pedirte permiso; si fuera a usar otro buscador o a pasar por otro servidor, te lo pide antes. Las páginas se leen desde ${esPlace()}, siempre después de «Permitir». Si tienes ~/.pi/agent/web-search.json, se usan sus claves y ajustes.`;
     },
     edit: 'Editar',
     editServer: (name: string) => `Editar ${name}`,
@@ -391,7 +423,7 @@ const es = {
     /** The form, for any other server. */
     advanced: 'Avanzado',
     get advancedNote() {
-      return `Para cualquier otro servidor MCP: un programa de ${esPlace()} o una dirección, escritos a mano.`;
+      return `Para cualquier otro servicio: un programa de ${esPlace()} o una dirección web, escritos a mano.`;
     },
 
     oauthConnected: 'Conectado con OAuth',
@@ -581,35 +613,37 @@ const es = {
   },
 
   ledger: {
-    title: 'Traer el ledger de Docker',
+    title: 'Traer tus datos de Docker',
     /** In the setup screen: opens this one. */
-    open: '¿Vienes de una instalación con Docker? Trae tu ledger',
+    open: '¿Vienes de una instalación con Docker? Trae tus datos',
     get intro() {
-      return `Si usabas ANOMANDER con Docker, copia su ledger a ${esPlace()} y escribe aquí dónde lo has dejado. Solo se importa en un ANOMANDER sin gastos; el ledger que tiene ahora se guarda aparte, nunca se borra.`;
+      return `Si usabas ANOMANDER con Docker, copia su archivo de datos a ${esPlace()} y escribe aquí dónde lo has dejado. Solo se importa en un ANOMANDER sin gastos; los datos que tiene ahora se guardan aparte, nunca se borran.`;
     },
     howIntro: 'Para copiarlo, en la carpeta del proyecto, primero una orden y luego la otra:',
     /** Shown as a block the principal can select and copy. */
     howCommands:
       'docker compose stop\ndocker compose cp daemon:/app/data/anomander.db ~/Downloads/anomander.db',
-    path: 'Archivo del ledger',
+    path: 'Archivo de datos',
+    /** DK-21: the system's file dialog, for the data file. */
+    choose: 'Elegir archivo…',
     pathHelp: 'La ruta completa del archivo. Puedes pegarla.',
     pathMissing: 'Escribe la ruta del archivo.',
     pathNotFull: 'Escribe la ruta completa: empieza por / o por ~/.',
     import: 'Importar',
     importing: 'Importando… ANOMANDER se detiene mientras tanto.',
     /** The import failed; the shell's own words follow. */
-    failed: 'No se ha podido importar el ledger. El de ANOMANDER sigue como estaba.',
+    failed: 'No se han podido importar los datos. Los de ANOMANDER siguen como estaban.',
     outcome: {
       imported:
-        'Ledger importado: ANOMANDER ya trabaja con él. Si había otro, está guardado aparte en la carpeta de datos.',
+        'Datos importados: ANOMANDER ya trabaja con ellos. Si había otros, están guardados aparte en la carpeta de datos.',
       missing: 'No hay ningún archivo en esa ruta.',
-      same_file: 'Ese es el ledger que ANOMANDER ya usa.',
-      not_a_ledger: 'Ese archivo no es un ledger de ANOMANDER. No se ha importado nada.',
+      same_file: 'Ese es el archivo de datos que ANOMANDER ya usa.',
+      not_a_ledger: 'Ese archivo no es de datos de ANOMANDER. No se ha importado nada.',
       newer_ledger:
-        'Ese ledger es de una versión de ANOMANDER más nueva que esta app. Actualiza la app y vuelve a intentarlo.',
-      damaged: 'Ese ledger está dañado. No se ha importado nada.',
+        'Esos datos son de una versión de ANOMANDER más nueva que esta app. Actualiza la app y vuelve a intentarlo.',
+      damaged: 'Ese archivo de datos está dañado. No se ha importado nada.',
       daemon_running:
-        'Otro ANOMANDER está usando el ledger de esta app. Detenlo y vuelve a intentarlo.',
+        'Otro ANOMANDER está usando los datos de esta app. Detenlo y vuelve a intentarlo.',
       own_has_expenses:
         'Este ANOMANDER ya tiene gastos, así que no se importa nada para no perderlos.',
       not_a_path: 'Escribe la ruta completa: empieza por / o por ~/.',
@@ -763,6 +797,15 @@ const en: Strings = {
     dropHere: 'Drop the receipt here',
     tooMany: `A message holds ${MAX_ATTACHMENTS} files. I'm keeping the first ${MAX_ATTACHMENTS}.`,
     tooHeavy: 'They are too heavy to go together. Send them in several messages.',
+    onlyImages: 'I can only read photos and images of receipts. PDFs and other files stay out.',
+
+    messageTime: (at: string, now: Date): string => messageTime('en-GB', at, now),
+    copy: 'Copy message',
+    copied: 'Copied',
+    search: 'Search the conversation',
+    searchCount: (count: number): string =>
+      count === 0 ? 'No results' : count === 1 ? '1 result' : `${count} results`,
+    changeModel: 'Change in Setup',
 
     model: 'Model:',
 
@@ -937,17 +980,21 @@ const en: Strings = {
     /** DK-11 AC11: the web search, checked on the first setup. */
     webSearch: 'Add web search: searches the internet without using the computer',
     webSearchKept: 'Web search was added and stays on; you can remove it in Connections.',
+    aiUsage: (calls: number, limit: number) => `Today: ${calls} of ${limit} AI calls`,
+    aiLimit: 'Daily limit of AI calls',
+    aiLimitHelp: 'From 1 to 10000. Leave it empty to keep it. It applies on restart.',
+    aiLimitInvalid: 'It must be a whole number from 1 to 10000.',
   },
 
   connections: {
     title: 'Connections',
     get intro() {
-      return `The MCP servers ANOMANDER uses in a task with connections. They are in the mcp.json file; their values, in ${enStore()}.`;
+      return `The services and programs ANOMANDER can use in a task with connections. Their keys are kept in ${enStore()}.`;
     },
     loading: 'Reading…',
     loadFailed: 'The connections could not be read.',
     invalid:
-      "The mcp.json file isn't as ANOMANDER reads it, so no server connects. Fix it by hand: nothing can be changed from here.",
+      'The connections file (mcp.json, in the data folder) has a mistake, so none connects. Fix it by hand: nothing can be changed from here.',
     servers: 'Servers',
     none: 'None yet.',
     add: 'Add server',
@@ -969,7 +1016,7 @@ const en: Strings = {
     webSearchAbout: 'Searches the internet without using the computer.',
     webSearchTimedOut: "Web search wasn't saved in time. Try again.",
     get webSearchNote() {
-      return `Web search adds pi-web-access, which comes with ANOMANDER at a fixed version. What ANOMANDER searches for is sent to Exa (exa.ai), with no account, and it searches without asking you; to use another search engine or a proxy it asks you first. Pages are read from ${enPlace()}, always after “Allow”. If you have ~/.pi/agent/web-search.json, its keys, search engines and proxy are used.`;
+      return `Web search comes with ANOMANDER and does not update by itself. What ANOMANDER searches for is sent to Exa (exa.ai), with no account, and it searches without asking you; before using another search engine or going through another server, it asks you first. Pages are read from ${enPlace()}, always after “Allow”. If you have ~/.pi/agent/web-search.json, its keys and settings are used.`;
     },
     edit: 'Edit',
     editServer: (name: string) => `Edit ${name}`,
@@ -993,7 +1040,7 @@ const en: Strings = {
     close: 'Close',
     advanced: 'Advanced',
     get advancedNote() {
-      return `For any other MCP server: a program on ${enPlace()} or an address, written by hand.`;
+      return `For any other service: a program on ${enPlace()} or a web address, written by hand.`;
     },
 
     oauthConnected: 'Connected with OAuth',
@@ -1171,31 +1218,32 @@ const en: Strings = {
   },
 
   ledger: {
-    title: 'Bring the ledger from Docker',
-    open: 'Coming from a Docker install? Bring your ledger',
+    title: 'Bring your data from Docker',
+    open: 'Coming from a Docker install? Bring your data',
     get intro() {
-      return `If you used ANOMANDER with Docker, copy its ledger to ${enPlace()} and write here where you left it. It is only imported into an ANOMANDER with no expenses; the ledger it has now is kept aside, never deleted.`;
+      return `If you used ANOMANDER with Docker, copy its data file to ${enPlace()} and write here where you left it. It is only imported into an ANOMANDER with no expenses; the data it has now is kept aside, never deleted.`;
     },
     howIntro: 'To copy it, in the project folder, run one command and then the other:',
     howCommands:
       'docker compose stop\ndocker compose cp daemon:/app/data/anomander.db ~/Downloads/anomander.db',
-    path: 'Ledger file',
+    path: 'Data file',
+    choose: 'Choose file…',
     pathHelp: 'The full path of the file. You can paste it.',
     pathMissing: 'Write the path of the file.',
     pathNotFull: 'Write the full path: it starts with / or ~/.',
     import: 'Import',
     importing: 'Importing… ANOMANDER stops in the meantime.',
-    failed: "The ledger could not be imported. ANOMANDER's stays as it was.",
+    failed: "The data could not be imported. ANOMANDER's stays as it was.",
     outcome: {
       imported:
-        'Ledger imported: ANOMANDER now works with it. If there was another one, it is kept aside in the data folder.',
+        'Data imported: ANOMANDER now works with it. If there was other data, it is kept aside in the data folder.',
       missing: 'There is no file at that path.',
-      same_file: 'That is the ledger ANOMANDER already uses.',
-      not_a_ledger: 'That file is not an ANOMANDER ledger. Nothing was imported.',
+      same_file: 'That is the data file ANOMANDER already uses.',
+      not_a_ledger: 'That file is not ANOMANDER data. Nothing was imported.',
       newer_ledger:
-        'That ledger is from a newer version of ANOMANDER than this app. Update the app and try again.',
-      damaged: 'That ledger is damaged. Nothing was imported.',
-      daemon_running: "Another ANOMANDER is using this app's ledger. Stop it and try again.",
+        'That data is from a newer version of ANOMANDER than this app. Update the app and try again.',
+      damaged: 'That data file is damaged. Nothing was imported.',
+      daemon_running: "Another ANOMANDER is using this app's data. Stop it and try again.",
       own_has_expenses:
         'This ANOMANDER already has expenses, so nothing is imported, so as not to lose them.',
       not_a_path: 'Write the full path: it starts with / or ~/.',

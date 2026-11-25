@@ -505,6 +505,44 @@ describe('web search on the first setup', () => {
   });
 });
 
+describe('the daily limit of AI calls (DK-21)', () => {
+  it("sends a limit from 1 to 10000, with today's use and the current limit beside it", async () => {
+    const onSave = vi.fn(async (_input: SetupInput) => FILLED_SETUP);
+    render(
+      <SetupScreen
+        setup={CONFIGURED}
+        onSave={onSave}
+        onClose={() => {}}
+        aiUsage={{ calls: 12, limit: 200 }}
+      />,
+    );
+    expect(field(text.aiLimit).placeholder).toBe('200');
+    expect(screen.getByText(text.aiLimitHelp)).toBeTruthy();
+
+    fill(text.aiLimit, ' 500 ');
+    save();
+
+    expect(await saved(onSave)).toMatchObject({ dailyAiCallLimit: 500 });
+  });
+
+  it('leaves the limit out when the field is empty, so the stored one stays', async () => {
+    const { onSave } = renderSetup(CONFIGURED);
+    save();
+
+    expect('dailyAiCallLimit' in (await saved(onSave))).toBe(false);
+  });
+
+  it('refuses a limit that is not a whole number from 1 to 10000, and saves nothing', () => {
+    const { onSave } = renderSetup(CONFIGURED);
+    for (const typed of ['0', '10001', '2.5', 'mucho']) {
+      fill(text.aiLimit, typed);
+      save();
+      expect(screen.getByText(text.aiLimitInvalid)).toBeTruthy();
+    }
+    expect(onSave).not.toHaveBeenCalled();
+  });
+});
+
 // DK-23: the onboarding asks no developer knowledge: models first, providers by name, a key named
 // by its provider, and "Probar".
 describe('onboarding (DK-23)', () => {
