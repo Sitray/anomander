@@ -18,6 +18,11 @@ export interface ToolResult {
 export interface Connection {
   /** The server's name in the principal's configuration. */
   name: string;
+  /**
+   * DK-24 AC2: what the server is (`serverIdentity`): a "Permitir siempre" holds only for it.
+   * Absent, the server cannot be told apart from another, and no call of it is ever granted.
+   */
+  identity?: string;
   tools: readonly ToolInfo[];
   /** The tools the principal marked as only reading: the only ones that may run unasked. */
   readOnly: ReadonlySet<string>;

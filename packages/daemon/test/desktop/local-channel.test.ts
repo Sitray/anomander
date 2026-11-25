@@ -1928,7 +1928,7 @@ describe('a search on the web (T17)', () => {
     tooled = [toolCall('fetch_content', { url })];
     const page = reply(await chat.ask({ type: 'connect', task: asked }));
     expect(page.text).toBe(
-      `Quiero usar «fetch_content» de «${WEB_SEARCH_CONNECTION.name}» con:\n{\n  "url": "${url}"\n}`,
+      `Quiero usar «fetch_content» de «${WEB_SEARCH_CONNECTION.name}» con: url «${url}»\n{\n  "url": "${url}"\n}`,
     );
     expect(page.buttons.map((button) => button.label)).toEqual(['Permitir', 'Detener']);
 
@@ -2053,7 +2053,7 @@ describe('a task with connections (DK-11)', () => {
 
     expect(made).toEqual([]);
     expect(question.text).toBe(
-      'Quiero usar «create» de «notes» con:\n{\n  "title": "Hotel Sol"\n}',
+      'Quiero usar «create» de «notes» con: title «Hotel Sol»\n{\n  "title": "Hotel Sol"\n}',
     );
     expect(question.buttons.map((button) => button.label)).toEqual(['Permitir', 'Detener']);
     const [allow] = question.buttons;
@@ -2184,7 +2184,7 @@ describe('a task with connections (DK-11)', () => {
 
       expect(made).toEqual([]);
       expect(question?.text).toBe(
-        'Quiero usar «create» de «notes» con:\n{\n  "title": "Hotel Sol"\n}',
+        'Quiero usar «create» de «notes» con: title «Hotel Sol»\n{\n  "title": "Hotel Sol"\n}',
       );
       const [allow, refuse] = buttonsOf(question);
       expect([allow?.text, refuse?.text]).toEqual(['Permitir', 'Detener']);

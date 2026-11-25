@@ -222,8 +222,9 @@ and keep its secrets in the operating system instead of a text file.
     served, as for every other message. The processor
     is given the tools and asks for calls, one at a time; it never makes one (R-14 AC3). Code
     decides each call.
-  - AC3: a tool marked read-only runs without asking; any other call waits for "Permitir", shown
-    by code with the tool, the server and the exact arguments. "Detener" ends the task. A call is
+  - AC3: a tool marked read-only runs without asking, as does one the principal allowed with
+    "Permitir siempre" (DK-24); any other call waits for "Permitir", shown by code with the tool,
+    the server, a plain line and the exact arguments. "Detener" ends the task. A call is
     made at most once. What cannot be seen in the arguments (a direction mark, a variation
     selector, a blank that is not a space) is shown as its code, in names and in values. A call
     whose arguments are over 1 500 characters as shown is never made. A call is answered where
@@ -644,6 +645,44 @@ and keep its secrets in the operating system instead of a text file.
     was not forgotten (the reply S-22) the item stays and the screen says so; when the connection
     was lost first, that it cannot know.
 
+- DK-24 "Permitir siempre" on a connection (backlog B24, 2026-11-25: "Connections ask "Permitir"
+  even to read (presets saved with `readOnly: []`, `ConnectionsScreen.tsx:597`) and show raw JSON
+  (`protocol/strings.ts:240-241`). "Permitir siempre esta herramienta" granted by the user and
+  revocable, plus a readable line above the JSON."). It refines DK-11 AC3; AC4 and T17 still hold.
+  - AC1: a call that waits for "Permitir" (DK-11 AC3) also offers "Permitir siempre" (S-180),
+    between "Permitir" and "Detener", in the app and in Telegram alike. Pressing it makes that call
+    and grants that tool of that server: the next calls of it run without asking, at either door.
+    It is not offered for a tool marked read-only or already allowed, nor for any tool of a server
+    some of whose arguments ask (the web search program, T17: it reaches any address, so its
+    calls always ask). A preset never marks a tool read-only by its name: only the principal does,
+    by hand or with this press.
+  - AC2: the grant is a row of `permissions` (PRD §8.1, level "with permission"), operation
+    `call_connection_tool`, with the server's name, the tool, the server's identity and the door
+    it was pressed at, and when; it has no expiry. The identity is a digest of the server's command
+    and arguments, or of its URL (not of its `env` or `headers`, so a new token keeps it). Code
+    checks it before skipping the question; it never applies to another tool, another server, or
+    a server whose identity changed. A grant skips only the question a read-only tool skips:
+    once another server answered in the task the call still asks (DK-11 AC4), and so does a call
+    carrying an argument its server says asks.
+  - AC3: "Conexiones" lists, under each server, the tools it allows always, "Siempre permitidas:"
+    (S-183), each with "Quitar" (S-184), which revokes it at once (`revoked_at`); the window asks on
+    the local channel with `connection_grants` and `revoke_connection_grant`, on a connection of its
+    own, as "Memoria" does (DK-18 AC2). A list that cannot be read says S-185; a "Quitar" not done
+    says S-186, and one whose connection was lost first, S-187. At its start the daemon revokes
+    every grant of a server that is no longer in `mcp.json`, was renamed, or whose command or URL
+    changed, so removing a server removes its grants and adding it again does not bring them back;
+    a file it cannot read revokes none.
+  - AC4: the question says the call in one plain line above the exact JSON (S-181, S-182): each
+    argument by its name, a text inside «», anything else as compact JSON, each value cut at 60
+    characters and the line at 200 with "…", what cannot be seen written as its code (DK-11 AC3).
+    The JSON stays exact and below it.
+  - AC5: only the principal's press on "Permitir siempre" under the call that waits grants; the
+    processor never sees a button, and a press on a call that no longer waits, or never was asked,
+    grants nothing and answers "Esa petición ya no está pendiente." (DK-11).
+  - AC6: nothing logs the arguments of a call, asked, granted or run unasked (DK-14 AC5).
+  - Assumption: the readable line keeps ANOMANDER's first person ("Quiero usar…"), as every other
+    question of the daemon does.
+
 ## 6. Decisions
 
 1. **Where the daemon runs.** Decided (2026-11-10): on the principal's machine, started by the
@@ -681,7 +720,7 @@ the principal to confirm:
 | The token (DK-3 AC2) | `ANOMANDER_LOCAL_TOKEN`, handed over on the daemon's stdin by the app (DK-5 AC2), at least 32 characters of `A-Z a-z 0-9 . _ ~ + -`. Unset: the channel is off and no port opens, as under Docker |
 | The port | `ANOMANDER_LOCAL_PORT`, default `4312`, always on `127.0.0.1`. The app picks a free one at each launch |
 | Presenting the token | As the second WebSocket subprotocol: `new WebSocket(url, ['anomander.v1', token])` |
-| Messages | `ChatRequest` (`text`, `receipt`, `button`, `screen`, `computer`, `connect`, `history`, `clear_history`, `expenses`, `memories`, `forget_memory`, `actions`, `forget_action`) and `ChatEvent` (`reply`, `done`, `rejected`, `history`, `expenses`, `memories`, `actions`) in `packages/protocol/src/local-channel.ts` |
+| Messages | `ChatRequest` (`text`, `receipt`, `button`, `screen`, `computer`, `connect`, `history`, `clear_history`, `expenses`, `memories`, `forget_memory`, `actions`, `forget_action`, `connection_grants`, `revoke_connection_grant`) and `ChatEvent` (`reply`, `done`, `rejected`, `history`, `expenses`, `memories`, `actions`, `connection_grants`) in `packages/protocol/src/local-channel.ts` |
 | Why the daemon stopped (DK-2 AC3) | Exit code `3`: another daemon runs on the same database. `4`: another process uses the bot. `1`: anything else. `exitCodes` in `packages/protocol` |
 | The single-daemon lock (DK-2 AC1) | `<database>.lock` beside the database, held while the daemon runs and freed by the operating system when it ends, so a crash leaves nothing stale |
 

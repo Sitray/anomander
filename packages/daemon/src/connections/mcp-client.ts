@@ -6,7 +6,7 @@ import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/
 import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
 import { ErrorCode, McpError } from '@modelcontextprotocol/sdk/types.js';
 import type { ConnectedTool, Logger } from '../processor/ports.ts';
-import type { ConnectionsConfig, ServerConfig } from './config.ts';
+import { type ConnectionsConfig, type ServerConfig, serverIdentity } from './config.ts';
 import type { Connection, ToolInfo } from './connection.ts';
 import { type OAuthKeeper, originScopedFetch } from './oauth.ts';
 import { programFor } from './web-search.ts';
@@ -204,6 +204,7 @@ export const createConnections = (deps: ConnectionsDeps): Connections => {
               close: made.close,
               connection: {
                 ...made.connection,
+                identity: serverIdentity(server),
                 asksWith: argumentsThatAsk(server),
                 call: async (tool, args) => {
                   try {

@@ -299,11 +299,16 @@ const es = {
   computerFailed: () => 'No he sabido qué hacer en tu ordenador. ¿Me lo pides de otra forma?',
   /**
    * DK-11: the call a task with connections wants to make, said by code. `args` is the exact
-   * JSON of its arguments.
+   * JSON of its arguments. DK-24 AC4 (S-181, S-182): `summary` is the same arguments in one
+   * plain line above it, cut short; `null` when the call carries none.
    */
-  connectionCall: (tool: string, server: string, args: string) =>
-    `Quiero usar «${tool}» de «${server}» con:\n${args}`,
+  connectionCall: (tool: string, server: string, summary: string | null, args: string) =>
+    summary === null
+      ? `Quiero usar «${tool}» de «${server}», sin datos.\n${args}`
+      : `Quiero usar «${tool}» de «${server}» con: ${summary}\n${args}`,
   connectionAllow: () => 'Permitir',
+  /** DK-24 AC1 (S-180): the same tool of the same server runs without asking from now on. */
+  connectionAllowAlways: () => 'Permitir siempre',
   connectionRefuse: () => 'Detener',
   connectionStopped: () => 'Detenido. No he hecho nada más.',
   connectionGone: () => 'Esa petición ya no está pendiente.',
@@ -570,8 +575,12 @@ const en: typeof es = {
     `I've reached the maximum of ${steps} steps in a row, so I'm stopping here. If you want me to carry on, ask me again.`,
   computerFailed: () =>
     "I couldn't work out what to do on your computer. Can you ask me another way?",
-  connectionCall: (tool, server, args) => `I want to use “${tool}” from “${server}” with:\n${args}`,
+  connectionCall: (tool, server, summary, args) =>
+    summary === null
+      ? `I want to use “${tool}” from “${server}”, with no data.\n${args}`
+      : `I want to use “${tool}” from “${server}” with: ${summary}\n${args}`,
   connectionAllow: () => 'Allow',
+  connectionAllowAlways: () => 'Always allow',
   connectionRefuse: () => 'Stop',
   connectionStopped: () => "Stopped. I haven't done anything else.",
   connectionGone: () => 'That request is no longer pending.',

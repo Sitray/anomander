@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { z } from 'zod';
 import type { Logger } from '../processor/ports.ts';
@@ -69,6 +70,21 @@ const fileSchema = z.strictObject({
 export const parseConnectionsConfig = (raw: unknown): ConnectionsConfig =>
   fileSchema.parse(raw).mcpServers;
 
+/**
+ * DK-24 AC2: what a server is, for a "Permitir siempre": a digest of its command and arguments,
+ * or of its URL. Its `env` and `headers` are left out, so a new token keeps the grants; another
+ * program or another address is another server, and its grants are dropped. Only the digest is
+ * stored: an argument may hold a token.
+ */
+export const serverIdentity = (server: ServerConfig): string =>
+  createHash('sha256')
+    .update(
+      JSON.stringify(
+        server.kind === 'process' ? ['process', server.command, server.args] : ['http', server.url],
+      ),
+    )
+    .digest('hex');
+
 /** What the desktop app leaves in the file in place of a value it keeps in the Keychain. */
 export const KEPT_SECRET = '@keychain';
 
@@ -131,6 +147,8 @@ export interface ReadConnections {
   invalid: boolean;
   /** The servers left out because a secret of theirs was not handed over. */
   leftOut: string[];
+  /** DK-24 AC2: `serverIdentity` of every server of the file, the left out ones included. */
+  identities: Record<string, string>;
 }
 
 /**
@@ -143,7 +161,12 @@ export const readConnections = (
   logger: Logger,
   secrets?: string,
 ): ReadConnections => {
-  const none = (invalid: boolean): ReadConnections => ({ config: {}, invalid, leftOut: [] });
+  const none = (invalid: boolean): ReadConnections => ({
+    config: {},
+    invalid,
+    leftOut: [],
+    identities: {},
+  });
   if (path === undefined) return none(false);
   let text: string;
   try {
@@ -156,9 +179,13 @@ export const readConnections = (
     return none(true);
   }
   try {
+    const parsed = parseConnectionsConfig(JSON.parse(text));
     return {
-      ...filled(parseConnectionsConfig(JSON.parse(text)), handedOver(secrets, logger), logger),
+      ...filled(parsed, handedOver(secrets, logger), logger),
       invalid: false,
+      identities: Object.fromEntries(
+        Object.entries(parsed).map(([name, server]) => [name, serverIdentity(server)]),
+      ),
     };
   } catch (error) {
     // Where it is wrong, never what it says: the file may hold tokens.

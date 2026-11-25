@@ -48,6 +48,7 @@ import { createReceiptExpenseCycle } from './expenses/receipt-expense.ts';
 import { createTextExpenseHandler } from './expenses/text-expense.ts';
 import {
   type ChatHandlers,
+  type ConnectionGrants,
   type ExpensesLedger,
   type LocalChannel,
   type LocalChannelAddress,
@@ -79,6 +80,13 @@ import { applyMigrations, openDatabase } from './store/database.ts';
 import { exportLedger } from './store/export.ts';
 import { type ActionRecord, forgetAction, listActions, recordAction } from './store/history.ts';
 import { forgetMemoryAndItsTurns, listMemories, memoryNotesFor } from './store/memory.ts';
+import {
+  connectionToolGranted,
+  connectionToolGrants,
+  grantConnectionTool,
+  revokeConnectionTool,
+  revokeConnectionToolsNotIn,
+} from './store/permissions.ts';
 import { createWeeklySummary } from './summary/weekly-summary.ts';
 import { openTelegramDoor } from './telegram-door.ts';
 
@@ -215,6 +223,7 @@ const startChannel = (
   expenses: ExpensesLedger,
   logger: Logger,
   now?: () => Date,
+  grants?: ConnectionGrants,
 ): LocalChannel | undefined =>
   config.localToken === undefined
     ? undefined
@@ -227,6 +236,7 @@ const startChannel = (
         expenses,
         logger,
         ...(now === undefined ? {} : { now }),
+        ...(grants === undefined ? {} : { grants }),
       });
 
 /** `/start`, `/start@bot` or `/start anything`, as Telegram sends a command. */
@@ -651,6 +661,13 @@ export const startAnomander = <M>(config: Config, deps: AnomanderDeps<M>): Anoma
     deps.connections === undefined
       ? readConnections(config.mcpConfigPath, logger, config.mcpSecrets)
       : undefined;
+  // DK-24 AC2, AC3: a "Permitir siempre" holds only for its server as `mcp.json` has it now, so
+  // one of a server removed, renamed or changed is revoked at the start; a file that cannot be
+  // read changes none.
+  if (read !== undefined && !read.invalid) {
+    const revoked = revokeConnectionToolsNotIn(db, read.identities, now().toISOString());
+    if (revoked > 0) logger.info(`revoked ${revoked} connection grants of changed servers`);
+  }
   const servers =
     read === undefined
       ? undefined
@@ -672,6 +689,8 @@ export const startAnomander = <M>(config: Config, deps: AnomanderDeps<M>): Anoma
     logger,
     // DK-14 AC2: which calls were sent or refused, never their arguments or results.
     decided: (call) => connectionSession.decided(call),
+    // DK-24: code checks the principal's grant, never the processor.
+    alwaysAllowed: (call) => connectionToolGranted(db, call),
   });
 
   // What every front door calls (DK-4 AC1). R-28: `/start`, and the guide while a provider is
@@ -696,6 +715,10 @@ export const startAnomander = <M>(config: Config, deps: AnomanderDeps<M>): Anoma
     turns,
     keep,
     send: (message) => send(message),
+    // DK-24 AC1: the principal's press on "Permitir siempre", where they pressed it.
+    grant: (call, door) => {
+      grantConnectionTool(db, call, door, now().toISOString());
+    },
     logger,
   });
 
@@ -906,6 +929,17 @@ export const startAnomander = <M>(config: Config, deps: AnomanderDeps<M>): Anoma
     },
     logger,
     now,
+    // DK-24 AC3: the "Permitir siempre" in force, for "Conexiones", and "Quitar".
+    {
+      list: () =>
+        connectionToolGrants(db).map(({ id, server, tool, grantedAt }) => ({
+          id,
+          server,
+          tool,
+          at: grantedAt,
+        })),
+      revoke: (id) => revokeConnectionTool(db, id, now().toISOString()),
+    },
   );
 
   telegram.started.then(

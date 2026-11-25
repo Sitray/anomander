@@ -175,7 +175,8 @@ describe('DK-11: a task with connections', () => {
     expect(made).toEqual([]);
     expect(outcome.text).toBe(
       [
-        'Quiero usar «create» de «notes» con:',
+        // DK-24 AC4: a plain line, what cannot be seen in it written as its code too.
+        'Quiero usar «create» de «notes» con: title «Lisboa», body «Hotel «Sol»\\u000ay cena»',
         '{',
         '  "title": "Lisboa",',
         '  "body": "Hotel «Sol»\\ny cena"',
@@ -312,7 +313,7 @@ describe('DK-11: a task with connections', () => {
 
     expect(outcome.text).toBe(
       [
-        'Quiero usar «create» de «notes» con:',
+        'Quiero usar «create» de «notes» con: cla\\u200bve «abc\\u202edef», v «hola\\ufe00\\ufe0f», w «a\\u00a0b\\u3000c\\u2800d\\u3164e», x «f\\udb40\\udd00g\\udb40\\udc41h», y «i\\ufffcj», plain «ñ € «ok» 😀»',
         '{',
         '  "cla\\u200bve": "abc\\u202edef",',
         '  "v": "hola\\ufe00\\ufe0f",',

@@ -94,3 +94,100 @@ export const openGrantDecision = (db: Database.Database, ask: GrantQuestion): nu
       now: ask.now,
     });
   })();
+
+// DK-24: "Permitir siempre" on a call of a task with connections. A grant the principal gives by
+// pressing it, one row per tool of a server: `conditions_json` holds the server's name, the
+// tool, the server's identity (`serverIdentity`) and the door it was pressed at. It has no
+// expiry: it holds until "Quitar" or until its server is removed or changes. Granting one never
+// revokes another.
+
+/** The operation of a "Permitir siempre". */
+export const CONNECTION_TOOL_OPERATION = 'call_connection_tool';
+
+/** One tool of one server, as it is configured now. */
+export interface ConnectionTool {
+  server: string;
+  tool: string;
+  identity: string;
+}
+
+/** A "Permitir siempre" in force. */
+export interface ConnectionToolGrant extends ConnectionTool {
+  id: number;
+  grantedAt: string;
+}
+
+const isConnectionTool = (value: unknown): value is ConnectionTool & { door?: unknown } => {
+  const { server, tool, identity } = (value ?? {}) as Record<string, unknown>;
+  return typeof server === 'string' && typeof tool === 'string' && typeof identity === 'string';
+};
+
+/** Every "Permitir siempre" in force, by server and then tool. */
+export const connectionToolGrants = (db: Database.Database): ConnectionToolGrant[] =>
+  activePermissions(db, CONNECTION_TOOL_OPERATION, new Date())
+    .flatMap(({ id, conditions_json, granted_at }) => {
+      const conditions: unknown = JSON.parse(conditions_json);
+      if (!isConnectionTool(conditions)) return [];
+      const { server, tool, identity } = conditions;
+      return [{ id, server, tool, identity, grantedAt: granted_at }];
+    })
+    .sort((a, b) => a.server.localeCompare(b.server) || a.tool.localeCompare(b.tool));
+
+/** Whether the principal allowed `call` always, for that server as it is now. */
+export const connectionToolGranted = (db: Database.Database, call: ConnectionTool): boolean =>
+  connectionToolGrants(db).some(
+    (grant) =>
+      grant.server === call.server && grant.tool === call.tool && grant.identity === call.identity,
+  );
+
+/**
+ * The principal pressed "Permitir siempre" on a call of `call`, at `door`. One already in force
+ * for it is kept. Returns the grant's id.
+ */
+export const grantConnectionTool = (
+  db: Database.Database,
+  call: ConnectionTool,
+  door: string,
+  now: string,
+): number =>
+  db.transaction(() => {
+    const kept = connectionToolGrants(db).find(
+      (grant) =>
+        grant.server === call.server &&
+        grant.tool === call.tool &&
+        grant.identity === call.identity,
+    );
+    if (kept !== undefined) return kept.id;
+    const { server, tool, identity } = call;
+    return Number(
+      db
+        .prepare(
+          'INSERT INTO permissions (operation, conditions_json, granted_at) VALUES (?, ?, ?)',
+        )
+        .run(CONNECTION_TOOL_OPERATION, JSON.stringify({ server, tool, identity, door }), now)
+        .lastInsertRowid,
+    );
+  })();
+
+/** "Quitar": revokes the "Permitir siempre" `id`; nothing when it is not one in force. */
+export const revokeConnectionTool = (db: Database.Database, id: number, now: string): void => {
+  db.prepare(
+    'UPDATE permissions SET revoked_at = ? WHERE id = ? AND operation = ? AND revoked_at IS NULL',
+  ).run(now, id, CONNECTION_TOOL_OPERATION);
+};
+
+/**
+ * Revokes every "Permitir siempre" of a server `identities` (name to identity) does not hold as
+ * it is: removed, renamed, or with another command or address. Returns how many were revoked.
+ */
+export const revokeConnectionToolsNotIn = (
+  db: Database.Database,
+  identities: Readonly<Record<string, string>>,
+  now: string,
+): number => {
+  const gone = connectionToolGrants(db).filter(
+    ({ server, identity }) => !Object.hasOwn(identities, server) || identities[server] !== identity,
+  );
+  for (const { id } of gone) revokeConnectionTool(db, id, now);
+  return gone.length;
+};

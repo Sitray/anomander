@@ -4,6 +4,7 @@ import type { AddressInfo } from 'node:net';
 import {
   type ButtonPress,
   type ChatAction,
+  type ChatConnectionGrant,
   type ChatEvent,
   type ChatExpensesRequest,
   type ChatHistoryRequest,
@@ -88,6 +89,17 @@ export interface ExpensesLedger {
   correct(expenseId: number): Promise<DoorReply | null>;
 }
 
+/**
+ * DK-24 AC3: the tools the principal allowed with "Permitir siempre", for the window's
+ * "Conexiones", and "Quitar". Nothing of a call's arguments is in them.
+ */
+export interface ConnectionGrants {
+  /** Those in force, by server and then tool. */
+  list(): ChatConnectionGrant[];
+  /** Revokes one; nothing when it is not one in force. */
+  revoke(id: number): void;
+}
+
 export interface LocalChannelDeps {
   /** `ANOMANDER_LOCAL_TOKEN`: never logged (DK-3 AC2). */
   token: string;
@@ -97,6 +109,8 @@ export interface LocalChannelDeps {
   conversation: StoredConversation;
   memory: StoredMemory;
   expenses: ExpensesLedger;
+  /** Absent, as in the setup guide, the list is empty and nothing can be revoked. */
+  grants?: ConnectionGrants;
   logger: Logger;
   now?: () => Date;
 }
@@ -182,6 +196,9 @@ const requestSchema = z.discriminatedUnion('type', [
   // DK-17 AC6
   z.strictObject({ type: z.literal('undo_expense'), id, expenseId: z.int().positive() }),
   z.strictObject({ type: z.literal('correct_expense'), id, expenseId: z.int().positive() }),
+  // DK-24 AC3
+  z.strictObject({ type: z.literal('connection_grants'), id }),
+  z.strictObject({ type: z.literal('revoke_connection_grant'), id, grantId: z.int().positive() }),
 ]);
 
 /** The request in a frame, or the `id` it carried when it is not one. */
@@ -216,6 +233,12 @@ const unsupported = (images: ChatRequest & { type: 'receipt' }): string | undefi
 
 export const startLocalChannel = (deps: LocalChannelDeps): LocalChannel => {
   const { handlers, conversation, memory, expenses, logger, now = () => new Date() } = deps;
+  const grants: ConnectionGrants = deps.grants ?? {
+    list: () => [],
+    revoke: () => {
+      throw new Error('no store to revoke a grant from');
+    },
+  };
   const expected = digest(deps.token);
   // DK-3 AC2: exactly the protocol and then the token, compared in constant time.
   const authorized = (header: string | undefined): boolean => {
@@ -228,7 +251,10 @@ export const startLocalChannel = (deps: LocalChannelDeps): LocalChannel => {
   };
 
   /** The requests answered with a list in `handle`, not with a reply. */
-  type Listing = ChatHistoryRequest | ChatExpensesRequest | { type: 'memories' | 'actions' };
+  type Listing =
+    | ChatHistoryRequest
+    | ChatExpensesRequest
+    | { type: 'memories' | 'actions' | 'connection_grants' };
   /** DK-18: the list a `memories` or `actions` request asks for. Their words are never logged. */
   const listed = (request: ChatRequest & { type: 'memories' | 'actions' }): ChatEvent =>
     request.type === 'memories'
@@ -280,6 +306,12 @@ export const startLocalChannel = (deps: LocalChannelDeps): LocalChannel => {
       case 'forget_action':
         return (async () => {
           await memory.forgetAction(request.actionId);
+          return null;
+        })();
+      // DK-24 AC3: "Quitar", answered `done`.
+      case 'revoke_connection_grant':
+        return (async () => {
+          grants.revoke(request.grantId);
           return null;
         })();
       // DK-17 AC6: answered as the expense's buttons in the chat are.
@@ -342,7 +374,9 @@ export const startLocalChannel = (deps: LocalChannelDeps): LocalChannel => {
             ? listed(request)
             : request.type === 'expenses'
               ? { type: 'expenses', inReplyTo: request.id, ...expenses.month(request.month) }
-              : await answer(request);
+              : request.type === 'connection_grants'
+                ? { type: 'connection_grants', inReplyTo: request.id, grants: grants.list() }
+                : await answer(request);
     } catch (error) {
       logger.error(`The daemon failed to handle a ${request.type} from the local channel`, {
         error,
