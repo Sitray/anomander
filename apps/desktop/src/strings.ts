@@ -590,13 +590,15 @@ const es = {
     help: 'Se aplican cuando ANOMANDER vuelve a arrancar, que es al guardar.',
     timeZone: 'Zona horaria',
     timeZoneHelp: 'Las fechas de tus gastos y la hora de tus recordatorios.',
+    machineZone: 'La del reloj del ordenador',
     currency: 'Moneda',
     currencyHelp:
       'La de los gastos nuevos. Los que ya están guardados siguen en la suya: no se convierten.',
     otherCurrency: 'Otra',
     currencyCode: 'Código de la moneda',
-    currencyCodeHelp: 'Su código ISO 4217, de tres letras, como JPY.',
-    currencyInvalid: 'Escribe un código de moneda de tres letras que exista, como JPY.',
+    currencyCodeHelp: 'Su código ISO 4217, de tres letras, como SEK. Ha de tener céntimos.',
+    currencyInvalid:
+      'Escribe el código de una moneda que exista y tenga céntimos (dos decimales), como SEK.',
   },
 } as const;
 
@@ -1113,13 +1115,15 @@ const en: Strings = {
     help: 'They apply when ANOMANDER starts again, which saving does.',
     timeZone: 'Time zone',
     timeZoneHelp: 'The dates of your expenses and the time of your reminders.',
+    machineZone: "The computer's clock",
     currency: 'Currency',
     currencyHelp:
       'The one of new expenses. Those already saved keep their own: nothing is converted.',
     otherCurrency: 'Other',
     currencyCode: 'Currency code',
-    currencyCodeHelp: 'Its three-letter ISO 4217 code, such as JPY.',
-    currencyInvalid: 'Type a three-letter currency code that exists, such as JPY.',
+    currencyCodeHelp: 'Its three-letter ISO 4217 code, such as SEK. It must have cents.',
+    currencyInvalid:
+      'Type the code of a currency that exists and has cents (two decimals), such as SEK.',
   },
 };
 

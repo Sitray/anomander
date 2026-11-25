@@ -663,7 +663,10 @@ mod tests {
         .map_err(|e| e.to_string())?;
         f.core.save_setup(&input)?;
         let env: BTreeMap<String, String> = ready(&f.core).env.into_iter().collect();
-        assert_eq!(env.get("TZ").map(String::as_str), Some("America/Mexico_City"));
+        assert_eq!(
+            env.get("TZ").map(String::as_str),
+            Some("America/Mexico_City")
+        );
         assert_eq!(
             env.get("ANOMANDER_CURRENCY").map(String::as_str),
             Some("MXN")

@@ -24,6 +24,15 @@ const KNOWN = new Set(Intl.supportedValuesOf('currency'));
 /** `true` for an ISO 4217 code this runtime knows, upper case: `EUR`, `USD`, `MXN`. */
 export const isCurrency = (code: string): boolean => /^[A-Z]{3}$/.test(code) && KNOWN.has(code);
 
+/**
+ * `true` for a currency written with two decimals, as `EUR` and `USD` are: amounts are kept in
+ * hundredths, so one with none (`JPY`) or three (`BHD`) cannot be the principal's.
+ */
+export const hasCents = (code: string): boolean =>
+  isCurrency(code) &&
+  new Intl.NumberFormat('en', { style: 'currency', currency: code }).resolvedOptions()
+    .maximumFractionDigits === 2;
+
 let principal = DEFAULT_CURRENCY;
 
 /** The principal's currency: the one new expenses are written in and bare cents are shown in. */

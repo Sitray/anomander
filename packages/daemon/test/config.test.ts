@@ -222,8 +222,15 @@ describe('loadConfig', () => {
     expect(loadConfig(telegram).currency).toBe('EUR');
     expect(loadConfig({ ...telegram, ANOMANDER_CURRENCY: '' }).currency).toBe('EUR');
     expect(loadConfig({ ...telegram, ANOMANDER_CURRENCY: 'usd' }).currency).toBe('USD');
+    expect(loadConfig({ ...telegram, ANOMANDER_CURRENCY: 'GBP' }).currency).toBe('GBP');
     expect(() => loadConfig({ ...telegram, ANOMANDER_CURRENCY: 'XYZ' })).toThrow(
       'invalid configuration: ANOMANDER_CURRENCY must be an ISO 4217 currency, such as EUR',
     );
+    // Amounts are kept in hundredths, so a currency needs exactly two decimals.
+    for (const code of ['JPY', 'BHD']) {
+      expect(() => loadConfig({ ...telegram, ANOMANDER_CURRENCY: code })).toThrow(
+        `invalid configuration: ANOMANDER_CURRENCY must have two decimals, as EUR or USD do: ${code} has not`,
+      );
+    }
   });
 });

@@ -90,6 +90,14 @@ fn is_currency(value: &str) -> bool {
     value.len() == 3 && value.bytes().all(|byte| byte.is_ascii_uppercase())
 }
 
+/// The currencies the window's and the daemon's `Intl` write without two decimals (none, as
+/// `JPY`, or three, as `BHD`). Amounts are kept in hundredths, so none of them can be chosen.
+const WITHOUT_CENTS: &[&str] = &[
+    "AFN", "ALL", "BHD", "BIF", "CLP", "COP", "DJF", "GNF", "HUF", "IDR", "IQD", "IRR", "ISK",
+    "JOD", "JPY", "KMF", "KPW", "KRW", "KWD", "LAK", "LBP", "LYD", "MGA", "MMK", "OMR", "PYG",
+    "RWF", "SLL", "SOS", "SYP", "TND", "UGX", "VND", "VUV", "XAF", "XOF", "XPF", "YER",
+];
+
 /// A trimmed value, `None` when empty.
 fn optional(value: &str) -> Option<String> {
     let value = value.trim();
@@ -156,11 +164,23 @@ pub fn apply_setup(
     }
     let time_zone = optional(&input.time_zone);
     if let Some(zone) = time_zone.as_deref().filter(|zone| !is_time_zone(zone)) {
-        return Err(format!("the time zone must be an IANA zone such as Europe/Madrid: {zone}"));
+        return Err(format!(
+            "the time zone must be an IANA zone such as Europe/Madrid: {zone}"
+        ));
     }
     let currency = optional(&input.currency).map(|code| code.to_ascii_uppercase());
     if let Some(code) = currency.as_deref().filter(|code| !is_currency(code)) {
-        return Err(format!("the currency must be an ISO 4217 code such as EUR: {code}"));
+        return Err(format!(
+            "the currency must be an ISO 4217 code such as EUR: {code}"
+        ));
+    }
+    if let Some(code) = currency
+        .as_deref()
+        .filter(|code| WITHOUT_CENTS.contains(code))
+    {
+        return Err(format!(
+            "the currency must have two decimals, as EUR or USD do: {code} has not"
+        ));
     }
     let model = checked_model("model", &input.model)?;
     let vision_model = checked_model("vision model", &input.vision_model)?;
@@ -460,6 +480,11 @@ mod tests {
             Some("America/Argentina/Buenos_Aires")
         );
         assert_eq!(settings.currency.as_deref(), Some("USD"));
+        let pounds = input(json!({
+            "principalChatId": "", "model": "", "visionModel": "", "currency": "GBP"
+        }));
+        let gbp = apply_setup(&pounds, &Settings::default(), &store)?;
+        assert_eq!(gbp.currency.as_deref(), Some("GBP"));
         let unset = input(json!({ "principalChatId": "", "model": "", "visionModel": "" }));
         let settings = apply_setup(&unset, &settings, &store)?;
         assert_eq!((settings.time_zone, settings.currency), (None, None));
@@ -467,6 +492,8 @@ mod tests {
             (json!({ "timeZone": "Europe/Ma drid" }), "time zone"),
             (json!({ "timeZone": "../x" }), "time zone"),
             (json!({ "currency": "EURO" }), "currency"),
+            (json!({ "currency": "jpy" }), "two decimals"),
+            (json!({ "currency": "BHD" }), "two decimals"),
             (json!({ "currency": "€" }), "currency"),
         ] {
             let mut value = value;

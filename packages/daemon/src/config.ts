@@ -1,5 +1,5 @@
 import { BlockList, isIP } from 'node:net';
-import { DEFAULT_CURRENCY, isCurrency, type Locale } from '@anomander/protocol';
+import { DEFAULT_CURRENCY, hasCents, isCurrency, type Locale } from '@anomander/protocol';
 import { z } from 'zod';
 
 // PRD §14.4, plus the read API of the read access draft (docs/read-access-prd.md §8). Every
@@ -142,7 +142,11 @@ const envSchema = z.object({
   ANOMANDER_CURRENCY: z
     .string()
     .transform((value) => value.toUpperCase())
-    .refine(isCurrency, 'must be an ISO 4217 currency, such as EUR')
+    .refine(isCurrency, { error: 'must be an ISO 4217 currency, such as EUR', abort: true })
+    // Amounts are kept in hundredths (`total_cents`): a currency needs exactly two decimals.
+    .refine(hasCents, {
+      error: (issue) => `must have two decimals, as EUR or USD do: ${String(issue.input)} has not`,
+    })
     .default(DEFAULT_CURRENCY),
   // Spanish by default, so Docker and existing installs keep speaking it; the desktop app sets it.
   ANOMANDER_LOCALE: z.enum(['es', 'en']).default('es'),

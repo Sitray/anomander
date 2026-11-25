@@ -590,7 +590,10 @@ mod tests {
             child_env(&parent, &inputs).into_iter().collect()
         };
         let chosen = env_with(Some("America/Mexico_City"), Some("MXN"));
-        assert_eq!(chosen.get("TZ").map(String::as_str), Some("America/Mexico_City"));
+        assert_eq!(
+            chosen.get("TZ").map(String::as_str),
+            Some("America/Mexico_City")
+        );
         assert_eq!(
             chosen.get("ANOMANDER_CURRENCY").map(String::as_str),
             Some("MXN")

@@ -926,7 +926,7 @@ One Node process (the daemon) and one SQLite file. The Telegram front door runs 
 | `ANOMANDER_AUTH_PATH` | Model login credentials (R-27 AC5) | `./data/auth.json` |
 | `ANOMANDER_LOCALE` | Language of the bot and of the model's replies: `es` or `en` | `es` |
 | `TZ` | Time zone | `Europe/Madrid` |
-| `ANOMANDER_CURRENCY` | The principal's currency (ISO 4217, any case): new expenses are written in it, the stored ones keep theirs, with no conversion (DK-25) | `EUR` |
+| `ANOMANDER_CURRENCY` | The principal's currency (ISO 4217, any case, with two decimals: amounts are kept in hundredths): new expenses are written in it, the stored ones keep theirs, with no conversion (DK-25) | `EUR` |
 
 Secrets live only in `.env`, which is git-ignored. `.env.example` lists every variable. Model credentials are not ANOMANDER variables: pi-ai reads each provider's own variable (for example `OPENAI_API_KEY` or `ANTHROPIC_API_KEY`), which also goes in `.env`.
 
