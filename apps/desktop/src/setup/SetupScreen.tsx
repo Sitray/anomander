@@ -30,8 +30,20 @@ export interface SetupScreenProps {
 
 const { setup: text } = strings;
 const OTHER = 'other';
+/** DK-21: the daily limit of AI calls the shell takes, as typed: a whole number from 1 to 10000. */
+const aiLimitOf = (typed: string): number | undefined => {
+  const limit = /^\d{1,5}$/.test(typed) ? Number(typed) : Number.NaN;
+  return limit >= 1 && limit <= 10_000 ? limit : undefined;
+};
 
-type FieldName = 'botToken' | 'chatId' | 'model' | 'visionModel' | 'keyName' | 'keyValue';
+type FieldName =
+  | 'botToken'
+  | 'chatId'
+  | 'model'
+  | 'visionModel'
+  | 'keyName'
+  | 'keyValue'
+  | 'aiLimit';
 type Errors = Partial<Record<FieldName, string>>;
 /** What saving will do to a provider key. */
 type KeyChange = 'store' | 'remove';
@@ -94,6 +106,8 @@ function SetupForm(props: FormProps) {
   const [chatId, setChatId] = useState(setup.principalChatId ?? '');
   const [model, setModel] = useState(setup.model ?? '');
   const [visionModel, setVisionModel] = useState(setup.visionModel ?? '');
+  /** DK-21: empty keeps the stored limit. */
+  const [aiLimit, setAiLimit] = useState('');
   const [provider, setProvider] = useState<string>(KNOWN_PROVIDER_KEYS[0]);
   const [keyName, setKeyName] = useState('');
   const [changes, setChanges] = useState<Record<string, KeyChange>>({});
@@ -179,6 +193,9 @@ function SetupForm(props: FormProps) {
           ? {}
           : { model: text.modelInvalid }),
       ...(isModelId(input.visionModel) ? {} : { visionModel: text.modelInvalid }),
+      ...(aiLimit.trim() === '' || aiLimitOf(aiLimit.trim()) !== undefined
+        ? {}
+        : { aiLimit: text.aiLimitInvalid }),
       // A key typed but not added is still meant to be saved.
       ...takeTypedKey(false),
     };
@@ -192,6 +209,8 @@ function SetupForm(props: FormProps) {
     }
     for (const [name, value] of typedKeys.current) input.providerKeys[name] = value;
     if (token !== '') input.telegramBotToken = token;
+    const limit = aiLimitOf(aiLimit.trim());
+    if (limit !== undefined) input.dailyAiCallLimit = limit;
 
     setSaving(true);
     try {
@@ -319,6 +338,21 @@ function SetupForm(props: FormProps) {
               {text.aiUsage(props.aiUsage.calls, props.aiUsage.limit)}
             </p>
           )}
+          <Field label={text.aiLimit} help={text.aiLimitHelp} error={errors.aiLimit}>
+            {({ id, describedBy, invalid }) => (
+              <input
+                id={id}
+                inputMode="numeric"
+                autoComplete="off"
+                spellCheck={false}
+                placeholder={props.aiUsage == null ? '' : String(props.aiUsage.limit)}
+                value={aiLimit}
+                aria-describedby={describedBy}
+                aria-invalid={invalid}
+                onChange={(event) => setAiLimit(event.target.value)}
+              />
+            )}
+          </Field>
         </fieldset>
 
         {offersWebSearch && (
