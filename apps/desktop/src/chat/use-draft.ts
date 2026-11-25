@@ -42,12 +42,17 @@ export const useDraft = (): Draft => {
         return;
       }
       setAttachments(next);
+      // B70: when both happened, both are said; images left out must never go unmentioned.
+      const notImages = files.length < offered.length;
+      const overflow = files.length > room;
       setNotice(
-        files.length < offered.length
-          ? strings.chat.onlyImages
-          : files.length > room
-            ? strings.chat.tooMany
-            : null,
+        notImages && overflow
+          ? strings.chat.onlyImagesAndTooMany
+          : notImages
+            ? strings.chat.onlyImages
+            : overflow
+              ? strings.chat.tooMany
+              : null,
       );
     },
     [attachments],
