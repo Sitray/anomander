@@ -413,6 +413,24 @@ fn reveal(app: AppHandle) {
     come_back(&app);
 }
 
+/// B25: `address` as the browser gets it, when it is an absolute `http` or `https` address with a
+/// host and no user name; `None` for anything else: another scheme (`javascript:`, `file:`), a
+/// relative address, or one that does not parse.
+fn web_address(address: &str) -> Option<String> {
+    let url = tauri::Url::parse(address).ok()?;
+    let web = matches!(url.scheme(), "http" | "https");
+    let host = url.host_str().is_some_and(|host| !host.is_empty());
+    let named = !url.username().is_empty() || url.password().is_some();
+    (web && host && !named).then(|| url.as_str().to_owned())
+}
+
+/// B25: opens a web address of a reply in the principal's browser, never in the window.
+#[tauri::command]
+fn open_link(url: String) -> Result<(), String> {
+    let address = web_address(&url).ok_or("only an http or https address opens")?;
+    open_in_browser(&address)
+}
+
 /// A task goes by itself, or no longer does: the menu bar offers to stop it and shows the work,
 /// and the notch says when it is over.
 #[tauri::command]
@@ -713,7 +731,8 @@ pub fn run() {
             capture_screen,
             perform_action,
             reveal,
-            set_task_running
+            set_task_running,
+            open_link
         ])
         .setup(set_up)
         .on_window_event(|window, event| {
@@ -784,6 +803,36 @@ mod tests {
         // The name `shell.ts` listens for.
         assert!(include_str!("../../src/shell.ts")
             .contains(&format!("CHAT_SHOWN_EVENT = '{CHAT_SHOWN_EVENT}'")));
+    }
+
+    /// B25: only an absolute `http` or `https` address with a host, and no user name, reaches
+    /// the browser; it goes as the parser wrote it.
+    #[test]
+    fn a_link_opens_only_an_absolute_web_address() {
+        assert_eq!(
+            web_address("https://example.com/a b?q=1#x").as_deref(),
+            Some("https://example.com/a%20b?q=1#x")
+        );
+        assert_eq!(
+            web_address("http://example.com").as_deref(),
+            Some("http://example.com/")
+        );
+        for refused in [
+            "javascript:alert(1)",
+            "file:///etc/passwd",
+            "mailto:ana@example.com",
+            "ftp://example.com/a",
+            "data:text/html,hi",
+            "example.com/a",
+            "//example.com/a",
+            "/etc/passwd",
+            "https://ana@example.com/",
+            "https://ana:secret@example.com/",
+            "https://",
+            "",
+        ] {
+            assert_eq!(web_address(refused), None, "{refused}");
+        }
     }
 
     #[test]

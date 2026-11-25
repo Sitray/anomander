@@ -577,7 +577,12 @@ Each message is one JSON text frame, typed in `packages/protocol/src/local-chann
 | `computer`: a task, one capture and the steps already done (DK-10) | `reply` whose `computer` is the one action the vision processor proposes (`src/processor/computer-planner.ts`), described by code; or a `reply` in words that ends the task. The daemon never performs anything. At most 12 steps, each one call against the daily AI limit |
 | `history`, with an optional `limit` (DK-16) | `history` with the stored conversation of both doors, oldest first: the latest `limit` messages, at most 500 (`HISTORY_LIMIT`). Each has its id, `from`, `door`, text, buttons and the reply's `channelRef`; a `reply` with S-22 when it cannot be read |
 | `clear_history` (DK-16) | `done` once the stored conversation and the recent turns are erased for real; a `reply` with S-22 when they cannot be |
+| `cancel`: the `target` id of a `text`, `screen` or `connect` request still owed (DK-19) | `done` at once, outside the chat's turn. That turn's processor call is aborted (`src/processor/cancel.ts`), none starts after it, and a task with connections stops before its next step; what was written stays. The target's own answer then says S-130 when a call was stopped |
 | A frame that is none of these | `rejected`, and nothing is done with it |
+
+While a task with connections calls a tool for a request still owed, the daemon may send
+`progress` (`of`: that request's id; `phase`: `web_search` or `connection`), never an answer
+itself (DK-19).
 
 A `reply` carries its own `channelRef`, `desktop:<uuid>`, which is recorded as the delivery
 (R-9 AC2) once the frame left through the socket. The channel only answers: what ANOMANDER

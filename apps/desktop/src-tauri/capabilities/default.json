@@ -26,6 +26,7 @@
     "allow-capture-screen",
     "allow-perform-action",
     "allow-reveal",
-    "allow-set-task-running"
+    "allow-set-task-running",
+    "allow-open-link"
   ]
 }

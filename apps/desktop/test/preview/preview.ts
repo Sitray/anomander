@@ -209,6 +209,10 @@ mockIPC(
       case 'reveal':
       case 'set_task_running':
         return undefined;
+      // B25: a browser page stands in for the principal's browser.
+      case 'open_link':
+        window.open((payload as { url: string }).url, '_blank', 'noopener');
+        return undefined;
       // DK-15: the subscription logins. ChatGPT opens the browser and waits for a pasted address
       // (or 6 seconds); Kimi Code shows a device code. `fail=login` shows a failure.
       case 'get_subscriptions':
