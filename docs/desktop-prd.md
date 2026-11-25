@@ -655,6 +655,16 @@ and keep its secrets in the operating system instead of a text file.
     "I can't do that on Windows yet." (Telegram too). Should the window still be asked for one,
     the shell refuses it and the window says "Todavía no puedo ver tu pantalla en Windows." or
     "Todavía no puedo usar tu ordenador en Windows." instead of the macOS permission message.
+  - AC3 (B27): Cmd+Shift+Space on macOS, Ctrl+Shift+Space on Windows, from any app, brings the
+    chat to the front (as "Abrir chat" does, so it shows the stored conversation again); pressed
+    while the chat is in front, it hides it. The shell registers it with
+    `tauri-plugin-global-shortcut`; no window is granted the plugin's commands, so no page can
+    register a hotkey. When the system refuses it (another app holds it), the app works as before
+    and the log says "the chat hotkey could not be registered", with nothing of the principal's.
+    Not configurable yet. Known limit: on Windows it takes Ctrl+Shift+Space from every app while
+    ANOMANDER runs (in Word, a non-breaking space).
+  - AC4 (B27): in the window, Cmd+, (Ctrl+, on Windows) opens the setup, and closes it back to the
+    chat when it is open, as the status area's button.
 
 ## 6. Decisions
 

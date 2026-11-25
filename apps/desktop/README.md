@@ -81,6 +81,9 @@ src/
   locale.ts           the window's language: the system's, as the shell hands it, Spanish for a
                       Spanish system and English for any other (the browser's with no shell)
   strings.ts          every string the principal reads, in Spanish and English, in one place
+  platform.ts         macOS or Windows, as the shell hands it: the text names the Keychain or the
+                      Credential Manager by it (DK-20)
+  shortcuts.ts        Cmd+, (Ctrl+, on Windows) opens the setup; the chat hotkey is the shell's
   App.tsx             the container: status on top; chat, setup, connections or subscriptions under it
   styles.css          the one stylesheet: tokens, then each part
   chat/

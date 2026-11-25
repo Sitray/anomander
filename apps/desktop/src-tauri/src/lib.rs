@@ -9,6 +9,7 @@ pub mod daemon;
 pub mod data_dir;
 pub mod diagnostics;
 pub mod file_mode;
+pub mod hotkey;
 pub mod ledger_import;
 pub mod locale;
 pub mod login;
@@ -639,6 +640,8 @@ fn set_up(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         on_menu,
     )?;
     notch::build(app)?;
+    // DK-20: after the tray, which can bring the chat too; without the hotkey the app still works.
+    hotkey::install(app.handle());
     app.manage(Shell {
         core,
         supervisor,
