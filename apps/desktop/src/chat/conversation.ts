@@ -1,6 +1,12 @@
 // DK-4: the conversation as the window shows it. A pure reducer, in memory only (never
 // localStorage or disk): the daemon keeps what was said, and the window shows it again (DK-16).
-import type { ChatButton, ChatReply, ChatStoredMessage, ComputerAction } from '@anomander/protocol';
+import type {
+  ChatButton,
+  ChatNotice,
+  ChatReply,
+  ChatStoredMessage,
+  ComputerAction,
+} from '@anomander/protocol';
 import type { Attachment } from './attachments.ts';
 import type { ConnectionState, Outcome } from './chat-client.ts';
 
@@ -144,7 +150,9 @@ export type ConversationAction =
    */
   | { type: 'history'; messages: ChatStoredMessage[]; replacing?: Message[] }
   /** DK-16: the daemon erased the stored conversation. */
-  | { type: 'cleared' };
+  | { type: 'cleared' }
+  /** DK-22: ANOMANDER sent this unasked; its buttons answer it as a reply's do. */
+  | { type: 'notice'; notice: ChatNotice };
 
 export const emptyConversation: Conversation = { connection: 'offline', messages: [] };
 
@@ -372,6 +380,24 @@ export const reduceConversation = (
       return { ...conversation, messages: action.messages.map(fromStore) };
     case 'cleared':
       return { ...conversation, messages: [] };
+    case 'notice': {
+      const { channelRef, text, buttons } = action.notice;
+      const id = `notice:${channelRef}`;
+      // The same notice twice is shown once.
+      if (messages.some((message) => message.id === id)) return conversation;
+      const shown: BotMessage = {
+        kind: 'bot',
+        id,
+        channelRef,
+        text,
+        buttons,
+        press: null,
+        proposal: null,
+        start: null,
+        offer: null,
+      };
+      return { ...conversation, messages: [...messages, shown] };
+    }
   }
 };
 

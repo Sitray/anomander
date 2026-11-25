@@ -147,23 +147,46 @@ export const recordingTurns =
     return reply === null ? reply : turns.add(describe(input), reply, doorOf(input));
   };
 
+/** DK-22: the desktop app as a door for what is sent unasked, while it is connected. */
+export interface AppNotices {
+  connected(): boolean;
+  notify: Notify;
+}
+
 /**
  * Records each message sent to the principal unasked as a turn with no principal part, once it
- * was delivered: they go to Telegram only (DK-4 AC5). A send that fails or ends without
- * delivering it stores nothing (DK-16 AC1).
+ * was delivered. It goes to Telegram as before (R-1), and also to the app while it is connected
+ * (DK-22): one fan-out, kept once, as the first door that delivered it gives its reference, and
+ * `message.onDelivered` is called that once. A send that fails or ends without delivering it
+ * stores nothing (DK-16 AC1); it rejects with Telegram's failure when no door delivered it.
  */
 export const recordingNotices =
-  (turns: RecentTurns, notify: Notify): Notify =>
+  (turns: RecentTurns, notify: Notify, app?: AppNotices): Notify =>
   async (message) => {
-    let channelRef: string | undefined;
-    await notify({
+    let first: { door: TurnDoor; channelRef: string } | undefined;
+    const through = (door: TurnDoor) => ({
       ...message,
-      onDelivered: (delivery) => {
-        channelRef = delivery.channelRef;
+      onDelivered: (delivery: Delivery) => {
+        if (first !== undefined) return;
+        first = { door, channelRef: delivery.channelRef };
         message.onDelivered?.(delivery);
       },
     });
-    if (channelRef !== undefined) turns.add(null, message, 'telegram', channelRef);
+    let failure: { error: unknown } | undefined;
+    try {
+      await notify(through('telegram'));
+    } catch (error) {
+      failure = { error };
+    }
+    if (app?.connected() === true) {
+      // An app that closed meanwhile leaves Telegram's outcome as it was.
+      await app.notify(through('app')).catch(() => {});
+    }
+    if (first === undefined) {
+      if (failure !== undefined) throw failure.error;
+      return;
+    }
+    turns.add(null, message, first.door, first.channelRef);
   };
 
 /** How a task on the computer appears in the recent turns: what was asked, never the screen. */

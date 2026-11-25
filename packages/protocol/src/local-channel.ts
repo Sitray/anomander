@@ -360,8 +360,25 @@ export interface ChatExpenses {
   pending: { count: number; totalCents: number };
 }
 
+/**
+ * DK-22: what ANOMANDER sends unasked (a reminder, the morning digest, the weekly summary, any
+ * other message of `notify`), pushed to every open connection of the app. It answers no request.
+ * A press on one of its buttons comes back as a `ChatButtonPress` with this `channelRef`.
+ */
+export interface ChatNotice {
+  type: 'notice';
+  /** It answers no request. */
+  inReplyTo: null;
+  /** This message's own reference: `desktop:<uuid>`. */
+  channelRef: string;
+  text: string;
+  buttons: ChatButton[];
+  sentAt: string;
+}
+
 export type ChatEvent =
   | ChatReply
+  | ChatNotice
   | ChatDone
   | ChatRejected
   | ChatHistory

@@ -82,11 +82,11 @@ and keep its secrets in the operating system instead of a text file.
     context (R-16 AC3) and the same stored conversation, which the daemon keeps and the app's chat
     shows again (DK-16).
   - AC5: what ANOMANDER sends unasked (reminders, the morning digest, the weekly summary) goes
-    to Telegram only, as today, whether or not the app's chat is open (decision 4). Without
-    Telegram (DK-5 AC4) it is not sent: a reminder waits and goes out late once Telegram is set
-    up, the digest and the summary are skipped, and the other unasked messages are logged as not
-    sent. What goes out is kept in the stored conversation (DK-16), so the app's chat shows it
-    the next time it loads the conversation.
+    to Telegram, as before, and also to the app while it is connected (DK-22, decision 4).
+    With neither door it is not sent: a reminder waits and goes out late once a door is there,
+    the digest is tried again until noon (R-26), the summary is skipped, and the other unasked
+    messages are logged as not sent. What goes out is kept in the stored conversation (DK-16),
+    so the app's chat shows it the next time it loads the conversation.
   - AC6: an input R-20 does not support gets the same reply as in Telegram: S-18 for a PDF,
     S-20 for an image over 20 MB.
   - AC7: `/login` and `/logout` stay in Telegram (R-27): their messages go out through the bot.
@@ -643,6 +643,28 @@ and keep its secrets in the operating system instead of a text file.
     chat asks for the stored conversation again, as after a forget confirmed in the chat. When it
     was not forgotten (the reply S-22) the item stays and the screen says so; when the connection
     was lost first, that it cannot know.
+- DK-22 Notifications in the app (backlog B14, 2026-11-25: "Reminders and summaries do not reach
+  an app-only user (no Telegram): the local channel only answers. Use
+  `tauri-plugin-notification`."; B29: "Notifications show up to 180 characters of the reply
+  (`src-tauri/src/lib.rs:357-368`, `notification.rs:5`), amounts and memories on a locked
+  screen. A "show content / notify only" switch.").
+  - AC1: whatever the daemon sends unasked through `notify` (a reminder, the morning digest, the
+    weekly summary, S-12, S-13, S-14, the reply to a queued receipt) goes through one fan-out: to
+    Telegram as before, and to every open connection of the app as a `notice` (its text, its
+    buttons, its own `desktop:` reference, when). It is kept once in the stored conversation
+    (DK-16), with the door and reference of the first door that delivered it, Telegram first;
+    what it starts once delivered (a decision's message, S-12 after a receipt's reply) starts
+    once. A press on a notice's button is a press as any other (DK-4 AC3). It is never logged
+    with its words.
+  - AC2: with no app connected and no Telegram it waits instead of being kept apart: no queue is
+    built. A reminder stays due, the digest is tried again until noon and a queued receipt stays
+    queued (DK-4 AC5); they go out as soon as the app connects, since the jobs that only send run
+    then, one at a time with the scheduler's. A weekly summary whose time passes with no door is
+    missed, as decision 5 says.
+  - AC3: the window shows a notice as a message of ANOMANDER at the end of the chat, its buttons
+    armed, and hands it to the shell to notify as an answer is (only while the window is not in
+    front). Known limit: a notice that arrives before the stored conversation an empty chat asked
+    for keeps that conversation from being shown (DK-16 AC3: nothing is merged).
 
 ## 6. Decisions
 
@@ -651,7 +673,9 @@ and keep its secrets in the operating system instead of a text file.
 2. **One daemon.** Decided (2026-11-10): the app and Docker are two ways to run the same
    daemon. One or the other, never both at once (DK-2).
 3. **Chat in v1.** Decided (2026-11-10): yes, besides control (start, stop, status, secrets).
-4. **Where unasked messages go.** Decided (2026-11-10): to Telegram only (DK-4 AC5).
+4. **Where unasked messages go.** Decided (2026-11-10): to Telegram only (DK-4 AC5). Changed
+   (2026-11-25, backlog B14): to Telegram and to the app while it is connected (DK-22), so an
+   app-only principal gets reminders and summaries too.
 5. **A missed weekly summary.** Decided (2026-11-10): it stays missed, as today (R-10): if the
    app is closed on Sunday at the summary's time, that week has none (DK-7 AC2).
 7. **Acting on the computer.** Decided (2026-11-10), then corrected the same day: routine
@@ -681,7 +705,7 @@ the principal to confirm:
 | The token (DK-3 AC2) | `ANOMANDER_LOCAL_TOKEN`, handed over on the daemon's stdin by the app (DK-5 AC2), at least 32 characters of `A-Z a-z 0-9 . _ ~ + -`. Unset: the channel is off and no port opens, as under Docker |
 | The port | `ANOMANDER_LOCAL_PORT`, default `4312`, always on `127.0.0.1`. The app picks a free one at each launch |
 | Presenting the token | As the second WebSocket subprotocol: `new WebSocket(url, ['anomander.v1', token])` |
-| Messages | `ChatRequest` (`text`, `receipt`, `button`, `screen`, `computer`, `connect`, `history`, `clear_history`, `expenses`, `memories`, `forget_memory`, `actions`, `forget_action`) and `ChatEvent` (`reply`, `done`, `rejected`, `history`, `expenses`, `memories`, `actions`) in `packages/protocol/src/local-channel.ts` |
+| Messages | `ChatRequest` (`text`, `receipt`, `button`, `screen`, `computer`, `connect`, `history`, `clear_history`, `expenses`, `memories`, `forget_memory`, `actions`, `forget_action`) and `ChatEvent` (`reply`, `notice`, `done`, `rejected`, `history`, `expenses`, `memories`, `actions`) in `packages/protocol/src/local-channel.ts`. `notice` is the only event the daemon pushes unasked (DK-22) |
 | Why the daemon stopped (DK-2 AC3) | Exit code `3`: another daemon runs on the same database. `4`: another process uses the bot. `1`: anything else. `exitCodes` in `packages/protocol` |
 | The single-daemon lock (DK-2 AC1) | `<database>.lock` beside the database, held while the daemon runs and freed by the operating system when it ends, so a crash leaves nothing stale |
 

@@ -24,6 +24,7 @@ import { type OAuthSet, oauthKeeperFrom, printOAuthForShell } from './connection
 import { createConnectionSession, type Door, type Later } from './connections/session.ts';
 import { type ConnectionProblems, createConnectionTasks } from './connections/task.ts';
 import {
+  type AppNotices,
   buttonTurn,
   computerTurn,
   createRecentTurns,
@@ -51,6 +52,7 @@ import {
   type ExpensesLedger,
   type LocalChannel,
   type LocalChannelAddress,
+  NO_APP,
   type StoredConversation,
   type StoredMemory,
   startLocalChannel,
@@ -215,6 +217,8 @@ const startChannel = (
   expenses: ExpensesLedger,
   logger: Logger,
   now?: () => Date,
+  /** DK-22: an app connected, so what waited for a door can go out. */
+  onConnected?: () => void,
 ): LocalChannel | undefined =>
   config.localToken === undefined
     ? undefined
@@ -227,6 +231,7 @@ const startChannel = (
         expenses,
         logger,
         ...(now === undefined ? {} : { now }),
+        ...(onConnected === undefined ? {} : { onConnected }),
       });
 
 /** `/start`, `/start@bot` or `/start anything`, as Telegram sends a command. */
@@ -677,6 +682,8 @@ export const startAnomander = <M>(config: Config, deps: AnomanderDeps<M>): Anoma
   // What every front door calls (DK-4 AC1). R-28: `/start`, and the guide while a provider is
   // not connected.
   const chatTurns = oneTurnAtATime();
+  /** Set once `stop` begins: nothing new starts after it. */
+  let stopping = false;
   const { inTurn } = chatTurns;
   /**
    * R-28 AC4: the guide while setup is incomplete. The check runs before the turn, so a slow
@@ -802,16 +809,35 @@ export const startAnomander = <M>(config: Config, deps: AnomanderDeps<M>): Anoma
   );
 
   // R-8, R-10, R-12 AC3, R-13 AC2, R-19, R-25 AC7 and R-26 AC5 send messages the principal did
-  // not ask for. Without Telegram they have no door (the local channel only answers, DK-4 AC5)
-  // and `notify` rejects, as a failed send does: a receipt stays queued until it can be told
-  // about (R-8 AC5), and an S-12 is not offered.
-  notify = recordingNotices(turns, telegram.send);
+  // not ask for. They go to Telegram, and to the app while it is connected (DK-22), through one
+  // fan-out. With neither door `notify` rejects, as a failed send does: a receipt stays queued
+  // until it can be told about (R-8 AC5), and an S-12 is not offered.
+  // The app's door is bound below, once its channel exists.
+  let app: AppNotices = {
+    connected: () => false,
+    notify: async () => {
+      throw new Error(NO_APP);
+    },
+  };
+  notify = recordingNotices(turns, telegram.send, {
+    connected: () => app.connected(),
+    notify: (message) => app.notify(message),
+  });
   send = telegram.send;
   deleteMessage = telegram.deleteMessage;
-  // Without Telegram the jobs that only send wait instead of failing every minute: a reminder
-  // goes out late once Telegram is set up (R-25 AC7); the digest and the summary are skipped.
-  const unasked = <T>(job: () => Promise<T>) =>
-    config.telegram === undefined ? async () => undefined : job;
+  // With no door the jobs that only send wait instead of failing every minute: a reminder goes
+  // out late once a door is there (R-25 AC7), the digest is tried again until noon (R-26 AC5) and
+  // the summary is skipped (decision 5 of the desktop PRD).
+  const reachable = () => config.telegram !== undefined || app.connected();
+  // DK-22: they also run when the app connects, one at a time, never beside the scheduler's.
+  let unaskedRuns: Promise<unknown> = Promise.resolve();
+  const unasked =
+    <T>(job: () => Promise<T>) =>
+    (): Promise<T | undefined> => {
+      const run = unaskedRuns.then(() => (reachable() ? job() : undefined));
+      unaskedRuns = run.catch(() => {});
+      return run;
+    };
   const retention = createRetention({
     db,
     inboxDir: config.inboxDir,
@@ -826,6 +852,9 @@ export const startAnomander = <M>(config: Config, deps: AnomanderDeps<M>): Anoma
   const queue = createReceiptQueue({ db, readQueued: receipts.readQueued, notify, now, logger });
   const dueReminders = createDueReminders({ db, timeZone: config.timeZone, now, notify, logger });
   const digest = createMorningDigest({ db, timeZone: config.timeZone, now, notify, logger });
+  const sendMorningDigest = unasked(digest.send);
+  const sendDueReminders = unasked(dueReminders.send);
+  const drainQueue = unasked(queue.drain);
   const scheduler = startScheduler({
     retentionCron: config.retentionCron,
     weeklySummaryCron: config.weeklySummaryCron,
@@ -838,10 +867,10 @@ export const startAnomander = <M>(config: Config, deps: AnomanderDeps<M>): Anoma
           await dailyBackup.run();
         }
       },
-      sendMorningDigest: unasked(digest.send),
-      sendDueReminders: unasked(dueReminders.send),
-      // T13 F1: a receipt is read only where its reply can be told; it waits for Telegram.
-      drainQueue: unasked(queue.drain),
+      sendMorningDigest,
+      sendDueReminders,
+      // T13 F1: a receipt is read only where its reply can be told; it waits for a door.
+      drainQueue,
       watchReceipts: retention.watchQueuedReceipts,
       sendWeeklySummary: unasked(summary.send),
     },
@@ -906,7 +935,22 @@ export const startAnomander = <M>(config: Config, deps: AnomanderDeps<M>): Anoma
     },
     logger,
     now,
+    // DK-22: what waited for a door goes out as soon as the app connects, as the next minute's
+    // run would send it, in the scheduler's order. Never once the daemon stops.
+    () => {
+      if (stopping) return;
+      for (const [name, job] of [
+        ['sendMorningDigest', sendMorningDigest],
+        ['sendDueReminders', sendDueReminders],
+        ['drainQueue', drainQueue],
+      ] as const) {
+        chatTurns
+          .track<unknown>(job())
+          .catch((error: unknown) => logger.error('scheduled job failed', { job: name, error }));
+      }
+    },
   );
+  if (localChannel !== undefined) app = localChannel;
 
   telegram.started.then(
     () =>
@@ -926,6 +970,7 @@ export const startAnomander = <M>(config: Config, deps: AnomanderDeps<M>): Anoma
     // T14: nothing new starts once this begins; the turns and jobs that run end, up to a
     // deadline, before the store closes. A step that fails is reported after the rest closed.
     stop: async () => {
+      stopping = true;
       chatTurns.close();
       login?.stop();
       const failures: unknown[] = [];

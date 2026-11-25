@@ -177,6 +177,11 @@ export const useChat = (channel: LocalChannel | null, options: ChatOptions = {})
           });
         }
       },
+      // DK-22: what ANOMANDER sent unasked is said in the chat and notified as an answer is.
+      onNotice: (notice) => {
+        dispatch({ type: 'notice', notice });
+        latest.current.onReply?.(notice.text);
+      },
       onOutcome: (requestId, outcome) => {
         // DK-13: a route is followed only in the answer to a plain text.
         const plain = texts.current.delete(requestId);
