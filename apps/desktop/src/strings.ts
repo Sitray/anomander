@@ -25,9 +25,11 @@ const monthTitle = (locale: string, month: string): string =>
 
 /**
  * DK-21: when a message was sent, in local time: the hour alone today, with the day otherwise.
+ * B70: empty when `at` is not a date, so a bad time never breaks the conversation.
  */
 const messageTime = (locale: string, at: string, now: Date): string => {
   const date = new Date(at);
+  if (Number.isNaN(date.getTime())) return '';
   const today = date.toDateString() === now.toDateString();
   return new Intl.DateTimeFormat(locale, {
     ...(today ? {} : { day: 'numeric', month: 'short' }),
@@ -47,6 +49,14 @@ const enStore = (): string =>
 
 /** DK-4: how many files one message carries, as the daemon accepts. */
 export const MAX_ATTACHMENTS = 10;
+
+/** DK-4, DK-21: why files dropped in the draft stayed out, alone or together (B70). */
+const ES_TOO_MANY = `Caben ${MAX_ATTACHMENTS} archivos por mensaje. Me quedo con los ${MAX_ATTACHMENTS} primeros.`;
+const ES_ONLY_IMAGES =
+  'Solo puedo leer fotos e imágenes de tickets. Los PDF y otros archivos se quedan fuera.';
+const EN_TOO_MANY = `A message holds ${MAX_ATTACHMENTS} files. I'm keeping the first ${MAX_ATTACHMENTS}.`;
+const EN_ONLY_IMAGES =
+  'I can only read photos and images of receipts. PDFs and other files stay out.';
 
 const es = {
   status: {
@@ -144,11 +154,12 @@ const es = {
     removeAttachment: (name: string) => `Quitar ${name}`,
     file: 'Archivo',
     dropHere: 'Suelta aquí el ticket',
-    tooMany: `Caben ${MAX_ATTACHMENTS} archivos por mensaje. Me quedo con los ${MAX_ATTACHMENTS} primeros.`,
+    tooMany: ES_TOO_MANY,
     tooHeavy: 'Pesan demasiado para ir juntos. Envíalos en varios mensajes.',
     /** DK-21: R-20 reads images only; anything else stays out of the draft. */
-    onlyImages:
-      'Solo puedo leer fotos e imágenes de tickets. Los PDF y otros archivos se quedan fuera.',
+    onlyImages: ES_ONLY_IMAGES,
+    /** B70: both happened at once, so both are said. */
+    onlyImagesAndTooMany: `${ES_ONLY_IMAGES} ${ES_TOO_MANY}`,
 
     /** DK-21: under each message. */
     messageTime: (at: string, now: Date): string => messageTime('es-ES', at, now),
@@ -847,9 +858,10 @@ const en: Strings = {
     removeAttachment: (name: string) => `Remove ${name}`,
     file: 'File',
     dropHere: 'Drop the receipt here',
-    tooMany: `A message holds ${MAX_ATTACHMENTS} files. I'm keeping the first ${MAX_ATTACHMENTS}.`,
+    tooMany: EN_TOO_MANY,
     tooHeavy: 'They are too heavy to go together. Send them in several messages.',
-    onlyImages: 'I can only read photos and images of receipts. PDFs and other files stay out.',
+    onlyImages: EN_ONLY_IMAGES,
+    onlyImagesAndTooMany: `${EN_ONLY_IMAGES} ${EN_TOO_MANY}`,
 
     messageTime: (at: string, now: Date): string => messageTime('en-GB', at, now),
     copy: 'Copy message',

@@ -349,6 +349,31 @@ describe('web addresses in a reply (B25)', () => {
     expect(onOpenLink).toHaveBeenCalledWith('https://example.com/login');
     expect(screen.queryByText(strings.chat.linkOnlyInTelegram('Abrir'))).toBeNull();
   });
+
+  it('shows an address with a user name as plain text, never as a link (B68)', async () => {
+    const { socket } = openWithLinks();
+    say('¿dónde?');
+    const request = await sentRequest(socket);
+    const text = 'Entra en https://ana@evil.com/login ya.';
+    act(() => socket.receive(replyTo(request.id, { text })));
+
+    expect(screen.queryAllByRole('link')).toHaveLength(0);
+    expect(screen.getByRole('log').textContent).toContain(text);
+  });
+
+  it('links an address followed by an ellipsis without the ellipsis (B68)', async () => {
+    const { socket, onOpenLink } = openWithLinks();
+    say('¿dónde?');
+    const request = await sentRequest(socket);
+    act(() => socket.receive(replyTo(request.id, { text: 'Mira https://example.com/tienda…' })));
+
+    const link = screen.getByRole('link');
+    expect(link.textContent).toBe('https://example.com/tienda');
+    expect(link.getAttribute('href')).toBe('https://example.com/tienda');
+    fireEvent.click(link);
+    expect(onOpenLink).toHaveBeenCalledWith('https://example.com/tienda');
+    expect(screen.getByRole('log').textContent).toContain('https://example.com/tienda…');
+  });
 });
 
 describe('delivery honesty', () => {
@@ -481,6 +506,19 @@ describe('receipts (DK-4 AC2)', () => {
 
     expect(within(attachmentList()).getAllByRole('listitem')).toHaveLength(10);
     expect(screen.getByText(strings.chat.tooMany)).toBeTruthy();
+  });
+
+  it('says both why files that are not images stayed out and that only 10 fit (B70)', () => {
+    openChat();
+    const files = [
+      new File(['bytes'], 'factura.pdf', { type: 'application/pdf' }),
+      ...Array.from({ length: 12 }, (_, index) => image(`ticket-${index}.png`)),
+    ];
+    fireEvent.paste(composer(), { clipboardData: { files } });
+
+    expect(within(attachmentList()).getAllByRole('listitem')).toHaveLength(10);
+    const notice = screen.getByText(strings.chat.onlyImages, { exact: false });
+    expect(notice.textContent).toContain(strings.chat.tooMany);
   });
 
   it('sends a rejected receipt again with its images', async () => {
@@ -2325,6 +2363,58 @@ describe('reading the conversation (DK-21)', () => {
 
     expect(writeText).toHaveBeenCalledWith('Apuntado: 23,00 €.');
     expect(await screen.findByText(strings.chat.copied)).toBeTruthy();
+  });
+
+  it('copies nothing and stays as it was when the clipboard refuses at once (B70)', async () => {
+    const writeText = vi.fn((_text: string): Promise<void> => {
+      throw new DOMException('Not allowed', 'NotAllowedError');
+    });
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
+    const errors: unknown[] = [];
+    const caught = (event: ErrorEvent) => {
+      errors.push(event.error);
+      event.preventDefault();
+    };
+    window.addEventListener('error', caught);
+    const socket = openChat();
+    await answered(socket, '23 € cena', new Date().toISOString(), 'Apuntado: 23,00 €.');
+
+    try {
+      fireEvent.click(screen.getAllByRole('button', { name: strings.chat.copy })[1] as HTMLElement);
+      await act(async () => {});
+    } finally {
+      window.removeEventListener('error', caught);
+    }
+
+    expect(writeText).toHaveBeenCalledWith('Apuntado: 23,00 €.');
+    expect(errors).toEqual([]);
+    expect(screen.queryByText(strings.chat.copied)).toBeNull();
+    expect(screen.getAllByRole('button', { name: strings.chat.copy })).toHaveLength(2);
+  });
+
+  it('copies nothing and stays as it was when the clipboard refuses later', async () => {
+    const writeText = vi.fn(async (_text: string) => {
+      throw new DOMException('Not allowed', 'NotAllowedError');
+    });
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
+    const socket = openChat();
+    await answered(socket, '23 € cena', new Date().toISOString(), 'Apuntado: 23,00 €.');
+
+    fireEvent.click(screen.getAllByRole('button', { name: strings.chat.copy })[1] as HTMLElement);
+    await act(async () => {});
+
+    expect(writeText).toHaveBeenCalledWith('Apuntado: 23,00 €.');
+    expect(screen.queryByText(strings.chat.copied)).toBeNull();
+  });
+
+  it('shows a message whose time is not a valid date, without a time (B70)', async () => {
+    const socket = openChat();
+    await answered(socket, '23 € cena', 'no es una fecha', 'Apuntado.');
+
+    expect(screen.getByText('Apuntado.')).toBeTruthy();
+    const times = [...screen.getByRole('log').querySelectorAll('time')];
+    expect(times.map((time) => time.dateTime)).not.toContain('no es una fecha');
+    expect(screen.getAllByRole('button', { name: strings.chat.copy })).toHaveLength(2);
   });
 
   it('finds words in the loaded conversation, ignoring case and accents, and highlights them', async () => {
