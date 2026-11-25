@@ -349,6 +349,31 @@ describe('web addresses in a reply (B25)', () => {
     expect(onOpenLink).toHaveBeenCalledWith('https://example.com/login');
     expect(screen.queryByText(strings.chat.linkOnlyInTelegram('Abrir'))).toBeNull();
   });
+
+  it('shows an address with a user name as plain text, never as a link (B68)', async () => {
+    const { socket } = openWithLinks();
+    say('¿dónde?');
+    const request = await sentRequest(socket);
+    const text = 'Entra en https://ana@evil.com/login ya.';
+    act(() => socket.receive(replyTo(request.id, { text })));
+
+    expect(screen.queryAllByRole('link')).toHaveLength(0);
+    expect(screen.getByRole('log').textContent).toContain(text);
+  });
+
+  it('links an address followed by an ellipsis without the ellipsis (B68)', async () => {
+    const { socket, onOpenLink } = openWithLinks();
+    say('¿dónde?');
+    const request = await sentRequest(socket);
+    act(() => socket.receive(replyTo(request.id, { text: 'Mira https://example.com/tienda…' })));
+
+    const link = screen.getByRole('link');
+    expect(link.textContent).toBe('https://example.com/tienda');
+    expect(link.getAttribute('href')).toBe('https://example.com/tienda');
+    fireEvent.click(link);
+    expect(onOpenLink).toHaveBeenCalledWith('https://example.com/tienda');
+    expect(screen.getByRole('log').textContent).toContain('https://example.com/tienda…');
+  });
 });
 
 describe('delivery honesty', () => {
