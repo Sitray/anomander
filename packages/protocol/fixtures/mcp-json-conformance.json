@@ -1,0 +1,383 @@
+{
+  "$comment": [
+    "DK-11: one set of mcp.json cases run by the three readers of the file, so they cannot drift: the daemon (packages/daemon/src/connections/config.ts), the shell (apps/desktop/src-tauri/src/connections/document.rs) and the app's form (apps/desktop/src/connections/validation.ts).",
+    "documents: run by the daemon and the shell, which read whole files. `at` is where the shell says the file is wrong (shown in the connections screen); `daemonAt` is every path the daemon logs. Known difference: the daemon names the server, the shell the key inside it, since zod reports a failed union at the server; and the shell names only the first wrong place.",
+    "serverNames and urls: run by all three; the daemon and the shell read each inside a one-server document, the app's form checks the field itself.",
+    "expectedDifferences: a case on which one reader is known to disagree, as { validator: daemon | shell | app, list: documents | serverNames | urls, case: its name or value, valid: what that reader says, comment: why it is left so }; that reader is held to its own verdict. Empty while the three agree."
+  ],
+  "documents": [
+    {
+      "name": "no server",
+      "document": {
+        "mcpServers": {}
+      },
+      "valid": true
+    },
+    {
+      "name": "a process server with every field",
+      "document": {
+        "mcpServers": {
+          "zeta": {
+            "command": "npx",
+            "args": ["-y", "zeta-mcp", ""],
+            "env": {
+              "TOKEN": "@keychain",
+              "EMPTY": ""
+            },
+            "readOnly": ["search"]
+          }
+        }
+      },
+      "valid": true
+    },
+    {
+      "name": "an HTTPS server with every field",
+      "document": {
+        "mcpServers": {
+          "alpha": {
+            "url": "https://example.com/mcp",
+            "headers": {
+              "Authorization": "Bearer b-2"
+            },
+            "readOnly": ["list"]
+          }
+        }
+      },
+      "valid": true
+    },
+    {
+      "name": "plain HTTP to this machine",
+      "document": {
+        "mcpServers": {
+          "local": {
+            "url": "http://127.0.0.1:8080/mcp"
+          }
+        }
+      },
+      "valid": true
+    },
+    {
+      "name": "several servers, each of its kind",
+      "document": {
+        "mcpServers": {
+          "zeta": {
+            "command": "zeta-mcp"
+          },
+          "alpha": {
+            "url": "https://example.com/mcp"
+          },
+          "My notes 2.0": {
+            "command": "notes"
+          }
+        }
+      },
+      "valid": true
+    },
+    {
+      "name": "a top level that is a list",
+      "document": [],
+      "valid": false,
+      "at": "its top level",
+      "daemonAt": [""]
+    },
+    {
+      "name": "a top level that is null",
+      "document": null,
+      "valid": false,
+      "at": "its top level",
+      "daemonAt": [""]
+    },
+    {
+      "name": "a top-level key besides mcpServers",
+      "document": {
+        "mcpServers": {},
+        "version": 1
+      },
+      "valid": false,
+      "at": "version",
+      "daemonAt": [""]
+    },
+    {
+      "name": "no mcpServers",
+      "document": {},
+      "valid": false,
+      "at": "mcpServers",
+      "daemonAt": ["mcpServers"]
+    },
+    {
+      "name": "mcpServers as a list",
+      "document": {
+        "mcpServers": []
+      },
+      "valid": false,
+      "at": "mcpServers",
+      "daemonAt": ["mcpServers"]
+    },
+    {
+      "name": "a server that is a text",
+      "document": {
+        "mcpServers": {
+          "off": "disabled for now"
+        }
+      },
+      "valid": false,
+      "at": "mcpServers.off",
+      "daemonAt": ["mcpServers.off"]
+    },
+    {
+      "name": "a server that is null",
+      "document": {
+        "mcpServers": {
+          "zeta": null
+        }
+      },
+      "valid": false,
+      "at": "mcpServers.zeta",
+      "daemonAt": ["mcpServers.zeta"]
+    },
+    {
+      "name": "a server name the daemon refuses",
+      "document": {
+        "mcpServers": {
+          "a/b": {
+            "command": "x"
+          }
+        }
+      },
+      "valid": false,
+      "at": "mcpServers.a/b",
+      "daemonAt": ["mcpServers.a/b"]
+    },
+    {
+      "name": "a key other MCP clients write (type)",
+      "document": {
+        "mcpServers": {
+          "zeta": {
+            "command": "npx",
+            "type": "stdio"
+          }
+        }
+      },
+      "valid": false,
+      "at": "mcpServers.zeta.type",
+      "daemonAt": ["mcpServers.zeta"]
+    },
+    {
+      "name": "an empty command",
+      "document": {
+        "mcpServers": {
+          "zeta": {
+            "command": ""
+          }
+        }
+      },
+      "valid": false,
+      "at": "mcpServers.zeta.command",
+      "daemonAt": ["mcpServers.zeta"]
+    },
+    {
+      "name": "both a command and a URL",
+      "document": {
+        "mcpServers": {
+          "zeta": {
+            "command": "x",
+            "url": "https://example.com"
+          }
+        }
+      },
+      "valid": false,
+      "at": "mcpServers.zeta.url",
+      "daemonAt": ["mcpServers.zeta"]
+    },
+    {
+      "name": "neither a command nor a URL",
+      "document": {
+        "mcpServers": {
+          "zeta": {
+            "args": []
+          }
+        }
+      },
+      "valid": false,
+      "at": "mcpServers.zeta.command",
+      "daemonAt": ["mcpServers.zeta"]
+    },
+    {
+      "name": "arguments that are not a list",
+      "document": {
+        "mcpServers": {
+          "zeta": {
+            "command": "x",
+            "args": "-y"
+          }
+        }
+      },
+      "valid": false,
+      "at": "mcpServers.zeta.args",
+      "daemonAt": ["mcpServers.zeta"]
+    },
+    {
+      "name": "an env value that is a number",
+      "document": {
+        "mcpServers": {
+          "zeta": {
+            "command": "x",
+            "env": {
+              "PORT": 8080
+            }
+          }
+        }
+      },
+      "valid": false,
+      "at": "mcpServers.zeta.env.PORT",
+      "daemonAt": ["mcpServers.zeta"]
+    },
+    {
+      "name": "an env value with an empty name",
+      "document": {
+        "mcpServers": {
+          "zeta": {
+            "command": "x",
+            "env": {
+              "": "v"
+            }
+          }
+        }
+      },
+      "valid": false,
+      "at": "mcpServers.zeta.env.",
+      "daemonAt": ["mcpServers.zeta"]
+    },
+    {
+      "name": "env as a list",
+      "document": {
+        "mcpServers": {
+          "zeta": {
+            "command": "x",
+            "env": []
+          }
+        }
+      },
+      "valid": false,
+      "at": "mcpServers.zeta.env",
+      "daemonAt": ["mcpServers.zeta"]
+    },
+    {
+      "name": "headers on a process server",
+      "document": {
+        "mcpServers": {
+          "zeta": {
+            "command": "x",
+            "headers": {}
+          }
+        }
+      },
+      "valid": false,
+      "at": "mcpServers.zeta.headers",
+      "daemonAt": ["mcpServers.zeta"]
+    },
+    {
+      "name": "env on an HTTP server",
+      "document": {
+        "mcpServers": {
+          "alpha": {
+            "url": "https://example.com/mcp",
+            "env": {}
+          }
+        }
+      },
+      "valid": false,
+      "at": "mcpServers.alpha.env",
+      "daemonAt": ["mcpServers.alpha"]
+    },
+    {
+      "name": "plain HTTP to another machine",
+      "document": {
+        "mcpServers": {
+          "alpha": {
+            "url": "http://example.com/mcp"
+          }
+        }
+      },
+      "valid": false,
+      "at": "mcpServers.alpha.url",
+      "daemonAt": ["mcpServers.alpha"]
+    },
+    {
+      "name": "an empty read-only tool",
+      "document": {
+        "mcpServers": {
+          "zeta": {
+            "command": "x",
+            "readOnly": [""]
+          }
+        }
+      },
+      "valid": false,
+      "at": "mcpServers.zeta.readOnly",
+      "daemonAt": ["mcpServers.zeta"]
+    },
+    {
+      "name": "two wrong servers",
+      "document": {
+        "mcpServers": {
+          "zeta": {
+            "command": ""
+          },
+          "off": "x"
+        }
+      },
+      "valid": false,
+      "at": "mcpServers.zeta.command",
+      "daemonAt": ["mcpServers.zeta", "mcpServers.off"]
+    }
+  ],
+  "serverNames": {
+    "valid": [
+      "notes",
+      "My notes 2.0",
+      "a",
+      "A_b-c.d",
+      "0day",
+      "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+    ],
+    "invalid": [
+      "",
+      " notes",
+      "-x",
+      ".x",
+      "_x",
+      "a/b",
+      "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "ñandú",
+      "notes\n",
+      "tab\tname"
+    ]
+  },
+  "urls": {
+    "valid": [
+      "https://example.com/mcp",
+      "HTTPS://EXAMPLE.COM/mcp",
+      "http://127.0.0.1:8080/mcp",
+      "http://localhost/mcp",
+      "http://LOCALHOST:3000",
+      "http://[::1]:9000/mcp",
+      "http://[0:0:0:0:0:0:0:1]/",
+      "http://127.1/",
+      " https://example.com/mcp ",
+      "https:example.com"
+    ],
+    "invalid": [
+      "http://example.com/mcp",
+      "http://127.0.0.2/mcp",
+      "http://localhost.example.com/",
+      "http://localhost./",
+      "ws://localhost/mcp",
+      "ftp://example.com",
+      "localhost:3000",
+      "https://",
+      ""
+    ]
+  },
+  "expectedDifferences": []
+}

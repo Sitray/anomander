@@ -1,6 +1,7 @@
-// DK-11: the checks of the shell (`src-tauri/src/connections.rs`), which are the daemon's
+// DK-11: the checks of the shell (`src-tauri/src/connections/document.rs`), which are the daemon's
 // (`packages/daemon/src/connections/config.ts`), made before saving so a mistake is explained in
-// Spanish beside its field. The shell checks again; this only saves a round trip.
+// Spanish beside its field. The shell checks again; this only saves a round trip. The three run
+// the cases of `packages/protocol/fixtures/mcp-json-conformance.json`.
 
 /** A letter or a digit, then up to 39 of those, spaces, `.`, `_` and `-`. */
 export const isServerName = (value: string): boolean =>

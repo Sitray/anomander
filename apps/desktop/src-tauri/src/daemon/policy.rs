@@ -3,7 +3,8 @@ use std::time::{Duration, Instant};
 
 use crate::snapshot::StopReason;
 
-/// Exit codes of `packages/protocol/src/daemon-process.ts`.
+/// Exit codes of `packages/protocol/src/daemon-process.ts`, pinned to
+/// `packages/protocol/fixtures/exit-codes.json` by a test below.
 pub const EXIT_ALREADY_RUNNING: i32 = 3;
 pub const EXIT_BOT_IN_USE: i32 = 4;
 
@@ -52,6 +53,34 @@ pub fn after_exit(code: Option<i32>, exits_in_window: usize) -> AfterExit {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// DK-2 AC3: the codes the daemon exits with, as `packages/protocol` pins them.
+    fn pinned() -> serde_json::Map<String, serde_json::Value> {
+        let text = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../../packages/protocol/fixtures/exit-codes.json"
+        ));
+        match serde_json::from_str(text) {
+            Ok(serde_json::Value::Object(codes)) => codes,
+            _ => panic!("exit-codes.json is not a JSON object"),
+        }
+    }
+
+    #[test]
+    fn the_exit_codes_are_the_daemons() {
+        let codes = pinned();
+        let code = |name: &str| codes.get(name).and_then(serde_json::Value::as_i64);
+        assert_eq!(
+            code("alreadyRunning"),
+            Some(i64::from(EXIT_ALREADY_RUNNING))
+        );
+        assert_eq!(code("botInUse"), Some(i64::from(EXIT_BOT_IN_USE)));
+        // Any other code is a failure the supervisor restarts.
+        let failed = code("failed")
+            .and_then(|code| i32::try_from(code).ok())
+            .unwrap_or_else(|| panic!("exit-codes.json has no `failed`"));
+        assert_eq!(after_exit(Some(failed), 1), AfterExit::Restart);
+    }
 
     #[test]
     fn a_failure_is_restarted_until_the_third_exit() {

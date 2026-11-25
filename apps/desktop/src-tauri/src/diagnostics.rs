@@ -14,7 +14,7 @@ use std::collections::BTreeSet;
 use std::sync::{Mutex, OnceLock, PoisonError};
 
 /// Every secret this run has known: the launch token, and each launch's `LaunchSpec.secrets`
-/// (the list `shell.rs` builds). Kept for the whole run, so a line about an older launch is
+/// (the list `shell/mod.rs` builds). Kept for the whole run, so a line about an older launch is
 /// scrubbed too.
 fn known() -> &'static Mutex<BTreeSet<String>> {
     static SECRETS: OnceLock<Mutex<BTreeSet<String>>> = OnceLock::new();
