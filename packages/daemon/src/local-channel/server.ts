@@ -386,9 +386,9 @@ export const startLocalChannel = (deps: LocalChannelDeps): LocalChannel => {
               ? { type: 'expenses', inReplyTo: request.id, ...expenses.month(request.month) }
               : request.type === 'connection_grants'
                 ? { type: 'connection_grants', inReplyTo: request.id, grants: grants.list() }
-              : request.type === 'probe_model'
-                ? { type: 'probe', inReplyTo: request.id, outcome: await probe() }
-                : await answer(request);
+                : request.type === 'probe_model'
+                  ? { type: 'probe', inReplyTo: request.id, outcome: await probe() }
+                  : await answer(request);
     } catch (error) {
       logger.error(`The daemon failed to handle a ${request.type} from the local channel`, {
         error,
