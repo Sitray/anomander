@@ -7,13 +7,13 @@ import {
   type Notify,
   type PrincipalText,
   type ProbeOutcome,
-  ROUTE_KINDS,
-  type RouteKind,
   type ScreenQuestion,
   setCurrency,
   setLocale,
   strings,
 } from '@anomander/protocol';
+import { connectionCommand, doorOf, isExport, isStart, routesOf } from './app/commands.ts';
+import { oneTurnAtATime, sayingStopped, settled } from './app/turns.ts';
 import { createTelegramLogin, type TelegramLoginDeps } from './auth/telegram-login.ts';
 import { createDailyBackup } from './backup/daily-backup.ts';
 import { budgeted, createAiBudget } from './budget/ai-budget.ts';
@@ -172,46 +172,6 @@ export interface Anomander {
 
 /** T14: how long a shutdown waits for the turns that run before it closes the store. */
 export const SHUTDOWN_DEADLINE_MS = 5_000;
-const STOPPING = 'ANOMANDER is stopping: this turn did not start';
-
-/**
- * Runs the inputs of every front door one at a time, in the order they arrived: Telegram and the
- * desktop app are one conversation (DK-4 AC4), and two turns never interleave. Once `close` is
- * called no turn starts, except one that ends work already running (`ends`); `drained` settles
- * when every turn and every piece of work given to `track` has.
- */
-const oneTurnAtATime = () => {
-  let last: Promise<unknown> = Promise.resolve();
-  let closed = false;
-  const running = new Set<Promise<unknown>>();
-  const track = <T>(work: Promise<T>): Promise<T> => {
-    running.add(work);
-    const done = () => running.delete(work);
-    work.then(done, done);
-    return work;
-  };
-  const inTurn =
-    <I, R>(handler: (input: I) => Promise<R>, { ends = false } = {}) =>
-    (input: I): Promise<R> => {
-      const turn = last.then(() => {
-        if (closed && !ends) throw new Error(STOPPING);
-        return handler(input);
-      });
-      last = turn.catch(() => {});
-      return track(turn);
-    };
-  return {
-    inTurn,
-    track,
-    close: () => {
-      closed = true;
-    },
-    // Work may start more work, such as a turn that starts a task's step: wait until none is left.
-    drained: async () => {
-      while (running.size > 0) await Promise.allSettled([...running]);
-    },
-  };
-};
 
 /** Whether `work` settled within `ms`. */
 const settlesWithin = async (work: Promise<unknown>, ms: number): Promise<boolean> => {
@@ -259,44 +219,6 @@ const startChannel = (
         ...(aiUsage === undefined ? {} : { aiUsage }),
         ...(onConnected === undefined ? {} : { onConnected }),
       });
-
-/** `/start`, `/start@bot` or `/start anything`, as Telegram sends a command. */
-const isStart = (text: string) => /^\/start(?:@\w+)?(?:\s|$)/.test(text.trim());
-
-/** The task of `/mcp <tarea>` or `/mcp@bot <tarea>`, empty without one; `undefined` otherwise. */
-const connectionCommand = (text: string): string | undefined => {
-  const command = /^\/mcp(?:@\w+)?(?:\s+([\s\S]*))?$/.exec(text.trim());
-  return command === null ? undefined : (command[1] ?? '').trim();
-};
-
-/** R-29: `/exportar` or `/exportar@bot`, with anything after it. */
-const isExport = (text: string) => /^\/exportar(?:@\w+)?(?:\s|$)/.test(text.trim());
-
-/** The front door a message came through: the local channel names its messages `desktop:…`. */
-const doorOf = (channelRef: string): Door =>
-  channelRef.startsWith('desktop:') ? 'app' : 'telegram';
-
-/**
- * DK-13 AC1: a look and a task on the computer need the app; connections serve both doors.
- * DK-20: on Windows the app has neither yet, so it offers only connections, as Telegram does.
- */
-const routesOf = (door: Door): readonly RouteKind[] =>
-  door === 'app' && process.platform !== 'win32' ? ROUTE_KINDS : ['connect'];
-
-/**
- * DK-19: a turn the principal stopped from the app says so (S-130), and that what was done stays:
- * its buttons and their delivery are kept, so an expense written before the stop can be undone.
- */
-const sayingStopped =
-  <I, R extends { text: string }>(handler: (input: I) => Promise<R>) =>
-  async (input: I): Promise<R> => {
-    const reply = await handler(input);
-    return turnStopped() ? { ...reply, text: strings.turnCancelled() } : reply;
-  };
-
-/** What a handler answers once its turn is over: a `Later` is waited for outside the turn. */
-const settled = async (answer: DoorReply | Later | null): Promise<DoorReply | null> =>
-  answer !== null && 'later' in answer ? answer.later : answer;
 
 /**
  * Logs the gaps in English and sends the guide, once the bot listens (R-28 AC3). Without
