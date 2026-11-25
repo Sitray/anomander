@@ -11,14 +11,14 @@ import {
   setLocale,
   strings,
 } from '@anomander/protocol';
-import { connectionCommand, doorOf, isExport, isStart, routesOf } from './app/commands.ts';
+import { connectionCommand, doorOf, isExport, isStart } from './app/commands.ts';
+import { createHandlers } from './app/handlers.ts';
 import { startJobs } from './app/jobs.ts';
 import { startChannel } from './app/local-channel.ts';
 import { announceGaps } from './app/setup-guide-mode.ts';
 import { oneTurnAtATime, sayingStopped, settled } from './app/turns.ts';
 import type { Anomander, AnomanderDeps } from './app/types.ts';
 import { createTelegramLogin } from './auth/telegram-login.ts';
-import { budgeted, createAiBudget } from './budget/ai-budget.ts';
 import type { Config } from './config.ts';
 import { readConnections } from './connections/config.ts';
 import { createConnections } from './connections/mcp-client.ts';
@@ -29,41 +29,20 @@ import {
   type AppNotices,
   buttonTurn,
   computerTurn,
-  createRecentTurns,
   receiptTurn,
   recordingNotices,
   recordingTurns,
   screenTurn,
 } from './conversation/recent-turns.ts';
-import { createButtonHandler, createDecisionAnswers, pressedOption } from './decisions/answer.ts';
-import { createCancelReminderAnswerHandler } from './decisions/cancel-reminder-decision.ts';
-import { createAmendExpenseCorrection, createExpenseCorrection } from './decisions/correction.ts';
-import { createCreateCategoryAnswerHandler } from './decisions/create-category-decision.ts';
-import { createCreatePolicyAnswerHandler } from './decisions/create-policy-decision.ts';
-import { createForgetHistoryAnswerHandler } from './decisions/forget-history-decision.ts';
-import { createForgetMemoryAnswerHandler } from './decisions/forget-memory-decision.ts';
-import { createGrantDigestAnswerHandler } from './decisions/grant-digest-decision.ts';
-import { createGrantWeeklySummaryAnswerHandler } from './decisions/grant-weekly-summary-decision.ts';
-import { createTextRouter } from './decisions/router.ts';
+import { pressedOption } from './decisions/answer.ts';
 import { type RowOption, rowButton, rowLabel } from './decisions/window-amend.ts';
-import { createReceiptExpenseCycle } from './expenses/receipt-expense.ts';
-import { createTextExpenseHandler } from './expenses/text-expense.ts';
 import { type ChatHandlers, NO_APP } from './local-channel/server.ts';
-import { createPatternOffers } from './patterns/pattern-offers.ts';
-import { turnAborted, turnStopped, withCancel } from './processor/cancel.ts';
+import { turnStopped } from './processor/cancel.ts';
 import { createPiAiComputerPlanner } from './processor/computer-planner.ts';
-import { createPiAiCorrectionInterpreter } from './processor/correction-interpreter.ts';
-import { createPiAiReceiptReader } from './processor/receipt-reader.ts';
-import { createPiAiReplyPhraser } from './processor/reply-phraser.ts';
-import { withRetry } from './processor/retry.ts';
 import { createPiAiScreenReader } from './processor/screen-reader.ts';
-import { createPiAiTextInterpreter } from './processor/text-interpreter.ts';
-import { withTimeout } from './processor/timeout.ts';
 import { readExpensesMonth } from './read-api/month.ts';
 import { startReadApi } from './read-api/server.ts';
-import { createKeepReceiptAnswerHandler } from './retention/keep-receipt-decision.ts';
 import { groundedRoutes } from './routing/grounded-route.ts';
-import { createModelProbe } from './setup/model-probe.ts';
 import { appSetupGuide, cachedSetupGaps, type SetupGap, setupGuide } from './setup/setup-guide.ts';
 import { storedConversation } from './store/conversation.ts';
 import { acquireDaemonLock } from './store/daemon-lock.ts';
@@ -109,7 +88,7 @@ export const startAnomander = <M>(config: Config, deps: AnomanderDeps<M>): Anoma
   // expenses in one currency (DK-25).
   setLocale(config.locale);
   setCurrency(config.currency);
-  const { complete, model, logger = console, now = () => new Date() } = deps;
+  const { model, logger = console, now = () => new Date() } = deps;
   const textModel = config.model;
   const visionModel = config.visionModel;
   if (textModel === undefined || visionModel === undefined) {
@@ -136,112 +115,27 @@ export const startAnomander = <M>(config: Config, deps: AnomanderDeps<M>): Anoma
   })();
   logger.info(`anomander store ready at ${config.dbPath} (${applied} migrations applied)`);
 
-  // R-12: every processor call counts against the daily cap. A receipt reserves its reader call
-  // before reading, so the reader gets the raw call (see `ReceiptExpenseDeps.budget`).
-  const budget = createAiBudget({
-    db,
-    limit: config.dailyAiCallLimit,
-    timeZone: config.timeZone,
-    now,
-  });
-  // R-22 AC2, AC3: each attempt has its own timeout; each retry counts against the budget.
-  // DK-19: a turn stopped from the app aborts its processor call, whichever wrapper made it.
-  const timed = withRetry(withTimeout(withCancel(complete), config.processorTimeoutMs), {
-    // DK-19: a stopped turn makes no retry, so it spends none.
-    mayRetry: () => !turnAborted() && budget.tryConsume(),
-    logger,
-  });
-  // DK-19: outside the budget too, so a call refused after a stop is never counted (R-12).
-  const ai = withCancel(budgeted(timed, budget));
-  // DK-23 AC4: "Probar": one call, never retried, counted against the budget.
-  const probe = createModelProbe({
-    complete,
-    model,
-    budget,
-    gaps: setupGaps,
-    timeoutMs: config.processorTimeoutMs,
-    logger,
-  });
-
-  const phraser = createPiAiReplyPhraser({ complete: ai, model, logger });
-  // R-16 AC3, DK-16: every exchange with the principal is a recent turn, kept in the stored
-  // conversation, which survives a restart; the interpreter reads only the latest ones.
-  const turns = createRecentTurns({ db, now, logger });
   // R-13 AC2: S-12 goes out unasked through `notify`, which needs the bot, while the bot needs the
   // handlers that offer it; it is bound below, before the bot starts polling.
   let notify: Notify = async () => {
     throw new Error('notify used before the bot was created');
   };
-  const patterns = createPatternOffers({ db, now, logger, notify: (message) => notify(message) });
-  const correcting = {
+  const { budget, ai, probe, turns, onText, receipts, onButton } = createHandlers({
+    config,
     db,
-    interpreter: createPiAiCorrectionInterpreter({ complete: ai, model, logger }),
-    timeZone: config.timeZone,
-    now,
-    logger,
-    patterns,
-  };
-  const onText = createTextRouter({
-    db,
-    corrections: {
-      register_expense: createExpenseCorrection(correcting),
-      // R-7 AC6: the text after "Corregir" under a typed expense's reply.
-      amend_expense: createAmendExpenseCorrection(correcting),
-    },
-    otherwise: createTextExpenseHandler({
-      db,
-      interpreter: createPiAiTextInterpreter({ complete: ai, model, logger }),
-      phraser,
-      timeZone: config.timeZone,
-      now,
-      processorSource: `processor:${textModel.provider}/${textModel.id}`,
-      logger,
-      recent: turns.recent,
-      patterns,
-      routes: (message) => routesOf(doorOf(message.channelRef)),
-      // T17: what the connected servers can do, so a search on the web goes to them and not to
-      // the computer. Never connects a server: one not connected yet offers its read-only tools.
-      connected: async () =>
-        deps.connections === undefined
-          ? (servers?.known() ?? [])
-          : (await deps.connections()).flatMap(({ name, tools }) =>
-              tools.map((tool) => ({ server: name, tool: tool.name, purpose: tool.description })),
-            ),
-    }),
-    now,
-  });
-  const vision = deps.visionModel === undefined ? textModel : visionModel;
-  const receipts = createReceiptExpenseCycle({
-    db,
-    reader: createPiAiReceiptReader({ complete: timed, model: deps.visionModel ?? model, logger }),
-    phraser,
-    inboxDir: config.inboxDir,
-    timeZone: config.timeZone,
-    now,
-    processorSource: `processor:${vision.provider}/${vision.id}`,
-    logger,
-    budget,
-  });
-  const onButton = createButtonHandler({
-    db,
-    answers: {
-      ...createDecisionAnswers({ phraser, logger, patterns }),
-      keep_receipt: createKeepReceiptAnswerHandler({ timeZone: config.timeZone }),
-      // R-16 AC3, DK-16: a confirmed forget erases the stored conversation and so the turns.
-      forget_memory: createForgetMemoryAnswerHandler({ clearRecentTurns: turns.clear }),
-      // DK-14 AC4: "Sí" erases the history of what ANOMANDER did.
-      forget_history: createForgetHistoryAnswerHandler({ clearRecentTurns: turns.clear }),
-      // R-18 AC1, AC3: "Sí" to S-15 creates the category.
-      create_category: createCreateCategoryAnswerHandler({ logger }),
-      // R-13 AC1, AC2: "Sí" to S-11 or S-12 stores the policy.
-      create_policy: createCreatePolicyAnswerHandler(),
-      // R-25 AC9: "Sí" to S-46 cancels the reminders and tasks it named.
-      cancel_reminder: createCancelReminderAnswerHandler(),
-      // R-26 AC2: "Sí" to S-53 grants the morning digest's permission.
-      grant_morning_digest: createGrantDigestAnswerHandler(),
-      // R-10 AC6: "Sí" to S-74 grants the weekly summary's permission.
-      grant_weekly_summary: createGrantWeeklySummaryAnswerHandler(),
-    },
+    deps,
+    textModel,
+    visionModel,
+    setupGaps,
+    notify: (message) => notify(message),
+    // T17: what the connected servers can do, so a search on the web goes to them and not to
+    // the computer. Never connects a server: one not connected yet offers its read-only tools.
+    connected: async () =>
+      deps.connections === undefined
+        ? (servers?.known() ?? [])
+        : (await deps.connections()).flatMap(({ name, tools }) =>
+            tools.map((tool) => ({ server: name, tool: tool.name, purpose: tool.description })),
+          ),
     now,
     logger,
   });
