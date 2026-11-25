@@ -1,5 +1,7 @@
 // What the daemon tells whoever started it (a shell, Docker or the desktop app's supervisor)
 // when it stops by itself: the exit code says why, so the supervisor need not read the log.
+// `fixtures/exit-codes.json` holds the same codes: this file and the shell's supervisor
+// (`apps/desktop/src-tauri/src/daemon/policy.rs`) are pinned to it by their tests.
 
 export const exitCodes = {
   /** Any other failure: bad configuration, a store that cannot be opened, lost polling. */
