@@ -114,4 +114,80 @@ describe('a message ANOMANDER sends unasked (DK-22, B14)', () => {
       channelRef: 'desktop:notice-1',
     });
   });
+
+  it('S-169 AC3: one that arrives before the saved conversation is shown after it, once', async () => {
+    FakeWebSocket.history = null;
+    await open(runningSnapshot());
+    const socket = FakeWebSocket.last;
+    act(() => socket.open());
+    const asked = socket.lastRequest;
+    expect(asked.type).toBe('history');
+
+    act(() => socket.receive(notice()));
+    await act(async () =>
+      socket.receive({
+        type: 'history',
+        inReplyTo: asked.id,
+        messages: [
+          {
+            id: 1,
+            from: 'anomander',
+            door: 'app',
+            text: 'Apuntado: 23,00 € en cena.',
+            buttons: [],
+            channelRef: 'desktop:old',
+            at: '2026-10-29T20:00:00.000Z',
+          },
+          {
+            id: 2,
+            from: 'anomander',
+            door: 'app',
+            text: REMINDER,
+            buttons: [],
+            channelRef: 'desktop:notice-1',
+            at: '2026-10-30T10:00:05.000Z',
+          },
+        ],
+      }),
+    );
+
+    const shown = screen.getAllByText(/Apuntado: 23,00 € en cena\.|Recordatorio: llamar a mamá\./);
+    expect(shown.map((element) => element.textContent)).toEqual([
+      'Apuntado: 23,00 € en cena.',
+      REMINDER,
+    ]);
+  });
+
+  it('S-169 AC3: one the saved conversation does not hold yet stays after it', async () => {
+    FakeWebSocket.history = null;
+    await open(runningSnapshot());
+    const socket = FakeWebSocket.last;
+    act(() => socket.open());
+    const asked = socket.lastRequest;
+
+    act(() => socket.receive(notice()));
+    await act(async () =>
+      socket.receive({
+        type: 'history',
+        inReplyTo: asked.id,
+        messages: [
+          {
+            id: 1,
+            from: 'anomander',
+            door: 'telegram',
+            text: 'Apuntado: 23,00 € en cena.',
+            buttons: [],
+            channelRef: 'telegram:5',
+            at: '2026-10-29T20:00:00.000Z',
+          },
+        ],
+      }),
+    );
+
+    const shown = screen.getAllByText(/Apuntado: 23,00 € en cena\.|Recordatorio: llamar a mamá\./);
+    expect(shown.map((element) => element.textContent)).toEqual([
+      'Apuntado: 23,00 € en cena.',
+      REMINDER,
+    ]);
+  });
 });

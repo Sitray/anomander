@@ -659,12 +659,16 @@ and keep its secrets in the operating system instead of a text file.
   - AC2: with no app connected and no Telegram it waits instead of being kept apart: no queue is
     built. A reminder stays due, the digest is tried again until noon and a queued receipt stays
     queued (DK-4 AC5); they go out as soon as the app connects, since the jobs that only send run
-    then, one at a time with the scheduler's. A weekly summary whose time passes with no door is
-    missed, as decision 5 says.
+    then. Every scheduled job and those runs share one queue, so none overlaps another (a receipt
+    is never read while retention may delete its images). A weekly summary whose time passes with
+    no door is missed, as decision 5 says. When Telegram fails and the app got it, one fixed line
+    says so in the log, without the message or the error.
   - AC3: the window shows a notice as a message of ANOMANDER at the end of the chat, its buttons
     armed, and hands it to the shell to notify as an answer is (only while the window is not in
-    front). Known limit: a notice that arrives before the stored conversation an empty chat asked
-    for keeps that conversation from being shown (DK-16 AC3: nothing is merged).
+    front). A notice that arrives before the stored conversation an empty chat asked for, as when
+    the jobs run right as the app connects, does not keep it from being shown: the stored
+    conversation comes first, and after it each notice it does not hold yet (the same reference,
+    or the same words stored no earlier than the notice was sent).
   - AC4: the setup screen has "Notificaciones" with "Mostrar contenido" (the default, as before:
     the start of the message, at most 180 characters) and "Solo avisar", which shows "ANOMANDER
     tiene algo para ti" ("ANOMANDER has something for you" in English) and nothing of the message,

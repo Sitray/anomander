@@ -226,6 +226,29 @@ describe('recent turns', () => {
     expect(stored()).toMatchObject([{ from: 'anomander', door: 'app', channelRef: 'desktop:1' }]);
   });
 
+  it('DK-22: when Telegram fails and the app got it, logs one fixed line without its words', async () => {
+    const turns = createRecentTurns({ db, now: () => AT, logger });
+    const notify = recordingNotices(
+      turns,
+      async () => {
+        throw new Error('400: Bad Request: llamar a mamá');
+      },
+      {
+        connected: () => true,
+        notify: async (message) => {
+          message.onDelivered?.({ channelRef: 'desktop:1', deliveredAt: AT.toISOString() });
+        },
+      },
+      logger,
+    );
+
+    await notify({ text: 'Recordatorio: llamar a mamá.' });
+
+    expect(logger.warn).toHaveBeenCalledTimes(1);
+    expect(logger.warn).toHaveBeenCalledWith('an unasked message reached the app but not Telegram');
+    expect(JSON.stringify(logger.warn.mock.calls)).not.toContain('mamá');
+  });
+
   it("DK-22: with no app connected and no Telegram, rejects with Telegram's failure and keeps nothing", async () => {
     const turns = createRecentTurns({ db, now: () => AT, logger });
     const pushed = vi.fn(async () => {});

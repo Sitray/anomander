@@ -819,25 +819,31 @@ export const startAnomander = <M>(config: Config, deps: AnomanderDeps<M>): Anoma
       throw new Error(NO_APP);
     },
   };
-  notify = recordingNotices(turns, telegram.send, {
-    connected: () => app.connected(),
-    notify: (message) => app.notify(message),
-  });
+  notify = recordingNotices(
+    turns,
+    config.telegram === undefined ? undefined : telegram.send,
+    { connected: () => app.connected(), notify: (message) => app.notify(message) },
+    logger,
+  );
   send = telegram.send;
   deleteMessage = telegram.deleteMessage;
   // With no door the jobs that only send wait instead of failing every minute: a reminder goes
   // out late once a door is there (R-25 AC7), the digest is tried again until noon (R-26 AC5) and
   // the summary is skipped (decision 5 of the desktop PRD).
   const reachable = () => config.telegram !== undefined || app.connected();
-  // DK-22: they also run when the app connects, one at a time, never beside the scheduler's.
-  let unaskedRuns: Promise<unknown> = Promise.resolve();
-  const unasked =
+  // DK-22: they also run when the app connects. Every scheduled job and those runs go through
+  // this one chain, so two jobs never overlap (a receipt is never read while retention may
+  // delete its images), whoever started them.
+  let jobRuns: Promise<unknown> = Promise.resolve();
+  const oneJobAtATime =
     <T>(job: () => Promise<T>) =>
-    (): Promise<T | undefined> => {
-      const run = unaskedRuns.then(() => (reachable() ? job() : undefined));
-      unaskedRuns = run.catch(() => {});
+    (): Promise<T> => {
+      const run = jobRuns.then(job);
+      jobRuns = run.catch(() => {});
       return run;
     };
+  const unasked = <T>(job: () => Promise<T>) =>
+    oneJobAtATime(async () => (reachable() ? job() : undefined));
   const retention = createRetention({
     db,
     inboxDir: config.inboxDir,
@@ -860,18 +866,18 @@ export const startAnomander = <M>(config: Config, deps: AnomanderDeps<M>): Anoma
     weeklySummaryCron: config.weeklySummaryCron,
     timeZone: config.timeZone,
     jobs: {
-      retain: async () => {
+      retain: oneJobAtATime(async () => {
         try {
           return await retention.retain();
         } finally {
           await dailyBackup.run();
         }
-      },
+      }),
       sendMorningDigest,
       sendDueReminders,
       // T13 F1: a receipt is read only where its reply can be told; it waits for a door.
       drainQueue,
-      watchReceipts: retention.watchQueuedReceipts,
+      watchReceipts: oneJobAtATime(retention.watchQueuedReceipts),
       sendWeeklySummary: unasked(summary.send),
     },
     logger,

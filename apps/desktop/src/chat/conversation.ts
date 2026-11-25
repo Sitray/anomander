@@ -83,6 +83,8 @@ export interface BotMessage {
   offer: Offer | null;
   /** DK-16: a stored message that came through Telegram. */
   door?: 'telegram';
+  /** DK-22: when a message sent unasked was sent; only on one that came as a `notice`. */
+  sentAt?: string;
 }
 
 /** DK-11 AC13: the web search offered in one press, and the request asked again once added. */
@@ -215,6 +217,20 @@ const fromStore = (stored: ChatStoredMessage): Message => {
     ...door,
   };
 };
+
+/** DK-22: a message that came unasked as a `notice`. */
+const isNotice = (message: Message): boolean =>
+  message.kind === 'bot' && message.sentAt !== undefined;
+
+/**
+ * DK-22 AC3: whether the stored message is that notice: kept with its reference (the app
+ * delivered it first), or with Telegram's, then the same words sent no earlier than it.
+ */
+const holds = (stored: ChatStoredMessage, notice: Message): boolean =>
+  notice.kind === 'bot' &&
+  stored.from === 'anomander' &&
+  (stored.channelRef === notice.channelRef ||
+    (stored.text === notice.text && stored.at >= (notice.sentAt ?? '')));
 
 const settle = (message: Message, requestId: string, delivery: Delivery): Message => {
   if (message.kind === 'own') {
@@ -376,12 +392,21 @@ export const reduceConversation = (
         return { ...conversation, messages: [...action.messages.map(fromStore), ...carried] };
       }
       // A daemon that restarted while the window shows the conversation: it is already here.
-      if (messages.length > 0) return conversation;
-      return { ...conversation, messages: action.messages.map(fromStore) };
+      // DK-22 AC3: unless all that is shown came unasked meanwhile, as when the app connects
+      // and the jobs that waited for it send at once: then the saved conversation comes first,
+      // and after it each notice it does not hold yet.
+      if (!messages.every(isNotice)) return conversation;
+      return {
+        ...conversation,
+        messages: [
+          ...action.messages.map(fromStore),
+          ...messages.filter((notice) => !action.messages.some((stored) => holds(stored, notice))),
+        ],
+      };
     case 'cleared':
       return { ...conversation, messages: [] };
     case 'notice': {
-      const { channelRef, text, buttons } = action.notice;
+      const { channelRef, text, buttons, sentAt } = action.notice;
       const id = `notice:${channelRef}`;
       // The same notice twice is shown once.
       if (messages.some((message) => message.id === id)) return conversation;
@@ -395,6 +420,7 @@ export const reduceConversation = (
         proposal: null,
         start: null,
         offer: null,
+        sentAt,
       };
       return { ...conversation, messages: [...messages, shown] };
     }

@@ -153,15 +153,20 @@ export interface AppNotices {
   notify: Notify;
 }
 
+/** Why nothing was sent unasked: neither door is there. */
+export const NO_DOOR = 'Telegram is not configured and the app is not connected: nothing was sent';
+
 /**
  * Records each message sent to the principal unasked as a turn with no principal part, once it
- * was delivered. It goes to Telegram as before (R-1), and also to the app while it is connected
- * (DK-22): one fan-out, kept once, as the first door that delivered it gives its reference, and
- * `message.onDelivered` is called that once. A send that fails or ends without delivering it
- * stores nothing (DK-16 AC1); it rejects with Telegram's failure when no door delivered it.
+ * was delivered. It goes to Telegram as before (R-1), when `notify` is given, and also to the
+ * app while it is connected (DK-22): one fan-out, kept once, as the first door that delivered it
+ * gives its reference, and `message.onDelivered` is called that once. A send that fails or ends
+ * without delivering it stores nothing (DK-16 AC1); it rejects with Telegram's failure when no
+ * door delivered it. When Telegram failed and the app got it, one fixed line says so, never its
+ * words or the error, which may quote them.
  */
 export const recordingNotices =
-  (turns: RecentTurns, notify: Notify, app?: AppNotices): Notify =>
+  (turns: RecentTurns, notify: Notify | undefined, app?: AppNotices, logger?: Logger): Notify =>
   async (message) => {
     let first: { door: TurnDoor; channelRef: string } | undefined;
     const through = (door: TurnDoor) => ({
@@ -173,10 +178,13 @@ export const recordingNotices =
       },
     });
     let failure: { error: unknown } | undefined;
-    try {
-      await notify(through('telegram'));
-    } catch (error) {
-      failure = { error };
+    if (notify === undefined) failure = { error: new Error(NO_DOOR) };
+    else {
+      try {
+        await notify(through('telegram'));
+      } catch (error) {
+        failure = { error };
+      }
     }
     if (app?.connected() === true) {
       // An app that closed meanwhile leaves Telegram's outcome as it was.
@@ -185,6 +193,9 @@ export const recordingNotices =
     if (first === undefined) {
       if (failure !== undefined) throw failure.error;
       return;
+    }
+    if (notify !== undefined && failure !== undefined) {
+      logger?.warn('an unasked message reached the app but not Telegram');
     }
     turns.add(null, message, first.door, first.channelRef);
   };
