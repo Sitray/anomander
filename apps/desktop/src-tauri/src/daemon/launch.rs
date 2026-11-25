@@ -87,12 +87,105 @@ const DEFAULT_PATH: &str = r"C:\Windows\system32;C:\Windows";
 /// The name of Node's executable.
 const NODE: &str = if cfg!(windows) { "node.exe" } else { "node" };
 
-/// v1 is built and run by the principal from this repository, so the entry point is found from the
-/// crate at compile time; `ANOMANDER_DAEMON_ENTRY` overrides it at run time.
+/// A build run from this repository (`tauri dev`, `cargo test`, a debug build) finds the entry
+/// point from the crate at compile time; a release app carries its own (`Bundled`), and
+/// `ANOMANDER_DAEMON_ENTRY` overrides both at run time.
 const BUILT_ENTRY: &str = concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/../../../packages/daemon/src/main.ts"
 );
+
+/// The folder of the app's resources that holds the daemon a release app carries, as
+/// `scripts/stage-daemon.mjs` lays it out and `tauri.release.conf.json` ships it.
+const BUNDLED_DIR: &str = "daemon";
+
+/// What a release app says when the daemon it carries lacks its Node or its entry point. It names
+/// no path: the one compiled in is the builder's checkout, never on the principal's machine.
+pub const INCOMPLETE: &str = "the app's bundled daemon is incomplete; reinstall ANOMANDER";
+
+/// B11: the daemon a release app carries in its resources: its own Node in `bin/`, and the
+/// daemon's tree laid out as in this repository, its production dependencies included.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Bundled {
+    root: PathBuf,
+}
+
+impl Bundled {
+    /// The daemon in `resources`, when its folder is there, whole or not (`runtime` refuses one
+    /// that is not); a build run from this repository carries none.
+    pub fn find(resources: &Path) -> Option<Self> {
+        let root = resources.join(BUNDLED_DIR);
+        root.is_dir().then_some(Self { root })
+    }
+
+    /// The folder of its Node, last on the daemon's `PATH`.
+    pub fn bin(&self) -> PathBuf {
+        self.root.join("bin")
+    }
+
+    pub fn node(&self) -> PathBuf {
+        self.bin().join(NODE)
+    }
+
+    pub fn entry(&self) -> PathBuf {
+        ["packages", "daemon", "src", "main.ts"]
+            .iter()
+            .fold(self.root.clone(), |path, part| path.join(part))
+    }
+}
+
+/// Which Node runs the daemon and its scripts, from which entry point, and the `PATH` they get.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DaemonRuntime {
+    pub node: PathBuf,
+    pub entry: PathBuf,
+    pub path: String,
+}
+
+/// `ANOMANDER_NODE` and `ANOMANDER_DAEMON_ENTRY` of `parent` when set; else what the app carries
+/// (`bundled`), its Node's folder last on `PATH`, and `INCOMPLETE` when it lacks either; else, in
+/// a build run from this repository, its daemon and the first `node` on `PATH`.
+pub fn runtime(
+    parent: &dyn Fn(&str) -> Option<String>,
+    bundled: Option<&Bundled>,
+) -> Result<DaemonRuntime, String> {
+    let searched = search_path(parent("PATH").as_deref());
+    let node_override = parent("ANOMANDER_NODE").filter(|node| !node.is_empty());
+    let entry_override = parent("ANOMANDER_DAEMON_ENTRY").filter(|entry| !entry.is_empty());
+    let Some(bundled) = bundled else {
+        let node = find_node(node_override.as_deref(), &searched).ok_or_else(|| {
+            format!("node was not found on {searched}; set ANOMANDER_NODE to its path")
+        })?;
+        let entry = daemon_entry(entry_override.as_deref());
+        return Ok(DaemonRuntime {
+            node,
+            entry,
+            path: searched,
+        });
+    };
+    // A release app never falls back to the checkout it was built from: it is not on this machine.
+    let node = match node_override {
+        Some(node) => PathBuf::from(node),
+        None if is_executable(&bundled.node()) => bundled.node(),
+        None => return Err(INCOMPLETE.to_owned()),
+    };
+    let entry = match entry_override {
+        Some(entry) => PathBuf::from(entry),
+        None if bundled.entry().is_file() => bundled.entry(),
+        None => return Err(INCOMPLETE.to_owned()),
+    };
+    // Last: a server the principal added that runs `node` or `npx` gets their own Node.
+    let path = last_on_path(&bundled.bin(), &searched);
+    Ok(DaemonRuntime { node, entry, path })
+}
+
+/// `path` with `folder` last, and only there.
+fn last_on_path(folder: &Path, path: &str) -> String {
+    let rest = std::env::split_paths(path).filter(|other| other != folder);
+    std::env::join_paths(rest.chain(std::iter::once(folder.to_path_buf())))
+        .map(|joined| joined.to_string_lossy().into_owned())
+        .unwrap_or_else(|_| path.to_owned())
+}
 
 /// Where the daemon keeps its data, inside the app's data folder (DK-8).
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -317,6 +410,7 @@ mod tests {
     const PARENT_PATH: &str = r"C:\Windows\system32;C:\Program Files\nodejs";
     #[cfg(windows)]
     const SEARCHED_PATH: &str = PARENT_PATH;
+    const SEPARATOR: char = if cfg!(windows) { ';' } else { ':' };
 
     fn paths() -> DaemonPaths {
         DaemonPaths {
@@ -729,6 +823,126 @@ mod tests {
             PathBuf::from("/x/main.ts")
         );
         assert!(daemon_entry(Some("")).ends_with("packages/daemon/src/main.ts"));
+    }
+
+    /// A resource folder carrying the daemon, as `scripts/stage-daemon.mjs` lays it out.
+    fn carried(resources: &Path) -> std::io::Result<Bundled> {
+        let bin = resources.join("daemon").join("bin");
+        let src = resources.join("daemon/packages/daemon/src");
+        std::fs::create_dir_all(&bin)?;
+        std::fs::create_dir_all(&src)?;
+        std::fs::write(bin.join(NODE), "")?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(bin.join(NODE), std::fs::Permissions::from_mode(0o755))?;
+        }
+        std::fs::write(src.join("main.ts"), "")?;
+        Bundled::find(resources).ok_or_else(|| std::io::Error::other("the daemon is not found"))
+    }
+
+    #[test]
+    fn the_carried_daemon_is_found_by_its_folder_whatever_it_holds() -> std::io::Result<()> {
+        let dir = tempfile::tempdir()?;
+        assert_eq!(Bundled::find(dir.path()), None);
+        let bundled = carried(dir.path())?;
+        assert_eq!(
+            bundled.node(),
+            dir.path().join("daemon").join("bin").join(NODE)
+        );
+        assert!(bundled.entry().ends_with("packages/daemon/src/main.ts"));
+        // A folder missing its entry point is still the app's daemon: an incomplete one.
+        std::fs::remove_file(bundled.entry())?;
+        assert_eq!(Bundled::find(dir.path()), Some(bundled));
+        Ok(())
+    }
+
+    #[test]
+    fn an_incomplete_carried_daemon_is_an_error_never_the_checkout(
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let dir = tempfile::tempdir()?;
+        let bundled = carried(dir.path())?;
+        let complete = runtime(&parent, Some(&bundled))?;
+        assert_eq!(complete.node, bundled.node());
+        assert_eq!(complete.entry, bundled.entry());
+        // Without its entry point, then also without its Node: the same error, which names no
+        // path of the machine that built the app.
+        std::fs::remove_file(bundled.entry())?;
+        let no_entry = runtime(&parent, Some(&bundled));
+        std::fs::remove_file(bundled.node())?;
+        let neither = runtime(&parent, Some(&bundled));
+        std::fs::create_dir_all(bundled.entry().parent().ok_or("no parent")?)?;
+        std::fs::write(bundled.entry(), "")?;
+        let no_node = runtime(&parent, Some(&bundled));
+        for ran in [no_entry, neither, no_node] {
+            assert_eq!(ran, Err(INCOMPLETE.to_owned()));
+        }
+        assert!(!INCOMPLETE.contains('/') && !INCOMPLETE.contains('\\'));
+        // The overrides still win over what is missing.
+        let overridden = |name: &str| match name {
+            "ANOMANDER_NODE" => Some("/custom/node".to_owned()),
+            "ANOMANDER_DAEMON_ENTRY" => Some("/x/main.ts".to_owned()),
+            _ => parent(name),
+        };
+        std::fs::remove_file(bundled.entry())?;
+        let ran = runtime(&overridden, Some(&bundled))?;
+        assert_eq!(ran.node, PathBuf::from("/custom/node"));
+        assert_eq!(ran.entry, PathBuf::from("/x/main.ts"));
+        Ok(())
+    }
+
+    // The daemon and the web search run the carried Node by its path; a server the principal
+    // added that runs `node` or `npx` gets theirs, so the carried folder comes last.
+    #[test]
+    fn the_carried_node_folder_comes_last_on_the_path() -> Result<(), Box<dyn std::error::Error>> {
+        let dir = tempfile::tempdir()?;
+        let bundled = carried(dir.path())?;
+        let ran = runtime(&parent, Some(&bundled))?;
+        let expected = std::env::join_paths(
+            std::env::split_paths(SEARCHED_PATH).chain(std::iter::once(bundled.bin())),
+        )?;
+        assert_eq!(ran.path, expected.to_string_lossy());
+        // Already first on the principal's `PATH`, it still comes last, and only once.
+        let listed = format!("{}{}{PARENT_PATH}", bundled.bin().display(), SEPARATOR);
+        let parent = |name: &str| (name == "PATH").then(|| listed.clone());
+        assert_eq!(runtime(&parent, Some(&bundled))?.path, ran.path);
+        Ok(())
+    }
+
+    #[test]
+    fn the_overrides_win_over_the_carried_daemon() -> Result<(), Box<dyn std::error::Error>> {
+        let dir = tempfile::tempdir()?;
+        let bundled = carried(dir.path())?;
+        let parent = |name: &str| match name {
+            "ANOMANDER_NODE" => Some("/custom/node".to_owned()),
+            "ANOMANDER_DAEMON_ENTRY" => Some("/x/main.ts".to_owned()),
+            _ => parent(name),
+        };
+        let ran = runtime(&parent, Some(&bundled))?;
+        assert_eq!(ran.node, PathBuf::from("/custom/node"));
+        assert_eq!(ran.entry, PathBuf::from("/x/main.ts"));
+        Ok(())
+    }
+
+    #[test]
+    fn without_a_carried_daemon_the_checkout_and_the_path_give_it() -> std::io::Result<()> {
+        let dir = tempfile::tempdir()?;
+        let bin = dir.path().join("bin");
+        std::fs::create_dir_all(&bin)?;
+        std::fs::write(bin.join(NODE), "")?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(bin.join(NODE), std::fs::Permissions::from_mode(0o755))?;
+        }
+        let listed = bin.display().to_string();
+        let parent = |name: &str| (name == "PATH").then(|| listed.clone());
+        let ran = runtime(&parent, None).map_err(std::io::Error::other)?;
+        assert_eq!(ran.node, bin.join(NODE));
+        assert_eq!(ran.entry, daemon_entry(None));
+        assert!(ran.entry.is_file());
+        assert_eq!(ran.path, search_path(Some(&listed)));
+        Ok(())
     }
 
     #[test]

@@ -18,3 +18,5 @@ apps/desktop/dist
 **/.DS_Store
 .env.*
 !.env.example
+# The daemon staged for a release app (scripts/stage-daemon.mjs).
+apps/desktop/src-tauri/resources

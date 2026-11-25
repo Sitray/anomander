@@ -49,6 +49,20 @@ APPLE_SIGNING_IDENTITY="<identity name or hash>" pnpm --dir apps/desktop tauri b
 Entries stored by an unsigned build still ask once. To skip that, delete them
 (`security delete-generic-password -s ANOMANDER`, once per entry) and enter the setup again.
 
+### Release builds
+
+A release app carries its daemon (B11). `node scripts/stage-daemon.mjs [darwin-arm64 | win32-x64]`
+stages the daemon's sources, its production dependencies and a pinned Node in
+`src-tauri/resources/daemon/`, and `--config src-tauri/tauri.release.conf.json` ships that folder
+as the app's `daemon` resource. The shell runs `ANOMANDER_NODE` and `ANOMANDER_DAEMON_ENTRY` when
+they are set, else the daemon and Node the app carries, else the checkout's daemon and the first
+`node` on `PATH` (as `tauri dev` and a plain `tauri build` do).
+
+`scripts/release.sh vX.Y.Z` builds the Mac release from a clean worktree of the tag, signs it ad
+hoc from the inside out (the bundled `node` and every `.node` addon, then the app) and uploads it;
+`.github/workflows/release.yml` builds the Windows installer when the tag is pushed. The steps are
+in the root README, "Cutting a release".
+
 ### The preview
 
 `test/preview/` runs the window without the shell or a daemon: Tauri's IPC is mocked and the

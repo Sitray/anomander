@@ -35,8 +35,10 @@ and keep its secrets in the operating system instead of a text file.
   app from source too (README, "Run the app on Windows"): the chat, setup, connections, login,
   Telegram, the tray and the drop; a look at the screen (DK-9) and tasks on the computer (DK-10)
   are macOS-only for now, and the app says so (DK-20 AC2).
-- Automatic updates, code signing and notarization. v1 is built and installed by the principal
-  (assumption).
+- Automatic updates, code signing and notarization. Each `vX.Y.Z` tag has unsigned downloads on
+  GitHub Releases, the Mac app signed ad hoc and the Windows installer unsigned, each carrying the
+  daemon and its Node (B11, README "Download"); the principal opens them past Gatekeeper or
+  SmartScreen the first time and installs updates by hand.
 - Running ANOMANDER while the app is closed. That is what Docker is for (decision 2).
 
 ## 4. Principles it must keep

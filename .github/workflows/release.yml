@@ -1,0 +1,93 @@
+name: Release
+
+# The Windows installer of a release (B11). A pushed `vX.Y.Z` tag builds the NSIS installer, with
+# the daemon and the Node it runs staged inside (scripts/stage-daemon.mjs), and adds it with its
+# SHA-256 to the tag's GitHub release, a draft created here when the tag has none. The macOS app
+# is built and added on a Mac with scripts/release.sh; the maintainer publishes the draft once
+# both are there. Unsigned: no code-signing certificate, no notarization, no auto-update.
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+# Every action is pinned to a full commit SHA, the same as in ci.yml.
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 40
+    defaults:
+      run:
+        shell: bash
+    # The token goes only to the two gh steps, never to pnpm install or the build, which run
+    # third-party code.
+    env:
+      TAG: ${{ github.ref_name }}
+    steps:
+      # The files keep their LF endings on Windows, as the build expects.
+      - name: git config core.autocrlf false
+        run: git config --global core.autocrlf false
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: check the tag is the app's version
+        run: |
+          [[ "$TAG" =~ ^v([0-9]+\.[0-9]+\.[0-9]+)$ ]] || { echo "::error::$TAG is not vX.Y.Z"; exit 1; }
+          version="${BASH_REMATCH[1]}"
+          app="$(node -p "require('./apps/desktop/src-tauri/tauri.conf.json').version")"
+          [[ "$app" == "$version" ]] || { echo "::error::$TAG but tauri.conf.json says $app"; exit 1; }
+          package="$(node -p "require('./apps/desktop/package.json').version")"
+          [[ "$package" == "$version" ]] || { echo "::error::$TAG but apps/desktop/package.json says $package"; exit 1; }
+          cargo="$(sed -n 's/^version = "\(.*\)"$/\1/p' apps/desktop/src-tauri/Cargo.toml | head -n 1)"
+          [[ "$cargo" == "$version" ]] || { echo "::error::$TAG but Cargo.toml says $cargo"; exit 1; }
+          echo "VERSION=$version" >> "$GITHUB_ENV"
+
+      # The draft first, so scripts/release.sh, run on the Mac while this builds, finds it and adds
+      # the macOS zip to the same release instead of making a second draft.
+      - name: create the draft release if the tag has none
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1 ||
+            gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --draft --verify-tag \
+              --title "ANOMANDER $VERSION" \
+              --notes "Unsigned builds of ANOMANDER $VERSION. How to open them the first time: see the README, \"Download\"."
+
+      # pnpm's version comes from `packageManager` in package.json.
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      # No Rust cache: a release builds from a clean toolchain, not from what other refs cached.
+      - uses: dtolnay/rust-toolchain@df2a88e9fe4098bad09cb42c3dec7187f15861fc # master
+        with:
+          toolchain: stable
+
+      - name: stage the daemon and Node
+        run: node scripts/stage-daemon.mjs win32-x64
+
+      - name: tauri build (release, unsigned NSIS installer)
+        working-directory: apps/desktop
+        run: pnpm tauri build --ci --bundles nsis --config src-tauri/tauri.release.conf.json
+
+      - name: upload the installer and its SHA-256
+        working-directory: apps/desktop/src-tauri/target/release/bundle/nsis
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          shopt -s nullglob
+          installers=(*-setup.exe)
+          [[ ${#installers[@]} -eq 1 ]] || { echo "::error::expected one installer, found: ${installers[*]}"; exit 1; }
+          installer="${installers[0]}"
+          sha256sum "$installer" > "$installer.sha256"
+          cat "$installer.sha256"
+          gh release upload "$TAG" "$installer" "$installer.sha256" --repo "$GITHUB_REPOSITORY" --clobber

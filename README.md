@@ -4,11 +4,11 @@
 
 A personal assistant that understands your world, knows what is true, knows what it may do, and carries a matter to a verifiable result.
 
-> Status: version 0.1.0, run from source (no packaged download). Milestones M0 to M6 of the [PRD](PRD.md) roadmap (§17) are built: see [What works today](#what-works-today) and the [CHANGELOG](CHANGELOG.md). The design is in [`docs/`](docs).
+> Status: version 0.1.0. The app is a [download](#download) from GitHub Releases, unsigned, or built from source. Milestones M0 to M6 of the [PRD](PRD.md) roadmap (§17) are built: see [What works today](#what-works-today) and the [CHANGELOG](CHANGELOG.md). The design is in [`docs/`](docs).
 
 The app speaks English, or Spanish on a computer whose language is Spanish. It runs on macOS and, without a look at the screen or tasks on the computer for now, on Windows. Telegram replies follow `ANOMANDER_LOCALE` (`es` by default for Docker, `en` for English; the Mac app sets it from the system's language), see PRD §12. Amounts are in `ANOMANDER_CURRENCY` (`EUR` by default); stored expenses keep their own currency.
 
-To run your own, see [Getting started](#getting-started) (Docker and Telegram), [Run the Mac app](#run-the-mac-app) or [Run the app on Windows](#run-the-app-on-windows).
+To run your own, [download the app](#download), or see [Getting started](#getting-started) (Docker and Telegram), [Run the Mac app](#run-the-mac-app) or [Run the app on Windows](#run-the-app-on-windows) to build it.
 
 <!-- screenshot: TODO -->
 
@@ -40,7 +40,7 @@ The Mac app:
 
 Not built yet:
 
-- A signed app to download. You build it yourself from this repository; a packaged, notarized app is not planned for now.
+- A signed app. The [download](#download) is unsigned, so the system asks before it opens the first time; signing, notarization and automatic updates are not planned for now.
 - Reminders and summaries in the Mac app without Telegram: they wait until a bot is set up.
 - The export in the Mac app: `/exportar` there says to ask for it in Telegram.
 - Google Calendar and Drive connectors.
@@ -188,9 +188,40 @@ Good to know:
 | Something does not answer | `docker compose logs --tail 30 daemon`. Logs never contain your messages, tokens or keys. |
 | You want to look at your data | The database lives in the Docker volume `anomander-data`. Copy it into the git-ignored `data/` folder with `docker compose cp daemon:/app/data/anomander.db ./data/anomander-copy.db`, so the copy can never be committed. |
 
+## Download
+
+Each release on [GitHub Releases](https://github.com/Sitray/anomander/releases) has the app with everything it needs, the daemon and the Node that runs it included: no checkout, Node or pnpm on your computer.
+
+| File | For |
+| --- | --- |
+| `ANOMANDER-<version>-macos-arm64.zip` | A Mac with Apple silicon (M1 or later) |
+| `ANOMANDER_<version>_x64-setup.exe` | Windows 10 or 11, 64-bit |
+
+Each file has a `.sha256` beside it: `shasum -a 256 -c ANOMANDER-<version>-macos-arm64.zip.sha256` on the Mac checks the download. As with a build of your own, stop a Docker install first: two daemons on one bot fail (DK-2 AC2).
+
+The builds are not signed by Apple or Microsoft (no paid certificate), so the system asks before it opens them the first time:
+
+- **macOS.** Unzip it, move `ANOMANDER.app` to Applications and open it. macOS says it cannot verify it and does not open it: close the message. Then open Ajustes del Sistema → Privacidad y seguridad, scroll to "Seguridad", press "Abrir igualmente" beside the line about ANOMANDER, and confirm with your password. From then on it opens as any app.
+- **Windows.** Run the installer. SmartScreen says it protected your PC: choose "Más información" → "Ejecutar de todas formas".
+
+Then set it up as in [Run the Mac app](#run-the-mac-app), step 4 (and step 5 on a Mac).
+
+Updating: quit ANOMANDER, then replace the app in Applications with the new one, or run the new installer. Your data, setup and secrets stay. On the Mac, each version has a new ad hoc signature, so macOS asks again for your login keychain password the first time the new version reads each stored secret ("Permitir siempre" stops it asking until the next update). It may also ask again for Screen Recording and Accessibility: if a look at the screen or a task on the computer says it lacks the permission while its switch is on, turn the switch off and on again in Ajustes del Sistema → Privacidad y seguridad.
+
+### Cutting a release
+
+For the maintainer. The Mac app is built on a Mac with Apple silicon, the Windows installer by GitHub Actions (`.github/workflows/release.yml`), and both go to the same draft release.
+
+1. **Version.** Set the new version in `apps/desktop/src-tauri/tauri.conf.json` (the version the app and the file names show), `apps/desktop/package.json` and `apps/desktop/src-tauri/Cargo.toml` (and `Cargo.lock`, which `cargo check` updates), move the CHANGELOG's "Unreleased" under it, and merge to `main`.
+2. **Tag.** `git tag -a vX.Y.Z -m vX.Y.Z` on that commit, then `git push origin vX.Y.Z`. The push starts the Release workflow, which creates the draft release and adds `ANOMANDER_X.Y.Z_x64-setup.exe` with its SHA-256 (about 20 minutes).
+3. **Mac.** `scripts/release.sh vX.Y.Z`, with `gh` logged in. It checks that the tag is on origin and matches the version, builds from a clean worktree of the tag, signs the app ad hoc, and uploads `ANOMANDER-X.Y.Z-macos-arm64.zip` and its SHA-256 to the draft. `--dry-run` does everything but the upload; `--check` only checks the tag.
+4. **Publish.** When the draft has the four files, publish it: "Edit" → "Publish release" on GitHub, or `gh release edit vX.Y.Z --draft=false`.
+
+If the workflow cannot run (Actions minutes, see [`ci.yml`](.github/workflows/ci.yml)), build the installer on a Windows PC from the tag with the workflow's steps (`pnpm install --frozen-lockfile`, `node scripts/stage-daemon.mjs win32-x64`, `pnpm --dir apps/desktop tauri build --ci --bundles nsis --config src-tauri/tauri.release.conf.json`) and add it with `gh release upload vX.Y.Z <installer> <installer>.sha256`.
+
 ## Run the Mac app
 
-There is no download yet: you build the app from this repository, on your Mac. It starts the same daemon as Docker, so stop a Docker install first: two daemons on one bot fail (DK-2 AC2).
+To build the app yourself instead of [downloading it](#download), from this repository, on your Mac. It starts the same daemon as Docker, so stop a Docker install first: two daemons on one bot fail (DK-2 AC2).
 
 You need:
 
