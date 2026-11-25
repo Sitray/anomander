@@ -33,7 +33,7 @@ use tauri_plugin_clipboard_manager::ClipboardExt;
 use tauri_plugin_notification::NotificationExt;
 
 use crate::connections::{ConnectionsView, ServerInput};
-use crate::daemon::launch::{daemon_entry, find_node, launch_token, search_path};
+use crate::daemon::launch::{launch_token, Bundled, DaemonRuntime};
 use crate::daemon::supervisor::{Options, Prepared, Supervisor, Update};
 use crate::data_dir::{DataDir, FOLDER_NAME};
 use crate::diagnostics::log_file::{self, LogFile};
@@ -66,19 +66,16 @@ struct Logins {
 
 impl Logins {
     /// Runs the login of `provider_id` with the daemon package's script, as `Core::connect_oauth`
-    /// runs its own: the daemon runs meanwhile, and nothing is stored here.
+    /// runs its own, with the same Node and daemon (`Core::daemon_runtime`): the daemon runs
+    /// meanwhile, and nothing is stored here.
     fn run(
         &self,
+        runtime: DaemonRuntime,
         provider_id: &str,
         open: &dyn Fn(&str) -> Result<(), String>,
         notify: &dyn Fn(login::Step),
     ) -> Result<login::Ran, String> {
-        let path = search_path(std::env::var("PATH").ok().as_deref());
-        let node =
-            find_node(std::env::var("ANOMANDER_NODE").ok().as_deref(), &path).ok_or_else(|| {
-                format!("node was not found on {path}; set ANOMANDER_NODE to its path")
-            })?;
-        let entry = daemon_entry(std::env::var("ANOMANDER_DAEMON_ENTRY").ok().as_deref());
+        let DaemonRuntime { node, entry, path } = runtime;
         let script = login::script_of(&entry)
             .filter(|script| script.is_file())
             .ok_or_else(|| format!("the login is not next to {}", entry.display()))?;
@@ -283,7 +280,10 @@ async fn connect_subscription(app: AppHandle, provider_id: String) -> Result<Log
                 eprintln!("could not tell the window about the login: {error}");
             }
         };
-        let ran = shell.logins.run(&provider_id, &open_in_browser, &notify)?;
+        let runtime = shell.core.daemon_runtime()?;
+        let ran = shell
+            .logins
+            .run(runtime, &provider_id, &open_in_browser, &notify)?;
         if let Some(credential) = ran.credential {
             shell
                 .supervisor
@@ -638,10 +638,24 @@ fn set_up(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         session: login::Session::default(),
     };
     let environment = environment(locale::current());
+    // B11: a release app carries its daemon and its Node; a build run from the repository, none.
+    let bundled = app
+        .path()
+        .resource_dir()
+        .ok()
+        .and_then(|resources| Bundled::find(&resources));
+    match &bundled {
+        Some(bundled) => eprintln!(
+            "the daemon is the one the app carries: {}",
+            bundled.entry().display()
+        ),
+        None => eprintln!("the app carries no daemon: it runs this repository's"),
+    }
     let core = Arc::new(Core::new(
         data,
         Box::new(secure_store::SystemStore),
         environment,
+        bundled,
         settings,
         token,
     ));

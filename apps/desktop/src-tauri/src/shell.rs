@@ -6,8 +6,8 @@ use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use crate::connection_secrets::sweep;
 use crate::connections::{self, Change, ConnectionsView, ServerInput, ServerView, Target};
 use crate::daemon::launch::{
-    child_env, daemon_entry, find_node, free_port, handed_locale, handover_line, search_path,
-    DaemonInputs, TelegramInputs,
+    child_env, free_port, handed_locale, handover_line, runtime, Bundled, DaemonInputs,
+    DaemonRuntime, TelegramInputs,
 };
 use crate::daemon::supervisor::{Credentials, Handed, LaunchSpec, Prepared, Update};
 use crate::data_dir::DataDir;
@@ -115,6 +115,8 @@ pub struct Core {
     /// Shared with the handler of the model login the daemon hands over (DK-5 AC1).
     store: Arc<dyn SecretStore>,
     environment: Environment,
+    /// B11: the daemon a release app carries; `None` runs this repository's.
+    bundled: Option<Bundled>,
     /// DK-3 AC2: generated at each app launch, kept only in memory.
     token: String,
     setup: Mutex<SetupCache>,
@@ -147,6 +149,7 @@ impl Core {
         data: DataDir,
         store: Box<dyn SecretStore>,
         environment: Environment,
+        bundled: Option<Bundled>,
         settings: Settings,
         token: String,
     ) -> Self {
@@ -161,6 +164,7 @@ impl Core {
             data,
             store: Arc::from(store),
             environment,
+            bundled,
             token,
             setup: Mutex::new(SetupCache {
                 settings,
@@ -168,6 +172,11 @@ impl Core {
             }),
             connecting: AtomicBool::new(false),
         }
+    }
+
+    /// B11: the Node and the entry point the daemon and its scripts run with, and their `PATH`.
+    pub fn daemon_runtime(&self) -> Result<DaemonRuntime, String> {
+        runtime(&*self.environment, self.bundled.as_ref())
     }
 
     /// The data folder (DK-8), where a capture of the screen lives while it is read.
@@ -291,12 +300,7 @@ impl Core {
         let Some(source) = ledger_import::source_path(typed, home.as_deref()) else {
             return Ok(ledger_import::not_a_path());
         };
-        let path = search_path((self.environment)("PATH").as_deref());
-        let node =
-            find_node((self.environment)("ANOMANDER_NODE").as_deref(), &path).ok_or_else(|| {
-                format!("node was not found on {path}; set ANOMANDER_NODE to its path")
-            })?;
-        let entry = daemon_entry((self.environment)("ANOMANDER_DAEMON_ENTRY").as_deref());
+        let DaemonRuntime { node, entry, path } = self.daemon_runtime()?;
         let script = ledger_import::script_of(&entry)
             .filter(|script| script.is_file())
             .ok_or_else(|| format!("the import is not next to {}", entry.display()))?;
@@ -426,12 +430,7 @@ impl Core {
         open: &dyn Fn(&str) -> Result<(), String>,
     ) -> Result<(oauth_connect::Ran, String), String> {
         let url = self.http_url(name)?;
-        let path = search_path((self.environment)("PATH").as_deref());
-        let node =
-            find_node((self.environment)("ANOMANDER_NODE").as_deref(), &path).ok_or_else(|| {
-                format!("node was not found on {path}; set ANOMANDER_NODE to its path")
-            })?;
-        let entry = daemon_entry((self.environment)("ANOMANDER_DAEMON_ENTRY").as_deref());
+        let DaemonRuntime { node, entry, path } = self.daemon_runtime()?;
         let script = oauth_connect::script_of(&entry)
             .filter(|script| script.is_file())
             .ok_or_else(|| format!("the OAuth connection is not next to {}", entry.display()))?;
@@ -470,9 +469,9 @@ impl Core {
         Ok(())
     }
 
-    /// One start of the daemon (DK-1 AC1): `node <repo>/packages/daemon/src/main.ts`, with the
-    /// setup in the environment, its secrets on the handover line to its stdin (DK-5 AC2) and a
-    /// fresh port.
+    /// One start of the daemon (DK-1 AC1): `node <daemon>/src/main.ts`, the daemon the app carries
+    /// or else this repository's, with the setup in the environment, its secrets on the handover
+    /// line to its stdin (DK-5 AC2) and a fresh port.
     pub fn prepare(&self) -> Prepared {
         let settings = lock(&self.setup).settings.clone();
         let secrets = match load_secrets(&settings, self.store.as_ref()) {
@@ -502,13 +501,10 @@ impl Core {
             eprintln!("{message}; no server is connected with OAuth");
             OAuthSet::new()
         });
-        let path = search_path((self.environment)("PATH").as_deref());
-        let Some(node) = find_node((self.environment)("ANOMANDER_NODE").as_deref(), &path) else {
-            return Prepared::Failed(format!(
-                "node was not found on {path}; set ANOMANDER_NODE to its path"
-            ));
+        let DaemonRuntime { node, entry, path } = match self.daemon_runtime() {
+            Ok(runtime) => runtime,
+            Err(message) => return Prepared::Failed(message),
         };
-        let entry = daemon_entry((self.environment)("ANOMANDER_DAEMON_ENTRY").as_deref());
         if !entry.is_file() {
             return Prepared::Failed(format!(
                 "the daemon is not at {}; set ANOMANDER_DAEMON_ENTRY to its main.ts",
@@ -525,7 +521,8 @@ impl Core {
         let paths = self.data.daemon_paths();
         let parent = |name: &str| {
             if name == "PATH" {
-                // Homebrew's folders, so the daemon finds the same tools as the shell did.
+                // Homebrew's folders, so the daemon finds the same tools as the shell did; first,
+                // the folder of the Node a release app carries.
                 Some(path.clone())
             } else {
                 (self.environment)(name)
@@ -624,7 +621,14 @@ mod tests {
             "OPENAI_API_KEY" => Some("from-the-shell".into()),
             _ => None,
         });
-        let core = Core::new(data, Box::new(store), environment, settings, "t".repeat(64));
+        let core = Core::new(
+            data,
+            Box::new(store),
+            environment,
+            None,
+            settings,
+            "t".repeat(64),
+        );
         Fixture {
             _parent: parent,
             core,
@@ -1157,6 +1161,69 @@ mod tests {
                 .iter()
                 .any(|(n, _)| n == "ANOMANDER_DAILY_AI_CALL_LIMIT"));
         }
+    }
+
+    // B11: a release app runs the daemon it carries with the Node it carries, first on `PATH`; its
+    // scripts are looked for next to that daemon.
+    #[test]
+    fn a_release_app_runs_the_daemon_and_the_node_it_carries(
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let resources = tempfile::tempdir()?;
+        let carried = resources.path().join("daemon");
+        let node = carried
+            .join("bin")
+            .join(if cfg!(windows) { "node.exe" } else { "node" });
+        let entry = carried.join("packages/daemon/src/main.ts");
+        std::fs::create_dir_all(carried.join("bin"))?;
+        std::fs::create_dir_all(carried.join("packages/daemon/src"))?;
+        std::fs::write(&node, "")?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&node, std::fs::Permissions::from_mode(0o755))?;
+        }
+        std::fs::write(&entry, "")?;
+        let bundled = Bundled::find(resources.path()).ok_or("the carried daemon was not found")?;
+        let parent = tempfile::tempdir()?;
+        let root = parent.path().join("ANOMANDER");
+        let environment: Environment = Box::new(|name| match name {
+            "PATH" => Some(platform::PATH.into()),
+            "HOME" => Some(platform::HOME.into()),
+            _ => None,
+        });
+        let (store, settings) = configured();
+        let core = Core::new(
+            DataDir::open(root)?,
+            Box::new(store),
+            environment,
+            Some(bundled.clone()),
+            settings,
+            "t".repeat(64),
+        );
+        let spec = ready(&core);
+        assert_eq!(spec.program, bundled.node());
+        assert_eq!(spec.args, vec![bundled.entry().into_os_string()]);
+        let path = spec
+            .env
+            .iter()
+            .find(|(name, _)| name == "PATH")
+            .map(|(_, path)| path.clone())
+            .unwrap_or_default();
+        assert_eq!(
+            std::env::split_paths(&path).next(),
+            Some(bundled.bin()),
+            "{path}"
+        );
+        // The carried tree has no import script here: the error points at the carried daemon.
+        let answer = core.import_ledger("~/anomander.db");
+        let carried_entry = bundled.entry().display().to_string();
+        assert!(
+            answer
+                .as_ref()
+                .is_err_and(|error| error.contains(&carried_entry)),
+            "{answer:?}"
+        );
+        Ok(())
     }
 
     #[test]
