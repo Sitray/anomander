@@ -1,5 +1,10 @@
 // @vitest-environment jsdom
-import { formatAmount, formatDate, strings as replies } from '@anomander/protocol';
+import {
+  formatAmount,
+  formatDate,
+  LOCAL_CHANNEL_PROTOCOL,
+  strings as replies,
+} from '@anomander/protocol';
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { App } from '../src/App.tsx';
@@ -7,6 +12,7 @@ import { type LoginOutcome, type LoginStep, type Snapshot, shell } from '../src/
 import { strings } from '../src/strings.ts';
 import { FakeWebSocket } from './fake-web-socket.ts';
 import {
+  CHANNEL,
   CONNECTIONS,
   EMPTY_SETUP,
   FILLED_SETUP,
@@ -260,7 +266,8 @@ describe('the setup', () => {
     expect(mocked.saveSetup).toHaveBeenCalledWith({
       principalChatId: '',
       model: 'openai/gpt-4o-mini',
-      visionModel: '',
+      // DK-23 AC2: left empty, photos are read with the same model.
+      visionModel: 'openai/gpt-4o-mini',
       providerKeys: {},
     });
   });
@@ -734,5 +741,59 @@ describe('notifications', () => {
     await act(async () => {});
 
     expect(mocked.notifyReply).not.toHaveBeenCalled();
+  });
+});
+
+// DK-23 AC4: "Probar" asks the daemon on its own connection to the local channel.
+describe('"Probar" in the setup', () => {
+  const KEY = 'sk-secret-key-the-provider-quoted';
+  const probe = async () => {
+    await open(runningSnapshot());
+    fireEvent.click(screen.getByRole('button', { name: strings.status.openSetup }));
+    const chat = FakeWebSocket.last;
+    fireEvent.click(screen.getByRole('button', { name: strings.setup.probe }));
+    const socket = FakeWebSocket.last;
+    expect(socket).not.toBe(chat);
+    return socket;
+  };
+
+  it('sends probe_model with the channel token and shows only its outcome', async () => {
+    const socket = await probe();
+    expect(socket.url).toBe(CHANNEL.url);
+    expect(socket.protocols).toEqual([LOCAL_CHANNEL_PROTOCOL, TOKEN]);
+    act(() => socket.open());
+    const request = socket.lastRequest;
+    expect(request.type).toBe('probe_model');
+    // Anything beside the outcome is not shown, even if the daemon sent it.
+    act(() =>
+      socket.receiveRaw(
+        JSON.stringify({
+          type: 'probe',
+          inReplyTo: request.id,
+          outcome: 'key_refused',
+          detail: KEY,
+        }),
+      ),
+    );
+
+    expect(await screen.findByText(strings.setup.probeOutcome.key_refused)).toBeTruthy();
+    expect(document.documentElement.outerHTML).not.toContain(KEY);
+    expect(socket.readyState).toBe(FakeWebSocket.CLOSED);
+  });
+
+  it('says the connection was lost when it closes before the answer', async () => {
+    const socket = await probe();
+    act(() => socket.open());
+    act(() => socket.drop());
+
+    expect(await screen.findByText(strings.setup.probeLost)).toBeTruthy();
+  });
+
+  it('says it failed when the daemon answers something else', async () => {
+    const socket = await probe();
+    act(() => socket.open());
+    act(() => socket.receive(replyTo(socket.lastRequest.id, { text: 'S-22' })));
+
+    expect(await screen.findByText(strings.setup.probeOutcome.failed)).toBeTruthy();
   });
 });

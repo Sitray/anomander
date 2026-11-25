@@ -1,6 +1,9 @@
 // @vitest-environment jsdom
+
+import type { ProbeOutcome } from '@anomander/protocol';
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { SETUP_PROVIDERS } from '../src/setup/providers.ts';
 import { SetupScreen } from '../src/setup/SetupScreen.tsx';
 import type { SetupInput, SetupState } from '../src/shell.ts';
 import { strings } from '../src/strings.ts';
@@ -62,7 +65,7 @@ describe('what it shows', () => {
     expect(field(text.model).value).toBe('openai/gpt-4o-mini');
     expect(field(text.visionModel).value).toBe('openai/gpt-4o-mini');
     const stored = screen.getByRole('list', { name: text.keys });
-    expect(within(stored).getByText('OPENAI_API_KEY')).toBeTruthy();
+    expect(within(stored).getByText('OpenAI')).toBeTruthy();
     expect(within(stored).getByText(text.keyStored)).toBeTruthy();
   });
 });
@@ -207,7 +210,8 @@ describe('saving', () => {
     expect(input).toEqual({
       principalChatId: '',
       model: 'openai/gpt-4o-mini',
-      visionModel: '',
+      // DK-23 AC2: left empty, photos are read with the same model.
+      visionModel: 'openai/gpt-4o-mini',
       providerKeys: {},
     });
     // Saved and able to start: nothing is said to be missing.
@@ -279,15 +283,16 @@ describe('saving', () => {
 describe('provider keys', () => {
   const keyList = () => screen.getByRole('list', { name: text.keys });
 
-  it('offers the usual providers', () => {
+  it('offers the providers of the setup by name, and any other by its variable', () => {
     renderSetup(EMPTY_SETUP);
     const options = within(field(text.provider)).getAllByRole<HTMLOptionElement>('option');
 
+    expect(options.map((option) => option.textContent)).toEqual([
+      ...SETUP_PROVIDERS.map((provider) => provider.keyOwner),
+      text.otherProvider,
+    ]);
     expect(options.map((option) => option.value)).toEqual([
-      'OPENAI_API_KEY',
-      'ANTHROPIC_API_KEY',
-      'GEMINI_API_KEY',
-      'OPENROUTER_API_KEY',
+      ...SETUP_PROVIDERS.map((provider) => provider.keyName),
       'other',
     ]);
   });
@@ -299,7 +304,7 @@ describe('provider keys', () => {
     expect(field(text.keyValue).type).toBe('password');
     fireEvent.click(screen.getByRole('button', { name: text.addKey }));
 
-    expect(within(keyList()).getByText('ANTHROPIC_API_KEY')).toBeTruthy();
+    expect(within(keyList()).getByText('Anthropic')).toBeTruthy();
     expect(within(keyList()).getByText(text.keyNew)).toBeTruthy();
     expect(keyList().textContent).not.toContain(API_KEY);
     expect(field(text.keyValue).value).toBe('');
@@ -313,7 +318,7 @@ describe('provider keys', () => {
     fill(text.keyValue, API_KEY);
     save();
 
-    expect((await saved(onSave)).providerKeys).toEqual({ OPENAI_API_KEY: API_KEY });
+    expect((await saved(onSave)).providerKeys).toEqual({ GEMINI_API_KEY: API_KEY });
   });
 
   it('takes another provider by the name of its variable', async () => {
@@ -352,19 +357,20 @@ describe('provider keys', () => {
 
   it('removes a stored key on save, and can change its mind before', async () => {
     const { onSave } = renderSetup(FILLED_SETUP);
-    fireEvent.click(screen.getByRole('button', { name: text.removeKey('OPENAI_API_KEY') }));
+    fireEvent.click(screen.getByRole('button', { name: text.removeKey('OpenAI') }));
     expect(within(keyList()).getByText(text.keyRemoved)).toBeTruthy();
 
-    fireEvent.click(screen.getByRole('button', { name: text.undoKey('OPENAI_API_KEY') }));
+    fireEvent.click(screen.getByRole('button', { name: text.undoKey('OpenAI') }));
     expect(within(keyList()).getByText(text.keyStored)).toBeTruthy();
 
-    fireEvent.click(screen.getByRole('button', { name: text.removeKey('OPENAI_API_KEY') }));
+    fireEvent.click(screen.getByRole('button', { name: text.removeKey('OpenAI') }));
     save();
     expect((await saved(onSave)).providerKeys).toEqual({ OPENAI_API_KEY: null });
   });
 
   it('replaces a stored key with a new one of the same name', async () => {
     const { onSave } = renderSetup(FILLED_SETUP);
+    fireEvent.change(field(text.provider), { target: { value: 'OPENAI_API_KEY' } });
     fill(text.keyValue, API_KEY);
     fireEvent.click(screen.getByRole('button', { name: text.addKey }));
 
@@ -378,7 +384,7 @@ describe('provider keys', () => {
     const { onSave } = renderSetup(CONFIGURED);
     fill(text.keyValue, API_KEY);
     fireEvent.click(screen.getByRole('button', { name: text.addKey }));
-    fireEvent.click(screen.getByRole('button', { name: text.removeKey('OPENAI_API_KEY') }));
+    fireEvent.click(screen.getByRole('button', { name: text.removeKey('Google AI Studio') }));
     save();
 
     expect((await saved(onSave)).providerKeys).toEqual({});
@@ -496,5 +502,155 @@ describe('web search on the first setup', () => {
     );
 
     expect(screen.queryByRole('checkbox', { name: text.webSearch })).toBeNull();
+  });
+});
+
+// DK-23: the onboarding asks no developer knowledge: models first, providers by name, a key named
+// by its provider, and "Probar".
+describe('onboarding (DK-23)', () => {
+  const picker = (): HTMLSelectElement => screen.getByLabelText(text.modelProvider);
+  const pick = (value: string): void => {
+    fireEvent.change(picker(), { target: { value } });
+  };
+
+  it('asks for the model first and for Telegram last, as optional (AC1)', () => {
+    renderSetup(EMPTY_SETUP);
+    const groups = screen.getAllByRole('group').map((group) => group.querySelector('legend'));
+
+    expect(groups.at(0)?.textContent).toBe(text.sectionModels);
+    expect(groups.at(-1)?.textContent).toBe(text.sectionTelegram);
+  });
+
+  it('offers the providers by name and fills in the model suggested for one (AC2)', () => {
+    renderSetup(EMPTY_SETUP);
+    const options = within(picker()).getAllByRole<HTMLOptionElement>('option');
+    expect(options.map((option) => option.textContent)).toEqual([
+      text.chooseProvider,
+      ...SETUP_PROVIDERS.map((provider) => provider.name),
+      text.otherModel,
+    ]);
+
+    pick('google');
+    expect(field(text.model).value).toBe('google/gemini-2.5-flash');
+    expect(field(text.visionModel).value).toBe('google/gemini-2.5-flash');
+  });
+
+  it('still takes any model written as provider/model, with "Otro modelo…" (AC2)', async () => {
+    const { onSave } = renderSetup(EMPTY_SETUP);
+    pick('other');
+    fill(text.model, 'groq/llama-3.3-70b-versatile');
+    expect(picker().value).toBe('other');
+    save();
+
+    expect(await saved(onSave)).toMatchObject({ model: 'groq/llama-3.3-70b-versatile' });
+  });
+
+  it('follows a model typed with a provider it offers', () => {
+    renderSetup(EMPTY_SETUP);
+    fill(text.model, 'anthropic/claude-sonnet-4-5');
+    expect(picker().value).toBe('anthropic');
+  });
+
+  it('names the key by its provider, never by its variable, and stores it as before (AC3)', async () => {
+    const { onSave } = renderSetup(EMPTY_SETUP);
+    pick('google');
+    const key = field('Clave de Google AI Studio');
+    expect(key.type).toBe('password');
+    expect(document.body.textContent).not.toContain('_API_KEY');
+    fireEvent.change(key, { target: { value: API_KEY } });
+    save();
+
+    expect((await saved(onSave)).providerKeys).toEqual({ GEMINI_API_KEY: API_KEY });
+  });
+
+  it('shows a stored key of the chosen provider only as stored (AC3)', () => {
+    renderSetup(FILLED_SETUP);
+    expect(field('Clave de OpenAI').placeholder).toBe(text.keyStoredKeep);
+    expect(field('Clave de OpenAI').value).toBe('');
+    expect(document.body.textContent).not.toContain('OPENAI_API_KEY');
+  });
+
+  it('forgets a key typed for one provider when another is chosen (AC3)', async () => {
+    const { onSave } = renderSetup(EMPTY_SETUP);
+    pick('google');
+    fill('Clave de Google AI Studio', API_KEY);
+    pick('openai');
+    save();
+
+    expect((await saved(onSave)).providerKeys).toEqual({});
+    expect(document.documentElement.outerHTML).not.toContain(API_KEY);
+  });
+
+  describe('"Probar" (AC4)', () => {
+    const renderProbe = (
+      setup: SetupState,
+      onProbe?: () => Promise<ProbeOutcome | 'lost'>,
+    ): void => {
+      render(
+        <SetupScreen
+          setup={setup}
+          onSave={async () => setup}
+          onClose={vi.fn()}
+          {...(onProbe === undefined ? {} : { onProbe })}
+        />,
+      );
+    };
+    const probe = (): HTMLButtonElement => screen.getByRole('button', { name: text.probe });
+
+    it.each<ProbeOutcome>(['ok', 'key_refused', 'budget_exhausted', 'not_connected'])(
+      'tests the saved model once and says %s in plain words',
+      async (outcome) => {
+        const onProbe = vi.fn(async () => outcome);
+        renderProbe(FILLED_SETUP, onProbe);
+        expect(screen.getByText(text.probeHelp)).toBeTruthy();
+        fireEvent.click(probe());
+
+        expect(await screen.findByText(text.probeOutcome[outcome])).toBeTruthy();
+        expect(onProbe).toHaveBeenCalledOnce();
+      },
+    );
+
+    it('says so when the connection was lost before the answer', async () => {
+      renderProbe(FILLED_SETUP, async () => 'lost');
+      fireEvent.click(probe());
+
+      expect(await screen.findByText(text.probeLost)).toBeTruthy();
+    });
+
+    it('takes no second probe while one runs', async () => {
+      let finish: (outcome: ProbeOutcome) => void = () => {};
+      const onProbe = vi.fn(
+        () =>
+          new Promise<ProbeOutcome>((resolve) => {
+            finish = resolve;
+          }),
+      );
+      renderProbe(FILLED_SETUP, onProbe);
+      fireEvent.click(probe());
+      const probing = await screen.findByRole<HTMLButtonElement>('button', { name: text.probing });
+      expect(probing.disabled).toBe(true);
+      fireEvent.click(probing);
+      expect(onProbe).toHaveBeenCalledOnce();
+      finish('ok');
+      expect(await screen.findByText(text.probeOutcome.ok)).toBeTruthy();
+    });
+
+    it('cannot test a model or a key that is not saved yet', () => {
+      renderProbe(FILLED_SETUP, async () => 'ok');
+      fill(text.model, 'openai/gpt-5-mini');
+      expect(probe().disabled).toBe(true);
+      expect(screen.getByText(text.probeSaveFirst)).toBeTruthy();
+
+      fill(text.model, 'openai/gpt-4o-mini');
+      expect(probe().disabled).toBe(false);
+      fill('Clave de OpenAI', API_KEY);
+      expect(probe().disabled).toBe(true);
+    });
+
+    it('says ANOMANDER must be running to test', () => {
+      renderProbe(FILLED_SETUP);
+      expect(probe().disabled).toBe(true);
+      expect(screen.getByText(text.probeNotRunning)).toBeTruthy();
+    });
   });
 });

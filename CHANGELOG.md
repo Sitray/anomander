@@ -20,6 +20,8 @@ On `main` since 0.1.0. The interface speaks English or Spanish, and the app runs
 - **`/exportar`**: in Telegram, sends the ledger (`gastos`, `lineas_de_compra`, `pendientes_de_confirmar`) as CSV files and `ledger.json`, also kept under `exports/` in the data folder. In the app it says the export comes through Telegram for now (PRD R-29).
 - **Expense query**: "¿cuánto llevo gastado este mes?", "¿cuánto gasté en Mercadona en octubre?" get the total, the number of expenses and a breakdown by category (or the top merchants of a category), with the expenses pending confirmation counted apart. The model only picks the period and the filters; code computes every figure from the ledger. In Telegram and in the app (PRD R-30).
 
+- **Onboarding without developer knowledge** (DK-23): the setup screen asks for the model first and Telegram last; "Proveedor del modelo" lists the providers by name with a suggested model, "Otro modelo…" still takes any `provider/model`; the key is named by its provider ("Clave de Google AI Studio"), never by its variable, and stored as before; "Probar" makes one real call to the saved model (counted against the daily AI budget) and says how it went in plain words, never with the provider's text, which can quote the key. While setup is incomplete, the app's chat says to open Configuración instead of `.env` and `/login`; Telegram's guide is unchanged. "Modelo para fotos" left empty is saved as the model.
+
 ### Changed
 
 - The CI workflow runs only by hand while GitHub Actions minutes are unavailable. `scripts/ci-local.sh` runs the same checks locally before a merge to `main`.
