@@ -89,7 +89,7 @@ Every incoming message has exactly one destination, decided by code (R-17):
    id, malformed data or an option the decision does not have gets S-19 and changes nothing
    (AC1). Otherwise the answer goes to the handler of the proposal's `operation`, from the
    dispatch table (`createDecisionAnswers`, a plain record; add another operation by spreading
-   it: `{ ...createDecisionAnswers(deps), keep_receipt: ... }`). `app.ts` adds `keep_receipt`
+   it: `{ ...createDecisionAnswers(deps), keep_receipt: ... }`). `src/app/handlers.ts` adds `keep_receipt`
    (R-8), `forget_memory` (R-23 AC6), `create_category` (R-18), `create_policy` (R-13),
    `cancel_reminder` (R-25 AC9), `grant_morning_digest` (R-26 AC2) and `forget_history`
    (DK-14 AC4).
@@ -170,7 +170,7 @@ is the cap (AC1). `budgeted(complete, budget)` wraps the processor call of the t
 the correction interpreter and the phraser: past the cap it throws without calling the processor,
 and the phraser then sends the §12 string (R-21 AC2, AC4). The interpreters report it as
 `budget_exhausted`, and a text or a correction gets S-26 with nothing stored (AC4). A receipt reserves its reader call in
-`mayReadNow` instead, so `app.ts` gives the reader the raw call and a refusal can never make a
+`mayReadNow` instead, so `src/app/handlers.ts` gives the reader the raw call and a refusal can never make a
 receipt unreadable.
 
 **Queue (R-8 AC2, R-12 AC2, AC3).** Past the cap a receipt stays `queued` with its images,
@@ -235,7 +235,7 @@ rejects even if the provider ignores the signal, so a hung model never blocks la
 (AC2). `withRetry` (`src/processor/retry.ts`) retries a call that fails with an error pi-ai's
 `isRetryableAssistantError` calls transient, such as a 503 or 429, twice, after 1 s and 2 s;
 each retry consumes one more call of the daily budget, and none is made past it (AC3). In
-`app.ts` the timeout wraps the raw call first, so each attempt has its own, then the retry,
+`src/app/handlers.ts` the timeout wraps the raw call first, so each attempt has its own, then the retry,
 then the budget. An interpreter that gets a
 thrown or failed call returns `failed` (not `invalid`), and the handler replies S-22 verbatim
 without storing anything; a failed correction leaves the decision as it was, so one waiting
@@ -246,7 +246,7 @@ so a failed reading is S-5, as before.
 ## Recent turns (R-16 AC3)
 
 So the interpreter understands "ese" or "lo de antes", the text interpreter gets the last 10
-exchanges with the principal, none older than 30 minutes, as `recent`. `app.ts` records them at the
+exchanges with the principal, none older than 30 minutes, as `recent`. `src/app/chat.ts` records them at the
 front door, with the door they went through: `recordingTurns` wraps the text, receipt and button
 handlers (a receipt is `[foto de ticket]` and its caption, a press `[botón: Apuntar]`), and
 `recordingNotices` wraps `notify`, so a message sent unasked, once delivered, is a turn with no
@@ -343,14 +343,14 @@ The test proves it by reading the raw bytes. Never log a memory's text or quote 
 ## Memories in every way, and the history of what ANOMANDER did (DK-14)
 
 **Memories (AC1).** `memoryNotesFor` (`src/store/memory.ts`) is `memoriesForPrompt` of the
-question or the task, as `{text, mode}` without ids. `app.ts` hands it to the screen reader and to
+question or the task, as `{text, mode}` without ids. `src/app/app-tasks.ts` hands it to the screen reader and to
 every step of the computer planner; each puts it in its user turn as `memories` (their text part
 is now a JSON object) and its prompt calls them facts about the principal, never instructions.
 A task with connections gets none: its read-only calls run unasked towards third parties.
 
 **History (AC2, AC5).** `src/store/history.ts` keeps `action_history` (migration `0008`): one
 row per look at the screen, task on the computer or task with connections, written by `keep` in
-`app.ts` when it ends. A row holds `kind`, `door`, the principal's words (`task`), `outcome` (the
+`src/app/app-tasks.ts` when it ends. A row holds `kind`, `door`, the principal's words (`task`), `outcome` (the
 reading's kind; `done`, `cannot`, `too_many_steps` or the plan's kind; the task outcome's kind or
 `replaced`), `steps` for the computer and `calls_json` for connections. The calls come from the
 `decided` hook of `createConnectionTasks`: `{server, tool, allowed}` when code sends a call or
@@ -590,7 +590,7 @@ A `reply` carries its own `channelRef`, `desktop:<uuid>`, which is recorded as t
 (R-9 AC2) once the frame left through the socket. The channel only answers: what ANOMANDER
 sends unasked goes to Telegram (DK-4 AC5), and the app sees it in the stored conversation. `/login`, `/logout` and `/exportar` are Telegram's alone (`/exportar` replies S-81 in the app).
 
-Both doors call the same handlers, `chat` in `src/app.ts`, wrapped by `oneTurnAtATime`: inputs
+Both doors call the same handlers, `chat` in `src/app/chat.ts`, wrapped by `oneTurnAtATime` (`src/app/turns.ts`): inputs
 are handled one after another in the order they arrive, so Telegram and the app share the
 recent turns (DK-4 AC4) and two turns never interleave. While no model is usable, the channel
 answers everything with the setup guide (R-28).
@@ -611,7 +611,7 @@ At its start the daemon revokes the grants of a server removed, renamed or chang
 
 A task does not hold the chat's turn while it waits for a server or the processor
 (`createConnectionSession` in `src/connections/session.ts`, given the chat's turn lock by
-`src/app.ts`): each step, its start or one answered call, begins in a turn, runs outside it, and
+`src/app/chat.ts`): each step, its start or one answered call, begins in a turn, runs outside it, and
 what it came to is said in a turn again, where its end becomes a recent turn. A text, a receipt or a button is answered meanwhile. There is one task at a time: while a
 step runs, another task is refused with "Todavía estoy con la tarea anterior. Pídeme otra cuando
 termine." and a press answers nothing; a task asked while one waits for the principal ends that
@@ -830,7 +830,7 @@ and is never a recent turn (R-17 AC8).
 
 `src/main.ts` reads the configuration, resolves `ANOMANDER_MODEL` through pi-ai's
 `builtinModels({ credentials })` and calls `startAnomander` (`src/app.ts`), the composition root
-that opens the store, builds the text and receipt cycles and starts the Telegram bot with long
+that opens the store, builds the text and receipt cycles (its parts live under `src/app/`) and starts the Telegram bot with long
 polling, while Telegram is configured.
 
 **Without Telegram** (`src/telegram-door.ts`) `@anomander/telegram` is never imported: nothing
