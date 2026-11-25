@@ -6,6 +6,7 @@ import {
   MAX_COMPUTER_STEPS,
   type Notify,
   type PrincipalText,
+  type ProbeOutcome,
   ROUTE_KINDS,
   type RouteKind,
   type ScreenQuestion,
@@ -72,7 +73,14 @@ import { createKeepReceiptAnswerHandler } from './retention/keep-receipt-decisio
 import { createRetention } from './retention/retention-job.ts';
 import { groundedRoutes } from './routing/grounded-route.ts';
 import { startScheduler } from './scheduler/scheduler.ts';
-import { cachedSetupGaps, describeGap, type SetupGap, setupGuide } from './setup/setup-guide.ts';
+import { createModelProbe, probeWithoutModel } from './setup/model-probe.ts';
+import {
+  appSetupGuide,
+  cachedSetupGaps,
+  describeGap,
+  type SetupGap,
+  setupGuide,
+} from './setup/setup-guide.ts';
 import { storedConversation } from './store/conversation.ts';
 import { acquireDaemonLock } from './store/daemon-lock.ts';
 import { applyMigrations, openDatabase } from './store/database.ts';
@@ -215,6 +223,8 @@ const startChannel = (
   expenses: ExpensesLedger,
   logger: Logger,
   now?: () => Date,
+  /** DK-23 AC4: "Probar". */
+  probe?: () => Promise<ProbeOutcome>,
 ): LocalChannel | undefined =>
   config.localToken === undefined
     ? undefined
@@ -227,6 +237,7 @@ const startChannel = (
         expenses,
         logger,
         ...(now === undefined ? {} : { now }),
+        ...(probe === undefined ? {} : { probe }),
       });
 
 /** `/start`, `/start@bot` or `/start anything`, as Telegram sends a command. */
@@ -288,6 +299,8 @@ export const startSetupGuide = (config: Config, deps: SetupGuideDeps): Anomander
   // DK-2 AC1: no store runs here, but the daemon is still the only one of its data folder.
   const lock = acquireDaemonLock(config.dbPath);
   const guide = { text: setupGuide(gaps) };
+  // DK-23 AC5: the app's chat gets the guide about its window.
+  const appGuide = { text: appSetupGuide(gaps) };
   let send = async (_: DoorReply): Promise<void> => {
     throw new Error('send used before the bot was created');
   };
@@ -325,12 +338,12 @@ export const startSetupGuide = (config: Config, deps: SetupGuideDeps): Anomander
     config,
     {
       // R-17 AC7: a code pasted in the app's chat while a login waits goes to it, never stored.
-      onText: async (message) => (login?.takePasted(message.text) === true ? null : guide),
-      onReceipt: async () => guide,
-      onButton: async () => guide,
-      onScreen: async () => guide,
-      onComputer: async () => guide,
-      onConnect: async () => guide,
+      onText: async (message) => (login?.takePasted(message.text) === true ? null : appGuide),
+      onReceipt: async () => appGuide,
+      onButton: async () => appGuide,
+      onScreen: async () => appGuide,
+      onComputer: async () => appGuide,
+      onConnect: async () => appGuide,
     },
     // No store runs here: the app's chat starts empty, and an erase cannot be done yet.
     {
@@ -362,6 +375,9 @@ export const startSetupGuide = (config: Config, deps: SetupGuideDeps): Anomander
       },
     },
     logger,
+    undefined,
+    // DK-23 AC4: no model can be called; the probe says why.
+    async () => probeWithoutModel(gaps, config),
   );
 
   // A failed start is the caller's to report, through `started`.
@@ -427,6 +443,15 @@ export const startAnomander = <M>(config: Config, deps: AnomanderDeps<M>): Anoma
     logger,
   });
   const ai = budgeted(timed, budget);
+  // DK-23 AC4: "Probar": one call, never retried, counted against the budget.
+  const probe = createModelProbe({
+    complete,
+    model,
+    budget,
+    gaps: setupGaps,
+    timeoutMs: config.processorTimeoutMs,
+    logger,
+  });
 
   const phraser = createPiAiReplyPhraser({ complete: ai, model, logger });
   // R-16 AC3, DK-16: every exchange with the principal is a recent turn, kept in the stored
@@ -682,12 +707,18 @@ export const startAnomander = <M>(config: Config, deps: AnomanderDeps<M>): Anoma
    * R-28 AC4: the guide while setup is incomplete. The check runs before the turn, so a slow
    * provider never holds it (T14); inputs that wait for the same check keep their order.
    */
-  const guided = <I, R>(handler: (input: I) => Promise<R>) => {
+  const guided = <I, R>(handler: (input: I) => Promise<R>, door: Door | ((input: I) => Door)) => {
+    // DK-23 AC5: each door gets the guide in its own words.
+    const guideAt = (input: I, gaps: readonly SetupGap[]) =>
+      (typeof door === 'function' ? door(input) : door) === 'app'
+        ? appSetupGuide(gaps)
+        : setupGuide(gaps);
     const turn = inTurn(async ({ input, gaps }: { input: I; gaps: readonly SetupGap[] }) =>
-      gaps.length > 0 ? { text: setupGuide(gaps) } : handler(input),
+      gaps.length > 0 ? { text: guideAt(input, gaps) } : handler(input),
     );
     return async (input: I) => turn({ input, gaps: await setupGaps() });
   };
+  const byChannelRef = ({ channelRef }: { channelRef: string }) => doorOf(channelRef);
 
   // DK-11: one task with connections at a time, its steps outside the chat's turn (session.ts).
   const connectionSession = createConnectionSession({
@@ -703,7 +734,7 @@ export const startAnomander = <M>(config: Config, deps: AnomanderDeps<M>): Anoma
     const pressed = guided(async (press: ButtonPress) => {
       const answer = connectionSession.answer(press.data, door);
       return answer === undefined ? recordedButton(door)(press) : answer;
-    });
+    }, door);
     return async (press: ButtonPress) => settled(await pressed(press));
   };
   // DK-17 AC6: "Deshacer" and "Corregir" on a row of "Gastos" press the expense's own button
@@ -723,12 +754,15 @@ export const startAnomander = <M>(config: Config, deps: AnomanderDeps<M>): Anoma
         },
         () => 'app',
       ),
+      'app',
     );
     return async (expenseId: number) => settled(await pressed(expenseId));
   };
   const onConnectAt = (door: Door) => {
-    const begun = guided(async (task: string) =>
-      task === '' ? { text: strings.connectionUsage() } : connectionSession.run(task, door),
+    const begun = guided(
+      async (task: string) =>
+        task === '' ? { text: strings.connectionUsage() } : connectionSession.run(task, door),
+      door,
     );
     return async (task: string) => settled(await begun(task));
   };
@@ -746,7 +780,7 @@ export const startAnomander = <M>(config: Config, deps: AnomanderDeps<M>): Anoma
     // DK-16 AC1: its words are stored once, with the announcement, above.
     const run = connectionSession.run(route.task, doorOf(message.channelRef), true);
     return run ?? { text: reply.text };
-  });
+  }, byChannelRef);
 
   // R-29 AC3: the ledger's files, sent by Telegram after S-79; no processor call.
   const exportFromTelegram = guided(async (): Promise<DoorReply> => {
@@ -767,14 +801,14 @@ export const startAnomander = <M>(config: Config, deps: AnomanderDeps<M>): Anoma
       });
       return { text: strings.exportFailed() };
     }
-  });
+  }, 'telegram');
 
   const chat: ChatHandlers = {
     onText: async (message) => settled(await answered(message)),
-    onReceipt: guided(recordedReceipt),
+    onReceipt: guided(recordedReceipt, byChannelRef),
     onButton: onButtonAt('telegram'),
-    onScreen: guided(recordedScreen),
-    onComputer: guided(planStep),
+    onScreen: guided(recordedScreen, 'app'),
+    onComputer: guided(planStep, 'app'),
     onConnect: (request) => connectFromApp(request.task),
   };
 
@@ -906,6 +940,7 @@ export const startAnomander = <M>(config: Config, deps: AnomanderDeps<M>): Anoma
     },
     logger,
     now,
+    probe,
   );
 
   telegram.started.then(

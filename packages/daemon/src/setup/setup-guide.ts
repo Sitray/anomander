@@ -150,6 +150,25 @@ const lineOf = (gap: SetupGap): string => {
 export const setupGuide = (gaps: readonly SetupGap[]): string =>
   strings.setupGuide(gaps.map(lineOf));
 
+const appLineOf = (gap: SetupGap): string => {
+  switch (gap.kind) {
+    case 'model_unset':
+      return strings.appSetupModelUnset();
+    case 'model_unknown':
+      return strings.appSetupModelUnknown(gap.model);
+    case 'provider_unconnected':
+      return strings.appSetupProviderUnconnected(accountOf(gap.providerId));
+  }
+};
+
+/**
+ * DK-23 AC5: the guide in the desktop app's chat, S-70 with S-171 to S-173: the window is where
+ * the setup is made, never `.env` or `/login`. Both models are chosen in the same screen, so an
+ * unknown model named twice is said once.
+ */
+export const appSetupGuide = (gaps: readonly SetupGap[]): string =>
+  strings.setupGuide([...new Set(gaps.map(appLineOf))]);
+
 /** The same gaps for the log, in English (R-28 AC3). */
 export const describeGap = (gap: SetupGap): string => {
   switch (gap.kind) {

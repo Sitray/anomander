@@ -1239,6 +1239,22 @@ button {
   margin-top: calc(var(--s2) * -1);
 }
 
+/* DK-23 AC4: "Probar" with its outcome beside it, which wraps under it when long. */
+.probe-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s2) var(--s3);
+}
+
+.probe-row .button {
+  height: 1.875rem;
+}
+
+.probe-result:empty {
+  display: none;
+}
+
 /* ---------- Connections ---------- */
 
 .connectors,

@@ -643,6 +643,48 @@ and keep its secrets in the operating system instead of a text file.
     chat asks for the stored conversation again, as after a forget confirmed in the chat. When it
     was not forgotten (the reply S-22) the item stays and the screen says so; when the connection
     was lost first, that it cannot know.
+- DK-23 Onboarding without developer knowledge (backlog B22, 2026-11-25: "Provider/model picker
+  with suggestions, a "Probar" button, models first, an app-specific guide").
+  - AC1: the setup screen asks for the models first and for "Telegram (opcional)" last; the web
+    search and the other keys go between them. What DK-5 AC4 says about Telegram holds.
+  - AC2: "Proveedor del modelo" lists, by name, the providers the daemon reaches through pi-ai
+    (Google Gemini, OpenAI, Anthropic Claude, OpenRouter, Mistral, DeepSeek, xAI Grok, Kimi Code;
+    `apps/desktop/src/setup/providers.ts`), each with a suggested model that pi-ai knows and that
+    reads photos (a test checks both). Choosing one fills "Modelo" and "Modelo para fotos" with its
+    suggestion, keeping a photo model the principal typed. "Otro modelo…" keeps the free
+    `provider/model` field, still checked only by shape; a model typed with a listed provider
+    selects it. "Modelo para fotos" left empty is saved as the model only when that is a suggested
+    one, known to read photos; otherwise the screen asks for it ("Falta el modelo para fotos:
+    escribe uno que lea imágenes, o elige un proveedor de la lista."), so the daemon never starts
+    with half of R-28 AC2's pair nor reads receipts with a model that cannot see them.
+  - AC3: the key of the chosen provider is asked beside the model and named by whose it is,
+    "Clave de Google AI Studio", "Clave de OpenAI", never by its variable; it is stored as before
+    (DK-5 AC1), in the Keychain under the variable pi-ai reads (`GEMINI_API_KEY`). A stored key is
+    shown as "Guardada. Déjala en blanco para mantenerla."; choosing another provider drops what
+    was typed. The keys already stored are listed by provider name too; a provider not listed is
+    still added by its variable name ("Otra…"). A provider with a subscription login (R-27 AC1)
+    keeps the link to Suscripciones (DK-15).
+  - AC4: "Probar" sends `probe_model` on its own connection to the local channel; the daemon
+    makes one minimal call to the saved `ANOMANDER_MODEL`, outside the chat's turn, with the
+    processor's timeout (R-22 AC2) and no retry, and it counts against the daily AI budget (R-12:
+    a real call costs like any other). It answers `probe` with one outcome, shown in plain words:
+    "Funciona: el modelo ha contestado.", "El proveedor no acepta la clave. Revisa que esté bien
+    copiada.", "El proveedor no tiene ese modelo, o tu cuenta no puede usarlo.", "El proveedor
+    dice que se ha acabado tu cuota o que vas demasiado rápido. Revisa tu plan.", "El proveedor no
+    ha contestado a tiempo. Prueba otra vez en un rato.", "El proveedor ha dado un error. Prueba
+    otra vez en un rato.", and without a call "Falta la clave del proveedor, o conectar tu
+    suscripción." (R-28 AC2's connection gap), "Hoy ya se ha llegado al límite diario de llamadas a
+    la IA. Prueba mañana." and, while the setup guide runs, "Aún no hay un modelo guardado.",
+    "Falta el modelo para fotos. Escribe uno que lea imágenes en «Modelo para fotos» y guarda."
+    (the model is saved, the one for photos is not) or "ANOMANDER no conoce ese modelo. Elige
+    otro.". The provider's own error text can quote the key,
+    so it never reaches the window or the log: the daemon classifies it and logs only the outcome.
+    "Probar" tests what is saved: it is disabled, saying "Guarda primero: Probar usa el modelo y la
+    clave guardados.", while the model or a key has changes, and "Para probar, ANOMANDER tiene
+    que estar en marcha." while it is not running.
+  - AC5: while setup is incomplete (R-28), the app's chat gets S-70 with S-171 to S-173, about the
+    window instead of `.env` and `/login`; an unknown model named for both models is said once.
+    Telegram keeps S-71 to S-73.
 
 ## 6. Decisions
 

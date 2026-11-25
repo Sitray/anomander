@@ -212,7 +212,7 @@ Steps:
    APPLE_SIGNING_IDENTITY="<identity name or hash>" pnpm --dir apps/desktop tauri build --debug
    ```
    The app is `apps/desktop/src-tauri/target/debug/bundle/macos/ANOMANDER.app`.
-4. **Set it up.** Open the app and fill in the setup screen: the models and a key, or connect a subscription from Suscripciones. Telegram is optional: add the bot token and your Telegram ID to talk to ANOMANDER there too, or leave both empty to use the app's chat alone. "Búsqueda web" comes checked: leave it so to let ANOMANDER search the internet (the note beside it says what leaves the Mac), or uncheck it and add it later from Conexiones.
+4. **Set it up.** Open the app and fill in the setup screen: choose the model's provider (a model is suggested for it) and paste its key, or connect a subscription from Suscripciones; "Probar" checks the saved model with one real call. Telegram is optional: add the bot token and your Telegram ID to talk to ANOMANDER there too, or leave both empty to use the app's chat alone. "Búsqueda web" comes checked: leave it so to let ANOMANDER search the internet (the note beside it says what leaves the Mac), or uncheck it and add it later from Conexiones.
 5. **Allow it.** In System Settings › Privacy & Security, turn ANOMANDER on under Screen Recording (for a look at the screen) and Accessibility (for tasks on the computer). Until then the app says how and does nothing.
 
 Good to know:
