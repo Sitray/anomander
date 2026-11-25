@@ -35,7 +35,8 @@ pub fn toggle(visible: bool, focused: bool) -> Toggle {
 }
 
 /// The line of the log when the hotkey cannot be had: fixed, with nothing of the principal's.
-pub const NOT_REGISTERED: &str = "the chat hotkey could not be registered; the app works without it";
+pub const NOT_REGISTERED: &str =
+    "the chat hotkey could not be registered; the app works without it";
 
 /// Registers the hotkey. Never fails: without it the app works as before.
 pub fn install<R: Runtime>(app: &AppHandle<R>) {
