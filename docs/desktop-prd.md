@@ -644,6 +644,29 @@ and keep its secrets in the operating system instead of a text file.
     was not forgotten (the reply S-22) the item stays and the screen says so; when the connection
     was lost first, that it cannot know.
 
+- DK-19 The chat says what it does (backlog B23, B25, B26 and B27's "Esc to stop a task", asked
+  by the principal on 2026-11-25: "si, intenta hacer el 1 y 2 en paralelo si puedes").
+  - AC3: while an answer is owed the chat says what ANOMANDER is doing, in a live region that is
+    always in the page, so each phase is announced: "ANOMANDER está pensando…" for a text or a
+    step, "Leyendo el ticket…" for a receipt, "Mirando tu pantalla…" for a look. While a task with
+    connections calls a tool the daemon says so with an optional `progress` event (`of`, the
+    request's id, and `phase`: `web_search` for the web search connection or any server that runs
+    its package, `connection` for any other), and the chat says "Buscando en internet…" or "Usando
+    tus conexiones…". A window that ignores the event loses nothing.
+  - AC4: next to the phase of a text or a look, "Detener" sends `cancel` with the id of the
+    request owed (`target`); the daemon answers `done` at once, outside the chat's turn. It stops
+    the turn as far as it safely can: the processor call that runs is aborted, none starts after
+    it, and a task with connections stops before its next step; a tool call that runs, and what
+    was already written (an expense), are not undone. The answer to the request then comes as
+    usual: S-130 when a processor call of the turn was stopped (with the calls a task had made, as
+    for any task cut short), its buttons kept, so an expense written before the stop can still be
+    undone; the answer it had reached otherwise. It is stored as any reply, and a stopped look is
+    kept in the history as `cancelled` ("La paraste"). The chat says "Deteniendo…" until the answer
+    comes. A receipt, a press and a step of a task on the computer offer no "Detener": the task has
+    its own "Detener tarea" (DK-10). Turns from Telegram are never stopped.
+  - AC5: Esc does what "Detener tarea" does while a task on the computer runs, and otherwise what
+    "Detener" does, only while the chat is the screen shown and an input method is not composing.
+
 ## 6. Decisions
 
 1. **Where the daemon runs.** Decided (2026-11-10): on the principal's machine, started by the
@@ -681,7 +704,7 @@ the principal to confirm:
 | The token (DK-3 AC2) | `ANOMANDER_LOCAL_TOKEN`, handed over on the daemon's stdin by the app (DK-5 AC2), at least 32 characters of `A-Z a-z 0-9 . _ ~ + -`. Unset: the channel is off and no port opens, as under Docker |
 | The port | `ANOMANDER_LOCAL_PORT`, default `4312`, always on `127.0.0.1`. The app picks a free one at each launch |
 | Presenting the token | As the second WebSocket subprotocol: `new WebSocket(url, ['anomander.v1', token])` |
-| Messages | `ChatRequest` (`text`, `receipt`, `button`, `screen`, `computer`, `connect`, `history`, `clear_history`, `expenses`, `memories`, `forget_memory`, `actions`, `forget_action`) and `ChatEvent` (`reply`, `done`, `rejected`, `history`, `expenses`, `memories`, `actions`) in `packages/protocol/src/local-channel.ts` |
+| Messages | `ChatRequest` (`text`, `receipt`, `button`, `screen`, `computer`, `connect`, `history`, `clear_history`, `expenses`, `memories`, `forget_memory`, `actions`, `forget_action`, `cancel`) and `ChatEvent` (`reply`, `done`, `rejected`, `history`, `expenses`, `memories`, `actions`), and the optional `ChatProgress` (`progress`, DK-19), in `packages/protocol/src/local-channel.ts` |
 | Why the daemon stopped (DK-2 AC3) | Exit code `3`: another daemon runs on the same database. `4`: another process uses the bot. `1`: anything else. `exitCodes` in `packages/protocol` |
 | The single-daemon lock (DK-2 AC1) | `<database>.lock` beside the database, held while the daemon runs and freed by the operating system when it ends, so a crash leaves nothing stale |
 

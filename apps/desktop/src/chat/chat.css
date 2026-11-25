@@ -21,3 +21,25 @@
   align-items: baseline;
   gap: var(--s1) var(--s3);
 }
+
+/* DK-19: what ANOMANDER is doing for the answer owed, and "Detener". The live region stays in the
+   page while nothing is owed, taking no room. */
+.thinking:not([data-waiting]) {
+  padding-block: 0;
+}
+
+.thinking[data-waiting] {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s1) var(--s3);
+}
+
+.thinking-status {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s2);
+  margin: 0;
+  color: var(--text-3);
+  font-size: var(--text-sm);
+}

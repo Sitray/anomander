@@ -233,6 +233,66 @@ describe('a question with buttons (DK-4 AC3)', () => {
   });
 });
 
+describe('while ANOMANDER works (DK-19)', () => {
+  const stopButton = () => screen.queryByRole('button', { name: strings.chat.stopTurn });
+
+  it('says what it is doing in a live region, and what the daemon says it is doing', async () => {
+    const socket = openChat();
+    say('busca el mejor precio de la Switch 2');
+    const request = await sentRequest(socket);
+
+    expect(screen.getByText(strings.chat.thinking).closest('[aria-live]')).not.toBeNull();
+    act(() =>
+      socket.receiveRaw(JSON.stringify({ type: 'progress', of: request.id, phase: 'web_search' })),
+    );
+    expect(screen.getByText(strings.chat.searchingWeb).closest('[aria-live]')).not.toBeNull();
+    act(() =>
+      socket.receiveRaw(JSON.stringify({ type: 'progress', of: request.id, phase: 'connection' })),
+    );
+    expect(screen.getByText(strings.chat.usingConnections)).toBeTruthy();
+  });
+
+  it('"Detener" asks the daemon to stop the turn, and its answer says whether it did', async () => {
+    const socket = openChat();
+    say('23 € cena');
+    const request = await sentRequest(socket);
+    await waitFor(() => expect(stopButton()).not.toBeNull());
+
+    fireEvent.click(stopButton() as HTMLElement);
+
+    expect(await sentRequest(socket, 2)).toMatchObject({ type: 'cancel', target: request.id });
+    expect(screen.getByText(strings.chat.stopping)).toBeTruthy();
+    expect((stopButton() as HTMLButtonElement).disabled).toBe(true);
+    act(() => socket.receive(replyTo(request.id, { text: replies.turnCancelled() })));
+    expect(screen.getByText(replies.turnCancelled())).toBeTruthy();
+    expect(stopButton()).toBeNull();
+  });
+
+  it('Esc stops the answer owed, as "Detener" does (B27)', async () => {
+    const socket = openChat();
+    say('¿qué tiempo hace?');
+    const request = await sentRequest(socket);
+    // Once the window knows the request it owes: what "Detener" would stop.
+    await waitFor(() => expect(stopButton()).not.toBeNull());
+
+    fireEvent.keyDown(document, { key: 'Escape' });
+
+    expect(await sentRequest(socket, 2)).toMatchObject({ type: 'cancel', target: request.id });
+  });
+
+  it('a receipt says it is being read, and is not offered to stop', async () => {
+    const socket = openChat();
+    fireEvent.paste(composer(), { clipboardData: { files: [image('ticket.png')] } });
+    fireEvent.click(screen.getByRole('button', { name: strings.chat.send }));
+    await sentRequest(socket);
+
+    expect(screen.getByText(strings.chat.readingReceipt)).toBeTruthy();
+    expect(stopButton()).toBeNull();
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(socket.requests).toHaveLength(1);
+  });
+});
+
 describe('delivery honesty', () => {
   it('says a rejected message was not sent and sends it again when asked', async () => {
     const socket = openChat();
@@ -561,11 +621,12 @@ describe('a look at the screen (DK-9, DK-13)', () => {
     await routed(socket, 'screen', question);
     const look = await sentRequest(socket, 2);
 
-    expect(screen.getByText(strings.chat.thinking)).toBeTruthy();
+    // DK-19: it says it is looking.
+    expect(screen.getByText(strings.chat.lookingAtScreen)).toBeTruthy();
     act(() => socket.receive(replyTo(look.id, { text: 'Es de Ana, sobre la reunión.' })));
 
     expect(screen.getByText('Es de Ana, sobre la reunión.')).toBeTruthy();
-    expect(screen.queryByText(strings.chat.thinking)).toBeNull();
+    expect(screen.queryByText(strings.chat.lookingAtScreen)).toBeNull();
   });
 
   it('says it cannot look where the window cannot capture the screen', async () => {
@@ -984,6 +1045,23 @@ describe('a task on the computer (DK-10, DK-13)', () => {
       const third = await sentRequest(socket, 4);
       expect(stop()).not.toBeNull();
       act(() => socket.receive(replyTo(third.id, { text: 'Hecho.' })));
+      expect(stop()).toBeNull();
+    });
+
+    it('Esc stops the task while it runs, as "Detener tarea" does (B27)', async () => {
+      const { socket, onPerformAction } = openWithComputer();
+      const request = await started(socket);
+
+      fireEvent.keyDown(document, { key: 'Escape' });
+      act(() =>
+        socket.receive(
+          replyTo(request.id, { text: PROPOSAL, computer: CLICK, confirm: false } as never),
+        ),
+      );
+      await act(async () => {});
+
+      expect(onPerformAction).not.toHaveBeenCalled();
+      expect(screen.getByText(strings.chat.computerRefused)).toBeTruthy();
       expect(stop()).toBeNull();
     });
 

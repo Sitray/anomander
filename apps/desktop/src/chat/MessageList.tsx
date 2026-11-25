@@ -5,6 +5,7 @@ import { strings } from '../strings.ts';
 import { AlertIcon, FileIcon, Mark } from '../ui/icons.tsx';
 import type { Attachment } from './attachments.ts';
 import type { BotMessage, Message, OwnMessage } from './conversation.ts';
+import type { Turn } from './use-chat.ts';
 
 /** What the empty conversation says, and what it offers. */
 export interface EmptyState {
@@ -35,6 +36,10 @@ export interface MessageListProps {
   messages: Message[];
   /** The daemon owes an answer. */
   waiting: boolean;
+  /** DK-19: the answer owed, to say its phase and offer to stop it; absent, only that it works. */
+  turn?: Turn | null;
+  /** DK-19: stops the turn owed, when it can be stopped. */
+  onStop?: () => void;
   /** What the empty conversation says; by default, what can be done here. */
   empty?: EmptyState;
   onRetry: (message: OwnMessage) => void;
@@ -47,6 +52,18 @@ export interface MessageListProps {
   /** DK-11 AC13: adds the web search a message offers. Absent where the window cannot. */
   onAddWebSearch?: ((message: BotMessage) => void) | undefined;
 }
+
+/** DK-19: what ANOMANDER is doing for the answer owed, in words. */
+const phaseOf = (turn: Turn | null): string => {
+  const { chat } = strings;
+  if (turn === null) return chat.thinking;
+  if (turn.stopping) return chat.stopping;
+  if (turn.phase === 'web_search') return chat.searchingWeb;
+  if (turn.phase === 'connection') return chat.usingConnections;
+  if (turn.kind === 'screen') return chat.lookingAtScreen;
+  if (turn.kind === 'receipt') return chat.readingReceipt;
+  return chat.thinking;
+};
 
 /** How far from the end still counts as reading the latest message. */
 const NEAR_END_PX = 80;
@@ -316,7 +333,7 @@ const Bot = ({
 
 export function MessageList(props: MessageListProps) {
   const { messages, waiting, onRetry, onRestart, onPress, onAllow, onRefuse } = props;
-  const { onAddWebSearch } = props;
+  const { onAddWebSearch, turn = null, onStop } = props;
   const empty = props.empty ?? emptyStateFor(null);
   const scroller = useRef<HTMLDivElement>(null);
   /** Whether the principal is reading the end; scrolling up to reread must not be undone. */
@@ -370,16 +387,33 @@ export function MessageList(props: MessageListProps) {
           ),
         )}
       </ol>
-      {waiting && (
-        <div className="thinking">
-          <span className="sr-only">{strings.chat.thinking}</span>
-          <span className="thinking-dots" aria-hidden="true">
-            <i />
-            <i />
-            <i />
-          </span>
-        </div>
-      )}
+      {/* DK-19: the phase is in a live region that is always there, so each change is announced. */}
+      <div className="thinking" data-waiting={waiting || undefined}>
+        <p className="thinking-status" aria-live="polite">
+          {waiting && (
+            <>
+              <span className="thinking-dots" aria-hidden="true">
+                <i />
+                <i />
+                <i />
+              </span>
+              <span className="thinking-phase">{phaseOf(turn)}</span>
+            </>
+          )}
+        </p>
+        {waiting && turn?.stoppable === true && onStop !== undefined && (
+          <button
+            type="button"
+            className="link"
+            title={strings.chat.stopTurnHint}
+            aria-keyshortcuts="Escape"
+            disabled={turn.stopping}
+            onClick={onStop}
+          >
+            {strings.chat.stopTurn}
+          </button>
+        )}
+      </div>
     </div>
   );
 }

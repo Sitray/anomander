@@ -124,6 +124,9 @@ export const createConnectionSession = (deps: ConnectionSessionDeps): Connection
         return { text: cutShort(strings.providerLimitReached(), outcome.performed) };
       case 'failed':
         return { text: cutShort(strings.connectionFailed(), outcome.performed) };
+      // DK-19: stopped from the app; the calls made are not undone.
+      case 'cancelled':
+        return { text: cutShort(strings.turnCancelled(), outcome.performed) };
     }
   };
 

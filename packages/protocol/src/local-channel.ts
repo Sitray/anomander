@@ -194,6 +194,20 @@ export interface ChatCorrectExpense {
   expenseId: number;
 }
 
+/**
+ * DK-19: stops the turn of the request `target`, as far as the daemon can safely stop it: a
+ * processor call that runs is aborted, none starts after it, and a task with connections stops
+ * before its next step. What was already done is not undone. Only a `text`, `screen` or `connect`
+ * request can be stopped; the reply to it says it was stopped (S-130) unless it had already ended.
+ * Answered with `done` at once, whatever became of the target.
+ */
+export interface ChatCancel {
+  type: 'cancel';
+  id: string;
+  /** The `id` of the request whose turn to stop. */
+  target: string;
+}
+
 export type ChatRequest =
   | ChatText
   | ChatReceipt
@@ -209,7 +223,8 @@ export type ChatRequest =
   | ChatForgetAction
   | ChatExpensesRequest
   | ChatUndoExpense
-  | ChatCorrectExpense;
+  | ChatCorrectExpense
+  | ChatCancel;
 
 /** DK-16: the most stored messages a `history` request returns. */
 export const HISTORY_LIMIT = 500;
@@ -368,3 +383,21 @@ export type ChatEvent =
   | ChatMemories
   | ChatActions
   | ChatExpenses;
+
+/**
+ * DK-19: what a turn the daemon is running is doing now, so the window can say it: a task with
+ * connections calling a tool (`connection`), or the web search's (`web_search`). Optional: a
+ * window that ignores it loses nothing, and a turn may end without any.
+ */
+export const PROGRESS_PHASES = ['connection', 'web_search'] as const;
+export type ProgressPhase = (typeof PROGRESS_PHASES)[number];
+
+/**
+ * DK-19: sent while the request `of` is still owed its answer; never an answer itself, so it
+ * names the request in `of`, not `inReplyTo`.
+ */
+export interface ChatProgress {
+  type: 'progress';
+  of: string;
+  phase: ProgressPhase;
+}

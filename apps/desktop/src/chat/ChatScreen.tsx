@@ -107,8 +107,24 @@ export function ChatScreen(props: ChatScreenProps) {
   useEffect(() => onThinking?.(waiting), [waiting, onThinking]);
   useEffect(() => () => onThinking?.(false), [onThinking]);
 
-  const { running, stop } = chat;
+  const { running, stop, turn, cancel } = chat;
   useEffect(() => onTaskRunning?.(running), [running, onTaskRunning]);
+  const section = useRef<HTMLElement>(null);
+  // DK-19, B27: Esc stops a task on the computer that runs, or else the answer owed when it can be
+  // stopped; only while the chat is the screen shown, and never what something else took.
+  const stoppable = turn?.stoppable === true && !turn.stopping;
+  useEffect(() => {
+    if (!running && !stoppable) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape' || event.defaultPrevented || event.isComposing) return;
+      if (section.current === null || section.current.closest('[hidden]') !== null) return;
+      event.preventDefault();
+      if (running) stop();
+      else cancel();
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [running, stoppable, stop, cancel]);
   useEffect(() => subscribeStop?.(stop), [subscribeStop, stop]);
   const { shownAgain } = chat;
   useEffect(() => subscribeShown?.(shownAgain), [subscribeShown, shownAgain]);
@@ -152,6 +168,7 @@ export function ChatScreen(props: ChatScreenProps) {
   return (
     // biome-ignore lint/a11y/noStaticElementInteractions: a drop target; the keyboard's way to attach is the composer's button.
     <section
+      ref={section}
       className="chat"
       data-offline={disabled || undefined}
       data-dropping={dropping || undefined}
@@ -225,6 +242,8 @@ export function ChatScreen(props: ChatScreenProps) {
       <MessageList
         messages={chat.conversation.messages}
         waiting={waiting}
+        turn={turn}
+        onStop={cancel}
         empty={emptyStateFor(disabled ? daemon : null, props.onStart)}
         onRetry={chat.retry}
         onRestart={chat.restart}

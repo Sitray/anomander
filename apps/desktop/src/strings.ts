@@ -163,6 +163,14 @@ const es = {
       'macOS no me deja usar el ordenador. Actívame en Ajustes del Sistema › Privacidad y seguridad › Accesibilidad y vuelve a abrir ANOMANDER.',
 
     thinking: 'ANOMANDER está pensando…',
+    /** DK-19: what ANOMANDER is doing for the answer owed, and the way to stop it. */
+    readingReceipt: 'Leyendo el ticket…',
+    lookingAtScreen: 'Mirando tu pantalla…',
+    usingConnections: 'Usando tus conexiones…',
+    searchingWeb: 'Buscando en internet…',
+    stopping: 'Deteniendo…',
+    stopTurn: 'Detener',
+    stopTurnHint: 'Detener (Esc)',
 
     /** `rejected`, or never left: nothing was done, so sending again is safe. */
     notSent: 'No se ha enviado.',
@@ -463,6 +471,8 @@ const es = {
           cannot: 'No se pudo hacer',
           failed: 'Falló',
           stopped: 'La paraste',
+          /** DK-19: stopped from the chat while it ran. */
+          cancelled: 'La paraste',
           replaced: 'La sustituyó otra',
           too_many_steps: 'Demasiados pasos',
           budget_exhausted: 'Sin llamadas de IA ese día',
@@ -720,6 +730,13 @@ const en: Strings = {
       "macOS won't let me use the computer. Turn me on in System Settings › Privacy & Security › Accessibility and open ANOMANDER again.",
 
     thinking: 'ANOMANDER is thinking…',
+    readingReceipt: 'Reading the receipt…',
+    lookingAtScreen: 'Looking at your screen…',
+    usingConnections: 'Using your connections…',
+    searchingWeb: 'Searching the web…',
+    stopping: 'Stopping…',
+    stopTurn: 'Stop',
+    stopTurnHint: 'Stop (Esc)',
 
     notSent: 'Not sent.',
     sendAgain: 'Send again',
@@ -989,6 +1006,7 @@ const en: Strings = {
           cannot: 'Could not be done',
           failed: 'Failed',
           stopped: 'You stopped it',
+          cancelled: 'You stopped it',
           replaced: 'Replaced by another',
           too_many_steps: 'Too many steps',
           budget_exhausted: 'No AI calls left that day',

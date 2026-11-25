@@ -335,7 +335,8 @@ type Said = Exclude<
       | 'memories'
       | 'forget_memory'
       | 'actions'
-      | 'forget_action';
+      | 'forget_action'
+      | 'cancel';
   }
 >;
 
@@ -617,6 +618,11 @@ class ScriptedSocket extends FakeWebSocket {
           this.receive({ ...expensesOf(request.month ?? thisMonth), inReplyTo: request.id });
         }
       }, 300);
+      return;
+    }
+    // DK-19: the preview never holds a turn it could stop.
+    if (request.type === 'cancel') {
+      this.receive({ type: 'done', inReplyTo: request.id });
       return;
     }
     if (request.type === 'history' || request.type === 'clear_history') {
