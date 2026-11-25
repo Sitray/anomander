@@ -576,6 +576,14 @@ Amounts are formatted with `Intl.NumberFormat('es-ES', { style: 'currency', curr
 | S-171 | `- Elegir el modelo: abre Configuración, en la barra de arriba.` (S-71 in the desktop app's chat, desktop PRD DK-23 AC5) |
 | S-172 | `- Un modelo que exista: {modelo} no lo encuentro. Elige otro en Configuración.` (S-72 in the app's chat, once per model) |
 | S-173 | `- Conectar tu cuenta de {proveedor}: pon su clave en Configuración o conéctala en Suscripciones.` (S-73 in the app's chat) |
+| S-180 | `Permitir siempre` (desktop PRD DK-24 AC1: a button under a call of a task with connections) |
+| S-181 | `Quiero usar «{herramienta}» de «{servidor}» con: {resumen}` followed, on the next line, by the exact JSON of the arguments (DK-24 AC4) |
+| S-182 | `Quiero usar «{herramienta}» de «{servidor}», sin datos.` followed by `{}`, for a call with no arguments (DK-24 AC4) |
+| S-183 | `Siempre permitidas:` (DK-24 AC3, in "Conexiones") |
+| S-184 | `Quitar` (DK-24 AC3) |
+| S-185 | `No se han podido leer las herramientas siempre permitidas.` (DK-24 AC3) |
+| S-186 | `No se ha quitado. Inténtalo otra vez.` (DK-24 AC3) |
+| S-187 | `Se ha perdido la conexión con ANOMANDER y no sé si se ha quitado. Vuelve a abrir Conexiones para verlo.` (DK-24 AC3) |
 
 When there is no category, `{categoria}` is `sin clasificar`. In S-9, each category name in `{desglose}` starts with a capital letter (R-10 AC4), for example `Supermercado 45,20 € · Restaurantes 23,00 € · Sin clasificar 0,00 €`. Telegram commands are in English (`/start`, `/login`, `/logout`), except `/exportar` (R-29 AC3); what the principal reads stays in Spanish. Button labels: `Apuntar`, `Corregir`, `Descartar`, `Deshacer` (with `Corregir`, under S-1 and S-2 of a text expense, R-7 AC4), and for S-11, S-12, S-13, S-15, S-29, S-46, S-53 and S-74 `Sí` and `No`; S-60 and S-66 have one button per account (`ChatGPT`, `Kimi Code`), and S-62 and S-63 an `Abrir` button with the link. In S-53, S-54, S-57 and S-59, `{hora}` is written `7:30` or `8:00`; at 1:00 the sentence reads `a la 1:00`. In S-50, `{texto}` lists the texts joined with `, ` and ` y ` before the last one. In S-90 to S-93 (R-30), `{periodo}` is `Del {inicio} al {fin}`, or `El {dia}` when the period is one day; when the period is not within the current year, each date names its year (`Del 1 de noviembre de 2025 al 24 de noviembre de 2026`); `{gastos}` is `1 gasto` or `{n} gastos`; when `{desglose}` is empty, ` {desglose}.` is left out.
 

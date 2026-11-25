@@ -213,6 +213,7 @@ export function App() {
                   onRemove={shell.removeConnection}
                   onConnectOAuth={shell.connectOAuth}
                   onForgetOAuth={shell.forgetOAuth}
+                  channel={snapshot.channel}
                   onClose={close}
                 />
               </div>

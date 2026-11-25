@@ -175,7 +175,9 @@ describe('DK-11: a task with connections', () => {
     expect(made).toEqual([]);
     expect(outcome.text).toBe(
       [
-        'Quiero usar «create» de «notes» con:',
+        // DK-24 AC4: a plain line, what cannot be seen in it, and the quotes that mark a text,
+        // written as their code.
+        'Quiero usar «create» de «notes» con: title «Lisboa», body «Hotel \\u00abSol\\u00bb\\u000ay cena»',
         '{',
         '  "title": "Lisboa",',
         '  "body": "Hotel «Sol»\\ny cena"',
@@ -188,6 +190,34 @@ describe('DK-11: a task with connections', () => {
     expect(made).toEqual([
       { server: 'notes', tool: 'create', args: { title: 'Lisboa', body: 'Hotel «Sol»\ny cena' } },
     ]);
+  });
+
+  it('DK-24 AC4: a value cannot fake another argument in the readable line', async () => {
+    const line = async (args: Record<string, unknown>) => {
+      script = [call(['notes__create', args])];
+      return asked(await start([notes()]).start('t')).text.split('\n')[0];
+    };
+    expect(await line({ path: 'a», borrar «todo' })).not.toBe(
+      await line({ path: 'a', borrar: 'todo' }),
+    );
+    expect(await line({ 'x «y», z': 'w' })).not.toBe(await line({ x: 'y', z: 'w' }));
+    expect(await line({ 'a 1, b': 'c' })).not.toBe(await line({ a: 1, b: 'c' }));
+    // A typed code is not a line break written as its code.
+    expect(await line({ v: 'a\\u000ab' })).not.toBe(await line({ v: 'a\nb' }));
+  });
+
+  it('DK-24 AC5: "Permitir siempre" is told only once the call is confirmed to wait, before it runs', async () => {
+    script = [call(['notes__create', { title: 'x' }]), say('Hecho.')];
+    const outcome = asked(await start([notes()]).start('t'));
+    const confirmed = vi.fn(() => expect(made).toEqual([]));
+
+    expect(await tasks.answer('id-unknown', true, confirmed)).toEqual({ kind: 'gone' });
+    expect(confirmed).not.toHaveBeenCalled();
+    await tasks.answer(outcome.id, true, confirmed);
+    expect(confirmed).toHaveBeenCalledOnce();
+    expect(made).toHaveLength(1);
+    expect(await tasks.answer(outcome.id, true, confirmed)).toEqual({ kind: 'gone' });
+    expect(confirmed).toHaveBeenCalledOnce();
   });
 
   it('S3: "Detener" ends the task and nothing runs; an answer is taken once', async () => {
@@ -312,7 +342,7 @@ describe('DK-11: a task with connections', () => {
 
     expect(outcome.text).toBe(
       [
-        'Quiero usar «create» de «notes» con:',
+        'Quiero usar «create» de «notes» con: cla\\u200bve «abc\\u202edef», v «hola\\ufe00\\ufe0f», w «a\\u00a0b\\u3000c\\u2800d\\u3164e», x «f\\udb40\\udd00g\\udb40\\udc41h», y «i\\ufffcj», plain «ñ € \\u00abok\\u00bb 😀»',
         '{',
         '  "cla\\u200bve": "abc\\u202edef",',
         '  "v": "hola\\ufe00\\ufe0f",',

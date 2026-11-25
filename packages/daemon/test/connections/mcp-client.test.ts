@@ -471,10 +471,16 @@ describe('DK-11: mcp.json', () => {
       config: {},
       invalid: false,
       leftOut: [],
+      identities: {},
     });
 
     writeFileSync(path, '{ not json');
-    expect(readConnections(path, logger())).toEqual({ config: {}, invalid: true, leftOut: [] });
+    expect(readConnections(path, logger())).toEqual({
+      config: {},
+      invalid: true,
+      leftOut: [],
+      identities: {},
+    });
 
     writeFileSync(
       path,

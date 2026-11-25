@@ -336,6 +336,8 @@ type Said = Exclude<
       | 'forget_memory'
       | 'actions'
       | 'forget_action'
+      | 'connection_grants'
+      | 'revoke_connection_grant'
       | 'probe_model';
   }
 >;
@@ -617,6 +619,17 @@ class ScriptedSocket extends FakeWebSocket {
         } else {
           this.receive({ ...expensesOf(request.month ?? thisMonth), inReplyTo: request.id });
         }
+      }, 300);
+      return;
+    }
+    // DK-24: the preview grants nothing, so it lists none and every "Quitar" is done.
+    if (request.type === 'connection_grants' || request.type === 'revoke_connection_grant') {
+      setTimeout(() => {
+        this.receive(
+          request.type === 'connection_grants'
+            ? { type: 'connection_grants', inReplyTo: request.id, grants: [] }
+            : { type: 'done', inReplyTo: request.id },
+        );
       }, 300);
       return;
     }

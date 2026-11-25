@@ -133,6 +133,10 @@ is framework-free, so it is tested against a fake `WebSocket` (`test/fake-web-so
   `actions` each time it opens. "Olvidar" asks first and sends `forget_memory` or
   `forget_action`; the daemon also erases the turns of the stored conversation that say it, so
   the chat then asks for it again. Nothing of either list is kept by the window.
+- **Siempre permitidas** (DK-24): "Conexiones" opens its own connection to the channel, as
+  Memoria does, and asks for `connection_grants` each time it opens; under each server it lists
+  the tools allowed with "Permitir siempre", each with "Quitar", which sends
+  `revoke_connection_grant` and reads the list again. Without a running daemon none is listed.
 - **A reply is plain text** (DK-4 AC1): shown exactly as received, line breaks kept, never HTML
   or Markdown.
 - **Delivery honesty.** A `rejected` request did nothing: the window says it was not sent and

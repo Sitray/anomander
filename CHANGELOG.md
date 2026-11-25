@@ -8,6 +8,7 @@ On `main` since 0.1.0. The interface speaks English or Spanish, and the app runs
 
 ### Added
 
+- **"Permitir siempre" on a connection**: a call of a task with connections that asks also offers "Permitir siempre", in the app and in Telegram. The next calls of that tool of that server run without asking, until "Quitar" under the server in Conexiones, or until the server is removed or its command, arguments, environment or URL changes. The question now says the call in one plain line above its exact arguments (DK-24).
 - **English**: the app's window and the notch speak the system's language (Spanish on a Spanish system, English otherwise). The daemon and Telegram speak the language of `ANOMANDER_LOCALE`, `es` by default or `en`; the app sets it from the system's language.
 - **Windows**: the same app, built from this repository, with the chat, the setup, connections, subscription login and Telegram. Secrets go to the Windows Credential Manager; the tray icon shows the working wave and the finished drop appears at the top of the screen; an unsigned NSIS installer. A look at the screen and tasks on the computer stay macOS-only (see [`docs/windows-check.md`](docs/windows-check.md)).
 - **Web search by default**: the first setup shows "Búsqueda web" checked, with a note on what leaves the computer.
