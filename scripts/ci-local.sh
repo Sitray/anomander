@@ -43,6 +43,7 @@ step "pnpm biome ci ."; pnpm biome ci .
 step "pnpm -r typecheck"; pnpm -r typecheck
 step "pnpm test"; pnpm test
 step "pnpm audit --audit-level high"; pnpm audit --audit-level high
+step "release script arguments"; bash scripts/test/release-args.sh
 
 cd apps/desktop/src-tauri
 step "cargo fmt --check"; cargo fmt --check
