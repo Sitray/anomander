@@ -521,7 +521,7 @@ impl Core {
         let paths = self.data.daemon_paths();
         let parent = |name: &str| {
             if name == "PATH" {
-                // Homebrew's folders, so the daemon finds the same tools as the shell did; first,
+                // Homebrew's folders, so the daemon finds the same tools as the shell did; last,
                 // the folder of the Node a release app carries.
                 Some(path.clone())
             } else {
@@ -1163,7 +1163,7 @@ mod tests {
         }
     }
 
-    // B11: a release app runs the daemon it carries with the Node it carries, first on `PATH`; its
+    // B11: a release app runs the daemon it carries with the Node it carries, last on `PATH`; its
     // scripts are looked for next to that daemon.
     #[test]
     fn a_release_app_runs_the_daemon_and_the_node_it_carries(
@@ -1210,7 +1210,7 @@ mod tests {
             .map(|(_, path)| path.clone())
             .unwrap_or_default();
         assert_eq!(
-            std::env::split_paths(&path).next(),
+            std::env::split_paths(&path).last(),
             Some(bundled.bin()),
             "{path}"
         );

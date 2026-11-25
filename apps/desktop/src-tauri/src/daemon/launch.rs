@@ -99,6 +99,10 @@ const BUILT_ENTRY: &str = concat!(
 /// `scripts/stage-daemon.mjs` lays it out and `tauri.release.conf.json` ships it.
 const BUNDLED_DIR: &str = "daemon";
 
+/// What a release app says when the daemon it carries lacks its Node or its entry point. It names
+/// no path: the one compiled in is the builder's checkout, never on the principal's machine.
+pub const INCOMPLETE: &str = "the app's bundled daemon is incomplete; reinstall ANOMANDER";
+
 /// B11: the daemon a release app carries in its resources: its own Node in `bin/`, and the
 /// daemon's tree laid out as in this repository, its production dependencies included.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -107,16 +111,14 @@ pub struct Bundled {
 }
 
 impl Bundled {
-    /// The daemon in `resources`, when it holds both Node and the entry point; a build run from
-    /// this repository carries none.
+    /// The daemon in `resources`, when its folder is there, whole or not (`runtime` refuses one
+    /// that is not); a build run from this repository carries none.
     pub fn find(resources: &Path) -> Option<Self> {
-        let bundled = Self {
-            root: resources.join(BUNDLED_DIR),
-        };
-        (is_executable(&bundled.node()) && bundled.entry().is_file()).then_some(bundled)
+        let root = resources.join(BUNDLED_DIR);
+        root.is_dir().then_some(Self { root })
     }
 
-    /// The folder of its Node, first on the daemon's `PATH`.
+    /// The folder of its Node, last on the daemon's `PATH`.
     pub fn bin(&self) -> PathBuf {
         self.root.join("bin")
     }
@@ -141,33 +143,46 @@ pub struct DaemonRuntime {
 }
 
 /// `ANOMANDER_NODE` and `ANOMANDER_DAEMON_ENTRY` of `parent` when set; else what the app carries
-/// (`bundled`), its Node's folder first on `PATH`; else this repository's daemon and the first
-/// `node` on `PATH`.
+/// (`bundled`), its Node's folder last on `PATH`, and `INCOMPLETE` when it lacks either; else, in
+/// a build run from this repository, its daemon and the first `node` on `PATH`.
 pub fn runtime(
     parent: &dyn Fn(&str) -> Option<String>,
     bundled: Option<&Bundled>,
 ) -> Result<DaemonRuntime, String> {
     let searched = search_path(parent("PATH").as_deref());
-    let path = match bundled {
-        Some(bundled) => first_on_path(&bundled.bin(), &searched),
-        None => searched,
+    let node_override = parent("ANOMANDER_NODE").filter(|node| !node.is_empty());
+    let entry_override = parent("ANOMANDER_DAEMON_ENTRY").filter(|entry| !entry.is_empty());
+    let Some(bundled) = bundled else {
+        let node = find_node(node_override.as_deref(), &searched).ok_or_else(|| {
+            format!("node was not found on {searched}; set ANOMANDER_NODE to its path")
+        })?;
+        let entry = daemon_entry(entry_override.as_deref());
+        return Ok(DaemonRuntime {
+            node,
+            entry,
+            path: searched,
+        });
     };
-    // With the carried Node's folder first, the search finds it before any other.
-    let node = find_node(parent("ANOMANDER_NODE").as_deref(), &path)
-        .ok_or_else(|| format!("node was not found on {path}; set ANOMANDER_NODE to its path"))?;
-    let overridden = parent("ANOMANDER_DAEMON_ENTRY").filter(|entry| !entry.is_empty());
-    let entry = match (overridden, bundled) {
-        (Some(entry), _) => PathBuf::from(entry),
-        (None, Some(bundled)) => bundled.entry(),
-        (None, None) => daemon_entry(None),
+    // A release app never falls back to the checkout it was built from: it is not on this machine.
+    let node = match node_override {
+        Some(node) => PathBuf::from(node),
+        None if is_executable(&bundled.node()) => bundled.node(),
+        None => return Err(INCOMPLETE.to_owned()),
     };
+    let entry = match entry_override {
+        Some(entry) => PathBuf::from(entry),
+        None if bundled.entry().is_file() => bundled.entry(),
+        None => return Err(INCOMPLETE.to_owned()),
+    };
+    // Last: a server the principal added that runs `node` or `npx` gets their own Node.
+    let path = last_on_path(&bundled.bin(), &searched);
     Ok(DaemonRuntime { node, entry, path })
 }
 
-/// `path` with `folder` first, and only there.
-fn first_on_path(folder: &Path, path: &str) -> String {
+/// `path` with `folder` last, and only there.
+fn last_on_path(folder: &Path, path: &str) -> String {
     let rest = std::env::split_paths(path).filter(|other| other != folder);
-    std::env::join_paths(std::iter::once(folder.to_path_buf()).chain(rest))
+    std::env::join_paths(rest.chain(std::iter::once(folder.to_path_buf())))
         .map(|joined| joined.to_string_lossy().into_owned())
         .unwrap_or_else(|_| path.to_owned())
 }
@@ -827,7 +842,7 @@ mod tests {
     }
 
     #[test]
-    fn the_carried_daemon_is_found_only_with_its_node_and_its_entry() -> std::io::Result<()> {
+    fn the_carried_daemon_is_found_by_its_folder_whatever_it_holds() -> std::io::Result<()> {
         let dir = tempfile::tempdir()?;
         assert_eq!(Bundled::find(dir.path()), None);
         let bundled = carried(dir.path())?;
@@ -836,25 +851,59 @@ mod tests {
             dir.path().join("daemon").join("bin").join(NODE)
         );
         assert!(bundled.entry().ends_with("packages/daemon/src/main.ts"));
+        // A folder missing its entry point is still the app's daemon: an incomplete one.
         std::fs::remove_file(bundled.entry())?;
-        assert_eq!(Bundled::find(dir.path()), None);
+        assert_eq!(Bundled::find(dir.path()), Some(bundled));
         Ok(())
     }
 
     #[test]
-    fn the_carried_daemon_comes_before_the_checkout_and_its_node_leads_the_path(
+    fn an_incomplete_carried_daemon_is_an_error_never_the_checkout(
     ) -> Result<(), Box<dyn std::error::Error>> {
         let dir = tempfile::tempdir()?;
         let bundled = carried(dir.path())?;
+        let complete = runtime(&parent, Some(&bundled))?;
+        assert_eq!(complete.node, bundled.node());
+        assert_eq!(complete.entry, bundled.entry());
+        // Without its entry point, then also without its Node: the same error, which names no
+        // path of the machine that built the app.
+        std::fs::remove_file(bundled.entry())?;
+        let no_entry = runtime(&parent, Some(&bundled));
+        std::fs::remove_file(bundled.node())?;
+        let neither = runtime(&parent, Some(&bundled));
+        std::fs::create_dir_all(bundled.entry().parent().ok_or("no parent")?)?;
+        std::fs::write(bundled.entry(), "")?;
+        let no_node = runtime(&parent, Some(&bundled));
+        for ran in [no_entry, neither, no_node] {
+            assert_eq!(ran, Err(INCOMPLETE.to_owned()));
+        }
+        assert!(!INCOMPLETE.contains('/') && !INCOMPLETE.contains('\\'));
+        // The overrides still win over what is missing.
+        let overridden = |name: &str| match name {
+            "ANOMANDER_NODE" => Some("/custom/node".to_owned()),
+            "ANOMANDER_DAEMON_ENTRY" => Some("/x/main.ts".to_owned()),
+            _ => parent(name),
+        };
+        std::fs::remove_file(bundled.entry())?;
+        let ran = runtime(&overridden, Some(&bundled))?;
+        assert_eq!(ran.node, PathBuf::from("/custom/node"));
+        assert_eq!(ran.entry, PathBuf::from("/x/main.ts"));
+        Ok(())
+    }
+
+    // The daemon and the web search run the carried Node by its path; a server the principal
+    // added that runs `node` or `npx` gets theirs, so the carried folder comes last.
+    #[test]
+    fn the_carried_node_folder_comes_last_on_the_path() -> Result<(), Box<dyn std::error::Error>> {
+        let dir = tempfile::tempdir()?;
+        let bundled = carried(dir.path())?;
         let ran = runtime(&parent, Some(&bundled))?;
-        assert_eq!(ran.node, bundled.node());
-        assert_eq!(ran.entry, bundled.entry());
         let expected = std::env::join_paths(
-            std::iter::once(bundled.bin()).chain(std::env::split_paths(SEARCHED_PATH)),
+            std::env::split_paths(SEARCHED_PATH).chain(std::iter::once(bundled.bin())),
         )?;
         assert_eq!(ran.path, expected.to_string_lossy());
-        // Already on the principal's `PATH`, its folder is still first, and only once.
-        let listed = format!("{PARENT_PATH}{}{}", SEPARATOR, bundled.bin().display());
+        // Already first on the principal's `PATH`, it still comes last, and only once.
+        let listed = format!("{}{}{PARENT_PATH}", bundled.bin().display(), SEPARATOR);
         let parent = |name: &str| (name == "PATH").then(|| listed.clone());
         assert_eq!(runtime(&parent, Some(&bundled))?.path, ran.path);
         Ok(())
