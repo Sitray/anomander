@@ -19,6 +19,7 @@ On `main` since 0.1.0. The interface speaks English or Spanish, and the app runs
 - **Memoria** (DK-18): a screen in the app with what ANOMANDER remembers about you, each memory marked "Me lo dijiste" or "Lo deduje", and what it has done for you. Each item has "Olvidar", asked first: a forgotten memory or action is erased for real, with only the messages of the stored conversation that mention it (whole-word match, as for a replaced memory; a reply that said it in other words stays).
 - **`/exportar`**: in Telegram, sends the ledger (`gastos`, `lineas_de_compra`, `pendientes_de_confirmar`) as CSV files and `ledger.json`, also kept under `exports/` in the data folder. In the app it says the export comes through Telegram for now (PRD R-29).
 - **Expense query**: "¿cuánto llevo gastado este mes?", "¿cuánto gasté en Mercadona en octubre?" get the total, the number of expenses and a breakdown by category (or the top merchants of a category), with the expenses pending confirmation counted apart. The model only picks the period and the filters; code computes every figure from the ledger. In Telegram and in the app (PRD R-30).
+- **Windows wording**: on Windows the window speaks of the Credential Manager and "este equipo", never of macOS, the Keychain or System Settings; a look at the screen or a task on the computer answers "Eso todavía no puedo hacerlo en Windows." instead of the macOS permission message (DK-20).
 
 ### Changed
 

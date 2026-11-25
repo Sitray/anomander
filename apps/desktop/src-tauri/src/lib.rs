@@ -15,6 +15,7 @@ pub mod login;
 pub mod notch;
 pub mod notification;
 pub mod oauth_connect;
+pub mod platform;
 pub mod screen;
 pub mod secure_store;
 pub mod setup;
@@ -691,6 +692,7 @@ pub fn run() {
     locale::choose(locale);
     let app = tauri::Builder::default()
         .plugin(locale::plugin(locale))
+        .plugin(platform::plugin())
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_clipboard_manager::init())
         .invoke_handler(tauri::generate_handler![

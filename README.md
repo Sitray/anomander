@@ -225,7 +225,7 @@ Good to know:
 
 ## Run the app on Windows
 
-The same app, built from this repository on your Windows PC, with the chat, the setup, connections, subscription login and Telegram. A look at the screen and tasks on the computer are macOS-only for now: on Windows the app answers them with its macOS permission message. As on the Mac, stop a Docker install first (DK-2 AC2).
+The same app, built from this repository on your Windows PC, with the chat, the setup, connections, subscription login and Telegram. A look at the screen and tasks on the computer are macOS-only for now: on Windows the app says they are not on Windows yet, and its text speaks of the Credential Manager and "este equipo", never of macOS (DK-20). As on the Mac, stop a Docker install first (DK-2 AC2).
 
 You need:
 
