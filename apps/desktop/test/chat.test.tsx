@@ -2345,4 +2345,45 @@ describe('reading the conversation (DK-21)', () => {
     expect(marks()).toEqual([]);
     expect(screen.getByText(strings.chat.searchCount(0))).toBeTruthy();
   });
+
+  it('highlights the words of a web address too, and it still opens (B25)', async () => {
+    const onOpenLink = vi.fn();
+    render(<ChatScreen daemon={RUNNING} channel={CHANNEL} onOpenLink={onOpenLink} />);
+    act(() => FakeWebSocket.last.open());
+    const socket = FakeWebSocket.last;
+    await answered(
+      socket,
+      '¿dónde?',
+      new Date().toISOString(),
+      'Mira https://example.com/tienda ya.',
+    );
+
+    fireEvent.change(screen.getByRole('searchbox', { name: strings.chat.search }), {
+      target: { value: 'tienda ya' },
+    });
+
+    const marks = [...screen.getByRole('log').querySelectorAll('mark')];
+    expect(marks.map((mark) => mark.textContent)).toEqual(['tienda', ' ya']);
+    expect(marks[0]?.closest('a')).not.toBeNull();
+    expect(screen.getByText(strings.chat.searchCount(1))).toBeTruthy();
+    fireEvent.click(screen.getByRole('link', { name: 'https://example.com/tienda' }));
+    expect(onOpenLink).toHaveBeenCalledWith('https://example.com/tienda');
+  });
+
+  it('Esc in a search with words leaves the answer owed running (DK-19)', async () => {
+    const socket = openChat();
+    await answered(socket, '23 € cena', new Date().toISOString(), 'Apuntado.');
+    say('¿qué tiempo hace?');
+    await sentRequest(socket, socket.requests.length + 1);
+    const sent = socket.requests.length;
+    await waitFor(() =>
+      expect(screen.queryByRole('button', { name: strings.chat.stopTurn })).not.toBeNull(),
+    );
+    const search = screen.getByRole('searchbox', { name: strings.chat.search });
+    fireEvent.change(search, { target: { value: 'cena' } });
+
+    fireEvent.keyDown(search, { key: 'Escape' });
+
+    expect(socket.requests).toHaveLength(sent);
+  });
 });
