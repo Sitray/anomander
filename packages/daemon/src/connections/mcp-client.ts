@@ -6,7 +6,7 @@ import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/
 import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
 import { ErrorCode, McpError } from '@modelcontextprotocol/sdk/types.js';
 import type { ConnectedTool, Logger } from '../processor/ports.ts';
-import { type ConnectionsConfig, type ServerConfig, serverIdentity } from './config.ts';
+import type { ConnectionsConfig, ServerConfig } from './config.ts';
 import type { Connection, ToolInfo } from './connection.ts';
 import { type OAuthKeeper, originScopedFetch } from './oauth.ts';
 import { programFor } from './web-search.ts';
@@ -138,6 +138,11 @@ export interface Connections {
 
 export interface ConnectionsDeps {
   config: ConnectionsConfig;
+  /**
+   * DK-24 AC2: `serverIdentity` of each server, from the file as written (`ReadConnections`); a
+   * server with none cannot be told apart, and no call of it is ever granted.
+   */
+  identities?: Readonly<Record<string, string>>;
   logger: Logger;
   /** How a server is reached; tests join one in memory. */
   open?: (name: string, server: ServerConfig) => Promise<Transport>;
@@ -204,7 +209,9 @@ export const createConnections = (deps: ConnectionsDeps): Connections => {
               close: made.close,
               connection: {
                 ...made.connection,
-                identity: serverIdentity(server),
+                ...(deps.identities?.[name] === undefined
+                  ? {}
+                  : { identity: deps.identities[name] }),
                 asksWith: argumentsThatAsk(server),
                 call: async (tool, args) => {
                   try {

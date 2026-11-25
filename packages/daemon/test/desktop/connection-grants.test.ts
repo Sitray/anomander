@@ -420,24 +420,37 @@ describe('"Permitir siempre" on a call of a task with connections (DK-24)', () =
 
 // Each test starts the daemon and a real server process more than once.
 describe('the grants follow mcp.json (DK-24 AC2, AC3)', { timeout: 20_000 }, () => {
-  /** `mcp.json` with the server `env`, a real MCP server whose one tool is `names`. */
-  const withServer = (servers: Record<string, string[]>) => {
+  /**
+   * `mcp.json` with the server `env`, a real MCP server whose one tool is `names`: by name, its
+   * extra arguments and its `env`; `secrets` is `ANOMANDER_MCP_SECRETS`, as the app hands it.
+   */
+  const withServer = (
+    servers: Record<string, string[] | { args?: string[]; env: Record<string, string> }>,
+    secrets?: Record<string, string>,
+  ) => {
     const path = join(scratch, 'mcp.json');
     writeFileSync(
       path,
       JSON.stringify({
         mcpServers: Object.fromEntries(
-          Object.entries(servers).map(([name, extra]) => [
-            name,
-            {
-              command: process.execPath,
-              args: [resolve(FIXTURES, 'mcp-env-server.mjs'), ...extra],
-            },
-          ]),
+          Object.entries(servers).map(([name, server]) => {
+            const { args = [], env = {} } = Array.isArray(server) ? { args: server } : server;
+            return [
+              name,
+              {
+                command: process.execPath,
+                args: [resolve(FIXTURES, 'mcp-env-server.mjs'), ...args],
+                env,
+              },
+            ];
+          }),
         ),
       }),
     );
-    return { ANOMANDER_MCP_CONFIG: path };
+    return {
+      ANOMANDER_MCP_CONFIG: path,
+      ...(secrets === undefined ? {} : { ANOMANDER_MCP_SECRETS: JSON.stringify(secrets) }),
+    };
   };
 
   const grantNames = async (env: Record<string, string>) => {
@@ -466,6 +479,30 @@ describe('the grants follow mcp.json (DK-24 AC2, AC3)', { timeout: 20_000 }, () 
 
     expect(await grants(chat)).toEqual([]);
     expect(permissions()[0]?.revoked_at).toEqual(expect.any(String));
+  });
+
+  it('drops them when a variable of its environment changed, or a new one was added', async () => {
+    await grantNames(withServer({ env: { env: { MODE: 'a' } } }));
+    const changed = await client(await start(withServer({ env: { env: { MODE: 'b' } } }), true));
+    expect(await grants(changed)).toEqual([]);
+    await stop();
+
+    await grantNames(withServer({ env: { env: { MODE: 'b' } } }));
+    const added = await client(
+      await start(withServer({ env: { env: { MODE: 'b', NODE_OPTIONS: '' } } }), true),
+    );
+    expect(await grants(added)).toEqual([]);
+  });
+
+  it('keeps them when only a value kept in the Keychain changed, as a new token', async () => {
+    const keychain = { env: { env: { TOKEN: '@keychain' } } };
+    await grantNames(withServer(keychain, { 'mcp/env/env/TOKEN': 'old-token' }));
+
+    const chat = await client(
+      await start(withServer(keychain, { 'mcp/env/env/TOKEN': 'new-token' }), true),
+    );
+
+    expect(await grants(chat)).toHaveLength(1);
   });
 
   it('drops them when the server was removed, and adding it again does not bring them back', async () => {

@@ -658,8 +658,12 @@ and keep its secrets in the operating system instead of a text file.
     by hand or with this press.
   - AC2: the grant is a row of `permissions` (PRD §8.1, level "with permission"), operation
     `call_connection_tool`, with the server's name, the tool, the server's identity and the door
-    it was pressed at, and when; it has no expiry. The identity is a digest of the server's command
-    and arguments, or of its URL (not of its `env` or `headers`, so a new token keeps it). Code
+    it was pressed at, and when; it has no expiry. The identity is a digest of `mcp.json` as written:
+    the server's command, arguments and `env` (every name, and each value written in the file; a
+    value kept in the Keychain counts only as `@keychain`, so a new token keeps it), or its URL
+    (not its `headers`, which only reach it). Known limit (verifier, 2026-11-25): the app moves
+    every value of `env` to the Keychain, so a value changed from "Conexiones" keeps the grants;
+    adding, removing or renaming a variable drops them, and so does a value written by hand. Code
     checks it before skipping the question; it never applies to another tool, another server, or
     a server whose identity changed. A grant skips only the question a read-only tool skips:
     once another server answered in the task the call still asks (DK-11 AC4), and so does a call
@@ -674,9 +678,12 @@ and keep its secrets in the operating system instead of a text file.
     a file it cannot read revokes none.
   - AC4: the question says the call in one plain line above the exact JSON (S-181, S-182): each
     argument by its name, a text inside «», anything else as compact JSON, each value cut at 60
-    characters and the line at 200 with "…", what cannot be seen written as its code (DK-11 AC3).
-    The JSON stays exact and below it.
-  - AC5: only the principal's press on "Permitir siempre" under the call that waits grants; the
+    characters and the line cut between arguments at 200 with "…", what cannot be seen written as
+    its code (DK-11 AC3). So that a value cannot fake another argument, the «» inside a name or a
+    value and the commas of a name are written as their code too, and a backslash is doubled, so
+    a code typed in a value never reads as one written by code. The JSON stays exact and below it.
+  - AC5: only the principal's press on "Permitir siempre" under the call that waits grants, and
+    the grant is stored only once that call is found waiting, before it is made; the
     processor never sees a button, and a press on a call that no longer waits, or never was asked,
     grants nothing and answers "Esa petición ya no está pendiente." (DK-11).
   - AC6: nothing logs the arguments of a call, asked, granted or run unasked (DK-14 AC5).

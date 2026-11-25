@@ -71,16 +71,25 @@ export const parseConnectionsConfig = (raw: unknown): ConnectionsConfig =>
   fileSchema.parse(raw).mcpServers;
 
 /**
- * DK-24 AC2: what a server is, for a "Permitir siempre": a digest of its command and arguments,
- * or of its URL. Its `env` and `headers` are left out, so a new token keeps the grants; another
- * program or another address is another server, and its grants are dropped. Only the digest is
- * stored: an argument may hold a token.
+ * DK-24 AC2: what a server is, for a "Permitir siempre", from `mcp.json` as written (before any
+ * secret is filled in): a digest of its command, its arguments and its `env` (every name, and
+ * each value written in the file; a value kept in the Keychain counts as `@keychain`, so a new
+ * token keeps the grants), or of its URL. Another program, another environment or another
+ * address is another server, and its grants are dropped. A server's `headers` only reach it, so
+ * they are left out. Only the digest is stored: an argument may hold a token.
  */
 export const serverIdentity = (server: ServerConfig): string =>
   createHash('sha256')
     .update(
       JSON.stringify(
-        server.kind === 'process' ? ['process', server.command, server.args] : ['http', server.url],
+        server.kind === 'process'
+          ? [
+              'process',
+              server.command,
+              server.args,
+              Object.entries(server.env).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)),
+            ]
+          : ['http', server.url],
       ),
     )
     .digest('hex');

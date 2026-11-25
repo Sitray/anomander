@@ -52,7 +52,8 @@ export interface ConnectionSessionDeps {
   send: (message: DoorReply) => Promise<void>;
   /**
    * DK-24: the principal pressed "Permitir siempre" on a call of `call`, at `door`: stores the
-   * grant. Called only for the call that waits, before it is made. Without it none is offered.
+   * grant. Called only once the task confirmed that call waits, before it is made. Without it
+   * none is offered.
    */
   grant?: (call: GrantableCall, door: Door) => void;
   logger: Logger;
@@ -216,11 +217,12 @@ export const createConnectionSession = (deps: ConnectionSessionDeps): Connection
       const { offer } = asked;
       // Any answer to that call ends the offer: a later press on it grants nothing.
       if (offer?.id === id) delete asked.offer;
-      if (answer === 'always') {
-        if (offer?.id !== id || grant === undefined) return { text: strings.connectionGone() };
-        grant(offer.call, door);
+      if (answer !== 'always') {
+        return connectionStep(asked, () => tasks.answer(id, answer === 'allow'));
       }
-      return connectionStep(asked, () => tasks.answer(id, answer !== 'refuse'));
+      if (offer?.id !== id || grant === undefined) return { text: strings.connectionGone() };
+      // Stored only once the task found that call waiting, before it is made.
+      return connectionStep(asked, () => tasks.answer(id, true, () => grant(offer.call, door)));
     },
     decided: (call) => {
       asked.calls.push(call);

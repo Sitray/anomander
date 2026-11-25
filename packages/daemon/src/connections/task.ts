@@ -88,8 +88,12 @@ export interface ConnectionTasks {
    * whichever one was waiting for the principal.
    */
   start(task: string): Promise<TaskOutcome>;
-  /** The principal's answer to the call `id`: it is performed at most once. */
-  answer(id: string, allow: boolean): Promise<TaskOutcome>;
+  /**
+   * The principal's answer to the call `id`: it is performed at most once. `confirmed`, when
+   * given with `allow`, is called once that call is found waiting, before it is made: where
+   * "Permitir siempre" is stored (DK-24 AC5); never for a call that no longer waits.
+   */
+  answer(id: string, allow: boolean, confirmed?: () => void): Promise<TaskOutcome>;
 }
 
 export interface ConnectionTasksDeps<M> {
@@ -209,6 +213,27 @@ const shortened = (text: string, max: number): string => {
   return characters.length <= max ? text : `${characters.slice(0, max - 1).join('')}…`;
 };
 
+/** `character` written as its code, as `seen` writes one. */
+const codeOf = (character: string): string =>
+  `\\u${character.charCodeAt(0).toString(16).padStart(4, '0')}`;
+
+/**
+ * DK-24 AC4: a name or a text of the plain line. The quotes that mark a text are written as their
+ * code, so a value cannot close its own and fake another argument; a backslash is doubled, so a
+ * code typed in a value never reads as one written for a character that cannot be seen.
+ */
+const plainText = (text: string): string =>
+  seen(
+    text.replace(/[\\«»]/g, (character) => (character === '\\' ? '\\\\' : codeOf(character))),
+    ' ',
+  );
+
+/** An argument's name: as a text, and its commas as their code, the mark between arguments. */
+const plainName = (name: string): string => plainText(name).replace(/,/g, codeOf);
+
+/** A value that is not a text, as compact JSON, which escapes its own backslashes and quotes. */
+const plainJson = (json: string): string => seen(json.replace(/[«»]/g, codeOf), ' ');
+
 /**
  * DK-24 AC4: the arguments in one plain line, each value cut short; `null` when there are none.
  * What cannot be seen is written as its code, as in the JSON below it, which stays exact.
@@ -216,14 +241,21 @@ const shortened = (text: string, max: number): string => {
 const summaryOf = (args: Record<string, unknown>): string | null => {
   const entries = Object.entries(args);
   if (entries.length === 0) return null;
-  const plain = entries.map(([name, value]) => {
+  const pieces = entries.map(([name, value]) => {
     const shown =
       typeof value === 'string'
-        ? `«${shortened(seen(value, ' '), MAX_SUMMARY_VALUE)}»`
-        : shortened(seen(JSON.stringify(value) ?? 'null', ' '), MAX_SUMMARY_VALUE);
-    return `${shortened(seen(name, ' '), MAX_SUMMARY_VALUE)} ${shown}`;
+        ? `«${plainText(shortened(value, MAX_SUMMARY_VALUE))}»`
+        : plainJson(shortened(JSON.stringify(value) ?? 'null', MAX_SUMMARY_VALUE));
+    return `${plainName(shortened(name, MAX_SUMMARY_VALUE))} ${shown}`;
   });
-  return shortened(plain.join(', '), MAX_SUMMARY);
+  // Cut between arguments, never inside one, so no code is ever cut in half.
+  let line = '';
+  for (const piece of pieces) {
+    const next = line === '' ? piece : `${line}, ${piece}`;
+    if (line !== '' && Array.from(next).length > MAX_SUMMARY) return `${line}, …`;
+    line = next;
+  }
+  return line;
 };
 
 const resultOf = (call: ToolCall, text: string, isError: boolean): ToolResultMessage => ({
@@ -412,7 +444,7 @@ export const createConnectionTasks = <M>(deps: ConnectionTasksDeps<M>): Connecti
         answered: new Set(),
       });
     },
-    answer: async (id, allow) => {
+    answer: async (id, allow, confirmed) => {
       const step = pending.get(id);
       if (step === undefined) return { kind: 'gone' };
       // Taken out first: a second answer finds nothing to perform.
@@ -422,6 +454,7 @@ export const createConnectionTasks = <M>(deps: ConnectionTasksDeps<M>): Connecti
         decided({ server: connection.name, tool: tool.name, allowed: false });
         return { kind: 'stopped' };
       }
+      confirmed?.();
       await perform(step);
       return advance(step.run);
     },

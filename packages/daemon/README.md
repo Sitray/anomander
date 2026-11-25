@@ -598,8 +598,9 @@ answers how to ask). A call that needs permission is asked at the door the task 
 door answers "Esa petición ya no está pendiente." and runs nothing.
 
 "Permitir siempre" (DK-24) makes that call and stores a `call_connection_tool` permission for
-that tool of that server (`src/store/permissions.ts`): its name and `serverIdentity`, a digest of
-its command and arguments or its URL (`src/connections/config.ts`). `task.ts` checks it before
+that tool of that server (`src/store/permissions.ts`), once the call is found waiting: its name
+and `serverIdentity`, a digest of its command, arguments and `env` as written in `mcp.json` (a
+Keychain value only as `@keychain`), or of its URL (`src/connections/config.ts`). `task.ts` checks it before
 skipping the question, as for a read-only tool, so DK-11 AC4 and T17's argument rules still ask.
 At its start the daemon revokes the grants of a server removed, renamed or changed in `mcp.json`.
 

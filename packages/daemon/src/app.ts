@@ -673,6 +673,7 @@ export const startAnomander = <M>(config: Config, deps: AnomanderDeps<M>): Anoma
       ? undefined
       : createConnections({
           config: read.config,
+          identities: read.identities,
           logger,
           oauth: oauthKeeperFrom(config.mcpOAuth, deps.printOAuth ?? printOAuthForShell(), logger),
         });
