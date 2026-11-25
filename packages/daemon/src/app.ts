@@ -1,51 +1,28 @@
-import { basename, dirname } from 'node:path';
-import {
-  type ButtonPress,
-  type DoorReply,
-  type Notify,
-  type PrincipalText,
-  setCurrency,
-  setLocale,
-  strings,
-} from '@anomander/protocol';
+import { type DoorReply, type Notify, setCurrency, setLocale } from '@anomander/protocol';
 import { createAppTasks } from './app/app-tasks.ts';
-import { connectionCommand, doorOf, isExport, isStart } from './app/commands.ts';
+import { createChat } from './app/chat.ts';
+import { connectionCommand, isExport } from './app/commands.ts';
 import { setUpConnections } from './app/connections.ts';
 import { createHandlers } from './app/handlers.ts';
 import { startJobs } from './app/jobs.ts';
 import { startChannel } from './app/local-channel.ts';
 import { announceGaps } from './app/setup-guide-mode.ts';
-import { oneTurnAtATime, sayingStopped, settled } from './app/turns.ts';
+import { oneTurnAtATime } from './app/turns.ts';
 import type { Anomander, AnomanderDeps } from './app/types.ts';
 import { createTelegramLogin } from './auth/telegram-login.ts';
 import type { Config } from './config.ts';
-import { createConnectionSession, type Door, type Later } from './connections/session.ts';
-import {
-  type AppNotices,
-  buttonTurn,
-  receiptTurn,
-  recordingNotices,
-  recordingTurns,
-} from './conversation/recent-turns.ts';
-import { pressedOption } from './decisions/answer.ts';
-import { type RowOption, rowButton, rowLabel } from './decisions/window-amend.ts';
-import { type ChatHandlers, NO_APP } from './local-channel/server.ts';
+import { type AppNotices, recordingNotices } from './conversation/recent-turns.ts';
+import { NO_APP } from './local-channel/server.ts';
 import type { ConnectedTool } from './processor/ports.ts';
 import { readExpensesMonth } from './read-api/month.ts';
 import { startReadApi } from './read-api/server.ts';
-import { groundedRoutes } from './routing/grounded-route.ts';
-import { appSetupGuide, cachedSetupGaps, type SetupGap, setupGuide } from './setup/setup-guide.ts';
+import { cachedSetupGaps, type SetupGap } from './setup/setup-guide.ts';
 import { storedConversation } from './store/conversation.ts';
 import { acquireDaemonLock } from './store/daemon-lock.ts';
 import { applyMigrations, openDatabase } from './store/database.ts';
-import { exportLedger } from './store/export.ts';
 import { forgetAction, listActions } from './store/history.ts';
 import { forgetMemoryAndItsTurns, listMemories } from './store/memory.ts';
-import {
-  connectionToolGrants,
-  grantConnectionTool,
-  revokeConnectionTool,
-} from './store/permissions.ts';
+import { connectionToolGrants, revokeConnectionTool } from './store/permissions.ts';
 import { openTelegramDoor } from './telegram-door.ts';
 
 // The composition root: one process, one SQLite file, the front doors in the same process (PRD
@@ -147,28 +124,6 @@ export const startAnomander = <M>(config: Config, deps: AnomanderDeps<M>): Anoma
           deleteMessage: (channelRef) => deleteMessage(channelRef),
           logger,
         });
-  // DK-13, security audit M5: a route starts only when its task is the principal's own words.
-  const recordedText = recordingTurns(
-    turns,
-    (message: PrincipalText) => message.text,
-    sayingStopped(groundedRoutes(onText, logger)),
-    (message) => doorOf(message.channelRef),
-  );
-  // A press is kept at the door it was made at: a stored Telegram reply can be pressed in the app.
-  const recordedButton = (door: Door) =>
-    recordingTurns(
-      turns,
-      (press: ButtonPress) => buttonTurn(pressedOption(db, press.data)),
-      onButton,
-      () => door,
-    );
-  const recordedReceipt = recordingTurns(
-    turns,
-    (receipt) => receiptTurn(receipt.caption),
-    receipts.onReceipt,
-    (receipt) => doorOf(receipt.channelRef),
-  );
-
   // DK-14, DK-10: the history of what ANOMANDER did, a look at the screen and a task on the computer.
   const { keep, recordedScreen, planStep } = createAppTasks({
     db,
@@ -197,118 +152,24 @@ export const startAnomander = <M>(config: Config, deps: AnomanderDeps<M>): Anoma
   /** Set once `stop` begins: nothing new starts after it. */
   let stopping = false;
   const { inTurn } = chatTurns;
-  /**
-   * R-28 AC4: the guide while setup is incomplete. The check runs before the turn, so a slow
-   * provider never holds it (T14); inputs that wait for the same check keep their order.
-   */
-  const guided = <I, R>(handler: (input: I) => Promise<R>, door: Door | ((input: I) => Door)) => {
-    // DK-23 AC5: each door gets the guide in its own words.
-    const guideAt = (input: I, gaps: readonly SetupGap[]) =>
-      (typeof door === 'function' ? door(input) : door) === 'app'
-        ? appSetupGuide(gaps)
-        : setupGuide(gaps);
-    const turn = inTurn(async ({ input, gaps }: { input: I; gaps: readonly SetupGap[] }) =>
-      gaps.length > 0 ? { text: guideAt(input, gaps) } : handler(input),
-    );
-    return async (input: I) => turn({ input, gaps: await setupGaps() });
-  };
-  const byChannelRef = ({ channelRef }: { channelRef: string }) => doorOf(channelRef);
-
-  // DK-11: one task with connections at a time, its steps outside the chat's turn (session.ts).
-  const connectionSession = createConnectionSession({
-    tasks: connectionTasks,
-    turnLock: chatTurns,
-    turns,
-    keep,
-    send: (message) => send(message),
-    // DK-24 AC1: the principal's press on "Permitir siempre", where they pressed it.
-    grant: (call, door) => {
-      grantConnectionTool(db, call, door, now().toISOString());
-    },
-    logger,
-  });
-
-  const onButtonAt = (door: Door) => {
-    const pressed = guided(async (press: ButtonPress) => {
-      const answer = connectionSession.answer(press.data, door);
-      return answer === undefined ? recordedButton(door)(press) : answer;
-    }, door);
-    return async (press: ButtonPress) => settled(await pressed(press));
-  };
-  // DK-17 AC6: "Deshacer" and "Corregir" on a row of "Gastos" press the expense's own button
-  // (R-7 AC4 to AC8) in the chat's turn, as a press at the app's door: same answer, same turn.
-  const pressRow = (option: RowOption) => {
-    const pressed = guided(
-      recordingTurns(
-        turns,
-        () => buttonTurn(rowLabel(option)),
-        async (expenseId: number) => {
-          const at = now().toISOString();
-          const data = rowButton(db, { expenseId, option, now: at });
-          if (data !== null) return onButton({ data, channelRef: 'desktop:gastos', pressedAt: at });
-          // R-7 AC8: undone or corrected meanwhile, or never an expense: S-19, nothing changes.
-          logger.info('row press for an expense no longer current', { expenseId });
-          return { text: strings.decisionClosed() };
-        },
-        () => 'app',
-      ),
-      'app',
-    );
-    return async (expenseId: number) => settled(await pressed(expenseId));
-  };
-  const onConnectAt = (door: Door) => {
-    const begun = guided(
-      async (task: string) =>
-        task === '' ? { text: strings.connectionUsage() } : connectionSession.run(task, door),
-      door,
-    );
-    return async (task: string) => settled(await begun(task));
-  };
-  const connectFromApp = onConnectAt('app');
-  const connectFromTelegram = onConnectAt('telegram');
-  const answered = guided(async (message: PrincipalText): Promise<DoorReply | Later | null> => {
-    if (isStart(message.text)) return { text: strings.hello() };
-    // R-29 AC4: Telegram handles `/exportar` before this; the app gets S-81.
-    if (isExport(message.text)) return { text: strings.exportOnlyInTelegram() };
-    const reply = await recordedText(message);
-    // DK-13 AC2: a task with connections asked in words runs as one asked with `connect`.
-    const { route } = reply;
-    if (route?.to !== 'connect') return reply;
-    // Telegram's answer goes out by itself when the task ends: the announcement goes now.
-    // DK-16 AC1: its words are stored once, with the announcement, above.
-    const run = connectionSession.run(route.task, doorOf(message.channelRef), true);
-    return run ?? { text: reply.text };
-  }, byChannelRef);
-
-  // R-29 AC3: the ledger's files, sent by Telegram after S-79; no processor call.
-  const exportFromTelegram = guided(async (): Promise<DoorReply> => {
-    try {
-      const { files } = exportLedger(db, dirname(config.dbPath), now());
-      return {
-        text: strings.exportSent(),
-        files: files.map((path) => ({ path, name: basename(path) })),
-        // R-29 AC3: a file Telegram still refuses gets S-80 too.
-        filesFailed: strings.exportFailed(),
-      };
-    } catch (error) {
-      // The error's message names the folder, and the path may name the principal: only its code.
-      logger.error('the ledger export failed', {
-        reason:
-          (error as NodeJS.ErrnoException).code ??
-          (error instanceof Error ? error.name : 'unknown'),
-      });
-      return { text: strings.exportFailed() };
-    }
-  }, 'telegram');
-
-  const chat: ChatHandlers = {
-    onText: async (message) => settled(await answered(message)),
-    onReceipt: guided(recordedReceipt, byChannelRef),
-    onButton: onButtonAt('telegram'),
-    onScreen: guided(recordedScreen, 'app'),
-    onComputer: guided(planStep, 'app'),
-    onConnect: (request) => connectFromApp(request.task),
-  };
+  const { chat, connectionSession, onButtonAt, pressRow, connectFromTelegram, exportFromTelegram } =
+    createChat({
+      config,
+      db,
+      turns,
+      chatTurns,
+      setupGaps,
+      onText,
+      onButton,
+      receipts,
+      recordedScreen,
+      planStep,
+      keep,
+      connectionTasks,
+      send: (message) => send(message),
+      now,
+      logger,
+    });
 
   const telegram = openTelegramDoor(
     config.telegram,
