@@ -164,8 +164,9 @@ is framework-free, so it is tested against a fake `WebSocket` (`test/fake-web-so
 - **Files** dropped, pasted or picked wait in the composer and go as one `receipt`, at most 10
   and at most 45 MB together (the daemon closes a connection whose frame is over 64 MB). Only
   images are taken (`image/*`, R-20): a PDF or any other file stays out of the draft and the
-  composer says why (DK-21 AC2).
+  composer says why (DK-21 AC2); when images over the 10 were left out too, it says both (B70).
 - **Reading the chat** (DK-21 AC5): each message shows its time, local, and has a copy button;
+  a time that is not a date is left out, and a clipboard that refuses copies nothing (B70).
   "Buscar en la conversación" marks the matches in the loaded messages (`search.ts`: case and
   accents ignored), counts them and brings the first into view.
 - **The chat decides the way** (DK-13). The composer has no modes: every message goes as it is,

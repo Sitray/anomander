@@ -113,12 +113,12 @@ const Meta = ({
   copied: boolean;
   onCopy: (message: Message) => void;
 }) => {
-  if (message.at === undefined && message.text === '') return null;
+  // B70: a time that is not a date is left out rather than shown wrong.
+  const sent = message.at === undefined ? '' : strings.chat.messageTime(message.at, new Date());
+  if (sent === '' && message.text === '') return null;
   return (
     <div className="message-meta">
-      {message.at !== undefined && (
-        <time dateTime={message.at}>{strings.chat.messageTime(message.at, new Date())}</time>
-      )}
+      {sent !== '' && <time dateTime={message.at}>{sent}</time>}
       {message.text !== '' && (
         <button
           type="button"
@@ -515,12 +515,14 @@ export function MessageList(props: MessageListProps) {
     const timer = setTimeout(() => setCopied(null), COPIED_MS);
     return () => clearTimeout(timer);
   }, [copied]);
-  const copy = (message: Message) => {
-    navigator.clipboard.writeText(message.text).then(
-      () => setCopied(message.id),
+  const copy = async (message: Message) => {
+    try {
+      // B70: inside the `try`, a clipboard that throws at once is refused like one that rejects.
+      await navigator.clipboard.writeText(message.text);
+      setCopied(message.id);
+    } catch {
       // Nothing was copied: the button stays as it was.
-      () => {},
-    );
+    }
   };
   const scroller = useRef<HTMLDivElement>(null);
   /** Whether the principal is reading the end; scrolling up to reread must not be undone. */
