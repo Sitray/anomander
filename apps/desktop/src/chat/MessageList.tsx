@@ -1,11 +1,12 @@
 // DK-4: the conversation. Presentational: messages in, a retry or a press out.
-import { useLayoutEffect, useRef } from 'react';
+import { Fragment, type ReactNode, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { DaemonStatus } from '../shell.ts';
 import { strings } from '../strings.ts';
-import { AlertIcon, FileIcon, Mark } from '../ui/icons.tsx';
+import { AlertIcon, CheckIcon, CopyIcon, FileIcon, Mark } from '../ui/icons.tsx';
 import type { Attachment } from './attachments.ts';
 import type { BotMessage, Message, OwnMessage } from './conversation.ts';
 import { isWebAddress, piecesOf } from './links.ts';
+import { matchesIn } from './search.ts';
 import type { Turn } from './use-chat.ts';
 
 /** What the empty conversation says, and what it offers. */
@@ -63,6 +64,82 @@ export interface MessageListProps {
   onRefuse: (message: BotMessage) => void;
   /** DK-11 AC13: adds the web search a message offers. Absent where the window cannot. */
   onAddWebSearch?: ((message: BotMessage) => void) | undefined;
+  /** DK-21: what the principal searches for; its matches are highlighted. */
+  search?: string;
+}
+
+/** How long a copied message shows it was. */
+const COPIED_MS = 2000;
+
+/**
+ * DK-21: `text` from `from` to `to`, with the part of every match in it marked. Text nodes only:
+ * never HTML. A match that crosses the ends is marked up to them, so a reply cut into pieces
+ * (B25) keeps the marks of its whole text.
+ */
+const marked = (
+  text: string,
+  matches: ReadonlyArray<[number, number]>,
+  from = 0,
+  to = text.length,
+): ReactNode[] => {
+  const parts: ReactNode[] = [];
+  let at = from;
+  for (const [start, end] of matches) {
+    const markFrom = Math.max(start, from);
+    const markTo = Math.min(end, to);
+    if (markFrom >= markTo) continue;
+    parts.push(
+      text.slice(at, markFrom),
+      <mark key={markFrom}>{text.slice(markFrom, markTo)}</mark>,
+    );
+    at = markTo;
+  }
+  parts.push(text.slice(at, to));
+  return parts;
+};
+
+/** DK-21: `text` with every match of `search` marked. Text nodes only: never HTML. */
+const Highlighted = ({ text, search }: { text: string; search: string }) => (
+  <>{marked(text, matchesIn(text, search))}</>
+);
+
+/** DK-21: when a message was sent and its copy button, under it. */
+const Meta = ({
+  message,
+  copied,
+  onCopy,
+}: {
+  message: Message;
+  copied: boolean;
+  onCopy: (message: Message) => void;
+}) => {
+  if (message.at === undefined && message.text === '') return null;
+  return (
+    <div className="message-meta">
+      {message.at !== undefined && (
+        <time dateTime={message.at}>{strings.chat.messageTime(message.at, new Date())}</time>
+      )}
+      {message.text !== '' && (
+        <button
+          type="button"
+          className="message-copy"
+          aria-label={strings.chat.copy}
+          title={strings.chat.copy}
+          data-copied={copied || undefined}
+          onClick={() => onCopy(message)}
+        >
+          {copied ? <CheckIcon /> : <CopyIcon />}
+        </button>
+      )}
+    </div>
+  );
+};
+
+/** What `Own` and `Bot` share for DK-21. */
+interface Reading {
+  search: string;
+  copied: boolean;
+  onCopy: (message: Message) => void;
 }
 
 /** DK-19: what ANOMANDER is doing for the answer owed, in words. */
@@ -102,10 +179,13 @@ const Problem = ({ children }: { children: string }) => (
 const Own = ({
   message,
   onRetry,
+  search,
+  copied,
+  onCopy,
 }: {
   message: OwnMessage;
   onRetry: MessageListProps['onRetry'];
-}) => (
+} & Reading) => (
   <li className="message own" data-delivery={message.delivery}>
     <span className="sr-only">{strings.chat.you}</span>
     <div className="bubble">
@@ -116,8 +196,13 @@ const Own = ({
           ))}
         </ul>
       )}
-      {message.text !== '' && <p className="message-text">{message.text}</p>}
+      {message.text !== '' && (
+        <p className="message-text">
+          <Highlighted text={message.text} search={search} />
+        </p>
+      )}
     </div>
+    <Meta message={message} copied={copied} onCopy={onCopy} />
     {message.door === 'telegram' && <p className="message-note">{strings.chat.viaTelegram}</p>}
     {message.delivery === 'not_sent' && (
       <div className="message-status">
@@ -286,16 +371,30 @@ const OfferCard = ({
  */
 const ReplyText = ({
   text,
+  search,
   onOpenLink,
 }: {
   text: string;
+  /** DK-21: its matches are marked, in the links too. */
+  search: string;
   onOpenLink: MessageListProps['onOpenLink'];
 }) => {
-  if (onOpenLink === undefined) return <p className="message-text">{text}</p>;
+  if (onOpenLink === undefined) {
+    return (
+      <p className="message-text">
+        <Highlighted text={text} search={search} />
+      </p>
+    );
+  }
+  const matches = matchesIn(text, search);
+  let from = 0;
   return (
     <p className="message-text">
-      {piecesOf(text).map((piece, index) =>
-        'url' in piece ? (
+      {piecesOf(text).map((piece, index) => {
+        const start = from;
+        const end = start + ('url' in piece ? piece.url : piece.text).length;
+        from = end;
+        return 'url' in piece ? (
           <a
             // biome-ignore lint/suspicious/noArrayIndexKey: the pieces of one text never move.
             key={index}
@@ -307,12 +406,13 @@ const ReplyText = ({
               onOpenLink(piece.url);
             }}
           >
-            {piece.url}
+            {marked(text, matches, start, end)}
           </a>
         ) : (
-          piece.text
-        ),
-      )}
+          // biome-ignore lint/suspicious/noArrayIndexKey: the pieces of one text never move.
+          <Fragment key={index}>{marked(text, matches, start, end)}</Fragment>
+        );
+      })}
     </p>
   );
 };
@@ -325,6 +425,9 @@ const Bot = ({
   onRefuse,
   onAddWebSearch,
   onOpenLink,
+  search,
+  copied,
+  onCopy,
 }: {
   message: BotMessage;
   onRestart: MessageListProps['onRestart'];
@@ -333,7 +436,7 @@ const Bot = ({
   onRefuse: MessageListProps['onRefuse'];
   onAddWebSearch: MessageListProps['onAddWebSearch'];
   onOpenLink: MessageListProps['onOpenLink'];
-}) => {
+} & Reading) => {
   const { press, proposal, start, offer } = message;
   const choices = message.buttons.filter((button) => 'data' in button);
   // DK-4 AC7, B25: a link button opens its address where the window can; otherwise it is named.
@@ -342,7 +445,8 @@ const Bot = ({
   return (
     <li className="message bot">
       <span className="sr-only">{strings.chat.bot}</span>
-      <ReplyText text={message.text} onOpenLink={onOpenLink} />
+      <ReplyText text={message.text} search={search} onOpenLink={onOpenLink} />
+      <Meta message={message} copied={copied} onCopy={onCopy} />
       {message.door === 'telegram' && <p className="message-note">{strings.chat.viaTelegram}</p>}
       {choices.length > 0 && (
         <div className="choices">
@@ -402,8 +506,22 @@ const Bot = ({
 
 export function MessageList(props: MessageListProps) {
   const { messages, waiting, onRetry, onRestart, onPress, onAllow, onRefuse } = props;
-  const { onAddWebSearch, turn = null, onStop, onExample, onOpenLink } = props;
+  const { onAddWebSearch, turn = null, onStop, onExample, onOpenLink, search = '' } = props;
   const empty = props.empty ?? emptyStateFor(null);
+  /** DK-21: the message just copied, for a moment. */
+  const [copied, setCopied] = useState<string | null>(null);
+  useEffect(() => {
+    if (copied === null) return;
+    const timer = setTimeout(() => setCopied(null), COPIED_MS);
+    return () => clearTimeout(timer);
+  }, [copied]);
+  const copy = (message: Message) => {
+    navigator.clipboard.writeText(message.text).then(
+      () => setCopied(message.id),
+      // Nothing was copied: the button stays as it was.
+      () => {},
+    );
+  };
   const scroller = useRef<HTMLDivElement>(null);
   /** Whether the principal is reading the end; scrolling up to reread must not be undone. */
   const atEnd = useRef(true);
@@ -417,6 +535,12 @@ export function MessageList(props: MessageListProps) {
     if (element === null) return;
     if (atEnd.current || last?.kind === 'own') element.scrollTop = element.scrollHeight;
   }, [messages.length, waiting, last?.kind]);
+
+  // DK-21: the first match of a search comes into view.
+  useEffect(() => {
+    if (search.trim() === '') return;
+    scroller.current?.querySelector('mark')?.scrollIntoView?.({ block: 'center' });
+  }, [search]);
 
   return (
     <div
@@ -453,7 +577,14 @@ export function MessageList(props: MessageListProps) {
       <ol className="messages" role="log" aria-live="polite" aria-label={strings.chat.conversation}>
         {messages.map((message) =>
           message.kind === 'own' ? (
-            <Own key={message.id} message={message} onRetry={onRetry} />
+            <Own
+              key={message.id}
+              message={message}
+              onRetry={onRetry}
+              search={search}
+              copied={copied === message.id}
+              onCopy={copy}
+            />
           ) : (
             <Bot
               key={message.id}
@@ -464,10 +595,17 @@ export function MessageList(props: MessageListProps) {
               onRefuse={onRefuse}
               onAddWebSearch={onAddWebSearch}
               onOpenLink={onOpenLink}
+              search={search}
+              copied={copied === message.id}
+              onCopy={copy}
             />
           ),
         )}
       </ol>
+      {/* DK-21: said once, wherever the message was copied from. */}
+      <p className="sr-only" aria-live="polite">
+        {copied === null ? '' : strings.chat.copied}
+      </p>
       {/* DK-19: the phase is in a live region that is always there, so each change is announced. */}
       <div className="thinking" data-waiting={waiting || undefined}>
         <p className="thinking-status" aria-live="polite">

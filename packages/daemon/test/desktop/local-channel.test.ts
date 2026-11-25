@@ -54,6 +54,9 @@ const S19 = 'Esa pregunta ya no está abierta.';
 const SEEN = 'Tienes abierto un correo de Marta sobre la cena del viernes.';
 const CLICK = { kind: 'click', x: 512, y: 80, double: false, target: 'Enviar' };
 const NOT_SEEN = 'No he podido ver tu pantalla. ¿Me lo vuelves a pedir en un rato?';
+/** DK-23 AC5: the setup guide in the app's chat while no model is set: about the window. */
+const APP_GUIDE =
+  '¡Hola! Me falta:\n- Elegir el modelo: abre Configuración, en la barra de arriba.';
 
 let scratch: string;
 let api: FakeTelegramApi;
@@ -468,7 +471,7 @@ describe('the chat over the local channel', () => {
     ]);
   });
 
-  it('DK-4 AC5: a message ANOMANDER sends unasked goes to Telegram only', async () => {
+  it('DK-4 AC5: the reply to a Telegram input (S-10) goes to Telegram only, never to the app', async () => {
     const daemon = await start();
     const chat = await client(daemon);
     // R-12 AC2, AC3: a receipt over the cap is queued; S-10 goes out unasked, once.
@@ -501,7 +504,9 @@ describe('the chat over the local channel', () => {
     const chat = await client(guide);
 
     const sent = await api.waitForSent(1);
-    expect(reply(await chat.ask({ type: 'text', text: 'hola' })).text).toBe(sent[0]?.text);
+    expect(reply(await chat.ask({ type: 'text', text: 'hola' })).text).toBe(APP_GUIDE);
+    // Telegram keeps its own guide (R-28), with `.env`.
+    expect(sent[0]?.text).toContain('ANOMANDER_MODEL');
   });
 });
 
@@ -1298,7 +1303,7 @@ describe('without Telegram', () => {
     await guide.started;
     const chat = await client(guide);
 
-    expect(reply(await chat.ask({ type: 'text', text: 'hola' })).text).toContain('ANOMANDER_MODEL');
+    expect(reply(await chat.ask({ type: 'text', text: 'hola' })).text).toBe(APP_GUIDE);
     expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining('setup incomplete'));
     expect(logger.error).not.toHaveBeenCalled();
   });
@@ -1388,9 +1393,9 @@ describe('a question about the screen', () => {
     await guide.started;
     const chat = await client(guide);
 
-    const sent = await api.waitForSent(1);
+    await api.waitForSent(1);
     expect(reply(await chat.ask({ type: 'screen', text: question, image: png() })).text).toBe(
-      sent[0]?.text,
+      APP_GUIDE,
     );
   });
 });
@@ -1710,9 +1715,9 @@ describe('a task on the computer (DK-10)', () => {
     await guide.started;
     const chat = await client(guide);
 
-    const sent = await api.waitForSent(1);
+    await api.waitForSent(1);
     const answer = reply(await ask(chat));
-    expect(answer.text).toBe(sent[0]?.text);
+    expect(answer.text).toBe(APP_GUIDE);
     expect(answer).not.toHaveProperty('computer');
   });
 });
@@ -1821,6 +1826,23 @@ describe('a request the chat routes by itself (DK-13)', () => {
     );
     expect(plans).toEqual([]);
   });
+
+  it('DK-20: on Windows the app offers only connections: a look or a task says it is not there yet', async () => {
+    const chat = await client(await start());
+    const real = Object.getOwnPropertyDescriptor(process, 'platform');
+    Object.defineProperty(process, 'platform', { ...real, value: 'win32' });
+    try {
+      routed = route('screen', '¿qué error me sale?');
+      const answer = reply(await chat.ask({ type: 'text', text: '¿qué error me sale?' }));
+
+      expect(answer.text).toBe('Eso todavía no puedo hacerlo en Windows.');
+      expect(answer).not.toHaveProperty('route');
+      expect(interpreted.at(-1)?.routes).toEqual(['connect']);
+    } finally {
+      if (real !== undefined) Object.defineProperty(process, 'platform', real);
+    }
+    expect(screens).toEqual([]);
+  });
 });
 
 describe('a search on the web (T17)', () => {
@@ -1928,7 +1950,7 @@ describe('a search on the web (T17)', () => {
     tooled = [toolCall('fetch_content', { url })];
     const page = reply(await chat.ask({ type: 'connect', task: asked }));
     expect(page.text).toBe(
-      `Quiero usar «fetch_content» de «${WEB_SEARCH_CONNECTION.name}» con:\n{\n  "url": "${url}"\n}`,
+      `Quiero usar «fetch_content» de «${WEB_SEARCH_CONNECTION.name}» con: url «${url}»\n{\n  "url": "${url}"\n}`,
     );
     expect(page.buttons.map((button) => button.label)).toEqual(['Permitir', 'Detener']);
 
@@ -2053,7 +2075,7 @@ describe('a task with connections (DK-11)', () => {
 
     expect(made).toEqual([]);
     expect(question.text).toBe(
-      'Quiero usar «create» de «notes» con:\n{\n  "title": "Hotel Sol"\n}',
+      'Quiero usar «create» de «notes» con: title «Hotel Sol»\n{\n  "title": "Hotel Sol"\n}',
     );
     expect(question.buttons.map((button) => button.label)).toEqual(['Permitir', 'Detener']);
     const [allow] = question.buttons;
@@ -2184,7 +2206,7 @@ describe('a task with connections (DK-11)', () => {
 
       expect(made).toEqual([]);
       expect(question?.text).toBe(
-        'Quiero usar «create» de «notes» con:\n{\n  "title": "Hotel Sol"\n}',
+        'Quiero usar «create» de «notes» con: title «Hotel Sol»\n{\n  "title": "Hotel Sol"\n}',
       );
       const [allow, refuse] = buttonsOf(question);
       expect([allow?.text, refuse?.text]).toEqual(['Permitir', 'Detener']);
@@ -2416,8 +2438,8 @@ describe('a task with connections (DK-11)', () => {
     await guide.started;
     const chat = await client(guide);
 
-    const sent = await api.waitForSent(1);
-    expect(reply(await chat.ask({ type: 'connect', task })).text).toBe(sent[0]?.text);
+    await api.waitForSent(1);
+    expect(reply(await chat.ask({ type: 'connect', task })).text).toBe(APP_GUIDE);
   });
 });
 
@@ -3393,5 +3415,55 @@ describe('stopping a turn from the app (DK-19)', () => {
       { type: 'progress', of: 'm1', phase: 'web_search' },
       { type: 'progress', of: 'm2', phase: 'connection' },
     ]);
+  });
+});
+
+describe("today's AI calls in the window (DK-21)", () => {
+  it('answers ai_usage with the calls counted today in TZ and the limit, counting none', async () => {
+    const chat = await client(
+      await start(
+        { ANOMANDER_LOCAL_TOKEN: TOKEN, ANOMANDER_DAILY_AI_CALL_LIMIT: '50', TZ: 'Europe/Madrid' },
+        // 23:30 UTC on 30 November is already 1 December in Madrid.
+        { now: () => new Date('2026-11-30T23:30:00.000Z') },
+      ),
+    );
+    const db = new Database(join(scratch, 'anomander.db'));
+    db.prepare('INSERT INTO ai_usage (day, calls) VALUES (?, ?), (?, ?)').run(
+      '2026-11-30',
+      40,
+      '2026-12-01',
+      12,
+    );
+    db.close();
+
+    expect(await chat.ask({ type: 'ai_usage' })).toEqual({
+      type: 'ai_usage',
+      inReplyTo: expect.any(String),
+      calls: 12,
+      limit: 50,
+    });
+    expect(await chat.ask({ type: 'ai_usage' })).toMatchObject({ calls: 12 });
+    expect(query('SELECT day, calls FROM ai_usage ORDER BY day')).toEqual([
+      { day: '2026-11-30', calls: 40 },
+      { day: '2026-12-01', calls: 12 },
+    ]);
+  });
+
+  it('rejects fields it does not know', async () => {
+    const chat = await client(await start());
+
+    expect((await chat.ask({ type: 'ai_usage', limit: 10 })).type).toBe('rejected');
+  });
+
+  it('while setup is incomplete, answers S-22: there is no database to read', async () => {
+    const guide = startSetupGuide(
+      { ...config({ ANOMANDER_LOCAL_TOKEN: TOKEN }), localPort: 0 },
+      { gaps: [{ kind: 'model_unset' }], telegramApiRoot: api.apiRoot, logger },
+    );
+    anomander = guide;
+    await guide.started;
+    const chat = await client(guide);
+
+    expect(reply(await chat.ask({ type: 'ai_usage' })).text).toBe(strings.processingFailed());
   });
 });

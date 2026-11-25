@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::data_dir::DataDir;
 use crate::secure_store::SecretStore;
-use crate::snapshot::SetupState;
+use crate::snapshot::{NotificationMode, SetupState};
 
 /// The Keychain account of the bot token: the daemon's variable name.
 pub const TELEGRAM_BOT_TOKEN: &str = "TELEGRAM_BOT_TOKEN";
@@ -25,6 +25,26 @@ pub struct Settings {
     pub provider_keys: Vec<String>,
     /// The Keychain accounts that hold values of `mcp.json` (`connection_secrets`).
     pub connection_secrets: Vec<String>,
+    /// DK-22: what the notifications show. Left out of the file while it is the default, so a
+    /// file saved before it reads the same.
+    #[serde(skip_serializing_if = "NotificationMode::is_content")]
+    pub notifications: NotificationMode,
+    /// DK-21: `ANOMANDER_DAILY_AI_CALL_LIMIT`; unset, the daemon's default. Absent from the file
+    /// while unset, so a file written before it reads the same. A value edited by hand that is
+    /// not a count reads as unset, and the rest of the file still loads.
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "lenient_count"
+    )]
+    pub daily_ai_call_limit: Option<u32>,
+}
+
+/// Any JSON value as an `Option<u32>`: `None` for anything that is not a count that fits.
+fn lenient_count<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<Option<u32>, D::Error> {
+    let value = serde_json::Value::deserialize(deserializer)?;
+    Ok(value.as_u64().and_then(|count| u32::try_from(count).ok()))
 }
 
 /// `SetupInput` of `shell.ts`. Holds secrets: no `Debug`.
@@ -40,7 +60,13 @@ pub struct SetupInput {
     /// A string stores the key (an empty one changes nothing), `null` removes it.
     #[serde(default)]
     pub provider_keys: BTreeMap<String, Option<String>>,
+    /// DK-21: from 1 to 10000; omitted keeps the stored one.
+    #[serde(default)]
+    pub daily_ai_call_limit: Option<u32>,
 }
+
+/// DK-21: the daily limit of AI calls the setup takes.
+pub const DAILY_AI_CALL_LIMITS: std::ops::RangeInclusive<u32> = 1..=10_000;
 
 /// The secrets one start of the daemon needs. No `Debug`.
 pub struct Secrets {
@@ -135,6 +161,14 @@ pub fn apply_setup(
     {
         return Err(HALF_TELEGRAM.to_owned());
     }
+    if let Some(limit) = input
+        .daily_ai_call_limit
+        .filter(|limit| !DAILY_AI_CALL_LIMITS.contains(limit))
+    {
+        return Err(format!(
+            "the daily limit of AI calls must be a whole number from 1 to 10000: {limit}"
+        ));
+    }
     let model = checked_model("model", &input.model)?;
     let vision_model = checked_model("vision model", &input.vision_model)?;
     if let Some(name) = input
@@ -173,6 +207,8 @@ pub fn apply_setup(
         vision_model,
         provider_keys,
         connection_secrets: current.connection_secrets.clone(),
+        notifications: current.notifications,
+        daily_ai_call_limit: input.daily_ai_call_limit.or(current.daily_ai_call_limit),
     })
 }
 
@@ -187,6 +223,7 @@ pub fn setup_from_env_file(text: &str) -> SetupInput {
         model: String::new(),
         vision_model: String::new(),
         provider_keys: BTreeMap::new(),
+        daily_ai_call_limit: None,
     };
     for line in text.lines() {
         let line = line.trim();
@@ -225,6 +262,7 @@ pub fn setup_state(settings: &Settings, has_telegram_bot_token: bool) -> SetupSt
         model: settings.model.clone(),
         vision_model: settings.vision_model.clone(),
         provider_keys: settings.provider_keys.clone(),
+        notifications: settings.notifications,
     }
 }
 
@@ -281,6 +319,92 @@ mod tests {
         }))
     }
 
+    /// DK-21: a setup with a daily limit of AI calls (`limit`), and nothing else but a model.
+    fn with_limit(limit: Option<i64>) -> serde_json::Value {
+        let mut value = json!({
+            "principalChatId": "",
+            "model": "openai/gpt-4o-mini",
+            "visionModel": "",
+            "telegramBotToken": "",
+            "providerKeys": { "OPENAI_API_KEY": "sk-new" }
+        });
+        if let (Some(limit), Some(object)) = (limit, value.as_object_mut()) {
+            object.insert("dailyAiCallLimit".into(), json!(limit));
+        }
+        value
+    }
+
+    #[test]
+    fn a_daily_ai_call_limit_from_1_to_10000_is_kept_and_an_omitted_one_keeps_the_stored(
+    ) -> Result<(), String> {
+        let store = MemoryStore::default();
+        for limit in [1, 500, 10_000] {
+            let settings = apply_setup(
+                &input(with_limit(Some(limit))),
+                &Settings::default(),
+                &store,
+            )?;
+            assert_eq!(settings.daily_ai_call_limit, u32::try_from(limit).ok());
+        }
+        let stored = Settings {
+            daily_ai_call_limit: Some(500),
+            ..Settings::default()
+        };
+        let kept = apply_setup(&input(with_limit(None)), &stored, &store)?;
+        assert_eq!(kept.daily_ai_call_limit, Some(500));
+        assert_eq!(
+            apply_setup(&input(with_limit(None)), &Settings::default(), &store)?
+                .daily_ai_call_limit,
+            None
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn a_daily_ai_call_limit_outside_1_to_10000_is_refused_and_nothing_is_stored() {
+        for limit in [0, 10_001] {
+            let store = MemoryStore::default();
+            assert_eq!(
+                apply_setup(
+                    &input(with_limit(Some(limit))),
+                    &Settings::default(),
+                    &store
+                ),
+                Err(format!(
+                    "the daily limit of AI calls must be a whole number from 1 to 10000: {limit}"
+                ))
+            );
+            assert_eq!(store.get("OPENAI_API_KEY").ok().flatten(), None);
+        }
+    }
+
+    #[test]
+    fn a_stored_daily_ai_call_limit_that_is_not_a_count_reads_as_unset_and_the_rest_loads(
+    ) -> Result<(), String> {
+        let dir = tempfile::tempdir().map_err(|e| e.to_string())?;
+        let path = dir.path().join("settings.json");
+        for bad in [
+            json!(-5),
+            json!("mucho"),
+            json!(2.5),
+            json!(4_294_967_296_u64),
+        ] {
+            let file = json!({ "model": "openai/gpt-4o-mini", "dailyAiCallLimit": bad });
+            std::fs::write(&path, file.to_string()).map_err(|e| e.to_string())?;
+            let settings = load_settings(&path)?;
+            assert_eq!(
+                settings.model.as_deref(),
+                Some("openai/gpt-4o-mini"),
+                "{bad}"
+            );
+            assert_eq!(settings.daily_ai_call_limit, None, "{bad}");
+        }
+        std::fs::write(&path, json!({ "dailyAiCallLimit": 300 }).to_string())
+            .map_err(|e| e.to_string())?;
+        assert_eq!(load_settings(&path)?.daily_ai_call_limit, Some(300));
+        Ok(())
+    }
+
     #[test]
     fn provider_key_names_follow_the_daemons_pattern() {
         for name in [
@@ -318,6 +442,8 @@ mod tests {
                 vision_model: None,
                 provider_keys: vec!["ANTHROPIC_API_KEY".into(), "OPENAI_API_KEY".into()],
                 connection_secrets: Vec::new(),
+                notifications: NotificationMode::Content,
+                daily_ai_call_limit: None,
             }
         );
         assert_eq!(
@@ -494,6 +620,8 @@ mod tests {
             vision_model: None,
             provider_keys: vec!["OPENAI_API_KEY".into()],
             connection_secrets: Vec::new(),
+            notifications: NotificationMode::Content,
+            daily_ai_call_limit: None,
         };
         assert_eq!(
             setup_state(&settings, true),
@@ -503,8 +631,46 @@ mod tests {
                 model: Some("openai/gpt-4o-mini".into()),
                 vision_model: None,
                 provider_keys: vec!["OPENAI_API_KEY".into()],
+                notifications: NotificationMode::Content,
             }
         );
+    }
+
+    #[test]
+    fn settings_saved_before_the_switch_show_the_content_and_notify_only_is_kept(
+    ) -> Result<(), String> {
+        let parent = tempfile::tempdir().map_err(|e| e.to_string())?;
+        let dir = DataDir::open(parent.path().join("ANOMANDER")).map_err(|e| e.to_string())?;
+        std::fs::write(dir.settings_path(), r#"{"principalChatId":"42"}"#)
+            .map_err(|e| e.to_string())?;
+        let old = load_settings(&dir.settings_path())?;
+        assert_eq!(old.notifications, NotificationMode::Content);
+        assert_eq!(
+            setup_state(&old, false).notifications,
+            NotificationMode::Content
+        );
+
+        let chosen = Settings {
+            notifications: NotificationMode::NoticeOnly,
+            ..old
+        };
+        save_settings(&dir, &chosen).map_err(|e| e.to_string())?;
+        let text = std::fs::read_to_string(dir.settings_path()).map_err(|e| e.to_string())?;
+        assert!(text.contains(r#""notifications": "notice_only""#), "{text}");
+        assert_eq!(load_settings(&dir.settings_path())?, chosen);
+        Ok(())
+    }
+
+    #[test]
+    fn a_save_of_the_setup_keeps_the_notifications_chosen() -> Result<(), String> {
+        let store = MemoryStore::default();
+        let current = Settings {
+            notifications: NotificationMode::NoticeOnly,
+            ..Settings::default()
+        };
+        let settings = apply_setup(&full_input(), &current, &store)?;
+        assert_eq!(settings.notifications, NotificationMode::NoticeOnly);
+        Ok(())
     }
 
     #[test]
@@ -535,6 +701,8 @@ mod tests {
             vision_model: Some("openai/gpt-4o".into()),
             provider_keys: vec!["OPENAI_API_KEY".into()],
             connection_secrets: vec!["mcp/notes/env/TOKEN".into()],
+            notifications: NotificationMode::Content,
+            daily_ai_call_limit: None,
         };
         save_settings(&dir, &settings).map_err(|e| e.to_string())?;
         let text = std::fs::read_to_string(dir.settings_path()).map_err(|e| e.to_string())?;

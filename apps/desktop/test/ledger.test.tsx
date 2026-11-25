@@ -109,3 +109,52 @@ describe('the ledger import', () => {
     expect(onClose).toHaveBeenCalledOnce();
   });
 });
+
+describe('its words (DK-21)', () => {
+  it('speaks of the principal\'s data, never of a "ledger"', () => {
+    renderScreen(async () => ({ outcome: 'imported' }));
+
+    expect(document.body.textContent).not.toMatch(/ledger/i);
+    const words = (value: unknown): string[] =>
+      typeof value === 'string' ? [value] : Object.values(value as object).flatMap(words);
+    expect(words(text).filter((line) => /ledger/i.test(line))).toEqual([]);
+  });
+});
+
+describe('choosing the file (DK-21)', () => {
+  const renderWithPicker = (picked: string | null) => {
+    const onPick = vi.fn(async () => picked);
+    const onImport = vi.fn(async (_path: string) => ({ outcome: 'imported' as const }));
+    render(<LedgerScreen onImport={onImport} onClose={() => {}} onPick={onPick} />);
+    return { onPick, onImport };
+  };
+
+  it('"Elegir archivo…" fills in the path of the file chosen, which is then imported', async () => {
+    const { onPick, onImport } = renderWithPicker('/Users/ana/Downloads/anomander.db');
+    fireEvent.click(screen.getByRole('button', { name: text.choose }));
+
+    await waitFor(() =>
+      expect(screen.getByLabelText<HTMLInputElement>(text.path).value).toBe(
+        '/Users/ana/Downloads/anomander.db',
+      ),
+    );
+    expect(onPick).toHaveBeenCalledOnce();
+    importIt();
+    await waitFor(() => expect(onImport).toHaveBeenCalledWith('/Users/ana/Downloads/anomander.db'));
+  });
+
+  it('keeps what was typed when nothing is chosen', async () => {
+    const { onPick } = renderWithPicker(null);
+    type('~/anomander.db');
+    fireEvent.click(screen.getByRole('button', { name: text.choose }));
+
+    await waitFor(() => expect(onPick).toHaveBeenCalledOnce());
+    expect(screen.getByLabelText<HTMLInputElement>(text.path).value).toBe('~/anomander.db');
+  });
+
+  it('offers no chooser where the window cannot open one', () => {
+    renderScreen(async () => ({ outcome: 'imported' }));
+
+    expect(screen.queryByRole('button', { name: text.choose })).toBeNull();
+  });
+});

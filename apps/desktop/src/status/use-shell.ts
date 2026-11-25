@@ -2,7 +2,13 @@
 // carry no sequence number, so the answer of a command may be older than an event that arrived
 // while it was on its way: an event always wins.
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { type LoginStep, type SetupInput, type Snapshot, shell } from '../shell.ts';
+import {
+  type LoginStep,
+  type NotificationMode,
+  type SetupInput,
+  type Snapshot,
+  shell,
+} from '../shell.ts';
 import { messageOf } from '../ui/message-of.ts';
 import type { Command, CommandError } from './StatusBar.tsx';
 
@@ -20,6 +26,8 @@ export interface Shell {
   dismissError(): void;
   /** Saves the setup, which restarts the daemon; rejects as the shell does when it refuses it. */
   saveSetup(input: SetupInput): Promise<Snapshot>;
+  /** DK-22: saves what the notifications show; rejects when it could not. */
+  setNotifications(mode: NotificationMode): Promise<Snapshot>;
   /** `shell.connections`, `saveConnection` and `removeConnection`, as they are: the screen says why one failed. */
   connections: typeof shell.connections;
   saveConnection: typeof shell.saveConnection;
@@ -119,6 +127,13 @@ export const useShell = (): Shell => {
     return saved;
   }, []);
 
+  const setNotifications = useCallback(async (mode: NotificationMode) => {
+    const seen = events.current;
+    const saved = await shell.setNotifications(mode);
+    if (events.current === seen) setSnapshot(saved);
+    return saved;
+  }, []);
+
   const setThinking = useCallback((thinking: boolean) => {
     shell.setThinking(thinking).catch(() => {});
   }, []);
@@ -179,6 +194,7 @@ export const useShell = (): Shell => {
     stop,
     dismissError,
     saveSetup,
+    setNotifications,
     connections: shell.connections,
     saveConnection: shell.saveConnection,
     removeConnection: shell.removeConnection,

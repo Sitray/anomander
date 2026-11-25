@@ -29,6 +29,11 @@ Note what fails, with the step's number, and attach "Copiar diagnóstico" (step 
 - [ ] Write "hello" in the chat: it answers in the system's language (Spanish on a Spanish Windows, English otherwise).
 - [ ] Write an expense ("He gastado 12,50 € en Mercadona"): it asks or records it as on the Mac.
 
+- [ ] Ctrl+Shift+Space from another app brings the chat to the front; pressed again while the
+      chat is in front, it hides it. With the window hidden by its close button, it comes back.
+- [ ] Ctrl+, in the window opens the setup, and Ctrl+, again goes back to the chat. Holding it
+      down does not flip it open and closed.
+
 ## 4. Telegram (optional)
 
 - [ ] Add the bot token and your Telegram ID in the setup and save. `/start` to the bot answers
@@ -104,5 +109,11 @@ Note what fails, with the step's number, and attach "Copiar diagnóstico" (step 
 
 ## Not on Windows yet
 
-A look at the screen and tasks on the computer (DK-9, DK-10) are macOS-only: asked for one, the
-app answers with its macOS permission message. That is expected in this phase.
+A look at the screen and tasks on the computer (DK-9, DK-10) are macOS-only for now (DK-20 AC2).
+
+- [ ] Ask in the chat "¿qué error me sale en pantalla?" or "abre el Bloc de notas": it answers
+      "Eso todavía no puedo hacerlo en Windows." (in English, "I can't do that on Windows yet."),
+      and nothing on the screen is captured or touched.
+- [ ] No text of the window speaks of macOS, the Keychain, "este Mac" or System Settings: the
+      setup, Conexiones and Suscripciones name the "Administrador de credenciales de Windows"
+      and "este equipo".

@@ -19,6 +19,8 @@ export interface AiBudget {
   tryConsume(): boolean;
   /** `true` only the first time it is asked on a day: S-10 goes out once that day (R-12 AC2). */
   claimLimitNotice(): boolean;
+  /** DK-21: the calls counted today and the cap, for the window. Reads only. */
+  usage(): { calls: number; limit: number };
 }
 
 export const createAiBudget = ({ db, limit, timeZone, now }: AiBudgetDeps): AiBudget => {
@@ -26,6 +28,9 @@ export const createAiBudget = ({ db, limit, timeZone, now }: AiBudgetDeps): AiBu
   const consume = db.prepare('UPDATE ai_usage SET calls = calls + 1 WHERE day = ? AND calls < ?');
   const notify = db.prepare(
     'UPDATE ai_usage SET limit_notified = 1 WHERE day = ? AND limit_notified = 0',
+  );
+  const counted = db.prepare<[string], { calls: number }>(
+    'SELECT calls FROM ai_usage WHERE day = ?',
   );
   const today = () => todayIn(timeZone, now());
 
@@ -40,6 +45,7 @@ export const createAiBudget = ({ db, limit, timeZone, now }: AiBudgetDeps): AiBu
       ensureDay.run(day);
       return notify.run(day).changes === 1;
     }),
+    usage: () => ({ calls: counted.get(today())?.calls ?? 0, limit }),
   };
 };
 

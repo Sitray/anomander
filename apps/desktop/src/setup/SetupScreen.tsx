@@ -2,12 +2,25 @@
 //
 // Secrets (the bot token, the provider keys) are typed into uncontrolled fields and kept in a
 // ref, so they never enter React state or a DOM attribute, and they are dropped once saved.
+//
+// DK-23: it asks no developer knowledge. The model comes first, picked by its provider's name
+// with a model suggested for it, and any other still written as `provider/model`; the key is named
+// by whose it is, never by its variable; "Probar" calls the saved model once; Telegram comes last.
 import { type FormEvent, type ReactNode, useEffect, useId, useRef, useState } from 'react';
 import type { SetupInput, SetupState } from '../shell.ts';
 import { ErrorBlock } from '../status/StatusBar.tsx';
 import { strings } from '../strings.ts';
 import { messageOf } from '../ui/message-of.ts';
-import { isChatId, isModelId, isProviderKeyName, KNOWN_PROVIDER_KEYS } from './validation.ts';
+import type { ProbeResult } from './probe.ts';
+import {
+  providerOfKey,
+  providerOfModel,
+  readsPhotos,
+  SETUP_PROVIDERS,
+  type SetupProvider,
+  suggestedModel,
+} from './providers.ts';
+import { isChatId, isModelId, isProviderKeyName } from './validation.ts';
 
 export interface SetupScreenProps {
   setup: SetupState;
@@ -24,12 +37,36 @@ export interface SetupScreenProps {
    * setup only.
    */
   onAddWebSearch?: () => Promise<boolean>;
+  /** DK-22: what the notifications show, a setting saved apart from "Guardar". */
+  notifications?: ReactNode;
+  /** DK-21: today's AI calls and the daily limit (R-12); absent or `null` until the daemon said. */
+  aiUsage?: { calls: number; limit: number } | null;
+  /**
+   * DK-23 AC4: "Probar": one call to the saved model through the daemon. Absent while the daemon
+   * is not running.
+   */
+  onProbe?: () => Promise<ProbeResult>;
 }
 
 const { setup: text } = strings;
 const OTHER = 'other';
+/** DK-21: the daily limit of AI calls the shell takes, as typed: a whole number from 1 to 10000. */
+const aiLimitOf = (typed: string): number | undefined => {
+  const limit = /^\d{1,5}$/.test(typed) ? Number(typed) : Number.NaN;
+  return limit >= 1 && limit <= 10_000 ? limit : undefined;
+};
 
-type FieldName = 'botToken' | 'chatId' | 'model' | 'visionModel' | 'keyName' | 'keyValue';
+/** How a stored key is listed: by whose it is, or by its variable for a provider not offered. */
+const keyLabel = (name: string): string => providerOfKey(name)?.keyOwner ?? name;
+
+type FieldName =
+  | 'botToken'
+  | 'chatId'
+  | 'model'
+  | 'visionModel'
+  | 'keyName'
+  | 'keyValue'
+  | 'aiLimit';
 type Errors = Partial<Record<FieldName, string>>;
 /** What saving will do to a provider key. */
 type KeyChange = 'store' | 'remove';
@@ -88,11 +125,19 @@ interface FormProps extends SetupScreenProps {
 
 function SetupForm(props: FormProps) {
   const { setup, incomplete, onSave, onSaved, onClose, onOpenLedger, onOpenSubscriptions } = props;
-  const { onAddWebSearch } = props;
+  const { onAddWebSearch, onProbe } = props;
   const [chatId, setChatId] = useState(setup.principalChatId ?? '');
   const [model, setModel] = useState(setup.model ?? '');
   const [visionModel, setVisionModel] = useState(setup.visionModel ?? '');
-  const [provider, setProvider] = useState<string>(KNOWN_PROVIDER_KEYS[0]);
+  /** DK-21: empty keeps the stored limit. */
+  const [aiLimit, setAiLimit] = useState('');
+  /** "Otro modelo…" was chosen while the model is still empty. */
+  const [otherModel, setOtherModel] = useState(false);
+  /** Whether a key was typed for the model's provider; never the key itself. */
+  const [modelKeyTyped, setModelKeyTyped] = useState(false);
+  const [probing, setProbing] = useState(false);
+  const [probed, setProbed] = useState<ProbeResult | null>(null);
+  const [provider, setProvider] = useState<string>(SETUP_PROVIDERS[0]?.keyName ?? OTHER);
   const [keyName, setKeyName] = useState('');
   const [changes, setChanges] = useState<Record<string, KeyChange>>({});
   const [errors, setErrors] = useState<Errors>({});
@@ -103,6 +148,8 @@ function SetupForm(props: FormProps) {
 
   const botToken = useRef<HTMLInputElement>(null);
   const keyValue = useRef<HTMLInputElement>(null);
+  /** DK-23 AC3: the key of the model's provider, in the models section. */
+  const modelKey = useRef<HTMLInputElement>(null);
   /** The keys to store, by variable name. Never rendered. */
   const typedKeys = useRef(new Map<string, string>());
   const heading = useRef<HTMLHeadingElement>(null);
@@ -118,6 +165,45 @@ function SetupForm(props: FormProps) {
   const offersWebSearch = modelRequired && onAddWebSearch !== undefined;
   const [webSearch, setWebSearch] = useState(true);
   const webSearchId = useId();
+  const probeNoteId = useId();
+  const pickerId = useId();
+
+  // DK-23 AC2: the picker follows the model, typed or picked.
+  const chosen: SetupProvider | undefined = providerOfModel(model.trim());
+  const picked = chosen?.id ?? (model.trim() !== '' || otherModel ? OTHER : '');
+  // Another provider remounts its key field empty: nothing typed is left to save.
+  const chosenId = chosen?.id;
+  useEffect(() => {
+    void chosenId;
+    setModelKeyTyped(false);
+  }, [chosenId]);
+  const pick = (id: string) => {
+    const offered = SETUP_PROVIDERS.find((one) => one.id === id);
+    setOtherModel(id === OTHER);
+    if (offered === undefined) return;
+    // Every suggestion reads photos too; a photo model of the principal's own is kept.
+    const ownVision = visionModel.trim() !== '' && visionModel.trim() !== model.trim();
+    setModel(suggestedModel(offered));
+    if (!ownVision || readsPhotos(visionModel.trim())) setVisionModel(suggestedModel(offered));
+  };
+
+  // DK-23 AC4: "Probar" calls what is saved, so it waits for a save of anything it would use.
+  const unsaved =
+    model.trim() !== (setup.model ?? '') || modelKeyTyped || Object.keys(changes).length > 0;
+  const probeNote =
+    onProbe === undefined ? text.probeNotRunning : unsaved ? text.probeSaveFirst : null;
+  const probe = async () => {
+    if (onProbe === undefined || probing) return;
+    setProbing(true);
+    setProbed(null);
+    try {
+      setProbed(await onProbe());
+    } catch {
+      setProbed('lost');
+    } finally {
+      setProbing(false);
+    }
+  };
 
   const change = (name: string, to: KeyChange | undefined) => {
     setChanges(({ [name]: _dropped, ...rest }) =>
@@ -155,7 +241,9 @@ function SetupForm(props: FormProps) {
     const input: SetupInput = {
       principalChatId: chatId.trim(),
       model: model.trim(),
-      visionModel: visionModel.trim(),
+      // DK-23 AC2: left empty, photos are read with the same model when it is known to read them.
+      visionModel:
+        visionModel.trim() === '' && readsPhotos(model.trim()) ? model.trim() : visionModel.trim(),
       providerKeys: {},
     };
     // Omitted keeps the stored token.
@@ -176,7 +264,14 @@ function SetupForm(props: FormProps) {
         : isModelId(input.model)
           ? {}
           : { model: text.modelInvalid }),
-      ...(isModelId(input.visionModel) ? {} : { visionModel: text.modelInvalid }),
+      ...(!isModelId(input.visionModel)
+        ? { visionModel: text.modelInvalid }
+        : input.model !== '' && input.visionModel === ''
+          ? { visionModel: text.visionModelMissing }
+          : {}),
+      ...(aiLimit.trim() === '' || aiLimitOf(aiLimit.trim()) !== undefined
+        ? {}
+        : { aiLimit: text.aiLimitInvalid }),
       // A key typed but not added is still meant to be saved.
       ...takeTypedKey(false),
     };
@@ -189,7 +284,14 @@ function SetupForm(props: FormProps) {
       if (to === 'remove') input.providerKeys[name] = null;
     }
     for (const [name, value] of typedKeys.current) input.providerKeys[name] = value;
+    // DK-23 AC3: stored where it always was, under the variable the daemon reads.
+    const typedModelKey = modelKey.current?.value.trim() ?? '';
+    if (chosen !== undefined && typedModelKey !== '') {
+      input.providerKeys[chosen.keyName] = typedModelKey;
+    }
     if (token !== '') input.telegramBotToken = token;
+    const limit = aiLimitOf(aiLimit.trim());
+    if (limit !== undefined) input.dailyAiCallLimit = limit;
 
     setSaving(true);
     try {
@@ -234,39 +336,23 @@ function SetupForm(props: FormProps) {
         </div>
 
         <fieldset>
-          <legend>{text.sectionTelegram}</legend>
-          <Field label={text.botToken} help={text.botTokenHelp} error={errors.botToken}>
-            {({ id, describedBy, invalid }) => (
-              <input
-                ref={botToken}
-                id={id}
-                type="password"
-                autoComplete="off"
-                spellCheck={false}
-                placeholder={setup.hasTelegramBotToken ? text.botTokenStored : ''}
-                aria-describedby={describedBy}
-                aria-invalid={invalid}
-              />
-            )}
-          </Field>
-          <Field label={text.chatId} help={text.chatIdHelp} error={errors.chatId}>
-            {({ id, describedBy, invalid }) => (
-              <input
-                id={id}
-                inputMode="numeric"
-                autoComplete="off"
-                spellCheck={false}
-                value={chatId}
-                aria-describedby={describedBy}
-                aria-invalid={invalid}
-                onChange={(event) => setChatId(event.target.value)}
-              />
-            )}
-          </Field>
-        </fieldset>
-
-        <fieldset>
           <legend>{text.sectionModels}</legend>
+          <div className="field">
+            <label htmlFor={pickerId}>{text.modelProvider}</label>
+            <select id={pickerId} value={picked} onChange={(event) => pick(event.target.value)}>
+              {picked === '' && (
+                <option value="" disabled>
+                  {text.chooseProvider}
+                </option>
+              )}
+              {SETUP_PROVIDERS.map((offered) => (
+                <option key={offered.id} value={offered.id}>
+                  {offered.name}
+                </option>
+              ))}
+              <option value={OTHER}>{text.otherModel}</option>
+            </select>
+          </div>
           <Field
             label={text.model}
             help={text.modelHelp}
@@ -305,6 +391,49 @@ function SetupForm(props: FormProps) {
               />
             )}
           </Field>
+          {chosen !== undefined && (
+            <Field label={text.keyFor(chosen.keyOwner)} help={text.keyForHelp}>
+              {({ id, describedBy }) => (
+                <input
+                  // Another provider is another key: what was typed for this one is dropped.
+                  key={chosen.id}
+                  ref={modelKey}
+                  id={id}
+                  type="password"
+                  autoComplete="off"
+                  spellCheck={false}
+                  placeholder={
+                    setup.providerKeys.includes(chosen.keyName) ? text.keyStoredKeep : ''
+                  }
+                  aria-describedby={describedBy}
+                  onChange={(event) => setModelKeyTyped(event.target.value.trim() !== '')}
+                />
+              )}
+            </Field>
+          )}
+          <div className="field probe">
+            <div className="probe-row">
+              <button
+                type="button"
+                className="button"
+                disabled={probing || probeNote !== null}
+                aria-describedby={probeNoteId}
+                onClick={probe}
+              >
+                {probing ? text.probing : text.probe}
+              </button>
+              <p className="probe-result" role="status">
+                {probed === null
+                  ? ''
+                  : probed === 'lost'
+                    ? text.probeLost
+                    : text.probeOutcome[probed]}
+              </p>
+            </div>
+            <p className="field-note" id={probeNoteId}>
+              {probeNote ?? text.probeHelp}
+            </p>
+          </div>
           {onOpenSubscriptions !== undefined && (
             <p className="fieldset-note">
               <button type="button" className="link" onClick={onOpenSubscriptions}>
@@ -312,6 +441,26 @@ function SetupForm(props: FormProps) {
               </button>
             </p>
           )}
+          {props.aiUsage != null && (
+            <p className="fieldset-note">
+              {text.aiUsage(props.aiUsage.calls, props.aiUsage.limit)}
+            </p>
+          )}
+          <Field label={text.aiLimit} help={text.aiLimitHelp} error={errors.aiLimit}>
+            {({ id, describedBy, invalid }) => (
+              <input
+                id={id}
+                inputMode="numeric"
+                autoComplete="off"
+                spellCheck={false}
+                placeholder={props.aiUsage == null ? '' : String(props.aiUsage.limit)}
+                value={aiLimit}
+                aria-describedby={describedBy}
+                aria-invalid={invalid}
+                onChange={(event) => setAiLimit(event.target.value)}
+              />
+            )}
+          </Field>
         </fieldset>
 
         {offersWebSearch && (
@@ -355,15 +504,16 @@ function SetupForm(props: FormProps) {
                       : text.keyStored;
                 // A stored key is marked for removal; any pending change is taken back.
                 const undo = to !== undefined && stored;
+                const shown = keyLabel(name);
                 const label =
                   to === 'remove'
-                    ? text.undoKey(name)
+                    ? text.undoKey(shown)
                     : undo
-                      ? text.undoKeyChange(name)
-                      : text.removeKey(name);
+                      ? text.undoKeyChange(shown)
+                      : text.removeKey(shown);
                 return (
                   <li key={name} data-change={to}>
-                    <span className="key-name">{name}</span>
+                    <span className="key-name">{keyLabel(name)}</span>
                     <span className="key-state">{state}</span>
                     <button
                       type="button"
@@ -387,9 +537,9 @@ function SetupForm(props: FormProps) {
                 value={provider}
                 onChange={(event) => setProvider(event.target.value)}
               >
-                {KNOWN_PROVIDER_KEYS.map((name) => (
-                  <option key={name} value={name}>
-                    {name}
+                {SETUP_PROVIDERS.map((offered) => (
+                  <option key={offered.keyName} value={offered.keyName}>
+                    {offered.keyOwner}
                   </option>
                 ))}
                 <option value={OTHER}>{text.otherProvider}</option>
@@ -442,6 +592,40 @@ function SetupForm(props: FormProps) {
             )}
           </div>
         </fieldset>
+
+        <fieldset>
+          <legend>{text.sectionTelegram}</legend>
+          <Field label={text.botToken} help={text.botTokenHelp} error={errors.botToken}>
+            {({ id, describedBy, invalid }) => (
+              <input
+                ref={botToken}
+                id={id}
+                type="password"
+                autoComplete="off"
+                spellCheck={false}
+                placeholder={setup.hasTelegramBotToken ? text.botTokenStored : ''}
+                aria-describedby={describedBy}
+                aria-invalid={invalid}
+              />
+            )}
+          </Field>
+          <Field label={text.chatId} help={text.chatIdHelp} error={errors.chatId}>
+            {({ id, describedBy, invalid }) => (
+              <input
+                id={id}
+                inputMode="numeric"
+                autoComplete="off"
+                spellCheck={false}
+                value={chatId}
+                aria-describedby={describedBy}
+                aria-invalid={invalid}
+                onChange={(event) => setChatId(event.target.value)}
+              />
+            )}
+          </Field>
+        </fieldset>
+
+        {props.notifications}
       </div>
 
       <footer className="setup-footer">
@@ -470,6 +654,7 @@ function SetupForm(props: FormProps) {
 
 export function SetupScreen(props: SetupScreenProps) {
   const { setup, onSave, onClose, onOpenLedger, onOpenSubscriptions, onAddWebSearch } = props;
+  const { notifications, aiUsage, onProbe } = props;
   // After a save the form starts over from what was stored, with every secret field empty.
   const [stored, setStored] = useState({ setup, saves: 0 });
   return (
@@ -482,6 +667,9 @@ export function SetupScreen(props: SetupScreenProps) {
       {...(onOpenLedger === undefined ? {} : { onOpenLedger })}
       {...(onOpenSubscriptions === undefined ? {} : { onOpenSubscriptions })}
       {...(onAddWebSearch === undefined ? {} : { onAddWebSearch })}
+      {...(notifications === undefined ? {} : { notifications })}
+      {...(aiUsage === undefined ? {} : { aiUsage })}
+      {...(onProbe === undefined ? {} : { onProbe })}
       onSaved={(saved) => setStored({ setup: saved, saves: stored.saves + 1 })}
     />
   );

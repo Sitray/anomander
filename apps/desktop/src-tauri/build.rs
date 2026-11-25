@@ -23,6 +23,7 @@ const COMMANDS: &[&str] = &[
     "perform_action",
     "reveal",
     "set_task_running",
+    "set_notifications",
     "open_link",
 ];
 

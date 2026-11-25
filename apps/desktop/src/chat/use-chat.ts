@@ -204,6 +204,11 @@ export const useChat = (channel: LocalChannel | null, options: ChatOptions = {})
         setPhases((known) =>
           known[requestId] === phase ? known : { ...known, [requestId]: phase },
         ),
+      // DK-22: what ANOMANDER sent unasked is said in the chat and notified as an answer is.
+      onNotice: (notice) => {
+        dispatch({ type: 'notice', notice });
+        latest.current.onReply?.(notice.text);
+      },
       onOutcome: (requestId, outcome) => {
         setPhases((known) => {
           if (!(requestId in known)) return known;
@@ -284,7 +289,7 @@ export const useChat = (channel: LocalChannel | null, options: ChatOptions = {})
   const say = useCallback(
     (text: string, attachments: Attachment[]) => {
       const id = crypto.randomUUID();
-      dispatch({ type: 'said', id, text, attachments });
+      dispatch({ type: 'said', id, text, attachments, at: new Date().toISOString() });
       void deliver(id, text, attachments);
     },
     [deliver],

@@ -9,12 +9,14 @@ pub mod daemon;
 pub mod data_dir;
 pub mod diagnostics;
 pub mod file_mode;
+pub mod hotkey;
 pub mod ledger_import;
 pub mod locale;
 pub mod login;
 pub mod notch;
 pub mod notification;
 pub mod oauth_connect;
+pub mod platform;
 pub mod screen;
 pub mod secure_store;
 pub mod setup;
@@ -42,7 +44,7 @@ use crate::oauth_connect::{open_in_browser, OAuthConnect};
 use crate::secure_store::SecretStore;
 use crate::setup::{load_settings, Settings, SetupInput};
 use crate::shell::Core;
-use crate::snapshot::{DaemonState, Snapshot};
+use crate::snapshot::{DaemonState, NotificationMode, Snapshot};
 
 /// `SNAPSHOT_EVENT` of `shell.ts`.
 pub const SNAPSHOT_EVENT: &str = "shell://snapshot";
@@ -362,17 +364,29 @@ fn set_thinking(app: AppHandle, thinking: bool) -> Result<(), String> {
 }
 
 /// An answer arrived in the chat: notifies it, unless the principal is looking at the window.
+/// DK-22: with "Solo avisar" it says only that there is something.
 #[tauri::command]
 fn notify_reply(app: AppHandle, text: String) -> Result<(), String> {
     if chat_in_front(&app) {
         return Ok(());
     }
+    let mode = app.state::<Shell>().core.notifications();
     app.notification()
         .builder()
         .title("ANOMANDER")
-        .body(notification::body(&text))
+        .body(notification::shown(mode, &text, locale::current()))
         .show()
         .map_err(|error| error.to_string())
+}
+
+/// DK-22 (B29): saves what the notifications show, at once; the daemon is not started again.
+#[tauri::command]
+async fn set_notifications(app: AppHandle, mode: NotificationMode) -> Result<Snapshot, String> {
+    blocking(app, move |shell| {
+        shell.core.set_notifications(mode)?;
+        Ok(shell.snapshot())
+    })
+    .await
 }
 
 /// How long the app the principal was using takes to come back to the front once ours hides.
@@ -556,6 +570,8 @@ fn copy_diagnostics(app: &AppHandle, shell: &Shell) {
         daemon: tray::labels(&view, locale).status,
     };
     let text = report::report(&facts, &lines, &secrets, locale);
+    // DK-22: every notification the shell shows follows "Solo avisar".
+    let mode = shell.core.notifications();
     let handle = app.clone();
     // The pasteboard belongs to the main thread.
     let copied = app.run_on_main_thread(move || {
@@ -576,7 +592,7 @@ fn copy_diagnostics(app: &AppHandle, shell: &Shell) {
             .notification()
             .builder()
             .title("ANOMANDER")
-            .body(said)
+            .body(notification::shown(mode, said, locale))
             .show();
         if let Err(error) = shown {
             eprintln!("could not say the diagnostic report was copied: {error}");
@@ -656,6 +672,8 @@ fn set_up(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         on_menu,
     )?;
     notch::build(app)?;
+    // DK-20: after the tray, which can bring the chat too; without the hotkey the app still works.
+    hotkey::install(app.handle());
     app.manage(Shell {
         core,
         supervisor,
@@ -709,8 +727,11 @@ pub fn run() {
     locale::choose(locale);
     let app = tauri::Builder::default()
         .plugin(locale::plugin(locale))
+        .plugin(platform::plugin())
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_clipboard_manager::init())
+        // DK-21: the file dialog of the ledger import; the window may only open it.
+        .plugin(tauri_plugin_dialog::init())
         .invoke_handler(tauri::generate_handler![
             get_snapshot,
             save_setup,
@@ -728,6 +749,7 @@ pub fn run() {
             stop_daemon,
             set_thinking,
             notify_reply,
+            set_notifications,
             capture_screen,
             perform_action,
             reveal,

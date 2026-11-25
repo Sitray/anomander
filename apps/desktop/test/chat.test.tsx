@@ -452,16 +452,25 @@ describe('receipts (DK-4 AC2)', () => {
     expect(within(attachmentList()).getAllByRole('listitem')).toHaveLength(1);
   });
 
-  it('sends a file that is not an image as it is, for the daemon to answer (DK-4 AC6)', async () => {
+  it('leaves a file that is not an image out of the draft and says why (DK-21)', async () => {
     const socket = openChat();
-    fireEvent.paste(composer(), {
-      clipboardData: { files: [new File(['bytes'], 'factura.pdf', { type: 'application/pdf' })] },
+    const picker = screen.getByLabelText<HTMLInputElement>(strings.chat.attach, {
+      selector: 'input',
     });
-    pressEnter();
+    expect(picker.accept).toBe('image/*');
 
+    fireEvent.paste(composer(), {
+      clipboardData: {
+        files: [new File(['bytes'], 'factura.pdf', { type: 'application/pdf' }), image('t.png')],
+      },
+    });
+
+    expect(screen.getByText(strings.chat.onlyImages)).toBeTruthy();
+    expect(within(attachmentList()).getAllByRole('listitem')).toHaveLength(1);
+    pressEnter();
     expect(await sentRequest(socket)).toMatchObject({
       type: 'receipt',
-      images: [{ mimeType: 'application/pdf', data: BYTES }],
+      images: [{ mimeType: 'image/png', data: BYTES }],
     });
   });
 
@@ -2270,5 +2279,70 @@ describe('the stored conversation (DK-16)', () => {
       act(() => socket.drop());
       expect(erase().disabled).toBe(true);
     });
+  });
+});
+
+describe('reading the conversation (DK-21)', () => {
+  /** A reply to the text `said`, sent by the daemon at `sentAt`. */
+  const answered = async (socket: FakeWebSocket, said: string, sentAt: string, text: string) => {
+    say(said);
+    const request = await sentRequest(socket, socket.requests.length + 1);
+    act(() => socket.receive(replyTo(request.id, { sentAt, text })));
+  };
+  const clock = (at: string, withDay: boolean) =>
+    new Intl.DateTimeFormat('es-ES', {
+      ...(withDay ? { day: 'numeric', month: 'short' } : {}),
+      hour: '2-digit',
+      minute: '2-digit',
+    }).format(new Date(at));
+
+  it('shows when each message was sent, in local time, with the day when it was not today', async () => {
+    const socket = openChat();
+    const now = new Date().toISOString();
+    await answered(socket, '23 € cena', now, 'Apuntado.');
+    await answered(socket, '5 € café', '2026-01-10T10:00:00.000Z', 'Apuntado también.');
+
+    const times = [...screen.getByRole('log').querySelectorAll('time')];
+    expect(times.map((time) => time.dateTime.slice(0, 10))).toEqual([
+      now.slice(0, 10),
+      now.slice(0, 10),
+      now.slice(0, 10),
+      '2026-01-10',
+    ]);
+    expect(times[1]?.textContent).toBe(clock(now, false));
+    expect(times[3]?.textContent).toBe(clock('2026-01-10T10:00:00.000Z', true));
+  });
+
+  it('copies a message with its own button and says it did', async () => {
+    const writeText = vi.fn(async (_text: string) => {});
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
+    const socket = openChat();
+    await answered(socket, '23 € cena', new Date().toISOString(), 'Apuntado: 23,00 €.');
+
+    const copy = screen.getAllByRole('button', { name: strings.chat.copy });
+    expect(copy).toHaveLength(2);
+    fireEvent.click(copy[1] as HTMLElement);
+
+    expect(writeText).toHaveBeenCalledWith('Apuntado: 23,00 €.');
+    expect(await screen.findByText(strings.chat.copied)).toBeTruthy();
+  });
+
+  it('finds words in the loaded conversation, ignoring case and accents, and highlights them', async () => {
+    const socket = openChat();
+    await answered(socket, '23 € cena', new Date().toISOString(), 'Apuntado: la Cena del día.');
+
+    const search = screen.getByRole('searchbox', { name: strings.chat.search });
+    fireEvent.change(search, { target: { value: 'cena' } });
+    const marks = () =>
+      [...screen.getByRole('log').querySelectorAll('mark')].map((mark) => mark.textContent);
+    expect(marks()).toEqual(['cena', 'Cena']);
+    expect(screen.getByText(strings.chat.searchCount(2))).toBeTruthy();
+
+    fireEvent.change(search, { target: { value: 'DIA' } });
+    expect(marks()).toEqual(['día']);
+
+    fireEvent.change(search, { target: { value: 'pizza' } });
+    expect(marks()).toEqual([]);
+    expect(screen.getByText(strings.chat.searchCount(0))).toBeTruthy();
   });
 });
