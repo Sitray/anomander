@@ -215,6 +215,8 @@ const startChannel = (
   expenses: ExpensesLedger,
   logger: Logger,
   now?: () => Date,
+  /** DK-21: absent while no database is open. */
+  aiUsage?: () => { calls: number; limit: number },
 ): LocalChannel | undefined =>
   config.localToken === undefined
     ? undefined
@@ -227,6 +229,7 @@ const startChannel = (
         expenses,
         logger,
         ...(now === undefined ? {} : { now }),
+        ...(aiUsage === undefined ? {} : { aiUsage }),
       });
 
 /** `/start`, `/start@bot` or `/start anything`, as Telegram sends a command. */
@@ -906,6 +909,7 @@ export const startAnomander = <M>(config: Config, deps: AnomanderDeps<M>): Anoma
     },
     logger,
     now,
+    budget.usage,
   );
 
   telegram.started.then(

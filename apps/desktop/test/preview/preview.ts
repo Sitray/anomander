@@ -335,7 +335,8 @@ type Said = Exclude<
       | 'memories'
       | 'forget_memory'
       | 'actions'
-      | 'forget_action';
+      | 'forget_action'
+      | 'ai_usage';
   }
 >;
 
@@ -600,6 +601,14 @@ class ScriptedSocket extends FakeWebSocket {
     const request = JSON.parse(data) as ChatRequest;
     if (isMemoryRequest(request)) {
       setTimeout(() => this.receive(memoryAnswer(request)), 300);
+      return;
+    }
+    // DK-21: today's AI calls, for the setup.
+    if (request.type === 'ai_usage') {
+      setTimeout(
+        () => this.receive({ type: 'ai_usage', inReplyTo: request.id, calls: 12, limit: 200 }),
+        300,
+      );
       return;
     }
     if (request.type === 'expenses') {
