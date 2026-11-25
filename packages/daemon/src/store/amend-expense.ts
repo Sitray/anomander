@@ -39,6 +39,8 @@ export interface AmendExpenseQuestion {
   question: string;
   options: readonly string[];
   now: string;
+  /** The requirement that asks it: R-7 AC4 under a reply, DK-17 AC6 from a row of "Gastos". */
+  rule?: string;
 }
 
 /**
@@ -56,7 +58,7 @@ export const openAmendExpenseDecision = (
         db,
         ask.expenseId,
         'asked',
-        { rule: 'R-7 AC4', source: ask.source },
+        { rule: ask.rule ?? 'R-7 AC4', source: ask.source },
         ask.now,
       ),
       question: ask.question,
@@ -78,6 +80,22 @@ export const currentExpenseOf = (db: Database.Database, decision: OpenDecision):
       "SELECT id FROM expenses WHERE id = ? AND status = 'current'",
     )
     .get(amendedExpenseOf(decision));
+  return row?.id ?? null;
+};
+
+/**
+ * DK-17 AC6: the latest open or awaiting `amend_expense` question about the expense, the one its
+ * reply in the chat shows; `null` when none is.
+ */
+export const openAmendDecisionOf = (db: Database.Database, expenseId: number): number | null => {
+  const row = db
+    .prepare<[number], { id: number }>(
+      `SELECT d.id FROM pending_decisions d JOIN proposals p ON p.id = d.proposal_id
+       WHERE p.operation = 'amend_expense' AND json_extract(p.payload_json, '$.expense_id') = ?
+         AND d.status IN ('open', 'awaiting_text')
+       ORDER BY d.id DESC LIMIT 1`,
+    )
+    .get(expenseId);
   return row?.id ?? null;
 };
 
@@ -184,6 +202,13 @@ export const amendExpense = (
     now,
     registered: true,
   });
+  // DK-17 AC6: a registered receipt's "Apuntar" confirmed each inference (R-6 AC4); a confirmation
+  // of an inference the correction refuted is refuted with it, so only the new word stands.
+  db.prepare(
+    `UPDATE assertions SET status = 'refuted'
+     WHERE subject_type = 'expense' AND subject_id = ? AND mode = 'confirmed' AND status = 'current'
+       AND confirms_id IN (SELECT id FROM assertions WHERE status = 'refuted')`,
+  ).run(expenseId);
   return { actionId, declarations };
 };
 

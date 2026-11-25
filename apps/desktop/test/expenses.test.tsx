@@ -56,11 +56,15 @@ const OCTOBER: Omit<ChatExpenses, 'inReplyTo'> = {
 };
 
 let onClose: ReturnType<typeof vi.fn<() => void>>;
+let onAmended: ReturnType<typeof vi.fn<() => void>>;
+let onCorrecting: ReturnType<typeof vi.fn<() => void>>;
 
 beforeEach(() => {
   FakeWebSocket.reset();
   vi.stubGlobal('WebSocket', FakeWebSocket);
   onClose = vi.fn();
+  onAmended = vi.fn();
+  onCorrecting = vi.fn();
 });
 
 afterEach(() => {
@@ -70,7 +74,14 @@ afterEach(() => {
 
 /** The screen with its connection open. */
 const show = (channel: LocalChannel | null = CHANNEL) => {
-  render(<ExpensesScreen channel={channel} onClose={onClose} />);
+  render(
+    <ExpensesScreen
+      channel={channel}
+      onClose={onClose}
+      onAmended={onAmended}
+      onCorrecting={onCorrecting}
+    />,
+  );
   if (channel === null) return undefined;
   const socket = FakeWebSocket.last;
   act(() => socket.open());
@@ -88,6 +99,8 @@ const answer = async (
 };
 
 const rows = () => within(screen.getByRole('table')).getAllByRole('row');
+/** What the screen says, as it says it: a text query would normalize the amount's no-break space. */
+const notes = () => screen.queryAllByRole('status').map((note) => note.textContent);
 
 describe('the expenses screen (DK-17)', () => {
   it('asks for the current month and shows its expenses, the total by code and the pending apart', async () => {
@@ -98,7 +111,6 @@ describe('the expenses screen (DK-17)', () => {
 
     expect(screen.getByRole('heading', { name: text.month('2026-11') })).toBeTruthy();
     const [header, cena, cafe, total] = rows();
-    expect(within(header as HTMLElement).getAllByRole('columnheader')).toHaveLength(5);
     expect(cena?.textContent).toContain(formatDate('2026-11-02'));
     expect(cena?.textContent).toContain(text.noMerchant);
     expect(cena?.textContent).toContain(formatAmount(2300));
@@ -107,8 +119,13 @@ describe('the expenses screen (DK-17)', () => {
     expect(total?.textContent).toContain(formatAmount(2600));
     // The amount's no-break space would be normalized away by a text query.
     expect(document.body.textContent).toContain(text.pending(2, formatAmount(1500)));
-    // Read only: correcting comes with B20, so no row offers a button yet.
-    expect(within(screen.getByRole('table')).queryAllByRole('button')).toEqual([]);
+    // DK-17 AC6: each row offers "Corregir" and "Deshacer", in a column of its own.
+    expect(within(header as HTMLElement).getAllByRole('columnheader')).toHaveLength(6);
+    expect(
+      within(cena as HTMLElement)
+        .getAllByRole('button')
+        .map((b) => b.textContent),
+    ).toEqual([text.correct, text.undo]);
   });
 
   it('shows how ANOMANDER knows each expense: "deducido" on an inferred one', async () => {
@@ -174,5 +191,114 @@ describe('the expenses screen (DK-17)', () => {
     show();
     fireEvent.keyDown(screen.getByRole('heading', { name: text.title }), { key: 'Escape' });
     expect(onClose).toHaveBeenCalledOnce();
+  });
+});
+
+// DK-17 AC6: "Corregir" and "Deshacer" on a row press the expense's own buttons of B20 (R-7 AC4 to
+// AC8) through the daemon; the chat shows the press and its reply, and the list is read again.
+describe('"Corregir" and "Deshacer" on a row (DK-17 AC6)', () => {
+  const S100 = replies.undoneNoMerchant(2300);
+  const S7 = replies.askCorrection();
+  const S19 = replies.decisionClosed();
+  const undoOf = (date: string) => text.undoLabel(formatAmount(2300), formatDate(date));
+  const correctOf = (date: string) => text.correctLabel(formatAmount(2300), formatDate(date));
+
+  /** The screen showing November. */
+  const shown = async () => {
+    const socket = show() as FakeWebSocket;
+    await answer(socket, NOVEMBER);
+    return socket;
+  };
+
+  it('"Deshacer" asks first; "No deshacer" sends nothing', async () => {
+    const socket = await shown();
+
+    fireEvent.click(screen.getByRole('button', { name: undoOf('2026-11-02') }));
+    expect(screen.getByText(text.confirmUndo)).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: text.keep }));
+
+    expect(screen.queryByText(text.confirmUndo)).toBeNull();
+    expect(socket.requests).toHaveLength(1);
+    // Escape closes the question, not the screen.
+    fireEvent.click(screen.getByRole('button', { name: undoOf('2026-11-02') }));
+    fireEvent.keyDown(screen.getByRole('button', { name: text.keep }), { key: 'Escape' });
+    expect(screen.queryByText(text.confirmUndo)).toBeNull();
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it('"Sí, deshacer" sends undo_expense, shows the reply, reads the month again and the chat follows', async () => {
+    const socket = await shown();
+
+    fireEvent.click(screen.getByRole('button', { name: undoOf('2026-11-02') }));
+    fireEvent.click(screen.getByRole('button', { name: text.confirmYes }));
+    const request = socket.lastRequest;
+    expect(request).toEqual({ type: 'undo_expense', id: expect.any(String), expenseId: 1 });
+    await act(async () => socket.receive(replyTo(request.id, { text: S100 })));
+
+    expect(notes()).toContain(S100);
+    // The row and its buttons are gone: reading goes on from the screen's title.
+    expect(document.activeElement).toBe(screen.getByRole('heading', { name: text.title }));
+    expect(socket.lastRequest).toEqual({ type: 'expenses', id: expect.any(String) });
+    expect(onAmended).toHaveBeenCalledOnce();
+    expect(onCorrecting).not.toHaveBeenCalled();
+  });
+
+  it('"Corregir" sends correct_expense and, asked what to change (S-7), goes to the chat', async () => {
+    const socket = await shown();
+
+    fireEvent.click(screen.getByRole('button', { name: correctOf('2026-11-02') }));
+    const request = socket.lastRequest;
+    expect(request).toEqual({ type: 'correct_expense', id: expect.any(String), expenseId: 1 });
+    await act(async () => socket.receive(replyTo(request.id, { text: S7 })));
+
+    expect(onAmended).toHaveBeenCalledOnce();
+    expect(onCorrecting).toHaveBeenCalledOnce();
+  });
+
+  it('an expense no longer current gets S-19: it stays here, says so and reads the month again', async () => {
+    const socket = await shown();
+
+    fireEvent.click(screen.getByRole('button', { name: correctOf('2026-11-02') }));
+    await act(async () => socket.receive(replyTo(socket.lastRequest.id, { text: S19 })));
+
+    expect(notes()).toContain(S19);
+    expect(onCorrecting).not.toHaveBeenCalled();
+    expect(socket.lastRequest).toEqual({ type: 'expenses', id: expect.any(String) });
+  });
+
+  it('when the daemon fails (S-22) it says so and the row stays', async () => {
+    const socket = await shown();
+
+    fireEvent.click(screen.getByRole('button', { name: undoOf('2026-11-02') }));
+    fireEvent.click(screen.getByRole('button', { name: text.confirmYes }));
+    const failed = replies.processingFailed();
+    await act(async () => socket.receive(replyTo(socket.lastRequest.id, { text: failed })));
+
+    expect(notes()).toContain(failed);
+    await answer(socket, NOVEMBER);
+    expect(rows()).toHaveLength(4);
+  });
+
+  it('a request the daemon rejected says it could not be done, never that it is not connected', async () => {
+    const socket = await shown();
+
+    fireEvent.click(screen.getByRole('button', { name: correctOf('2026-11-02') }));
+    await act(async () => socket.receive({ type: 'rejected', inReplyTo: socket.lastRequest.id }));
+
+    expect(notes()).toContain(text.amendFailed);
+    expect(notes()).not.toContain(text.amendNotSent);
+    expect(onCorrecting).not.toHaveBeenCalled();
+  });
+
+  it('while it waits for the daemon the buttons do nothing, and a lost connection says it cannot know', async () => {
+    const socket = await shown();
+
+    fireEvent.click(screen.getByRole('button', { name: correctOf('2026-11-02') }));
+    const buttons = within(screen.getByRole('table')).getAllByRole('button') as HTMLButtonElement[];
+    expect(buttons.every((button) => button.disabled)).toBe(true);
+    await act(async () => socket.drop());
+
+    expect(notes()).toContain(text.amendUnknown);
+    expect(onCorrecting).not.toHaveBeenCalled();
   });
 });

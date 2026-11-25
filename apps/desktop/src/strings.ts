@@ -544,8 +544,23 @@ const es = {
     category: 'Categoría',
     amount: 'Importe',
     mode: 'Cómo lo sé',
-    /** The header of the per-row action's column, shown only once there is one (DK-17 AC6). */
+    /** The header of the column of each row's "Corregir" and "Deshacer" (DK-17 AC6). */
     actions: 'Acciones',
+    /** DK-17 AC6: the expense's own buttons of the chat (R-7 AC4), on its row. */
+    correct: 'Corregir',
+    undo: 'Deshacer',
+    correctLabel: (amount: string, date: string) => `Corregir el gasto de ${amount} del ${date}`,
+    undoLabel: (amount: string, date: string) => `Deshacer el gasto de ${amount} del ${date}`,
+    /** Asked in the window before "Deshacer" is sent, as "Olvidar" in Memoria (DK-18 AC3). */
+    confirmUndo: '¿Lo deshago? Lo quito de tus gastos.',
+    confirmYes: 'Sí, deshacer',
+    keep: 'No deshacer',
+    /** The connection was lost before the daemon answered. */
+    amendUnknown: 'Se perdió la conexión antes de la respuesta: no sé si se ha hecho.',
+    /** Nothing was sent: the connection is not open. */
+    amendNotSent: 'No se ha podido enviar: ANOMANDER no está conectado.',
+    /** The daemon did not take the request: nothing was done. */
+    amendFailed: 'No se ha podido hacer; el gasto sigue como estaba. Vuelve a intentarlo.',
     noMerchant: 'Sin comercio',
     noCategory: 'Sin categoría',
     lines: (count: number) => (count === 1 ? '1 línea' : `${count} líneas`),
@@ -1048,6 +1063,16 @@ const en: Strings = {
     amount: 'Amount',
     mode: 'How I know',
     actions: 'Actions',
+    correct: 'Correct',
+    undo: 'Undo',
+    correctLabel: (amount: string, date: string) => `Correct the expense of ${amount} on ${date}`,
+    undoLabel: (amount: string, date: string) => `Undo the expense of ${amount} on ${date}`,
+    confirmUndo: 'Shall I undo it? I take it out of your expenses.',
+    confirmYes: 'Yes, undo',
+    keep: 'Do not undo',
+    amendUnknown: 'The connection was lost before the answer: I cannot know whether it was done.',
+    amendNotSent: 'It could not be sent: ANOMANDER is not connected.',
+    amendFailed: 'It could not be done; the expense is as it was. Try again.',
     noMerchant: 'No merchant',
     noCategory: 'No category',
     lines: (count: number) => (count === 1 ? '1 line' : `${count} lines`),

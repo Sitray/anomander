@@ -42,6 +42,7 @@ import { createForgetMemoryAnswerHandler } from './decisions/forget-memory-decis
 import { createGrantDigestAnswerHandler } from './decisions/grant-digest-decision.ts';
 import { createGrantWeeklySummaryAnswerHandler } from './decisions/grant-weekly-summary-decision.ts';
 import { createTextRouter } from './decisions/router.ts';
+import { type RowOption, rowButton, rowLabel } from './decisions/window-amend.ts';
 import { createMorningDigest } from './digest/send-digest.ts';
 import { createReceiptExpenseCycle } from './expenses/receipt-expense.ts';
 import { createTextExpenseHandler } from './expenses/text-expense.ts';
@@ -348,9 +349,15 @@ export const startSetupGuide = (config: Config, deps: SetupGuideDeps): Anomander
         throw new Error('the setup guide opens no database');
       },
     },
-    // DK-17: nor can expenses be read: the window says it could not load them.
+    // DK-17: nor can expenses be read or changed: the window says it could not (S-22).
     {
       month: () => {
+        throw new Error('the setup guide opens no database');
+      },
+      undo: () => {
+        throw new Error('the setup guide opens no database');
+      },
+      correct: () => {
         throw new Error('the setup guide opens no database');
       },
     },
@@ -699,6 +706,26 @@ export const startAnomander = <M>(config: Config, deps: AnomanderDeps<M>): Anoma
     });
     return async (press: ButtonPress) => settled(await pressed(press));
   };
+  // DK-17 AC6: "Deshacer" and "Corregir" on a row of "Gastos" press the expense's own button
+  // (R-7 AC4 to AC8) in the chat's turn, as a press at the app's door: same answer, same turn.
+  const pressRow = (option: RowOption) => {
+    const pressed = guided(
+      recordingTurns(
+        turns,
+        () => buttonTurn(rowLabel(option)),
+        async (expenseId: number) => {
+          const at = now().toISOString();
+          const data = rowButton(db, { expenseId, option, now: at });
+          if (data !== null) return onButton({ data, channelRef: 'desktop:gastos', pressedAt: at });
+          // R-7 AC8: undone or corrected meanwhile, or never an expense: S-19, nothing changes.
+          logger.info('row press for an expense no longer current', { expenseId });
+          return { text: strings.decisionClosed() };
+        },
+        () => 'app',
+      ),
+    );
+    return async (expenseId: number) => settled(await pressed(expenseId));
+  };
   const onConnectAt = (door: Door) => {
     const begun = guided(async (task: string) =>
       task === '' ? { text: strings.connectionUsage() } : connectionSession.run(task, door),
@@ -872,7 +899,11 @@ export const startAnomander = <M>(config: Config, deps: AnomanderDeps<M>): Anoma
       forgetAction: forgetActionInTurn,
     },
     // DK-17: the "Gastos" screen, over the views of RA-1.
-    { month: (month) => readExpensesMonth(db, { month, timeZone: config.timeZone, now: now() }) },
+    {
+      month: (month) => readExpensesMonth(db, { month, timeZone: config.timeZone, now: now() }),
+      undo: pressRow('undo'),
+      correct: pressRow('correct'),
+    },
     logger,
     now,
   );

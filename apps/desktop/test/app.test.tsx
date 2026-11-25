@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { formatAmount, formatDate, strings as replies } from '@anomander/protocol';
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { App } from '../src/App.tsx';
@@ -606,6 +607,72 @@ describe('the expenses (DK-17)', () => {
     fireEvent.click(status.getByRole('button', { name: strings.status.closeSetup }));
     expect(screen.queryByRole('heading', { name: strings.expenses.title })).toBeNull();
     expect(composer().closest('[hidden]')).toBeNull();
+  });
+
+  it('"Corregir" on a row goes to the chat, which shows the question, so the next text corrects it (AC6)', async () => {
+    await open(runningSnapshot());
+    act(() => FakeWebSocket.last.open());
+    fireEvent.click(screen.getByRole('button', { name: strings.status.openExpenses }));
+    const socket = FakeWebSocket.last;
+    act(() => socket.open());
+    act(() =>
+      socket.receive({
+        type: 'expenses',
+        inReplyTo: socket.lastRequest.id,
+        month: '2026-11',
+        expenses: [
+          {
+            id: 7,
+            date: '2026-11-02',
+            merchant: null,
+            category: null,
+            totalCents: 2300,
+            mode: 'declared',
+            categoryMode: null,
+            origin: 'text',
+            lines: 0,
+          },
+        ],
+        totalCents: 2300,
+        pending: { count: 0, totalCents: 0 },
+      }),
+    );
+
+    fireEvent.click(
+      await screen.findByRole('button', {
+        name: strings.expenses.correctLabel(formatAmount(2300), formatDate('2026-11-02')),
+      }),
+    );
+    expect(socket.lastRequest).toMatchObject({ type: 'correct_expense', expenseId: 7 });
+    // The daemon stored the press and its question in the conversation (R-16 AC3).
+    const at = '2026-11-20T10:00:00.000Z';
+    FakeWebSocket.history = [
+      {
+        id: 1,
+        from: 'principal',
+        door: 'app',
+        text: '[botón: Corregir]',
+        buttons: [],
+        channelRef: null,
+        at,
+      },
+      {
+        id: 2,
+        from: 'anomander',
+        door: 'app',
+        text: replies.askCorrection(),
+        buttons: [],
+        channelRef: null,
+        at,
+      },
+    ];
+    act(() => socket.receive(replyTo(socket.lastRequest.id, { text: replies.askCorrection() })));
+
+    await waitFor(() =>
+      expect(screen.queryByRole('heading', { name: strings.expenses.title })).toBeNull(),
+    );
+    expect(composer().closest('[hidden]')).toBeNull();
+    expect(await screen.findByText(replies.askCorrection())).toBeTruthy();
   });
 });
 

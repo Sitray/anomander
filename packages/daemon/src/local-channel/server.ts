@@ -75,10 +75,17 @@ export interface StoredMemory {
   forgetAction(id: number): Promise<void> | void;
 }
 
-/** DK-17: the expenses of a month, read from the views of RA-1. */
+/** DK-17: the expenses of a month, read from the views of RA-1, and their row actions. */
 export interface ExpensesLedger {
   /** `month` is `YYYY-MM`; absent, the current month in `TZ`. Throws when it cannot be read. */
   month(month: string | undefined): ExpensesMonth;
+  /**
+   * AC6: "Deshacer" on a row, as the expense's "Deshacer" in the chat (R-7 AC5). In the chat's
+   * turn; the press and its reply are kept in the stored conversation.
+   */
+  undo(expenseId: number): Promise<DoorReply | null>;
+  /** AC6: "Corregir" on a row, as the expense's "Corregir" in the chat (R-7 AC6). In the chat's turn. */
+  correct(expenseId: number): Promise<DoorReply | null>;
 }
 
 export interface LocalChannelDeps {
@@ -172,6 +179,9 @@ const requestSchema = z.discriminatedUnion('type', [
     id,
     month: z.string().refine(isMonth).optional(),
   }),
+  // DK-17 AC6
+  z.strictObject({ type: z.literal('undo_expense'), id, expenseId: z.int().positive() }),
+  z.strictObject({ type: z.literal('correct_expense'), id, expenseId: z.int().positive() }),
 ]);
 
 /** The request in a frame, or the `id` it carried when it is not one. */
@@ -272,6 +282,11 @@ export const startLocalChannel = (deps: LocalChannelDeps): LocalChannel => {
           await memory.forgetAction(request.actionId);
           return null;
         })();
+      // DK-17 AC6: answered as the expense's buttons in the chat are.
+      case 'undo_expense':
+        return expenses.undo(request.expenseId);
+      case 'correct_expense':
+        return expenses.correct(request.expenseId);
       case 'connect':
         return handlers.onConnect({ task: request.task, channelRef, receivedAt: at });
       case 'computer':

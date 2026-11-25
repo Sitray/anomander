@@ -1588,6 +1588,17 @@ button {
   white-space: nowrap;
 }
 
+/* DK-17 AC6: a row's "Corregir" and "Deshacer", side by side; the question "Deshacer" opens wraps. */
+.expenses-actions {
+  display: flex;
+  gap: var(--s3);
+  white-space: nowrap;
+}
+
+.expenses-table .memory-confirm {
+  max-width: 16rem;
+}
+
 .expenses-none,
 .expenses-lines {
   color: var(--text-3);

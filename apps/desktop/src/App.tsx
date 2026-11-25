@@ -71,7 +71,8 @@ export function App() {
   // B48: the shell shows the window again (closing it only hides it); the chat then shows what
   // the daemon keeps now. Subscribed as `useShell` subscribes "Detener tarea".
   // DK-18: a forget in Memoria erased the turns of the stored conversation that said it; the chat
-  // follows it as it follows the window shown again.
+  // follows it as it follows the window shown again. DK-17 AC6: and so it follows a row's
+  // "Corregir" or "Deshacer" in Gastos, stored as a press in the chat with its reply.
   const forgottenListeners = useRef(new Set<() => void>());
   const onForgotten = useCallback(() => {
     for (const listener of forgottenListeners.current) listener();
@@ -186,7 +187,12 @@ export function App() {
             )}
             {open === 'expenses' && (
               <div className="view">
-                <ExpensesScreen channel={snapshot.channel} onClose={close} />
+                <ExpensesScreen
+                  channel={snapshot.channel}
+                  onClose={close}
+                  onAmended={onForgotten}
+                  onCorrecting={close}
+                />
               </div>
             )}
             {open === 'connections' && (

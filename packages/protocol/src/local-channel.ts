@@ -169,6 +169,31 @@ export interface ChatExpensesRequest {
   month?: string;
 }
 
+/**
+ * DK-17 AC6: "Deshacer" on a row of "Gastos", once the principal confirmed it in the window. The
+ * daemon answers the expense's `amend_expense` question as its "Deshacer" in the chat does
+ * (R-7 AC5), in the chat's turn, and keeps the press and its reply in the stored conversation.
+ * Answered with a `ChatReply`: S-100 or S-101, S-19 when the expense is no longer current.
+ */
+export interface ChatUndoExpense {
+  type: 'undo_expense';
+  id: string;
+  /** The expense's `id`, as `ChatExpenses` gave it. */
+  expenseId: number;
+}
+
+/**
+ * DK-17 AC6: "Corregir" on a row of "Gastos": the daemon answers as the chat's "Corregir" does
+ * (R-7 AC6), so the principal's next text is the correction. Answered with a `ChatReply`: S-7, or
+ * S-19 when the expense is no longer current.
+ */
+export interface ChatCorrectExpense {
+  type: 'correct_expense';
+  id: string;
+  /** The expense's `id`, as `ChatExpenses` gave it. */
+  expenseId: number;
+}
+
 export type ChatRequest =
   | ChatText
   | ChatReceipt
@@ -182,7 +207,9 @@ export type ChatRequest =
   | ChatForgetMemory
   | ChatActionsRequest
   | ChatForgetAction
-  | ChatExpensesRequest;
+  | ChatExpensesRequest
+  | ChatUndoExpense
+  | ChatCorrectExpense;
 
 /** DK-16: the most stored messages a `history` request returns. */
 export const HISTORY_LIMIT = 500;

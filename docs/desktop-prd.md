@@ -545,8 +545,8 @@ and keep its secrets in the operating system instead of a text file.
   el punto 1 entero"; "Expenses are not visible in the window: a read-only "Gastos" screen over
   the `gastos` and `pendientes_de_confirmar` views, with the epistemic mode and a way to
   correct."). Until now the only way to see them was Telegram or `/exportar`.
-  - AC1: "Gastos", in the window's header beside "Conexiones", opens a screen over the chat, read
-    only. It asks the daemon for the expenses of a month (`expenses`, `month` as `YYYY-MM`) and
+  - AC1: "Gastos", in the window's header beside "Conexiones", opens a screen over the chat that
+    reads them (changes only through AC6). It asks the daemon for the expenses of a month (`expenses`, `month` as `YYYY-MM`) and
     the daemon answers from the views of RA-1 (`docs/read-access-prd.md`), through the read API's
     own queries (RA-2 AC6), never the tables: one row per current expense of that month, by day
     and then id, with its date, merchant, category, total, mode, origin and how many purchase
@@ -570,8 +570,26 @@ and keep its secrets in the operating system instead of a text file.
     "ANOMANDER no está en marcha. Arráncalo para ver tus gastos." and asks nothing; a request
     lost with its connection is asked again once it reopens, since it only reads. The rows are
     never logged, by the daemon or the window.
-  - AC6 (pending, after B20): "Corregir" on a row opens the correction of B20 for that expense.
-    Until then no row offers a button.
+  - AC6: each row has "Corregir" and "Deshacer", the buttons B20 puts under a typed expense's
+    reply (PRD R-7 AC4 to AC8), for any current expense shown, typed or a registered receipt. The
+    window sends `correct_expense` or `undo_expense` with the expense's id; the daemon presses that
+    expense's own `amend_expense` button as a press in the app's chat: in the chat's turn of either
+    door that runs, kept in the stored conversation as `[botón: Corregir]` or `[botón: Deshacer]`
+    with its reply (R-16 AC3), and answered by the same code as the chat's button. "Deshacer"
+    asks first in the window, "¿Lo deshago? Lo quito de tus gastos.", with "Sí, deshacer" and "No
+    deshacer" ("No deshacer" sends nothing); then the expense is `refuted` as R-7 AC5 says and the
+    reply is S-100 or S-101. "Corregir" replies S-7 and the decision waits for text (R-7 AC6): the
+    window goes back to the chat, which shows the question, and the next text is the correction,
+    a `declared` assertion that supersedes the old one. An expense no longer current gets S-19
+    and nothing changes; when the daemon fails, S-22. After either press the window says the
+    reply, reads the month again, and the chat asks for the stored conversation again; when the
+    connection was lost first it says it cannot know. Assumptions: while the question under the
+    expense's reply is open its button is the one pressed, so its buttons in the chat close too;
+    a registered receipt, or a typed expense whose question was answered or expired, gets an
+    `amend_expense` question of its own (`basis_json.rule` `DK-17 AC6`) answered at once, since a
+    receipt's own "Corregir" and "Descartar" (R-6) belong to it only while it is pending. A
+    correction of a registered receipt refutes the `confirmed` assertions of "Apuntar" whose
+    inference it refuted, so only the new declaration is current.
   - AC7: it is a table with its headers, read and moved through by keyboard; Escape or "Volver
     al chat" goes back to the chat.
 - DK-18 Memories and history in the window (backlog B32, 2026-11-24: "Memories and history

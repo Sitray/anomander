@@ -1,6 +1,7 @@
 // DK-17: what the "Gastos" screen shows, asked of the daemon over its own connection to the local
-// channel. It only reads, so a request lost with its connection is asked again once it reopens.
-import type { ChatExpenses } from '@anomander/protocol';
+// channel. Reading is asked again once a lost connection reopens; a row's "Corregir" or
+// "Deshacer" (AC6) is sent once, never again by itself, and the month is read again after it.
+import type { ChatExpenses, ChatReply } from '@anomander/protocol';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { type ChatClient, type ConnectionState, createChatClient } from '../chat/chat-client.ts';
 import type { LocalChannel } from '../shell.ts';
@@ -20,7 +21,12 @@ export interface Expenses {
   current: string | null;
   show: (month: string) => void;
   retry: () => void;
+  /** AC6: presses the expense's "Deshacer" or "Corregir" through the daemon, then reads again. */
+  amend: (action: 'undo' | 'correct', expenseId: number) => Promise<Amended>;
 }
+
+/** What became of a row's press: the daemon's reply, or why there is none (`ChatClient`). */
+export type Amended = ChatReply | 'not_sent' | 'rejected' | 'unknown';
 
 /** `2026-01` and `-1` → `2025-12`. */
 export const shiftMonth = (month: string, by: number): string => {
@@ -83,5 +89,12 @@ export function useExpenses(channel: LocalChannel | null): Expenses {
 
   const show = useCallback((next: string) => setAsked(next), []);
   const retry = useCallback(() => setAttempt((count) => count + 1), []);
-  return { state, month, current, show, retry };
+  const amend = useCallback(async (action: 'undo' | 'correct', expenseId: number) => {
+    const outcome = (await client.current?.amendExpense(action, expenseId)) ?? 'not_sent';
+    // The reply may have changed the month, S-19 says it changed before: read it again. A lost
+    // connection reads it again by itself once it reopens.
+    if (outcome !== 'unknown') setAttempt((count) => count + 1);
+    return outcome;
+  }, []);
+  return { state, month, current, show, retry, amend };
 }
