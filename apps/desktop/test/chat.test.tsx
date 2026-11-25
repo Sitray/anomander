@@ -69,6 +69,23 @@ describe('an empty chat', () => {
   });
 });
 
+describe('the examples of an empty chat (B23)', () => {
+  it('fill the composer with what can be asked, and send nothing by themselves', async () => {
+    const socket = openChat();
+    const examples = within(screen.getByRole('list', { name: strings.chat.examplesLabel }));
+
+    expect(examples.getAllByRole('button').map((button) => button.textContent)).toEqual(
+      strings.chat.examples,
+    );
+    fireEvent.click(examples.getByRole('button', { name: strings.chat.examples[0] }));
+
+    expect(composer().value).toBe(strings.chat.examples[0]);
+    expect(document.activeElement).toBe(composer());
+    await act(async () => {});
+    expect(socket.requests).toEqual([]);
+  });
+});
+
 describe('typing', () => {
   it('sends the text on Enter, shows it and clears the composer (DK-4 AC1)', async () => {
     const socket = openChat();

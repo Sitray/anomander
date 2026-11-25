@@ -75,9 +75,18 @@ const es = {
     you: 'Tú',
     bot: 'ANOMANDER',
 
-    emptyTitle: 'Cuéntame un gasto',
+    emptyTitle: '¿En qué te echo una mano?',
     emptyBody:
-      'Escríbelo como te salga, por ejemplo «23\u00a0€\u00a0cena», o suelta aquí la foto de un ticket.',
+      'Apunto tus gastos, te recuerdo cosas, miro tu pantalla y uso tus conexiones. Escríbelo como te salga, por ejemplo «23\u00a0€\u00a0cena», o suelta aquí la foto de un ticket.',
+    /** B23: what can be asked here; a press fills the composer and sends nothing. */
+    examplesLabel: 'Ejemplos',
+    examples: [
+      '¿Cuánto llevo gastado este mes?',
+      'Recuérdame mañana a las 9 llamar al dentista',
+      '¿Qué ves en mi pantalla?',
+      'Busca en internet qué tiempo hará mañana',
+      '¿Qué sabes de mí?',
+    ],
 
     /** The empty chat while there is no daemon to talk to: it says what to do, not what to type. */
     emptyStopped: {
@@ -656,9 +665,17 @@ const en: Strings = {
     you: 'You',
     bot: 'ANOMANDER',
 
-    emptyTitle: 'Tell me about an expense',
+    emptyTitle: 'What can I help you with?',
     emptyBody:
-      'Write it however it comes to you, for example “€23 dinner”, or drop a photo of a receipt here.',
+      'I log your expenses, remind you of things, look at your screen and use your connections. Write it however it comes to you, for example “€23 dinner”, or drop a photo of a receipt here.',
+    examplesLabel: 'Examples',
+    examples: [
+      'How much have I spent this month?',
+      'Remind me tomorrow at 9 to call the dentist',
+      "What's on my screen?",
+      "Search the web for tomorrow's weather",
+      'What do you know about me?',
+    ],
 
     emptyStopped: {
       title: 'ANOMANDER is stopped',

@@ -646,6 +646,11 @@ and keep its secrets in the operating system instead of a text file.
 
 - DK-19 The chat says what it does (backlog B23, B25, B26 and B27's "Esc to stop a task", asked
   by the principal on 2026-11-25: "si, intenta hacer el 1 y 2 en paralelo si puedes").
+  - AC1: the empty chat, while there is a channel, says what ANOMANDER does ("¿En qué te echo una
+    mano?": expenses, reminders, the screen, connections) and offers five examples: "¿Cuánto llevo
+    gastado este mes?", "Recuérdame mañana a las 9 llamar al dentista", "¿Qué ves en mi
+    pantalla?", "Busca en internet qué tiempo hará mañana" and "¿Qué sabes de mí?". A press puts
+    the example in the composer, with the caret at its end; it is never sent by itself.
   - AC3: while an answer is owed the chat says what ANOMANDER is doing, in a live region that is
     always in the page, so each phase is announced: "ANOMANDER está pensando…" for a text or a
     step, "Leyendo el ticket…" for a receipt, "Mirando tu pantalla…" for a look. While a task with

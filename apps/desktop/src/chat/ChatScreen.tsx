@@ -98,6 +98,12 @@ export function ChatScreen(props: ChatScreenProps) {
     ...(onAddWebSearch === undefined ? {} : { addWebSearch: onAddWebSearch }),
   });
   const [dropping, setDropping] = useState(false);
+  /** B23: how many times an example asked for the caret. */
+  const [focusRequest, setFocusRequest] = useState(0);
+  const fillWith = (example: string) => {
+    draft.setText(example);
+    setFocusRequest((count) => count + 1);
+  };
   const [erase, setErase] = useState<Erase>('idle');
   const eraseQuestion = useId();
   /** `dragenter` minus `dragleave`: both also fire for every child the pointer crosses. */
@@ -244,6 +250,7 @@ export function ChatScreen(props: ChatScreenProps) {
         waiting={waiting}
         turn={turn}
         onStop={cancel}
+        onExample={fillWith}
         empty={emptyStateFor(disabled ? daemon : null, props.onStart)}
         onRetry={chat.retry}
         onRestart={chat.restart}
@@ -271,6 +278,7 @@ export function ChatScreen(props: ChatScreenProps) {
         model={model}
         onRemove={draft.remove}
         onSubmit={submit}
+        focusRequest={focusRequest}
       />
       {dropping && (
         <div className="drop-hint" aria-hidden="true">

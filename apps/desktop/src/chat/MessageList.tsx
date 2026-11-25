@@ -12,6 +12,8 @@ export interface EmptyState {
   title: string;
   body: string;
   action?: { label: string; run: () => void };
+  /** B23: what can be asked here, offered while there is a channel. */
+  examples?: readonly string[];
 }
 
 /**
@@ -20,7 +22,9 @@ export interface EmptyState {
  */
 export const emptyStateFor = (daemon: DaemonStatus | null, onStart?: () => void): EmptyState => {
   const { chat } = strings;
-  if (daemon === null) return { title: chat.emptyTitle, body: chat.emptyBody };
+  if (daemon === null) {
+    return { title: chat.emptyTitle, body: chat.emptyBody, examples: chat.examples };
+  }
   if (daemon.state === 'failing') return chat.emptyFailing;
   if (daemon.state === 'stopped') {
     if (daemon.reason === 'not_configured') return chat.emptyNotConfigured;
@@ -40,6 +44,8 @@ export interface MessageListProps {
   turn?: Turn | null;
   /** DK-19: stops the turn owed, when it can be stopped. */
   onStop?: () => void;
+  /** B23: puts an example in the composer; it is never sent by itself. */
+  onExample?: (text: string) => void;
   /** What the empty conversation says; by default, what can be done here. */
   empty?: EmptyState;
   onRetry: (message: OwnMessage) => void;
@@ -333,7 +339,7 @@ const Bot = ({
 
 export function MessageList(props: MessageListProps) {
   const { messages, waiting, onRetry, onRestart, onPress, onAllow, onRefuse } = props;
-  const { onAddWebSearch, turn = null, onStop } = props;
+  const { onAddWebSearch, turn = null, onStop, onExample } = props;
   const empty = props.empty ?? emptyStateFor(null);
   const scroller = useRef<HTMLDivElement>(null);
   /** Whether the principal is reading the end; scrolling up to reread must not be undone. */
@@ -367,6 +373,17 @@ export function MessageList(props: MessageListProps) {
             <button type="button" className="button primary" onClick={empty.action.run}>
               {empty.action.label}
             </button>
+          )}
+          {empty.examples !== undefined && onExample !== undefined && (
+            <ul className="examples" aria-label={strings.chat.examplesLabel}>
+              {empty.examples.map((example) => (
+                <li key={example}>
+                  <button type="button" className="example" onClick={() => onExample(example)}>
+                    {example}
+                  </button>
+                </li>
+              ))}
+            </ul>
           )}
         </div>
       )}
