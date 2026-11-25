@@ -6,25 +6,26 @@ import {
   MAX_COMPUTER_STEPS,
   type Notify,
   type PrincipalText,
-  type ProbeOutcome,
   type ScreenQuestion,
   setCurrency,
   setLocale,
   strings,
 } from '@anomander/protocol';
 import { connectionCommand, doorOf, isExport, isStart, routesOf } from './app/commands.ts';
+import { startChannel } from './app/local-channel.ts';
+import { announceGaps } from './app/setup-guide-mode.ts';
 import { oneTurnAtATime, sayingStopped, settled } from './app/turns.ts';
-import { createTelegramLogin, type TelegramLoginDeps } from './auth/telegram-login.ts';
+import type { Anomander, AnomanderDeps } from './app/types.ts';
+import { createTelegramLogin } from './auth/telegram-login.ts';
 import { createDailyBackup } from './backup/daily-backup.ts';
 import { budgeted, createAiBudget } from './budget/ai-budget.ts';
 import { createReceiptQueue } from './budget/receipt-queue.ts';
 import type { Config } from './config.ts';
 import { readConnections } from './connections/config.ts';
-import type { Connection } from './connections/connection.ts';
 import { createConnections } from './connections/mcp-client.ts';
-import { type OAuthSet, oauthKeeperFrom, printOAuthForShell } from './connections/oauth.ts';
+import { oauthKeeperFrom, printOAuthForShell } from './connections/oauth.ts';
 import { createConnectionSession, type Door, type Later } from './connections/session.ts';
-import { type ConnectionProblems, createConnectionTasks } from './connections/task.ts';
+import { createConnectionTasks } from './connections/task.ts';
 import {
   type AppNotices,
   buttonTurn,
@@ -49,22 +50,11 @@ import { type RowOption, rowButton, rowLabel } from './decisions/window-amend.ts
 import { createMorningDigest } from './digest/send-digest.ts';
 import { createReceiptExpenseCycle } from './expenses/receipt-expense.ts';
 import { createTextExpenseHandler } from './expenses/text-expense.ts';
-import {
-  type ChatHandlers,
-  type ConnectionGrants,
-  type ExpensesLedger,
-  type LocalChannel,
-  type LocalChannelAddress,
-  NO_APP,
-  type StoredConversation,
-  type StoredMemory,
-  startLocalChannel,
-} from './local-channel/server.ts';
+import { type ChatHandlers, NO_APP } from './local-channel/server.ts';
 import { createPatternOffers } from './patterns/pattern-offers.ts';
 import { turnAborted, turnStopped, withCancel } from './processor/cancel.ts';
 import { createPiAiComputerPlanner } from './processor/computer-planner.ts';
 import { createPiAiCorrectionInterpreter } from './processor/correction-interpreter.ts';
-import type { Complete, Logger } from './processor/ports.ts';
 import { createPiAiReceiptReader } from './processor/receipt-reader.ts';
 import { createPiAiReplyPhraser } from './processor/reply-phraser.ts';
 import { withRetry } from './processor/retry.ts';
@@ -72,20 +62,14 @@ import { createPiAiScreenReader } from './processor/screen-reader.ts';
 import { createPiAiTextInterpreter } from './processor/text-interpreter.ts';
 import { withTimeout } from './processor/timeout.ts';
 import { readExpensesMonth } from './read-api/month.ts';
-import { type ReadApiAddress, startReadApi } from './read-api/server.ts';
+import { startReadApi } from './read-api/server.ts';
 import { createDueReminders } from './reminders/send-due.ts';
 import { createKeepReceiptAnswerHandler } from './retention/keep-receipt-decision.ts';
 import { createRetention } from './retention/retention-job.ts';
 import { groundedRoutes } from './routing/grounded-route.ts';
 import { startScheduler } from './scheduler/scheduler.ts';
-import { createModelProbe, probeWithoutModel } from './setup/model-probe.ts';
-import {
-  appSetupGuide,
-  cachedSetupGaps,
-  describeGap,
-  type SetupGap,
-  setupGuide,
-} from './setup/setup-guide.ts';
+import { createModelProbe } from './setup/model-probe.ts';
+import { appSetupGuide, cachedSetupGaps, type SetupGap, setupGuide } from './setup/setup-guide.ts';
 import { storedConversation } from './store/conversation.ts';
 import { acquireDaemonLock } from './store/daemon-lock.ts';
 import { applyMigrations, openDatabase } from './store/database.ts';
@@ -107,68 +91,8 @@ import { openTelegramDoor } from './telegram-door.ts';
 // `ANOMANDER_LOCAL_TOKEN` is set, at least one of them (`loadConfig`). `main.ts` passes pi-ai's
 // `models.complete`; the e2e test passes recorded responses and the fake Telegram API.
 
-export interface AnomanderDeps<M> {
-  /** The processor call: pi-ai's `models.complete` (R-14 AC3). It must honour `signal`. */
-  complete: Complete<M>;
-  /** `ANOMANDER_MODEL`, resolved by the caller (R-15 AC1). */
-  model: M;
-  /**
-   * `ANOMANDER_VISION_MODEL`, resolved by the caller (R-15 AC1), for reading receipts. Without
-   * it, receipts are read with `model`.
-   */
-  visionModel?: M;
-  /**
-   * Model login from Telegram (R-27): pi-ai's `models`, the credential store it uses and the
-   * device ID. `main.ts` always passes it; tests that leave it out, and a daemon without
-   * Telegram, get no `/login` or `/logout`.
-   */
-  login?: LoginDeps;
-  /**
-   * The connection gaps, checked on every message (R-28 AC4) before its turn, through
-   * `cachedSetupGaps`. `main.ts` passes pi-ai's `checkAuth` for both models' providers; without
-   * it, setup is always complete.
-   */
-  setupGaps?: () => Promise<readonly SetupGap[]>;
-  /** How long `stop` waits for the turns that run before it closes the store; 5 s by default. */
-  shutdownDeadlineMs?: number;
-  /** Points the bot at another Bot API server, such as the fake one in tests. */
-  telegramApiRoot?: string;
-  /**
-   * The servers connected now (DK-11). Without it they are the ones of `ANOMANDER_MCP_CONFIG`,
-   * connected when a task first needs them; tests pass their own.
-   */
-  connections?: () => Promise<readonly Connection[]>;
-  /** What is known about the servers that are not connected; goes with `connections`. */
-  connectionProblems?: () => ConnectionProblems;
-  /** Hands the OAuth tokens a refresh changed to the shell; tests catch them. */
-  printOAuth?: (entries: OAuthSet) => void;
-  logger?: Logger;
-  now?: () => Date;
-}
-
-type LoginDeps = Pick<TelegramLoginDeps, 'models' | 'credentials' | 'getDeviceId' | 'timeoutMs'>;
-
-export interface Anomander {
-  /** Resolves when the store is ready and the bot, if there is one, polls for messages. */
-  started: Promise<void>;
-  /**
-   * Settles when polling ends: resolves after `stop`, rejects when Telegram ends it, for example
-   * with the 409 of another process reading the same bot (DK-2 AC2). The daemon is deaf to
-   * Telegram from then on, so the caller should stop it. Without Telegram it resolves at `stop`.
-   */
-  polling: Promise<void>;
-  /**
-   * Resolves with the read API's address once it listens (RA-2); `undefined` while
-   * `ANOMANDER_API_TOKEN` is unset, when no port is opened at all (AC1).
-   */
-  readApi: Promise<ReadApiAddress> | undefined;
-  /**
-   * Resolves with the local channel's address once it listens (DK-3); `undefined` while
-   * `ANOMANDER_LOCAL_TOKEN` is unset, when no port is opened at all.
-   */
-  localChannel: Promise<LocalChannelAddress> | undefined;
-  stop(): Promise<void>;
-}
+export { type SetupGuideDeps, startSetupGuide } from './app/setup-guide-mode.ts';
+export type { Anomander, AnomanderDeps } from './app/types.ts';
 
 /** T14: how long a shutdown waits for the turns that run before it closes the store. */
 export const SHUTDOWN_DEADLINE_MS = 5_000;
@@ -184,178 +108,6 @@ const settlesWithin = async (work: Promise<unknown>, ms: number): Promise<boolea
   } finally {
     clearTimeout(timer);
   }
-};
-
-/** DK-3: the desktop app's front door, only while `ANOMANDER_LOCAL_TOKEN` is set. */
-const startChannel = (
-  config: Config,
-  handlers: ChatHandlers,
-  conversation: StoredConversation,
-  memory: StoredMemory,
-  expenses: ExpensesLedger,
-  logger: Logger,
-  now?: () => Date,
-  grants?: ConnectionGrants,
-  /** DK-23 AC4: "Probar". */
-  probe?: () => Promise<ProbeOutcome>,
-  /** DK-21: absent while no database is open. */
-  aiUsage?: () => { calls: number; limit: number },
-  /** DK-22: an app connected, so what waited for a door can go out. */
-  onConnected?: () => void,
-): LocalChannel | undefined =>
-  config.localToken === undefined
-    ? undefined
-    : startLocalChannel({
-        token: config.localToken,
-        port: config.localPort,
-        handlers,
-        conversation,
-        memory,
-        expenses,
-        logger,
-        ...(now === undefined ? {} : { now }),
-        ...(grants === undefined ? {} : { grants }),
-        ...(probe === undefined ? {} : { probe }),
-        ...(aiUsage === undefined ? {} : { aiUsage }),
-        ...(onConnected === undefined ? {} : { onConnected }),
-      });
-
-/**
- * Logs the gaps in English and sends the guide, once the bot listens (R-28 AC3). Without
- * Telegram nothing is sent: the app's chat answers every message with the guide anyway.
- */
-const announceGaps = async (
-  gaps: readonly SetupGap[],
-  send: ((message: DoorReply) => Promise<void>) | undefined,
-  logger: Logger,
-): Promise<void> => {
-  if (gaps.length === 0) return;
-  for (const gap of gaps) logger.warn(`setup incomplete: ${describeGap(gap)}`);
-  await send?.({ text: setupGuide(gaps) }).catch((error: unknown) => {
-    logger.error('Could not send the setup guide', { error });
-  });
-};
-
-export interface SetupGuideDeps {
-  /** The model gaps `resolveModels` found: never empty. */
-  gaps: readonly SetupGap[];
-  login?: LoginDeps;
-  telegramApiRoot?: string;
-  logger?: Logger;
-}
-
-/**
- * R-28: the bot that runs while `.env` names no usable model. It answers everything with the
- * guide, except `/login` and `/logout` (R-17 AC7), in Telegram and in the desktop app's chat; no
- * processor, store, scheduled job or read API runs.
- */
-export const startSetupGuide = (config: Config, deps: SetupGuideDeps): Anomander => {
-  // Before any text is built: the guide below is written once, in this language.
-  setLocale(config.locale);
-  const { gaps, logger = console } = deps;
-  // DK-2 AC1: no store runs here, but the daemon is still the only one of its data folder.
-  const lock = acquireDaemonLock(config.dbPath);
-  const guide = { text: setupGuide(gaps) };
-  // DK-23 AC5: the app's chat gets the guide about its window.
-  const appGuide = { text: appSetupGuide(gaps) };
-  let send = async (_: DoorReply): Promise<void> => {
-    throw new Error('send used before the bot was created');
-  };
-  let deleteMessage = async (_: string): Promise<void> => {
-    throw new Error('deleteMessage used before the bot was created');
-  };
-  // R-27: a login is made in Telegram only; the app has its Suscripciones screen (DK-15).
-  const login =
-    deps.login === undefined || config.telegram === undefined
-      ? undefined
-      : createTelegramLogin({
-          ...deps.login,
-          send: (message) => send(message),
-          deleteMessage: (channelRef) => deleteMessage(channelRef),
-          logger,
-        });
-  const telegram = openTelegramDoor(
-    config.telegram,
-    {
-      onText: async (message) => {
-        const handled = await login?.handleText(message);
-        return handled === undefined ? guide : handled.reply;
-      },
-      onReceipt: async () => guide,
-      onButton: async (press) => {
-        const handled = await login?.handleButton(press);
-        return handled === undefined ? guide : handled.reply;
-      },
-    },
-    { logger, apiRoot: deps.telegramApiRoot },
-  );
-  send = telegram.send;
-  deleteMessage = telegram.deleteMessage;
-  const localChannel = startChannel(
-    config,
-    {
-      // R-17 AC7: a code pasted in the app's chat while a login waits goes to it, never stored.
-      onText: async (message) => (login?.takePasted(message.text) === true ? null : appGuide),
-      onReceipt: async () => appGuide,
-      onButton: async () => appGuide,
-      onScreen: async () => appGuide,
-      onComputer: async () => appGuide,
-      onConnect: async () => appGuide,
-    },
-    // No store runs here: the app's chat starts empty, and an erase cannot be done yet.
-    {
-      messages: () => [],
-      clear: () => {
-        throw new Error('the setup guide opens no database');
-      },
-    },
-    {
-      memories: () => [],
-      actions: () => [],
-      forgetMemory: () => {
-        throw new Error('the setup guide opens no database');
-      },
-      forgetAction: () => {
-        throw new Error('the setup guide opens no database');
-      },
-    },
-    // DK-17: nor can expenses be read or changed: the window says it could not (S-22).
-    {
-      month: () => {
-        throw new Error('the setup guide opens no database');
-      },
-      undo: () => {
-        throw new Error('the setup guide opens no database');
-      },
-      correct: () => {
-        throw new Error('the setup guide opens no database');
-      },
-    },
-    logger,
-    undefined,
-    // DK-24: the setup guide holds no grants.
-    undefined,
-    // DK-23 AC4: no model can be called; the probe says why.
-    async () => probeWithoutModel(gaps, config),
-  );
-
-  // A failed start is the caller's to report, through `started`.
-  telegram.started.then(
-    () => announceGaps(gaps, config.telegram === undefined ? undefined : send, logger),
-    () => {},
-  );
-  return {
-    started: telegram.started,
-    polling: telegram.ended,
-    readApi: undefined,
-    localChannel: localChannel?.listening,
-    stop: async () => {
-      login?.stop();
-      await localChannel?.stop();
-      await telegram.stop();
-      lock.release();
-    },
-  };
 };
 
 export const startAnomander = <M>(config: Config, deps: AnomanderDeps<M>): Anomander => {
