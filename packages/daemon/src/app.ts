@@ -5,7 +5,7 @@ import { connectionCommand, isExport } from './app/commands.ts';
 import { setUpConnections } from './app/connections.ts';
 import { createHandlers } from './app/handlers.ts';
 import { startJobs } from './app/jobs.ts';
-import { startChannel } from './app/local-channel.ts';
+import { channelViews, startChannel } from './app/local-channel.ts';
 import { announceGaps } from './app/setup-guide-mode.ts';
 import { oneTurnAtATime } from './app/turns.ts';
 import type { Anomander, AnomanderDeps } from './app/types.ts';
@@ -14,15 +14,10 @@ import type { Config } from './config.ts';
 import { type AppNotices, recordingNotices } from './conversation/recent-turns.ts';
 import { NO_APP } from './local-channel/server.ts';
 import type { ConnectedTool } from './processor/ports.ts';
-import { readExpensesMonth } from './read-api/month.ts';
 import { startReadApi } from './read-api/server.ts';
 import { cachedSetupGaps, type SetupGap } from './setup/setup-guide.ts';
-import { storedConversation } from './store/conversation.ts';
 import { acquireDaemonLock } from './store/daemon-lock.ts';
 import { applyMigrations, openDatabase } from './store/database.ts';
-import { forgetAction, listActions } from './store/history.ts';
-import { forgetMemoryAndItsTurns, listMemories } from './store/memory.ts';
-import { connectionToolGrants, revokeConnectionTool } from './store/permissions.ts';
 import { openTelegramDoor } from './telegram-door.ts';
 
 // The composition root: one process, one SQLite file, the front doors in the same process (PRD
@@ -242,17 +237,8 @@ export const startAnomander = <M>(config: Config, deps: AnomanderDeps<M>): Anoma
           logger,
         });
 
-  // DK-16: the app shows the stored conversation of both doors and can erase it. AC4: the erase
-  // waits for the turn that runs, so nothing of that turn is stored after it.
-  const clearInTurn = inTurn(async () => turns.clear());
-  // DK-18: a forget from the window waits for the turn that runs too, as the erase does, so a
-  // turn that says it is stored before it and goes with it. Only the turns that say it go.
-  const forgetMemoryInTurn = inTurn(async (id: number) => {
-    forgetMemoryAndItsTurns(db, id);
-  });
-  const forgetActionInTurn = inTurn(async (id: number) => {
-    forgetAction(db, id);
-  });
+  // DK-16, DK-17, DK-18, DK-24: what the app's windows read and change, in the chat's turn.
+  const views = channelViews({ config, db, turns, inTurn, pressRow, now });
   const localChannel = startChannel(
     config,
     {
@@ -264,40 +250,12 @@ export const startAnomander = <M>(config: Config, deps: AnomanderDeps<M>): Anoma
         login?.takePasted(message.text) === true ? null : chat.onText(message),
       onButton: onButtonAt('app'),
     },
-    { messages: (limit) => storedConversation(db, limit), clear: () => clearInTurn(undefined) },
-    {
-      memories: () => listMemories(db),
-      forgetMemory: forgetMemoryInTurn,
-      actions: () =>
-        listActions(db).map(({ id, kind, door, task, outcome, endedAt }) => ({
-          id,
-          what: kind,
-          door,
-          task,
-          outcome,
-          at: endedAt,
-        })),
-      forgetAction: forgetActionInTurn,
-    },
-    // DK-17: the "Gastos" screen, over the views of RA-1.
-    {
-      month: (month) => readExpensesMonth(db, { month, timeZone: config.timeZone, now: now() }),
-      undo: pressRow('undo'),
-      correct: pressRow('correct'),
-    },
+    views.conversation,
+    views.memory,
+    views.expenses,
     logger,
     now,
-    // DK-24 AC3: the "Permitir siempre" in force, for "Conexiones", and "Quitar".
-    {
-      list: () =>
-        connectionToolGrants(db).map(({ id, server, tool, grantedAt }) => ({
-          id,
-          server,
-          tool,
-          at: grantedAt,
-        })),
-      revoke: (id) => revokeConnectionTool(db, id, now().toISOString()),
-    },
+    views.grants,
     probe,
     // DK-21: today's AI calls, for the setup screen.
     budget.usage,
