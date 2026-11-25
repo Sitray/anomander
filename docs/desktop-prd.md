@@ -864,6 +864,33 @@ and keep its secrets in the operating system instead of a text file.
   - AC5: Esc does what "Detener tarea" does while a task on the computer runs, and otherwise what
     "Detener" does, only while the chat is the screen shown and an input method is not composing.
 
+- DK-25 Time zone and currency (backlog B15, decided 2026-11-25: "Al configurar se toman la zona
+  horaria y la moneda del sistema operativo, y se pueden cambiar en Configuración. Una sola
+  moneda por usuario, sin conversión. Los gastos que ya están guardados siguen en EUR.").
+  - AC1: the daemon reads the principal's currency in `ANOMANDER_CURRENCY` (ISO 4217, any case),
+    beside `TZ`. Without either, it keeps `Europe/Madrid` and `EUR`, so Docker and existing
+    installs see nothing change; a value that is not an IANA zone or an ISO 4217 code stops it
+    with the variable named.
+  - AC2: a new expense, typed or from a receipt, is written in the principal's currency, whatever
+    symbol the message wrote; the expenses already stored keep theirs and are never rewritten or
+    converted.
+  - AC3: every amount said about an expense (S-1 to S-8, S-100 to S-102, the receipt questions,
+    the Gastos screen) is in its own currency, in the language's format: `12,30 €`, `12,30 US$`;
+    `€12.30`, `US$12.30` in English. One formatter in `packages/protocol` says them all.
+  - AC4: a sum never adds two currencies. When the expenses of a total or of a `{desglose}` line
+    (S-9, S-90, S-91, the Gastos screen's total and pending) hold more than one currency, it is
+    said per currency, the principal's first and then by code: `45,20 € y 12,00 US$`. With one
+    currency every figure reads as before.
+  - AC5: the first setup proposes the system's time zone and the currency of the system's region
+    (`EUR` when the region has none the app knows); "Configuración" lets the principal change
+    both, the zone from the IANA list and the currency from a short list or any ISO 4217 code.
+    An install set up before proposes nothing: while neither is chosen it shows the machine's
+    clock and `EUR`, and saving for another reason leaves both unset. They take effect when
+    ANOMANDER starts again, which saving the setup does, and the screen says so.
+  - AC6: amounts are kept in hundredths (`total_cents`), so the currency must have two decimals:
+    one with none (`JPY`) or three (`BHD`) is refused by the setup, the shell and the daemon,
+    with the reason, and is not offered in the list.
+
 ## 6. Decisions
 
 1. **Where the daemon runs.** Decided (2026-11-10): on the principal's machine, started by the
@@ -921,7 +948,8 @@ Built in `apps/desktop` (see its README): a React window (`src/`) and a Tauri 2 
 | Secrets (DK-5) | Keychain items of service `ANOMANDER`, named as the daemon's variables. The rest in `settings.json` in the data folder, mode `600` |
 | Secrets of the connections (DK-11 AC1) | Keychain items named `mcp/<server>/<env or headers>/<name>`, listed in `settings.json`. The daemon gets them in `ANOMANDER_MCP_SECRETS` on its stdin, a JSON object by that name. Every value is moved, secret or not: the code cannot tell. In the daemon's output a value is hidden from 4 characters when its name holds a word a secret's name usually does or it is a header, and from 8 otherwise. A file saved while its values are moved is left for the next start |
 | OAuth of the connections (DK-11 AC10) | The Keychain item `mcp-oauth`, one JSON object by server name with its client, tokens, redirect address and the server's URL. The shell runs `packages/daemon/scripts/mcp-oauth.ts`, which prints the address to open and then the tokens on one line; the daemon gets the set in `ANOMANDER_MCP_OAUTH` on its stdin and prints it whole on a line starting `anomander mcp-oauth ` after a refresh. The shell stores what a connection gave, and forgets a server's tokens, with the daemon stopped, so a refresh it hands over meanwhile cannot overwrite them |
-| The time zone | The daemon's `TZ` is the zone this machine's clock points to (`/etc/localtime`), so its dates are the principal's. When it cannot be read, the daemon's default |
+| The time zone | The daemon's `TZ` is the zone chosen in Configuración (DK-25), else the zone this machine's clock points to (`/etc/localtime`), so its dates are the principal's. When neither is there, the daemon's default |
+| The currency (DK-25) | `timeZone` and `currency` in `settings.json`, left out while unset; the daemon gets them as `TZ` and `ANOMANDER_CURRENCY`. The first setup proposes the window's `Intl` zone and the currency of the system language's region (`EUR` when the region is not one it lists or its currency has no cents); an install set up before proposes nothing. Only currencies with two decimals (DK-25 AC6) |
 | The subscription login (DK-5 AC1) | The Keychain item `model-login`, the shape of `auth.json`. The daemon prints it whole on a line starting `anomander credentials ` after every change, before pi-ai uses it; a daemon killed between a token refresh and that line loses the refreshed token, and the principal logs in again. `pnpm run login` reaches the app's daemon only through an `auth.json` merged at its next start. The device ID stays on disk: it is not a secret |
 | The subscription login from the app (DK-15) | The shell (`src-tauri/src/login.rs`) runs `packages/daemon/scripts/login.ts --shell <account>` with a cleared environment plus `PATH` and `ANOMANDER_AUTH_PATH` (for the device ID only). The script prints `anomander login-open <address>` for the shell to open, `anomander login-code <code> <address>` for a device code, `anomander login-prompt` when it waits for the pasted address on its stdin, then `anomander login-done <json>` with the credential by provider and one word: `connected`, `timed_out` or `cancelled`. The shell tells the window each step on the event `shell://login` (opened, device code, prompt), merges the credential into `model-login` under `Supervisor::while_stopped`, and refuses any account but `openai` and `kimi-coding` before starting Node |
 | The ledger | A new one in the app's data folder. A Docker install's ledger is brought by the principal and imported into an empty one (DK-12); nothing reaches into the volume |

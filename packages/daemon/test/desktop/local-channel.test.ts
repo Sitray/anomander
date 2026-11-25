@@ -732,6 +732,8 @@ describe('the expenses of a month (DK-17)', () => {
       basis?: string;
       status?: string;
       lines?: number;
+      /** `expenses.currency`; `EUR` when absent. */
+      currency?: string;
     }[],
   ): number[] => {
     const db = new Database(join(scratch, 'anomander.db'));
@@ -756,14 +758,15 @@ describe('the expenses of a month (DK-17)', () => {
         const id = Number(
           db
             .prepare(
-              `INSERT INTO expenses (merchant_id, occurred_on, total_cents, category_id,
+              `INSERT INTO expenses (merchant_id, occurred_on, total_cents, currency, category_id,
                  category_basis, mode, document_id, status, created_at)
-               VALUES (?, ?, ?, (SELECT id FROM categories WHERE name = ?), ?, ?, ?, ?, ?)`,
+               VALUES (?, ?, ?, ?, (SELECT id FROM categories WHERE name = ?), ?, ?, ?, ?, ?)`,
             )
             .run(
               merchant,
               expense.on,
               expense.cents,
+              expense.currency ?? 'EUR',
               expense.category ?? null,
               expense.basis ?? null,
               expense.mode ?? 'declared',
@@ -818,6 +821,7 @@ describe('the expenses of a month (DK-17)', () => {
           merchant: null,
           category: 'restaurantes',
           totalCents: 2300,
+          currency: 'EUR',
           mode: 'declared',
           categoryMode: 'inferred',
           origin: 'text',
@@ -829,6 +833,7 @@ describe('the expenses of a month (DK-17)', () => {
           merchant: 'Café Sol',
           category: 'restaurantes',
           totalCents: 300,
+          currency: 'EUR',
           mode: 'inferred',
           categoryMode: 'declared',
           origin: 'receipt',
@@ -840,6 +845,7 @@ describe('the expenses of a month (DK-17)', () => {
           merchant: null,
           category: 'supermercado',
           totalCents: 1200,
+          currency: 'EUR',
           mode: 'declared',
           categoryMode: 'policy',
           origin: 'text',
@@ -851,15 +857,46 @@ describe('the expenses of a month (DK-17)', () => {
           merchant: 'Mercadona',
           category: null,
           totalCents: 450,
+          currency: 'EUR',
           mode: 'corroborated',
           categoryMode: null,
           origin: 'receipt',
           lines: 2,
         },
       ],
-      totalCents: 4250,
-      // RA-1 AC3: the view counts every pending expense, whatever its month (as R-10 AC2 does).
-      pending: { count: 2, totalCents: 1500 },
+      totals: [{ cents: 4250, currency: 'EUR' }],
+      // RA-1 AC3: every pending expense counts, whatever its month (as R-10 AC2 does).
+      pending: { count: 2, totals: [{ cents: 1500, currency: 'EUR' }] },
+    });
+  });
+
+  // DK-25 (B15): no conversion, so the month's total and the pending ones are per currency.
+  it('DK-25: gives each expense its currency and the totals per currency, never added', async () => {
+    const chat = await client(await start());
+    seed([
+      { on: '2026-10-02', cents: 4520 },
+      { on: '2026-10-03', cents: 1200, currency: 'USD' },
+      { on: '2026-10-04', cents: 1000, status: 'pending' },
+      { on: '2026-10-05', cents: 500, status: 'pending', currency: 'USD' },
+    ]);
+
+    const answer = await chat.ask({ type: 'expenses', month: '2026-10' });
+    expect(answer).toMatchObject({
+      expenses: [
+        { totalCents: 4520, currency: 'EUR' },
+        { totalCents: 1200, currency: 'USD' },
+      ],
+      totals: [
+        { cents: 4520, currency: 'EUR' },
+        { cents: 1200, currency: 'USD' },
+      ],
+      pending: {
+        count: 2,
+        totals: [
+          { cents: 1000, currency: 'EUR' },
+          { cents: 500, currency: 'USD' },
+        ],
+      },
     });
   });
 
@@ -877,7 +914,11 @@ describe('the expenses of a month (DK-17)', () => {
     ]);
 
     const answer = await chat.ask({ type: 'expenses' });
-    expect(answer).toMatchObject({ type: 'expenses', month: '2026-12', totalCents: 250 });
+    expect(answer).toMatchObject({
+      type: 'expenses',
+      month: '2026-12',
+      totals: [{ cents: 250, currency: 'EUR' }],
+    });
   });
 
   it('when the views cannot be read, answers S-22 and logs no expense', async () => {

@@ -1,5 +1,5 @@
 import { todayIn } from '@anomander/core';
-import { type Notify, strings } from '@anomander/protocol';
+import { compareSums, type Money, type Notify, strings, sumByCurrency } from '@anomander/protocol';
 import type Database from 'better-sqlite3';
 import { activePermissions } from '../store/permissions.ts';
 
@@ -36,17 +36,23 @@ export const createWeeklySummary = ({
   now,
   notify,
 }: WeeklySummaryDeps): WeeklySummary => {
-  // AC4: every existing category, also those with no expense that week.
-  const perCategory = db.prepare<[string, string], { name: string; cents: number }>(
-    `SELECT c.name AS name, COALESCE(SUM(e.total_cents), 0) AS cents
+  // AC4: every existing category, also those with no expense that week (one row with no
+  // currency). DK-25: every sum is kept per currency, never added across currencies.
+  const perCategory = db.prepare<
+    [string, string],
+    { id: number; name: string; currency: string | null; cents: number }
+  >(
+    `SELECT c.id AS id, c.name AS name, e.currency AS currency,
+       COALESCE(SUM(e.total_cents), 0) AS cents
      FROM categories c
      LEFT JOIN expenses e ON e.category_id = c.id AND e.status = 'current'
        AND e.occurred_on BETWEEN ? AND ?
-     GROUP BY c.id`,
+     GROUP BY c.id, e.currency`,
   );
-  const uncategorized = db.prepare<[string, string], { cents: number }>(
-    `SELECT COALESCE(SUM(total_cents), 0) AS cents FROM expenses
-     WHERE category_id IS NULL AND status = 'current' AND occurred_on BETWEEN ? AND ?`,
+  const uncategorized = db.prepare<[string, string], Money>(
+    `SELECT currency, SUM(total_cents) AS cents FROM expenses
+     WHERE category_id IS NULL AND status = 'current' AND occurred_on BETWEEN ? AND ?
+     GROUP BY currency`,
   );
   // AC2: pending when the summary is sent, whatever their week.
   const pending = db.prepare<[], { count: number }>(
@@ -59,11 +65,22 @@ export const createWeeklySummary = ({
       if (activePermissions(db, WEEKLY_SUMMARY_OPERATION, at).length === 0) return;
       const end = todayIn(timeZone, at);
       const start = daysBefore(end, 6);
-      const categories = perCategory
-        .all(start, end)
-        .sort((a, b) => b.cents - a.cents || a.name.localeCompare(b.name));
-      const loose = uncategorized.get(start, end)?.cents ?? 0;
-      const total = categories.reduce((sum, { cents }) => sum + cents, loose);
+      const byCategory = new Map<number, { name: string; amounts: Money[] }>();
+      for (const { id, name, currency, cents } of perCategory.all(start, end)) {
+        const entry = byCategory.get(id) ?? { name, amounts: [] };
+        if (currency !== null) entry.amounts.push({ cents, currency });
+        byCategory.set(id, entry);
+      }
+      const loose = sumByCurrency(uncategorized.all(start, end));
+      const spent = [...byCategory.values()].map(({ name, amounts }) => ({
+        name,
+        cents: sumByCurrency(amounts),
+      }));
+      const total = sumByCurrency([...spent.flatMap(({ cents }) => cents), ...loose]);
+      const order = total.map(({ currency }) => currency);
+      const categories = spent.sort(
+        (a, b) => compareSums(a.cents, b.cents, order) || a.name.localeCompare(b.name),
+      );
       const count = pending.get()?.count ?? 0;
       await notify({
         text: strings.weeklySummary(start, end, total, categories, loose, count),

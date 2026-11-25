@@ -349,6 +349,30 @@ describe('a free query on the expenses (R-30)', () => {
     expect(logger.warn).toHaveBeenCalled();
   });
 
+  // DK-25 (B15): one currency per principal and no conversion, so a sum never adds two.
+  it('DK-25: a period with expenses in two currencies says each sum apart, never added', async () => {
+    const db = new Database(dbPath());
+    db.prepare(
+      `INSERT INTO expenses (merchant_id, occurred_on, total_cents, currency, category_id, mode, status, created_at)
+       VALUES ((SELECT id FROM entities WHERE name = 'Mercadona'), '2026-11-05', 1200, 'USD',
+               (SELECT id FROM categories WHERE name = 'supermercado'), 'declared', 'current', ?)`,
+    ).run(NOW.toISOString());
+    db.close();
+    const usd = (amount: string) => `${amount}\u00a0US$`;
+
+    expect(await say('¿cuánto llevo gastado este mes?', THIS_MONTH)).toBe(
+      `Del 1 de noviembre al 24 de noviembre: ${eur('88,70')} y ${usd('12,00')} en 5 gastos. Supermercado ${eur('57,70')} y ${usd('12,00')} · Restaurantes ${eur('23,00')} · Sin clasificar ${eur('8,00')}. Pendientes de confirmar: 1.`,
+    );
+    expect(
+      await say('¿cuánto llevo en supermercado este mes?', {
+        ...THIS_MONTH,
+        category: 'supermercado',
+      }),
+    ).toBe(
+      `Del 1 de noviembre al 24 de noviembre, en supermercado: ${eur('57,70')} y ${usd('12,00')} en 3 gastos. Mercadona ${eur('45,20')} y ${usd('12,00')} · Lidl ${eur('12,50')}. Pendientes de confirmar: 1.`,
+    );
+  });
+
   it('AC8: the app gets the same answer, stored as a turn of its door', async () => {
     const text = '¿cuánto llevo gastado este mes?';
 

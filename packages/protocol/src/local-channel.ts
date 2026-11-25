@@ -4,6 +4,8 @@
 // The app presents its token when it connects, as the second WebSocket subprotocol:
 // `new WebSocket(url, [LOCAL_CHANNEL_PROTOCOL, token])`. It never travels in the URL.
 
+import type { Money } from './money.ts';
+
 export const LOCAL_CHANNEL_PROTOCOL = 'anomander.v1';
 
 /** One image the principal dropped in the chat (DK-4 AC2). */
@@ -391,6 +393,8 @@ export interface ChatExpense {
   merchant: string | null;
   category: string | null;
   totalCents: number;
+  /** ISO 4217: the currency `totalCents` is in, read beside the view (DK-25). */
+  currency: string;
   /** `modo`: the view gives it for the whole expense, not field by field. */
   mode: ExpenseMode;
   /** How its category was chosen; `null` without a category or a recorded basis. */
@@ -409,10 +413,13 @@ export interface ChatExpenses {
   month: string;
   /** The month's current expenses, by day and then id. */
   expenses: ChatExpense[];
-  /** The sum of `expenses`, computed by code. */
-  totalCents: number;
-  /** `pendientes_de_confirmar`: every pending expense, whatever its month, never in the total. */
-  pending: { count: number; totalCents: number };
+  /**
+   * The sum of `expenses`, computed by code, one entry per currency, never added across them
+   * (DK-25); zero in the principal's currency when the month has none.
+   */
+  totals: Money[];
+  /** Every pending expense, whatever its month, never in the total; summed as `totals`. */
+  pending: { count: number; totals: Money[] };
 }
 
 /**

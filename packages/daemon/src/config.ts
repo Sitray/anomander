@@ -1,5 +1,5 @@
 import { BlockList, isIP } from 'node:net';
-import type { Locale } from '@anomander/protocol';
+import { DEFAULT_CURRENCY, hasCents, isCurrency, type Locale } from '@anomander/protocol';
 import { z } from 'zod';
 
 // PRD §14.4, plus the read API of the read access draft (docs/read-access-prd.md §8). Every
@@ -50,6 +50,11 @@ export interface Config {
   /** `ANOMANDER_AUTH_PATH`: the model login credentials (R-27 AC5). */
   authPath: string;
   timeZone: string;
+  /**
+   * `ANOMANDER_CURRENCY`: the principal's currency (ISO 4217), the one new expenses are written in
+   * (DK-25). The expenses already stored keep theirs.
+   */
+  currency: string;
   /** `ANOMANDER_LOCALE`: the language of every text the principal reads and the model answers in. */
   locale: Locale;
   /** `ANOMANDER_API_TOKEN`: while unset, the read API is off and no port opens (RA-2 AC1). */
@@ -133,6 +138,16 @@ const envSchema = z.object({
   ANOMANDER_INBOX_DIR: z.string().default('./data/inbox'),
   ANOMANDER_AUTH_PATH: z.string().default('./data/auth.json'),
   TZ: z.string().refine(isTimeZone, 'must be an IANA time zone').default('Europe/Madrid'),
+  // Euros by default, so Docker and existing installs keep them; the desktop app sets it (DK-25).
+  ANOMANDER_CURRENCY: z
+    .string()
+    .transform((value) => value.toUpperCase())
+    .refine(isCurrency, { error: 'must be an ISO 4217 currency, such as EUR', abort: true })
+    // Amounts are kept in hundredths (`total_cents`): a currency needs exactly two decimals.
+    .refine(hasCents, {
+      error: (issue) => `must have two decimals, as EUR or USD do: ${String(issue.input)} has not`,
+    })
+    .default(DEFAULT_CURRENCY),
   // Spanish by default, so Docker and existing installs keep speaking it; the desktop app sets it.
   ANOMANDER_LOCALE: z.enum(['es', 'en']).default('es'),
   // Security audit M4: long enough that guessing it, even at the read API's pace, is hopeless.
@@ -247,6 +262,7 @@ export const loadConfig = (env: Record<string, string | undefined>): Config => {
     inboxDir: values.ANOMANDER_INBOX_DIR,
     authPath: values.ANOMANDER_AUTH_PATH,
     timeZone: values.TZ,
+    currency: values.ANOMANDER_CURRENCY,
     locale: values.ANOMANDER_LOCALE,
     apiToken: values.ANOMANDER_API_TOKEN,
     apiHost: values.ANOMANDER_API_HOST,

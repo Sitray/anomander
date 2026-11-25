@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import {
+  type ChatExpense,
   type ChatExpenses,
   type ChatRequest,
   formatAmount,
@@ -27,6 +28,7 @@ const NOVEMBER: Omit<ChatExpenses, 'inReplyTo'> = {
       merchant: null,
       category: 'restaurantes',
       totalCents: 2300,
+      currency: 'EUR',
       mode: 'declared',
       categoryMode: 'inferred',
       origin: 'text',
@@ -38,21 +40,22 @@ const NOVEMBER: Omit<ChatExpenses, 'inReplyTo'> = {
       merchant: 'Café Sol',
       category: 'restaurantes',
       totalCents: 300,
+      currency: 'EUR',
       mode: 'inferred',
       categoryMode: 'policy',
       origin: 'receipt',
       lines: 3,
     },
   ],
-  totalCents: 2600,
-  pending: { count: 2, totalCents: 1500 },
+  totals: [{ cents: 2600, currency: 'EUR' }],
+  pending: { count: 2, totals: [{ cents: 1500, currency: 'EUR' }] },
 };
 const OCTOBER: Omit<ChatExpenses, 'inReplyTo'> = {
   ...NOVEMBER,
   month: '2026-10',
   expenses: [],
-  totalCents: 0,
-  pending: { count: 0, totalCents: 0 },
+  totals: [{ cents: 0, currency: 'EUR' }],
+  pending: { count: 0, totals: [] },
 };
 
 let onClose: ReturnType<typeof vi.fn<() => void>>;
@@ -126,6 +129,28 @@ describe('the expenses screen (DK-17)', () => {
         .getAllByRole('button')
         .map((b) => b.textContent),
     ).toEqual([text.correct, text.undo]);
+  });
+
+  // DK-25 (B15): each amount in its expense's currency; a total of two currencies, per currency.
+  it('DK-25: shows each amount in its own currency and the total per currency, never added', async () => {
+    await answer(show() as FakeWebSocket, {
+      ...NOVEMBER,
+      expenses: [
+        { ...(NOVEMBER.expenses[0] as ChatExpense), totalCents: 4520 },
+        { ...(NOVEMBER.expenses[1] as ChatExpense), totalCents: 1200, currency: 'USD' },
+      ],
+      totals: [
+        { cents: 4520, currency: 'EUR' },
+        { cents: 1200, currency: 'USD' },
+      ],
+      pending: { count: 1, totals: [{ cents: 500, currency: 'USD' }] },
+    });
+
+    const [, cena, cafe, total] = rows();
+    expect(cena?.textContent).toContain('45,20\u00a0€');
+    expect(cafe?.textContent).toContain('12,00\u00a0US$');
+    expect(total?.textContent).toContain('45,20\u00a0€ y 12,00\u00a0US$');
+    expect(document.body.textContent).toContain(text.pending(1, '5,00\u00a0US$'));
   });
 
   it('shows how ANOMANDER knows each expense: "deducido" on an inferred one', async () => {

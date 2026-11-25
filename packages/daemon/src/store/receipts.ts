@@ -75,15 +75,18 @@ export const finishReading = (
   ).run(status, imageDeletedAt, documentId);
 };
 
-/** R-4 AC3: the current expenses a receipt may duplicate. */
-export const listCurrentExpenses = (db: Database.Database): ExistingExpense[] =>
+/**
+ * R-4 AC3: the current expenses a receipt may duplicate: those in `currency`, the one it will be
+ * written in, since the same figure in another currency is another amount (DK-25).
+ */
+export const listCurrentExpenses = (db: Database.Database, currency: string): ExistingExpense[] =>
   db
-    .prepare<[], ExistingExpense>(
+    .prepare<[string], ExistingExpense>(
       `SELECT coalesce(m.name, '') AS merchant, e.occurred_on, e.total_cents, e.status
        FROM expenses e LEFT JOIN entities m ON m.id = e.merchant_id
-       WHERE e.status = 'current'`,
+       WHERE e.status = 'current' AND e.currency = ?`,
     )
-    .all();
+    .all(currency);
 
 const parseConditions = (json: string): unknown => {
   try {
@@ -134,6 +137,8 @@ export interface ReceiptExpenseRegistration {
   merchant: string;
   occurred_on: string;
   total_cents: number;
+  /** The principal's currency when it is registered (DK-25). */
+  currency: string;
   category: string | null;
   category_basis: CategoryBasis | null;
   /** Extracted inferences about the expense it rests on: merchant (unless declared), date, total. */
@@ -179,14 +184,15 @@ export const insertReceiptExpense = (
     const actionId = authorizedBy === null ? null : insertAction(db, proposalId, authorizedBy, now);
     const expense = db
       .prepare(
-        `INSERT INTO expenses (merchant_id, occurred_on, total_cents, category_id, category_basis,
-           mode, document_id, status, created_by_action_id, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO expenses (merchant_id, occurred_on, total_cents, currency, category_id,
+           category_basis, mode, document_id, status, created_by_action_id, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         findOrCreateMerchant(db, registration.merchant, now),
         registration.occurred_on,
         registration.total_cents,
+        registration.currency,
         categoryIdOf(db, registration.category),
         registration.category_basis,
         consistency.passed ? 'corroborated' : 'inferred',

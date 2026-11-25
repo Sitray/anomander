@@ -6,7 +6,7 @@ A personal assistant that understands your world, knows what is true, knows what
 
 > Status: version 0.1.0, run from source (no packaged download). Milestones M0 to M6 of the [PRD](PRD.md) roadmap (§17) are built: see [What works today](#what-works-today) and the [CHANGELOG](CHANGELOG.md). The design is in [`docs/`](docs).
 
-The app speaks English, or Spanish on a computer whose language is Spanish. It runs on macOS and, without a look at the screen or tasks on the computer for now, on Windows. Telegram replies follow `ANOMANDER_LOCALE` (`es` by default for Docker, `en` for English; the Mac app sets it from the system's language), see PRD §12.
+The app speaks English, or Spanish on a computer whose language is Spanish. It runs on macOS and, without a look at the screen or tasks on the computer for now, on Windows. Telegram replies follow `ANOMANDER_LOCALE` (`es` by default for Docker, `en` for English; the Mac app sets it from the system's language), see PRD §12. Amounts are in `ANOMANDER_CURRENCY` (`EUR` by default); stored expenses keep their own currency.
 
 To run your own, see [Getting started](#getting-started) (Docker and Telegram), [Run the Mac app](#run-the-mac-app) or [Run the app on Windows](#run-the-app-on-windows).
 

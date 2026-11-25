@@ -49,7 +49,7 @@ export const createAmendExpenseDecision =
     const stored = readExpense(db, expenseId);
     const text =
       stored.merchant === null
-        ? strings.undoneNoMerchant(stored.total_cents)
-        : strings.undone(stored.total_cents, stored.merchant);
+        ? strings.undoneNoMerchant(stored.total)
+        : strings.undone(stored.total, stored.merchant);
     return verifiedReply(db, actionId, text, now, logger);
   };

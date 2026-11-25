@@ -57,6 +57,10 @@ export interface SetupState {
   visionModel: string | null;
   /** The provider variables whose key is stored, such as `OPENAI_API_KEY`. */
   providerKeys: string[];
+  /** DK-25: the daemon's `TZ`, chosen in Configuración; `null` while none is. */
+  timeZone: string | null;
+  /** DK-25: the daemon's `ANOMANDER_CURRENCY`; `null` while none is. */
+  currency: string | null;
   /** DK-22: what the notifications show; absent is `content`. */
   notifications?: NotificationMode;
 }
@@ -76,6 +80,10 @@ export interface SetupInput {
   visionModel: string;
   /** By provider variable, such as `OPENAI_API_KEY`: a string stores the key, `null` removes it. */
   providerKeys: Record<string, string | null>;
+  /** DK-25: an IANA zone; empty leaves it unset. */
+  timeZone: string;
+  /** DK-25: an ISO 4217 code; empty leaves it unset. */
+  currency: string;
   /** DK-21: `ANOMANDER_DAILY_AI_CALL_LIMIT`, from 1 to 10000; omitted keeps the stored one. */
   dailyAiCallLimit?: number;
 }

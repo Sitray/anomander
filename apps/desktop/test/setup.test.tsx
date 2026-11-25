@@ -82,6 +82,8 @@ describe('saving', () => {
       model: 'openai/gpt-4o-mini',
       visionModel: 'openai/gpt-4o-mini',
       providerKeys: {},
+      timeZone: 'Europe/Madrid',
+      currency: 'EUR',
     });
     expect('telegramBotToken' in input).toBe(false);
   });
@@ -213,6 +215,8 @@ describe('saving', () => {
       // DK-23 AC2: left empty, photos are read with the same model.
       visionModel: 'openai/gpt-5-mini',
       providerKeys: {},
+      timeZone: expect.any(String),
+      currency: expect.any(String),
     });
     // Saved and able to start: nothing is said to be missing.
     await waitFor(() => expect(field(text.model).value).toBe('openai/gpt-5-mini'));
@@ -502,6 +506,100 @@ describe('web search on the first setup', () => {
     );
 
     expect(screen.queryByRole('checkbox', { name: text.webSearch })).toBeNull();
+  });
+});
+
+// DK-25 AC5: the time zone and the currency, proposed from this system on the first setup only.
+describe('the time zone and the currency (DK-25)', () => {
+  const region = strings.region;
+  const select = (label: string): HTMLSelectElement => screen.getByLabelText(label);
+  const choose = (label: string, value: string): void => {
+    fireEvent.change(select(label), { target: { value } });
+  };
+  /** This system: Mexico City's clock and a Mexican Spanish language. */
+  const inMexico = () => {
+    const real = Intl.DateTimeFormat.prototype.resolvedOptions;
+    vi.spyOn(Intl.DateTimeFormat.prototype, 'resolvedOptions').mockImplementation(function (
+      this: Intl.DateTimeFormat,
+    ) {
+      return { ...real.call(this), timeZone: 'America/Mexico_City' };
+    });
+    vi.spyOn(navigator, 'language', 'get').mockReturnValue('es-MX');
+  };
+
+  afterEach(() => vi.restoreAllMocks());
+
+  it('on the first setup, proposes the system zone and the currency of its region, and saves them', async () => {
+    inMexico();
+    const { onSave } = renderSetup(EMPTY_SETUP);
+
+    expect(select(region.timeZone).value).toBe('America/Mexico_City');
+    expect(select(region.currency).value).toBe('MXN');
+    expect(screen.getByText(region.help)).toBeTruthy();
+    fill(text.model, 'openai/gpt-5-mini');
+    save();
+
+    expect(await saved(onSave)).toMatchObject({
+      timeZone: 'America/Mexico_City',
+      currency: 'MXN',
+    });
+  });
+
+  it('on an install set up before, proposes nothing: a save for another reason leaves both unset', async () => {
+    inMexico();
+    const { onSave } = renderSetup({ ...FILLED_SETUP, timeZone: null, currency: null });
+
+    expect(select(region.timeZone).value).toBe('');
+    expect(select(region.currency).value).toBe('EUR');
+    fill(text.chatId, '777');
+    save();
+
+    expect(await saved(onSave)).toMatchObject({ timeZone: '', currency: '' });
+  });
+
+  it('shows a stored choice over what the system says, and a save keeps it unchanged', async () => {
+    inMexico();
+    const { onSave } = renderSetup({ ...FILLED_SETUP, timeZone: 'Asia/Tokyo', currency: 'SEK' });
+
+    expect(select(region.timeZone).value).toBe('Asia/Tokyo');
+    expect(select(region.currency).value).toBe('other');
+    expect(field(region.currencyCode).value).toBe('SEK');
+    save();
+
+    expect(await saved(onSave)).toMatchObject({ timeZone: 'Asia/Tokyo', currency: 'SEK' });
+  });
+
+  it('takes any other ISO 4217 code with cents under "Otra"', async () => {
+    const { onSave } = renderSetup(FILLED_SETUP);
+    choose(region.timeZone, 'Asia/Tokyo');
+    choose(region.currency, 'other');
+    fill(region.currencyCode, ' sek ');
+    save();
+
+    expect(await saved(onSave)).toMatchObject({ timeZone: 'Asia/Tokyo', currency: 'SEK' });
+  });
+
+  // Amounts are kept in hundredths: a currency without two decimals cannot be one.
+  it.each(['XYZ', 'JPY', 'BHD'])(
+    'refuses %s, which does not exist or has no cents, and saves nothing',
+    (code) => {
+      const { onSave } = renderSetup(FILLED_SETUP);
+      choose(region.currency, 'other');
+      fill(region.currencyCode, code);
+      save();
+
+      expect(screen.getByText(region.currencyInvalid)).toBeTruthy();
+      expect(onSave).not.toHaveBeenCalled();
+    },
+  );
+
+  it('offers no currency without cents in its list', () => {
+    renderSetup(FILLED_SETUP);
+    const offered = [...select(region.currency).options].map((option) => option.value);
+    expect(offered).toContain('USD');
+    expect(offered).toContain('GBP');
+    expect(offered).not.toContain('CLP');
+    expect(offered).not.toContain('COP');
   });
 });
 

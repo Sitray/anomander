@@ -25,6 +25,8 @@ export const EMPTY_SETUP: SetupState = {
   model: null,
   visionModel: null,
   providerKeys: [],
+  timeZone: null,
+  currency: null,
 };
 
 export const FILLED_SETUP: SetupState = {
@@ -33,6 +35,8 @@ export const FILLED_SETUP: SetupState = {
   model: 'openai/gpt-4o-mini',
   visionModel: 'openai/gpt-4o-mini',
   providerKeys: ['OPENAI_API_KEY'],
+  timeZone: 'Europe/Madrid',
+  currency: 'EUR',
 };
 
 export const runningSnapshot = (overrides: Partial<Snapshot> = {}): Snapshot => ({

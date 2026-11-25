@@ -81,6 +81,7 @@ describe('the read views (RA-1)', () => {
   it('AC1: "23 € cena" is one texto row with no lines; a receipt is ticket with one line per line', () => {
     const { expenseId: cena } = registerTextExpense(db, {
       total_cents: 2300,
+      currency: 'EUR',
       merchant: null,
       occurred_on: '2026-11-10',
       category: 'restaurantes',

@@ -272,6 +272,8 @@ describe('the setup', () => {
       model: '',
       visionModel: '',
       providerKeys: {},
+      timeZone: expect.any(String),
+      currency: expect.any(String),
     });
     expect(screen.getByRole('status').textContent).toBe(strings.status.starting);
   });
@@ -296,6 +298,8 @@ describe('the setup', () => {
       // DK-23 AC2: left empty, photos are read with the same model.
       visionModel: 'openai/gpt-5-mini',
       providerKeys: {},
+      timeZone: expect.any(String),
+      currency: expect.any(String),
     });
   });
 
@@ -529,6 +533,8 @@ describe('the connections', () => {
       model: 'openai/gpt-4o-mini',
       visionModel: 'openai/gpt-4o-mini',
       providerKeys: {},
+      timeZone: expect.any(String),
+      currency: expect.any(String),
     });
   });
 });
@@ -687,14 +693,15 @@ describe('the expenses (DK-17)', () => {
             merchant: null,
             category: null,
             totalCents: 2300,
+            currency: 'EUR',
             mode: 'declared',
             categoryMode: null,
             origin: 'text',
             lines: 0,
           },
         ],
-        totalCents: 2300,
-        pending: { count: 0, totalCents: 0 },
+        totals: [{ cents: 2300, currency: 'EUR' }],
+        pending: { count: 0, totals: [] },
       }),
     );
 

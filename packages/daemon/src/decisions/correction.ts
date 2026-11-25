@@ -122,8 +122,8 @@ export const acceptCorrection = ({
 /** S-8 from the stored row, verbatim (R-21 AC3); S-102 when it has no merchant. */
 export const correctedReply = (stored: StoredExpense): string =>
   stored.merchant === null
-    ? strings.correctedNoMerchant(stored.total_cents, stored.category)
-    : strings.corrected(stored.total_cents, stored.merchant, stored.category);
+    ? strings.correctedNoMerchant(stored.total, stored.category)
+    : strings.corrected(stored.total, stored.merchant, stored.category);
 
 /** What a decision's correction is applied to, and how. */
 interface CorrectionTarget {

@@ -3,10 +3,19 @@
 // the language chosen with `setLocale` at the moment it is read; until then, Spanish.
 
 import { getLocale, type Locale, perLocale } from './locale.ts';
+import { type Amount, getCurrency, isZero, sumByCurrency } from './money.ts';
 
-const amountFormats: Record<Locale, Intl.NumberFormat> = {
-  es: new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'EUR' }),
-  en: new Intl.NumberFormat('en-GB', { style: 'currency', currency: 'EUR' }),
+const amountTags: Record<Locale, string> = { es: 'es-ES', en: 'en-GB' };
+const amountFormats = new Map<string, Intl.NumberFormat>();
+/** `cents` in `currency`, in the language of the moment: `12,30 US$`, or `US$12.30` in English. */
+const inCurrency = (cents: number, currency: string): string => {
+  const key = `${getLocale()} ${currency}`;
+  let format = amountFormats.get(key);
+  if (format === undefined) {
+    format = new Intl.NumberFormat(amountTags[getLocale()], { style: 'currency', currency });
+    amountFormats.set(key, format);
+  }
+  return format.format(cents / 100);
 };
 const dateOptions: Intl.DateTimeFormatOptions = { day: 'numeric', month: 'long', timeZone: 'UTC' };
 const dateFormats: Record<Locale, Intl.DateTimeFormat> = {
@@ -20,9 +29,17 @@ const dateFormats: Record<Locale, Intl.DateTimeFormat> = {
  */
 const onWindows = (): boolean => typeof process !== 'undefined' && process.platform === 'win32';
 
-/** `2340` → `23,40 €`, or `€23.40` in English. */
-export const formatAmount = (cents: number): string =>
-  amountFormats[getLocale()].format(cents / 100);
+/**
+ * `2340` → `23,40 €`, or `€23.40` in English: bare cents are in the principal's currency, an
+ * amount in its own, and a sum per currency is said currency by currency (`45,20 € y 12,00 US$`),
+ * never added up. An empty sum is zero in the principal's currency.
+ */
+export const formatAmount = (amount: Amount): string => {
+  if (typeof amount === 'number') return inCurrency(amount, getCurrency());
+  if ('cents' in amount) return inCurrency(amount.cents, amount.currency);
+  if (amount.length === 0) return inCurrency(0, getCurrency());
+  return joined(sumByCurrency(amount).map(({ cents, currency }) => inCurrency(cents, currency)));
+};
 
 /** `2026-10-29` → `29 de octubre`, or `29 October` in English. */
 export const formatDate = (isoDate: string): string =>
@@ -181,21 +198,21 @@ export interface ExpenseQueryAnswer {
   category: string | null;
   /** The merchant asked about, as the principal wrote it; `null` when none. */
   merchant: string | null;
-  /** The sum of the current expenses, in cents. */
-  total: number;
+  /** The sum of the current expenses, per currency. */
+  total: Amount;
   /** How many current expenses the total sums. */
   count: number;
   /** `{desglose}`, already in its order; a `null` name is `Sin clasificar`. */
-  breakdown: readonly { name: string | null; cents: number }[];
-  /** What the breakdown leaves out, listed last as `Otros`; 0 when nothing is. */
-  others: number;
+  breakdown: readonly { name: string | null; cents: Amount }[];
+  /** What the breakdown leaves out, listed last as `Otros`; zero when nothing is. */
+  others: Amount;
   /** The expenses of the period pending confirmation, never in `total`. */
   pending: number;
 }
 
 /** `{desglose}` of S-90 and S-91: `{Nombre} {importe}` joined by ` · `, as S-9, then the rest. */
 const queryBreakdown = ({ breakdown, others }: ExpenseQueryAnswer, othersLabel: string): string =>
-  [...breakdown, ...(others > 0 ? [{ name: othersLabel, cents: others }] : [])]
+  [...breakdown, ...(isZero(others) ? [] : [{ name: othersLabel, cents: others }])]
     .map(({ name, cents }) => `${capitalized(name ?? uncategorized())} ${formatAmount(cents)}`)
     .join(' · ');
 
@@ -222,19 +239,19 @@ const queryFilter = ({ category, merchant }: ExpenseQueryAnswer): string | null 
   merchant === null ? category : category === null ? merchant : `${merchant} (${category})`;
 
 const es = {
-  registered: (total: number, merchant: string, categoryName: string | null) =>
+  registered: (total: Amount, merchant: string, categoryName: string | null) =>
     `Apuntado: ${formatAmount(total)} en ${merchant} (${category(categoryName)}).`,
-  registeredNoMerchant: (total: number, categoryName: string | null) =>
+  registeredNoMerchant: (total: Amount, categoryName: string | null) =>
     `Apuntado: ${formatAmount(total)} (${category(categoryName)}).`,
-  linesMismatch: (sum: number, total: number) =>
+  linesMismatch: (sum: Amount, total: Amount) =>
     `No cuadra: las líneas suman ${formatAmount(sum)} y el total dice ${formatAmount(total)}. ¿Qué hago?`,
-  duplicate: (total: number, merchant: string, date: string) =>
+  duplicate: (total: Amount, merchant: string, date: string) =>
     `Parece repetido: ya apunté ${formatAmount(total)} en ${merchant} el ${formatDate(date)}. ¿Lo apunto otra vez?`,
   unreadableReceipt: () => 'No he podido leer el ticket. ¿Me escribes el total y el comercio?',
-  confirmCategory: (total: number, merchant: string, date: string, categoryName: string | null) =>
+  confirmCategory: (total: Amount, merchant: string, date: string, categoryName: string | null) =>
     `${formatAmount(total)} en ${merchant}, el ${formatDate(date)}. Lo clasificaría como ${category(categoryName)}. ¿Lo apunto?`,
   askCorrection: () => '¿Qué cambio? Escríbelo, por ejemplo: total 28,40',
-  corrected: (total: number, merchant: string, categoryName: string | null) =>
+  corrected: (total: Amount, merchant: string, categoryName: string | null) =>
     `Corregido: ${formatAmount(total)} en ${merchant} (${category(categoryName)}).`,
   /**
    * S-9, with `categories` already in the order of R-10 AC4; `Sin clasificar` is always last.
@@ -243,9 +260,9 @@ const es = {
   weeklySummary: (
     start: string,
     end: string,
-    total: number,
-    categories: readonly { name: string; cents: number }[],
-    uncategorizedCents: number,
+    total: Amount,
+    categories: readonly { name: string; cents: Amount }[],
+    uncategorizedCents: Amount,
     pending: number,
   ) => {
     const breakdown = [...categories, { name: uncategorized(), cents: uncategorizedCents }]
@@ -273,15 +290,15 @@ const es = {
     `La fecha ${formatDate(date)} es posterior a hoy. ¿Me dices cuándo fue el gasto?`,
   processingFailed: () =>
     'Algo ha fallado y no he podido procesar tu mensaje. ¿Me lo vuelves a enviar en un rato?',
-  discarded: (total: number, merchant: string) =>
+  discarded: (total: Amount, merchant: string) =>
     `Descartado: no he apuntado ${formatAmount(total)} en ${merchant}.`,
   /** S-100: "Deshacer" took a typed expense out of the ledger (R-7 AC5). */
-  undone: (total: number, merchant: string) =>
+  undone: (total: Amount, merchant: string) =>
     `Deshecho: he quitado ${formatAmount(total)} en ${merchant} de tus gastos.`,
   /** S-101: S-100 when the expense has no merchant. */
-  undoneNoMerchant: (total: number) => `Deshecho: he quitado ${formatAmount(total)} de tus gastos.`,
+  undoneNoMerchant: (total: Amount) => `Deshecho: he quitado ${formatAmount(total)} de tus gastos.`,
   /** S-102: S-8 when the expense, a receipt's or a text's, has no merchant (R-7 AC2). */
-  correctedNoMerchant: (total: number, categoryName: string | null) =>
+  correctedNoMerchant: (total: Amount, categoryName: string | null) =>
     `Corregido: ${formatAmount(total)} (${category(categoryName)}).`,
   /** S-103: a typed correction that does not say which expense (R-7 AC7). */
   whichExpense: () =>
@@ -379,7 +396,7 @@ const es = {
   historyForgotten: () => 'Hecho, he borrado mi historial.',
   historyNotForgotten: () => 'Vale, no borro nada.',
   noHistory: () => 'No tengo nada en mi historial.',
-  futureReceipt: (total: number, merchant: string, date: string) =>
+  futureReceipt: (total: Amount, merchant: string, date: string) =>
     `${formatAmount(total)} en ${merchant}, con fecha ${formatDate(date)}, que aún no ha llegado. ¿Lo apunto así o corrijo la fecha?`,
   categoryNotCreated: () => 'Vale, no la creo.',
   categoryExists: (categoryName: string) => `La categoría «${categoryName}» ya existe.`,

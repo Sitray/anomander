@@ -12,6 +12,7 @@ import {
   buttons,
   decisionButtons,
   formatAmount,
+  getCurrency,
   type PrincipalReceipt,
   type ReceiptHandler,
   type Reply,
@@ -97,27 +98,34 @@ const questionFor = (
   switch (reason) {
     case 'lines_mismatch':
       return {
-        question: strings.linesMismatch(stored.lines_sum_cents, stored.total_cents),
+        question: strings.linesMismatch(
+          { cents: stored.lines_sum_cents, currency: stored.currency },
+          stored.total,
+        ),
         options: allOptions(),
       };
     case 'duplicate': {
       // S-4 names the expense already recorded; it uses only "Apuntar" and "Descartar".
       const earlier = consistency.duplicateOf ?? { ...stored, merchant };
       return {
-        question: strings.duplicate(earlier.total_cents, earlier.merchant, earlier.occurred_on),
+        question: strings.duplicate(
+          { cents: earlier.total_cents, currency: stored.currency },
+          earlier.merchant,
+          earlier.occurred_on,
+        ),
         options: [buttons.register, buttons.discard],
       };
     }
     // The reader only returns calendar dates, so an invalid date is one after today.
     case 'invalid_date':
       return {
-        question: strings.futureReceipt(stored.total_cents, merchant, stored.occurred_on),
+        question: strings.futureReceipt(stored.total, merchant, stored.occurred_on),
         options: allOptions(),
       };
     case 'needs_confirmation':
       return {
         question: strings.confirmCategory(
-          stored.total_cents,
+          stored.total,
           merchant,
           stored.occurred_on,
           stored.category,
@@ -257,7 +265,7 @@ export const createReceiptExpenseCycle = (deps: ReceiptExpenseDeps): ReceiptExpe
         total_cents: reading.total.value,
         lines,
       },
-      { today: todayIn(timeZone, now()), existingExpenses: listCurrentExpenses(db) },
+      { today: todayIn(timeZone, now()), existingExpenses: listCurrentExpenses(db, getCurrency()) },
     );
 
     // §10 step 6, R-6: the authority check is code.
@@ -286,6 +294,8 @@ export const createReceiptExpenseCycle = (deps: ReceiptExpenseDeps): ReceiptExpe
       merchant,
       occurred_on: reading.occurredOn.value,
       total_cents: reading.total.value,
+      // DK-25: the reader reports no currency; one currency per principal.
+      currency: getCurrency(),
       category: categorization.category,
       category_basis: categoryBasis,
       // §10: only the inferences the expense rests on survive.
@@ -311,12 +321,12 @@ export const createReceiptExpenseCycle = (deps: ReceiptExpenseDeps): ReceiptExpe
       const stored = readExpense(db, expenseId);
       const reference =
         stored.merchant === null
-          ? strings.registeredNoMerchant(stored.total_cents, stored.category)
-          : strings.registered(stored.total_cents, stored.merchant, stored.category);
+          ? strings.registeredNoMerchant(stored.total, stored.category)
+          : strings.registered(stored.total, stored.merchant, stored.category);
       const text = await phraser({
         reference,
         facts: [
-          formatAmount(stored.total_cents),
+          formatAmount(stored.total),
           ...(stored.merchant === null ? [] : [stored.merchant]),
           stored.category ?? uncategorized(),
         ],

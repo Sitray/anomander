@@ -18,7 +18,9 @@ import {
   type ChatStoredMessage,
   type ChatText,
   EXPENSE_MODES,
+  isCurrency,
   LOCAL_CHANNEL_PROTOCOL,
+  type Money,
   PROGRESS_PHASES,
   type ProgressPhase,
 } from '@anomander/protocol';
@@ -219,7 +221,7 @@ const isCount = (value: unknown): value is number => Number.isInteger(value);
 /** DK-17: an expense only as the window can show it. */
 const isExpense = (value: unknown): value is ChatExpense => {
   if (typeof value !== 'object' || value === null) return false;
-  const { id, date, merchant, category, totalCents, mode, categoryMode, origin, lines } =
+  const { id, date, merchant, category, totalCents, currency, mode, categoryMode, origin, lines } =
     value as Record<string, unknown>;
   return (
     isCount(id) &&
@@ -227,6 +229,8 @@ const isExpense = (value: unknown): value is ChatExpense => {
     (merchant === null || typeof merchant === 'string') &&
     (category === null || typeof category === 'string') &&
     isCount(totalCents) &&
+    typeof currency === 'string' &&
+    isCurrency(currency) &&
     EXPENSE_MODES.some((known) => known === mode) &&
     (categoryMode === null || CATEGORY_MODES.some((known) => known === categoryMode)) &&
     (origin === 'text' || origin === 'receipt') &&
@@ -234,18 +238,27 @@ const isExpense = (value: unknown): value is ChatExpense => {
   );
 };
 
+/** DK-25: a sum per currency, each entry cents in a currency the window can format. */
+const isSums = (value: unknown): value is Money[] =>
+  Array.isArray(value) &&
+  value.every((entry) => {
+    if (typeof entry !== 'object' || entry === null) return false;
+    const { cents, currency } = entry as Record<string, unknown>;
+    return isCount(cents) && typeof currency === 'string' && isCurrency(currency);
+  });
+
 /** DK-17: the expenses of a month, keeping only the rows the window can show. */
 const parseExpenses = (event: Record<string, unknown>): ChatExpenses | undefined => {
-  const { inReplyTo, month, expenses, totalCents, pending } = event;
-  const { count, totalCents: pendingCents } = (pending ?? {}) as Record<string, unknown>;
+  const { inReplyTo, month, expenses, totals, pending } = event;
+  const { count, totals: pendingTotals } = (pending ?? {}) as Record<string, unknown>;
   if (
     typeof inReplyTo !== 'string' ||
     typeof month !== 'string' ||
     !/^\d{4}-(0[1-9]|1[0-2])$/.test(month) ||
     !Array.isArray(expenses) ||
-    !isCount(totalCents) ||
+    !isSums(totals) ||
     !isCount(count) ||
-    !isCount(pendingCents)
+    !isSums(pendingTotals)
   ) {
     return undefined;
   }
@@ -254,8 +267,8 @@ const parseExpenses = (event: Record<string, unknown>): ChatExpenses | undefined
     inReplyTo,
     month,
     expenses: expenses.filter(isExpense),
-    totalCents,
-    pending: { count, totalCents: pendingCents },
+    totals,
+    pending: { count, totals: pendingTotals },
   };
 };
 

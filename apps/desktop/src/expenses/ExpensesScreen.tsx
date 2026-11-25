@@ -66,7 +66,7 @@ export function ExpensesScreen({ channel, onClose, onAmended, onCorrecting }: Ex
 
   /** A row's "Corregir" and "Deshacer", or the question "Deshacer" opened. */
   const rowAction = (expense: ChatExpense): ReactNode => {
-    const amount = formatAmount(expense.totalCents);
+    const amount = formatAmount({ cents: expense.totalCents, currency: expense.currency });
     const date = formatDate(expense.date);
     if (asking === expense.id) {
       return (
@@ -257,7 +257,9 @@ export function ExpensesTable({ answer, rowAction }: ExpensesTableProps) {
                     </span>
                   )}
                 </td>
-                <td className="amount">{formatAmount(expense.totalCents)}</td>
+                <td className="amount">
+                  {formatAmount({ cents: expense.totalCents, currency: expense.currency })}
+                </td>
                 <td>
                   <span className="mode-tag" data-mode={expense.mode}>
                     {text.modes[expense.mode]}
@@ -272,7 +274,7 @@ export function ExpensesTable({ answer, rowAction }: ExpensesTableProps) {
               <th scope="row" colSpan={3}>
                 {text.total}
               </th>
-              <td className="amount">{formatAmount(answer.totalCents)}</td>
+              <td className="amount">{formatAmount(answer.totals)}</td>
               <td colSpan={rowAction === undefined ? 1 : 2} />
             </tr>
           </tfoot>
@@ -280,7 +282,7 @@ export function ExpensesTable({ answer, rowAction }: ExpensesTableProps) {
       )}
       {answer.pending.count > 0 && (
         <p className="expenses-note">
-          {text.pending(answer.pending.count, formatAmount(answer.pending.totalCents))}
+          {text.pending(answer.pending.count, formatAmount(answer.pending.totals))}
         </p>
       )}
     </>

@@ -722,6 +722,22 @@ const es = {
     retry: 'Reintentar',
     closed: 'ANOMANDER no está en marcha. Arráncalo para ver tus gastos.',
   },
+  /** DK-25 AC5: the time zone and the currency, in the setup. */
+  region: {
+    section: 'Zona horaria y moneda',
+    help: 'Se aplican cuando ANOMANDER vuelve a arrancar, que es al guardar.',
+    timeZone: 'Zona horaria',
+    timeZoneHelp: 'Las fechas de tus gastos y la hora de tus recordatorios.',
+    machineZone: 'La del reloj del ordenador',
+    currency: 'Moneda',
+    currencyHelp:
+      'La de los gastos nuevos. Los que ya están guardados siguen en la suya: no se convierten.',
+    otherCurrency: 'Otra',
+    currencyCode: 'Código de la moneda',
+    currencyCodeHelp: 'Su código ISO 4217, de tres letras, como SEK. Ha de tener céntimos.',
+    currencyInvalid:
+      'Escribe el código de una moneda que exista y tenga céntimos (dos decimales), como SEK.',
+  },
   /** DK-22 (B29): what the notifications show, in the setup. */
   notifications: {
     title: 'Notificaciones',
@@ -1337,6 +1353,21 @@ const en: Strings = {
     retry: 'Try again',
     closed: 'ANOMANDER is not running. Start it to see your expenses.',
   },
+  region: {
+    section: 'Time zone and currency',
+    help: 'They apply when ANOMANDER starts again, which saving does.',
+    timeZone: 'Time zone',
+    timeZoneHelp: 'The dates of your expenses and the time of your reminders.',
+    machineZone: "The computer's clock",
+    currency: 'Currency',
+    currencyHelp:
+      'The one of new expenses. Those already saved keep their own: nothing is converted.',
+    otherCurrency: 'Other',
+    currencyCode: 'Currency code',
+    currencyCodeHelp: 'Its three-letter ISO 4217 code, such as SEK. It must have cents.',
+    currencyInvalid:
+      'Type the code of a currency that exists and has cents (two decimals), such as SEK.',
+  },
   notifications: {
     title: 'Notifications',
     content: 'Show content',
@@ -1361,6 +1392,7 @@ export const strings: Strings = {
   memory: perLocale<Strings['memory']>({ es: es.memory, en: en.memory }),
   ledger: perLocale<Strings['ledger']>({ es: es.ledger, en: en.ledger }),
   expenses: perLocale<Strings['expenses']>({ es: es.expenses, en: en.expenses }),
+  region: perLocale<Strings['region']>({ es: es.region, en: en.region }),
   notifications: perLocale<Strings['notifications']>({
     es: es.notifications,
     en: en.notifications,

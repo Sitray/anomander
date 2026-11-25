@@ -44,6 +44,7 @@ describe('loadConfig', () => {
       inboxDir: './data/inbox',
       authPath: './data/auth.json',
       timeZone: 'Europe/Madrid',
+      currency: 'EUR',
       locale: 'es',
       apiToken: undefined,
       apiHost: '127.0.0.1',
@@ -213,5 +214,23 @@ describe('loadConfig', () => {
     expect(() => loadConfig({ ...telegram, ANOMANDER_LOCALE: 'fr' })).toThrow(
       /invalid configuration: ANOMANDER_LOCALE /,
     );
+  });
+
+  // DK-25 (B15): the principal's currency, euros unless `ANOMANDER_CURRENCY` names another.
+  it('reads ANOMANDER_CURRENCY, euros by default, any case, and rejects what is not ISO 4217', () => {
+    const telegram = { TELEGRAM_BOT_TOKEN: '123:abc', ANOMANDER_PRINCIPAL_CHAT_ID: '4242' };
+    expect(loadConfig(telegram).currency).toBe('EUR');
+    expect(loadConfig({ ...telegram, ANOMANDER_CURRENCY: '' }).currency).toBe('EUR');
+    expect(loadConfig({ ...telegram, ANOMANDER_CURRENCY: 'usd' }).currency).toBe('USD');
+    expect(loadConfig({ ...telegram, ANOMANDER_CURRENCY: 'GBP' }).currency).toBe('GBP');
+    expect(() => loadConfig({ ...telegram, ANOMANDER_CURRENCY: 'XYZ' })).toThrow(
+      'invalid configuration: ANOMANDER_CURRENCY must be an ISO 4217 currency, such as EUR',
+    );
+    // Amounts are kept in hundredths, so a currency needs exactly two decimals.
+    for (const code of ['JPY', 'BHD']) {
+      expect(() => loadConfig({ ...telegram, ANOMANDER_CURRENCY: code })).toThrow(
+        `invalid configuration: ANOMANDER_CURRENCY must have two decimals, as EUR or USD do: ${code} has not`,
+      );
+    }
   });
 });

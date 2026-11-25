@@ -6,6 +6,7 @@
 // DK-23: it asks no developer knowledge. The model comes first, picked by its provider's name
 // with a model suggested for it, and any other still written as `provider/model`; the key is named
 // by whose it is, never by its variable; "Probar" calls the saved model once; Telegram comes last.
+import { hasCents } from '@anomander/protocol';
 import { type FormEvent, type ReactNode, useEffect, useId, useRef, useState } from 'react';
 import type { SetupInput, SetupState } from '../shell.ts';
 import { ErrorBlock } from '../status/StatusBar.tsx';
@@ -20,6 +21,8 @@ import {
   type SetupProvider,
   suggestedModel,
 } from './providers.ts';
+import { type Region, RegionFields } from './RegionFields.tsx';
+import { COMMON_CURRENCIES, currencyCode, currencyOfLanguage, systemTimeZone } from './region.ts';
 import { isChatId, isModelId, isProviderKeyName } from './validation.ts';
 
 export interface SetupScreenProps {
@@ -66,6 +69,7 @@ type FieldName =
   | 'visionModel'
   | 'keyName'
   | 'keyValue'
+  | 'currency'
   | 'aiLimit';
 type Errors = Partial<Record<FieldName, string>>;
 /** What saving will do to a provider key. */
@@ -141,6 +145,17 @@ function SetupForm(props: FormProps) {
   const [keyName, setKeyName] = useState('');
   const [changes, setChanges] = useState<Record<string, KeyChange>>({});
   const [errors, setErrors] = useState<Errors>({});
+  // DK-25 AC5: what is stored. Only the first setup proposes what this system says; an install
+  // set up before keeps both unchosen (the machine's clock, euros) until the principal picks one.
+  const [region, setRegion] = useState<Region>(() => {
+    const first = !isComplete(setup);
+    const currency = setup.currency ?? (first ? currencyOfLanguage(navigator.language) : '');
+    return {
+      timeZone: setup.timeZone ?? (first ? systemTimeZone() : ''),
+      currency,
+      typed: currency !== '' && !(COMMON_CURRENCIES as readonly string[]).includes(currency),
+    };
+  });
   const [saving, setSaving] = useState(false);
   const [rejection, setRejection] = useState<string | null>(null);
   /** The web search was saved on this screen: a setup refused after it does not undo it. */
@@ -245,6 +260,8 @@ function SetupForm(props: FormProps) {
       visionModel:
         visionModel.trim() === '' && readsPhotos(model.trim()) ? model.trim() : visionModel.trim(),
       providerKeys: {},
+      timeZone: region.timeZone,
+      currency: currencyCode(region.currency),
     };
     // Omitted keeps the stored token.
     const token = botToken.current?.value.trim() ?? '';
@@ -272,6 +289,11 @@ function SetupForm(props: FormProps) {
       ...(aiLimit.trim() === '' || aiLimitOf(aiLimit.trim()) !== undefined
         ? {}
         : { aiLimit: text.aiLimitInvalid }),
+      // Amounts are kept in hundredths: a currency without two decimals cannot be one. Empty is
+      // "not chosen", except under "Otra", where a code is asked for.
+      ...((region.typed || input.currency !== '') && !hasCents(input.currency)
+        ? { currency: strings.region.currencyInvalid }
+        : {}),
       // A key typed but not added is still meant to be saved.
       ...takeTypedKey(false),
     };
@@ -462,6 +484,8 @@ function SetupForm(props: FormProps) {
             )}
           </Field>
         </fieldset>
+
+        <RegionFields value={region} currencyError={errors.currency} onChange={setRegion} />
 
         {offersWebSearch && (
           <fieldset>

@@ -90,6 +90,10 @@ pub struct SetupState {
     pub model: Option<String>,
     pub vision_model: Option<String>,
     pub provider_keys: Vec<String>,
+    /// DK-25: the zone chosen in Configuración; `None` while unset, when the window proposes one.
+    pub time_zone: Option<String>,
+    /// DK-25: the currency chosen in Configuración; `None` while unset.
+    pub currency: Option<String>,
     /// DK-22: what the notifications show.
     pub notifications: NotificationMode,
 }
@@ -125,6 +129,8 @@ mod tests {
                 model: Some("openai/gpt-4o-mini".into()),
                 vision_model: None,
                 provider_keys: vec!["OPENAI_API_KEY".into()],
+                time_zone: None,
+                currency: Some("USD".into()),
                 notifications: NotificationMode::NoticeOnly,
             },
         };
@@ -139,6 +145,8 @@ mod tests {
                     "model": "openai/gpt-4o-mini",
                     "visionModel": null,
                     "providerKeys": ["OPENAI_API_KEY"],
+                    "timeZone": null,
+                    "currency": "USD",
                     "notifications": "notice_only"
                 }
             }))
