@@ -1826,6 +1826,23 @@ describe('a request the chat routes by itself (DK-13)', () => {
     );
     expect(plans).toEqual([]);
   });
+
+  it('DK-20: on Windows the app offers only connections: a look or a task says it is not there yet', async () => {
+    const chat = await client(await start());
+    const real = Object.getOwnPropertyDescriptor(process, 'platform');
+    Object.defineProperty(process, 'platform', { ...real, value: 'win32' });
+    try {
+      routed = route('screen', '¿qué error me sale?');
+      const answer = reply(await chat.ask({ type: 'text', text: '¿qué error me sale?' }));
+
+      expect(answer.text).toBe('Eso todavía no puedo hacerlo en Windows.');
+      expect(answer).not.toHaveProperty('route');
+      expect(interpreted.at(-1)?.routes).toEqual(['connect']);
+    } finally {
+      if (real !== undefined) Object.defineProperty(process, 'platform', real);
+    }
+    expect(screens).toEqual([]);
+  });
 });
 
 describe('a search on the web (T17)', () => {

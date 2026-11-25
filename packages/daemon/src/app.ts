@@ -256,8 +256,12 @@ const isExport = (text: string) => /^\/exportar(?:@\w+)?(?:\s|$)/.test(text.trim
 const doorOf = (channelRef: string): Door =>
   channelRef.startsWith('desktop:') ? 'app' : 'telegram';
 
-/** DK-13 AC1: a look and a task on the computer need the app; connections serve both doors. */
-const ROUTES: Record<Door, readonly RouteKind[]> = { app: ROUTE_KINDS, telegram: ['connect'] };
+/**
+ * DK-13 AC1: a look and a task on the computer need the app; connections serve both doors.
+ * DK-20: on Windows the app has neither yet, so it offers only connections, as Telegram does.
+ */
+const routesOf = (door: Door): readonly RouteKind[] =>
+  door === 'app' && process.platform !== 'win32' ? ROUTE_KINDS : ['connect'];
 
 /** What a handler answers once its turn is over: a `Later` is waited for outside the turn. */
 const settled = async (answer: DoorReply | Later | null): Promise<DoorReply | null> =>
@@ -488,7 +492,7 @@ export const startAnomander = <M>(config: Config, deps: AnomanderDeps<M>): Anoma
       logger,
       recent: turns.recent,
       patterns,
-      routes: (message) => ROUTES[doorOf(message.channelRef)],
+      routes: (message) => routesOf(doorOf(message.channelRef)),
       // T17: what the connected servers can do, so a search on the web goes to them and not to
       // the computer. Never connects a server: one not connected yet offers its read-only tools.
       connected: async () =>

@@ -15,12 +15,22 @@ import {
   type ProbeOutcome,
   perLocale,
 } from '@anomander/protocol';
+import { platform } from './platform.ts';
 
 /** DK-17: `2026-11` as the name of its month and its year in `locale`. */
 const monthTitle = (locale: string, month: string): string =>
   new Intl.DateTimeFormat(locale, { month: 'long', year: 'numeric', timeZone: 'UTC' }).format(
     new Date(`${month}-01T00:00:00Z`),
   );
+
+/** DK-20: the text that names the computer or its secret store is chosen as it is read. */
+const onWindows = (): boolean => platform() === 'windows';
+const esPlace = (): string => (onWindows() ? 'este equipo' : 'este Mac');
+const esStore = (): string =>
+  onWindows() ? 'el Administrador de credenciales de Windows' : 'el llavero de macOS';
+const enPlace = (): string => (onWindows() ? 'this computer' : 'this Mac');
+const enStore = (): string =>
+  onWindows() ? 'the Windows Credential Manager' : 'the macOS Keychain';
 
 /** DK-4: how many files one message carries, as the daemon accepts. */
 export const MAX_ATTACHMENTS = 10;
@@ -121,8 +131,11 @@ const es = {
     /** DK-9, DK-13: a look at the screen the daemon routed the principal's words to. */
     screenCapture: 'Captura de pantalla',
     screenUnavailable: 'Desde esta ventana no puedo ver tu pantalla.',
-    screenPermission:
-      'macOS no me deja ver la pantalla. Actívame en Ajustes del Sistema › Privacidad y seguridad › Grabación de pantalla y audio, y vuelve a abrir ANOMANDER.',
+    get screenPermission() {
+      return onWindows()
+        ? 'Todavía no puedo ver tu pantalla en Windows.'
+        : 'macOS no me deja ver la pantalla. Actívame en Ajustes del Sistema › Privacidad y seguridad › Grabación de pantalla y audio, y vuelve a abrir ANOMANDER.';
+    },
     screenFailed: 'No he podido capturar la pantalla. Prueba otra vez.',
 
     /** DK-13: a look or a task that did not leave; nothing was done, so it can start again. */
@@ -164,8 +177,11 @@ const es = {
     /** T1b: the step targets an app ANOMANDER never acts on; the task ends. */
     computerBlocked: (app: string) =>
       `No actúo sobre ${app}: es una app protegida. He detenido la tarea.`,
-    computerPermission:
-      'macOS no me deja usar el ordenador. Actívame en Ajustes del Sistema › Privacidad y seguridad › Accesibilidad y vuelve a abrir ANOMANDER.',
+    get computerPermission() {
+      return onWindows()
+        ? 'Todavía no puedo usar tu ordenador en Windows.'
+        : 'macOS no me deja usar el ordenador. Actívame en Ajustes del Sistema › Privacidad y seguridad › Accesibilidad y vuelve a abrir ANOMANDER.';
+    },
 
     thinking: 'ANOMANDER está pensando…',
 
@@ -185,8 +201,9 @@ const es = {
     viaTelegram: 'Por Telegram',
     /** DK-16: erasing the stored conversation, asked first. */
     clearConversation: 'Borrar conversación',
-    confirmClear:
-      '¿Borrar la conversación? ANOMANDER la borra de este Mac y deja de tenerla en cuenta. Lo que hay en Telegram sigue en Telegram.',
+    get confirmClear() {
+      return `¿Borrar la conversación? ANOMANDER la borra de ${esPlace()} y deja de tenerla en cuenta. Lo que hay en Telegram sigue en Telegram.`;
+    },
     confirmClearYes: 'Sí, borrar',
     keepConversation: 'No borrar',
     clearing: 'Borrando…',
@@ -211,7 +228,9 @@ const es = {
     close: 'Volver al chat',
     sectionTelegram: 'Telegram (opcional)',
     sectionModels: 'Modelos',
-    intro: 'Las claves se guardan en el llavero de macOS, nunca en un archivo.',
+    get intro() {
+      return `Las claves se guardan en ${esStore()}, nunca en un archivo.`;
+    },
 
     /** Beside the label of a field the daemon cannot start without, while it is not stored. */
     required: 'Obligatorio',
@@ -312,8 +331,9 @@ const es = {
   /** DK-11: the servers of `mcp.json`. */
   connections: {
     title: 'Conexiones',
-    intro:
-      'Los servidores MCP que ANOMANDER usa en una tarea con conexiones. Están en el archivo mcp.json; sus valores, en el llavero de macOS.',
+    get intro() {
+      return `Los servidores MCP que ANOMANDER usa en una tarea con conexiones. Están en el archivo mcp.json; sus valores, en ${esStore()}.`;
+    },
     loading: 'Leyendo…',
     loadFailed: 'No se han podido leer las conexiones.',
     /** The file is not as the daemon reads it; where, in the shell's own words, follows. */
@@ -343,14 +363,15 @@ const es = {
     webSearchAbout: 'Busca en internet sin usar el ordenador.',
     /** DK-11 AC13: an add of the web search that did not answer in time. */
     webSearchTimedOut: 'La búsqueda web no se ha guardado a tiempo. Inténtalo otra vez.',
-    webSearchNote:
-      'La búsqueda web añade pi-web-access, que viene con ANOMANDER en una versión fija. Lo que ANOMANDER busca se envía a Exa (exa.ai), sin cuenta, y busca sin pedirte permiso; para usar otro buscador o un proxy te lo pide antes. Las páginas se leen desde este Mac, siempre después de «Permitir». Si tienes ~/.pi/agent/web-search.json, se usan sus claves, buscadores y proxy.',
+    get webSearchNote() {
+      return `La búsqueda web añade pi-web-access, que viene con ANOMANDER en una versión fija. Lo que ANOMANDER busca se envía a Exa (exa.ai), sin cuenta, y busca sin pedirte permiso; para usar otro buscador o un proxy te lo pide antes. Las páginas se leen desde ${esPlace()}, siempre después de «Permitir». Si tienes ~/.pi/agent/web-search.json, se usan sus claves, buscadores y proxy.`;
+    },
     edit: 'Editar',
     editServer: (name: string) => `Editar ${name}`,
     remove: 'Quitar',
     removeServer: (name: string) => `Quitar ${name}`,
     confirmRemove: (name: string) =>
-      `¿Quitar «${name}»? Sus valores guardados se borrarán del llavero.`,
+      `¿Quitar «${name}»? Sus valores guardados se borrarán del ${onWindows() ? 'Administrador de credenciales' : 'llavero'}.`,
     confirmRemoveYes: 'Sí, quitar',
     keepServer: 'No quitar',
     removing: 'Quitando…',
@@ -359,8 +380,9 @@ const es = {
     close: 'Cerrar',
     /** The form, for any other server. */
     advanced: 'Avanzado',
-    advancedNote:
-      'Para cualquier otro servidor MCP: un programa de este Mac o una dirección, escritos a mano.',
+    get advancedNote() {
+      return `Para cualquier otro servidor MCP: un programa de ${esPlace()} o una dirección, escritos a mano.`;
+    },
 
     oauthConnected: 'Conectado con OAuth',
     connectOAuth: 'Conectar con OAuth',
@@ -390,7 +412,9 @@ const es = {
       'Empieza por una letra o un número y lleva solo letras, números, espacios, puntos y guiones: 40 caracteres como mucho.',
     nameTaken: 'Ya hay un servidor con ese nombre.',
     kind: 'Tipo',
-    kindProcess: 'Un programa en este Mac',
+    get kindProcess() {
+      return `Un programa en ${esPlace()}`;
+    },
     kindHttp: 'Un servidor por HTTP',
     command: 'Comando',
     commandHelp: 'El programa que arranca el servidor, como npx.',
@@ -398,15 +422,19 @@ const es = {
     args: 'Argumentos',
     argsHelp: 'Uno por línea.',
     url: 'URL',
-    urlHelp: 'Con https. Solo vale http si el servidor está en este Mac.',
+    get urlHelp() {
+      return `Con https. Solo vale http si el servidor está en ${esPlace()}.`;
+    },
     urlInvalid: 'Tiene que empezar por https://, o por http:// si es localhost.',
     /** A program's `env` and a URL's `headers`, in plain words. */
     env: 'Claves y ajustes del programa',
-    envHelp:
-      'Lo que el programa lee al arrancar, como una clave de API (sus variables de entorno). Los valores se guardan en el llavero de macOS; aquí solo se ve el nombre.',
+    get envHelp() {
+      return `Lo que el programa lee al arrancar, como una clave de API (sus variables de entorno). Los valores se guardan en ${esStore()}; aquí solo se ve el nombre.`;
+    },
     headers: 'Claves de acceso',
-    headersHelp:
-      'Lo que se envía con cada petición, como un token en Authorization (sus cabeceras). Los valores se guardan en el llavero de macOS; aquí solo se ve el nombre.',
+    get headersHelp() {
+      return `Lo que se envía con cada petición, como un token en Authorization (sus cabeceras). Los valores se guardan en ${esStore()}; aquí solo se ve el nombre.`;
+    },
     envNone: 'Todavía no hay ninguna.',
     valueStored: 'Guardado',
     valueEmpty: 'Sin valor',
@@ -435,8 +463,9 @@ const es = {
   /** DK-15: the subscription logins (R-27), connected and disconnected from the app. */
   subscriptions: {
     title: 'Suscripciones',
-    intro:
-      'Conecta tu suscripción de ChatGPT o de Kimi Code y ANOMANDER usará sus modelos con ella, sin clave de API. La cuenta se guarda en el llavero de macOS.',
+    get intro() {
+      return `Conecta tu suscripción de ChatGPT o de Kimi Code y ANOMANDER usará sus modelos con ella, sin clave de API. La cuenta se guarda en ${esStore()}.`;
+    },
     /** In the setup screen: opens this one. */
     open: '¿Tienes una suscripción de ChatGPT o de Kimi Code? Conéctala',
     loading: 'Leyendo…',
@@ -481,8 +510,9 @@ const es = {
   /** DK-18: what ANOMANDER remembers about the principal and what it did, each to forget. */
   memory: {
     title: 'Memoria',
-    intro:
-      'Lo que recuerdo de ti y lo que he hecho por ti. Todo está en este Mac, y puedes hacer que olvide cualquier cosa.',
+    get intro() {
+      return `Lo que recuerdo de ti y lo que he hecho por ti. Todo está en ${esPlace()}, y puedes hacer que olvide cualquier cosa.`;
+    },
     known: 'Lo que sé de ti',
     done: 'Lo que he hecho',
     /** Principle 2: a memory always says whether the principal said it or it was deduced. */
@@ -519,10 +549,12 @@ const es = {
     forget: 'Olvidar',
     forgetLabel: (words: string) => `Olvidar «${words}»`,
     /** DK-18 AC4, AC5: the turns of the stored conversation that say it go with it. */
-    confirmMemory:
-      '¿Lo olvido? Lo borro de este Mac, y también los mensajes de la conversación que lo mencionan.',
-    confirmAction:
-      '¿Lo olvido? Lo borro de este Mac, y también los mensajes de la conversación que lo mencionan. No podré recuperarlo.',
+    get confirmMemory() {
+      return `¿Lo olvido? Lo borro de ${esPlace()}, y también los mensajes de la conversación que lo mencionan.`;
+    },
+    get confirmAction() {
+      return `¿Lo olvido? Lo borro de ${esPlace()}, y también los mensajes de la conversación que lo mencionan. No podré recuperarlo.`;
+    },
     confirmYes: 'Sí, olvidar',
     keep: 'No olvidar',
     forgetting: 'Olvidando…',
@@ -542,8 +574,9 @@ const es = {
     title: 'Traer el ledger de Docker',
     /** In the setup screen: opens this one. */
     open: '¿Vienes de una instalación con Docker? Trae tu ledger',
-    intro:
-      'Si usabas ANOMANDER con Docker, copia su ledger a este Mac y escribe aquí dónde lo has dejado. Solo se importa en un ANOMANDER sin gastos; el ledger que tiene ahora se guarda aparte, nunca se borra.',
+    get intro() {
+      return `Si usabas ANOMANDER con Docker, copia su ledger a ${esPlace()} y escribe aquí dónde lo has dejado. Solo se importa en un ANOMANDER sin gastos; el ledger que tiene ahora se guarda aparte, nunca se borra.`;
+    },
     howIntro: 'Para copiarlo, en la carpeta del proyecto, primero una orden y luego la otra:',
     /** Shown as a block the principal can select and copy. */
     howCommands:
@@ -725,8 +758,11 @@ const en: Strings = {
 
     screenCapture: 'Screenshot',
     screenUnavailable: "I can't see your screen from this window.",
-    screenPermission:
-      "macOS won't let me see the screen. Turn me on in System Settings › Privacy & Security › Screen & System Audio Recording, and open ANOMANDER again.",
+    get screenPermission() {
+      return onWindows()
+        ? "I can't see your screen on Windows yet."
+        : "macOS won't let me see the screen. Turn me on in System Settings › Privacy & Security › Screen & System Audio Recording, and open ANOMANDER again.";
+    },
     screenFailed: "I couldn't take a screenshot. Try again.",
 
     lookNotSent: "I didn't get to look at your screen.",
@@ -758,8 +794,11 @@ const en: Strings = {
       label === '' ? `On screen: an unnamed ${noun}.` : `On screen: the ${noun} “${label}”.`,
     computerBlocked: (app: string) =>
       `I don't act on ${app}: it's a protected app. I've stopped the task.`,
-    computerPermission:
-      "macOS won't let me use the computer. Turn me on in System Settings › Privacy & Security › Accessibility and open ANOMANDER again.",
+    get computerPermission() {
+      return onWindows()
+        ? "I can't use your computer on Windows yet."
+        : "macOS won't let me use the computer. Turn me on in System Settings › Privacy & Security › Accessibility and open ANOMANDER again.";
+    },
 
     thinking: 'ANOMANDER is thinking…',
 
@@ -774,8 +813,9 @@ const en: Strings = {
 
     viaTelegram: 'Via Telegram',
     clearConversation: 'Erase conversation',
-    confirmClear:
-      'Erase the conversation? ANOMANDER erases it from this Mac and stops taking it into account. What is in Telegram stays in Telegram.',
+    get confirmClear() {
+      return `Erase the conversation? ANOMANDER erases it from ${enPlace()} and stops taking it into account. What is in Telegram stays in Telegram.`;
+    },
     confirmClearYes: 'Yes, erase',
     keepConversation: "Don't erase",
     clearing: 'Erasing…',
@@ -798,7 +838,9 @@ const en: Strings = {
     close: 'Back to chat',
     sectionTelegram: 'Telegram (optional)',
     sectionModels: 'Models',
-    intro: 'Keys are kept in the macOS Keychain, never in a file.',
+    get intro() {
+      return `Keys are kept in ${enStore()}, never in a file.`;
+    },
 
     required: 'Required',
 
@@ -889,8 +931,9 @@ const en: Strings = {
 
   connections: {
     title: 'Connections',
-    intro:
-      'The MCP servers ANOMANDER uses in a task with connections. They are in the mcp.json file; their values, in the macOS Keychain.',
+    get intro() {
+      return `The MCP servers ANOMANDER uses in a task with connections. They are in the mcp.json file; their values, in ${enStore()}.`;
+    },
     loading: 'Reading…',
     loadFailed: 'The connections could not be read.',
     invalid:
@@ -915,21 +958,24 @@ const en: Strings = {
     webSearch: 'Web search',
     webSearchAbout: 'Searches the internet without using the computer.',
     webSearchTimedOut: "Web search wasn't saved in time. Try again.",
-    webSearchNote:
-      'Web search adds pi-web-access, which comes with ANOMANDER at a fixed version. What ANOMANDER searches for is sent to Exa (exa.ai), with no account, and it searches without asking you; to use another search engine or a proxy it asks you first. Pages are read from this Mac, always after “Allow”. If you have ~/.pi/agent/web-search.json, its keys, search engines and proxy are used.',
+    get webSearchNote() {
+      return `Web search adds pi-web-access, which comes with ANOMANDER at a fixed version. What ANOMANDER searches for is sent to Exa (exa.ai), with no account, and it searches without asking you; to use another search engine or a proxy it asks you first. Pages are read from ${enPlace()}, always after “Allow”. If you have ~/.pi/agent/web-search.json, its keys, search engines and proxy are used.`;
+    },
     edit: 'Edit',
     editServer: (name: string) => `Edit ${name}`,
     remove: 'Remove',
     removeServer: (name: string) => `Remove ${name}`,
     confirmRemove: (name: string) =>
-      `Remove “${name}”? Its saved values will be deleted from the Keychain.`,
+      `Remove “${name}”? Its saved values will be deleted from the ${onWindows() ? 'Credential Manager' : 'Keychain'}.`,
     confirmRemoveYes: 'Yes, remove',
     keepServer: "Don't remove",
     removing: 'Removing…',
     removeRejected: 'Not removed. This is what the app says:',
     close: 'Close',
     advanced: 'Advanced',
-    advancedNote: 'For any other MCP server: a program on this Mac or an address, written by hand.',
+    get advancedNote() {
+      return `For any other MCP server: a program on ${enPlace()} or an address, written by hand.`;
+    },
 
     oauthConnected: 'Connected with OAuth',
     connectOAuth: 'Connect with OAuth',
@@ -958,7 +1004,9 @@ const en: Strings = {
       'It starts with a letter or a number and has only letters, numbers, spaces, dots and hyphens: 40 characters at most.',
     nameTaken: 'There is already a server with that name.',
     kind: 'Type',
-    kindProcess: 'A program on this Mac',
+    get kindProcess() {
+      return `A program on ${enPlace()}`;
+    },
     kindHttp: 'A server over HTTP',
     command: 'Command',
     commandHelp: 'The program that starts the server, like npx.',
@@ -966,14 +1014,18 @@ const en: Strings = {
     args: 'Arguments',
     argsHelp: 'One per line.',
     url: 'URL',
-    urlHelp: 'With https. Plain http only works if the server is on this Mac.',
+    get urlHelp() {
+      return `With https. Plain http only works if the server is on ${enPlace()}.`;
+    },
     urlInvalid: 'It has to start with https://, or with http:// if it is localhost.',
     env: 'Program keys and settings',
-    envHelp:
-      'What the program reads when it starts, like an API key (its environment variables). The values are kept in the macOS Keychain; only the name shows here.',
+    get envHelp() {
+      return `What the program reads when it starts, like an API key (its environment variables). The values are kept in ${enStore()}; only the name shows here.`;
+    },
     headers: 'Access keys',
-    headersHelp:
-      'What is sent with each request, like a token in Authorization (its headers). The values are kept in the macOS Keychain; only the name shows here.',
+    get headersHelp() {
+      return `What is sent with each request, like a token in Authorization (its headers). The values are kept in ${enStore()}; only the name shows here.`;
+    },
     envNone: 'None yet.',
     valueStored: 'Saved',
     valueEmpty: 'No value',
@@ -1001,8 +1053,9 @@ const en: Strings = {
 
   subscriptions: {
     title: 'Subscriptions',
-    intro:
-      'Connect your ChatGPT or Kimi Code subscription and ANOMANDER will use its models with it, with no API key. The account is kept in the macOS Keychain.',
+    get intro() {
+      return `Connect your ChatGPT or Kimi Code subscription and ANOMANDER will use its models with it, with no API key. The account is kept in ${enStore()}.`;
+    },
     open: 'Have a ChatGPT or Kimi Code subscription? Connect it',
     loading: 'Reading…',
     loadFailed: 'The accounts could not be read.',
@@ -1041,8 +1094,9 @@ const en: Strings = {
 
   memory: {
     title: 'Memory',
-    intro:
-      'What I remember about you and what I have done for you. All of it is on this Mac, and you can make me forget anything.',
+    get intro() {
+      return `What I remember about you and what I have done for you. All of it is on ${enPlace()}, and you can make me forget anything.`;
+    },
     known: 'What I know about you',
     done: 'What I have done',
     declared: 'You told me',
@@ -1077,10 +1131,12 @@ const en: Strings = {
       ),
     forget: 'Forget',
     forgetLabel: (words: string) => `Forget “${words}”`,
-    confirmMemory:
-      'Shall I forget it? I erase it from this Mac, and the messages of the conversation that mention it too.',
-    confirmAction:
-      "Shall I forget it? I erase it from this Mac, and the messages of the conversation that mention it too. I won't be able to get it back.",
+    get confirmMemory() {
+      return `Shall I forget it? I erase it from ${enPlace()}, and the messages of the conversation that mention it too.`;
+    },
+    get confirmAction() {
+      return `Shall I forget it? I erase it from ${enPlace()}, and the messages of the conversation that mention it too. I won't be able to get it back.`;
+    },
     confirmYes: 'Yes, forget',
     keep: "Don't forget",
     forgetting: 'Forgetting…',
@@ -1098,8 +1154,9 @@ const en: Strings = {
   ledger: {
     title: 'Bring the ledger from Docker',
     open: 'Coming from a Docker install? Bring your ledger',
-    intro:
-      'If you used ANOMANDER with Docker, copy its ledger to this Mac and write here where you left it. It is only imported into an ANOMANDER with no expenses; the ledger it has now is kept aside, never deleted.',
+    get intro() {
+      return `If you used ANOMANDER with Docker, copy its ledger to ${enPlace()} and write here where you left it. It is only imported into an ANOMANDER with no expenses; the ledger it has now is kept aside, never deleted.`;
+    },
     howIntro: 'To copy it, in the project folder, run one command and then the other:',
     howCommands:
       'docker compose stop\ndocker compose cp daemon:/app/data/anomander.db ~/Downloads/anomander.db',

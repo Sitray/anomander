@@ -221,11 +221,12 @@ Good to know:
 | --- | --- |
 | You moved or deleted this checkout | Build again. The app runs the daemon from `packages/daemon/src/main.ts` of the checkout it was built in |
 | You want to work on the window | `pnpm --dir apps/desktop tauri dev`, or the window alone in a browser. See [`apps/desktop/README.md`](apps/desktop/README.md) |
+| You want the chat from any app | Cmd+Shift+Space opens it, and hides it again when it is in front (Ctrl+Shift+Space on Windows). Cmd+, opens the setup (Ctrl+, on Windows). If another app holds the hotkey, ANOMANDER works without it |
 | macOS asks for the keychain password once | Entries stored by an unsigned build ask once. [`apps/desktop/README.md`](apps/desktop/README.md#signing-the-build) says how to clear them |
 
 ## Run the app on Windows
 
-The same app, built from this repository on your Windows PC, with the chat, the setup, connections, subscription login and Telegram. A look at the screen and tasks on the computer are macOS-only for now: on Windows the app answers them with its macOS permission message. As on the Mac, stop a Docker install first (DK-2 AC2).
+The same app, built from this repository on your Windows PC, with the chat, the setup, connections, subscription login and Telegram. A look at the screen and tasks on the computer are macOS-only for now: on Windows the app says they are not on Windows yet, and its text speaks of the Credential Manager and "este equipo", never of macOS (DK-20). As on the Mac, stop a Docker install first (DK-2 AC2).
 
 You need:
 

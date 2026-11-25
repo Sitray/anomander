@@ -34,7 +34,7 @@ and keep its secrets in the operating system instead of a text file.
 - Linux. v1 is macOS, where the Keychain and the menu bar live (assumption). Windows runs the
   app from source too (README, "Run the app on Windows"): the chat, setup, connections, login,
   Telegram, the tray and the drop; a look at the screen (DK-9) and tasks on the computer (DK-10)
-  are macOS-only for now.
+  are macOS-only for now, and the app says so (DK-20 AC2).
 - Automatic updates, code signing and notarization. v1 is built and installed by the principal
   (assumption).
 - Running ANOMANDER while the app is closed. That is what Docker is for (decision 2).
@@ -643,6 +643,28 @@ and keep its secrets in the operating system instead of a text file.
     chat asks for the stored conversation again, as after a forget confirmed in the chat. When it
     was not forgotten (the reply S-22) the item stays and the screen says so; when the connection
     was lost first, that it cannot know.
+- DK-20 Shortcuts and Windows wording (backlog B27, B28, 2026-11-25).
+  - AC1 (B28): the shell tells every webview its platform before any script runs
+    (`window.__ANOMANDER_PLATFORM__`, `macos` or `windows`, a fixed literal, as the language is).
+    On Windows the window never names macOS, the Keychain, "este Mac" or System Settings, in
+    either language: "este equipo" / "this computer", "el Administrador de credenciales de
+    Windows" / "the Windows Credential Manager". On macOS every text reads as before.
+  - AC2 (B28): on Windows a look at the screen (DK-9) and a task on the computer (DK-10) are not
+    offered: the daemon on Windows routes the app's messages as Telegram's, connections only
+    (DK-13 AC1), and answers a look or a task with "Eso todavía no puedo hacerlo en Windows." /
+    "I can't do that on Windows yet." (Telegram too). Should the window still be asked for one,
+    the shell refuses it and the window says "Todavía no puedo ver tu pantalla en Windows." or
+    "Todavía no puedo usar tu ordenador en Windows." instead of the macOS permission message.
+  - AC3 (B27): Cmd+Shift+Space on macOS, Ctrl+Shift+Space on Windows, from any app, brings the
+    chat to the front (as "Abrir chat" does, so it shows the stored conversation again); pressed
+    while the chat is in front, it hides it. The shell registers it with
+    `tauri-plugin-global-shortcut`; no window is granted the plugin's commands, so no page can
+    register a hotkey. When the system refuses it (another app holds it), the app works as before
+    and the log says "the chat hotkey could not be registered", with nothing of the principal's.
+    Not configurable yet. Known limit: on Windows it takes Ctrl+Shift+Space from every app while
+    ANOMANDER runs (in Word, a non-breaking space).
+  - AC4 (B27): in the window, Cmd+, (Ctrl+, on Windows) opens the setup, and closes it back to the
+    chat when it is open, as the status area's button.
 - DK-23 Onboarding without developer knowledge (backlog B22, 2026-11-25: "Provider/model picker
   with suggestions, a "Probar" button, models first, an app-specific guide").
   - AC1: the setup screen asks for the models first and for "Telegram (opcional)" last; the web

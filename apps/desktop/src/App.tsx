@@ -13,6 +13,7 @@ import { MemoryScreen } from './memory/MemoryScreen.tsx';
 import { probeModel } from './setup/probe.ts';
 import { isComplete, SetupScreen } from './setup/SetupScreen.tsx';
 import { shell as native, type SetupInput } from './shell.ts';
+import { useSetupShortcut } from './shortcuts.ts';
 import { ErrorBlock, StatusBar } from './status/StatusBar.tsx';
 import { useShell } from './status/use-shell.ts';
 import { strings } from './strings.ts';
@@ -49,6 +50,9 @@ export function App() {
     // Back to where the principal writes; the chat was only hidden, so it is as they left it.
     requestAnimationFrame(() => main.current?.querySelector('textarea')?.focus());
   }, []);
+
+  // DK-20: Cmd+, (Ctrl+, on Windows) as the status area's button.
+  useSetupShortcut(open === 'setup' || open === 'ledger' ? close : () => setOpen('setup'));
 
   const { saveSetup } = shell;
   const save = useCallback(
