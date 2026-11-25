@@ -102,7 +102,11 @@ export const readLineas = (
         )
         .all(desde, hasta, producto);
 
-/** How many expenses are pending and their totals; `0` and `0` when none is. */
+/**
+ * How many expenses are pending and their totals per currency. `total_cents` and `moneda` hold
+ * the one total when every pending expense shares a currency, `0` and `null` when none is
+ * pending, and `null` when currencies mix: then only `por_moneda` adds up.
+ */
 export const readPendientes = (db: Database.Database): Pendientes => {
   const sql = 'SELECT cantidad, total_cents, moneda, por_moneda FROM pendientes_de_confirmar';
   // The view always has its one row; the fallback only satisfies the type.
