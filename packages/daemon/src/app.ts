@@ -12,14 +12,13 @@ import {
   strings,
 } from '@anomander/protocol';
 import { connectionCommand, doorOf, isExport, isStart, routesOf } from './app/commands.ts';
+import { startJobs } from './app/jobs.ts';
 import { startChannel } from './app/local-channel.ts';
 import { announceGaps } from './app/setup-guide-mode.ts';
 import { oneTurnAtATime, sayingStopped, settled } from './app/turns.ts';
 import type { Anomander, AnomanderDeps } from './app/types.ts';
 import { createTelegramLogin } from './auth/telegram-login.ts';
-import { createDailyBackup } from './backup/daily-backup.ts';
 import { budgeted, createAiBudget } from './budget/ai-budget.ts';
-import { createReceiptQueue } from './budget/receipt-queue.ts';
 import type { Config } from './config.ts';
 import { readConnections } from './connections/config.ts';
 import { createConnections } from './connections/mcp-client.ts';
@@ -47,7 +46,6 @@ import { createGrantDigestAnswerHandler } from './decisions/grant-digest-decisio
 import { createGrantWeeklySummaryAnswerHandler } from './decisions/grant-weekly-summary-decision.ts';
 import { createTextRouter } from './decisions/router.ts';
 import { type RowOption, rowButton, rowLabel } from './decisions/window-amend.ts';
-import { createMorningDigest } from './digest/send-digest.ts';
 import { createReceiptExpenseCycle } from './expenses/receipt-expense.ts';
 import { createTextExpenseHandler } from './expenses/text-expense.ts';
 import { type ChatHandlers, NO_APP } from './local-channel/server.ts';
@@ -63,11 +61,8 @@ import { createPiAiTextInterpreter } from './processor/text-interpreter.ts';
 import { withTimeout } from './processor/timeout.ts';
 import { readExpensesMonth } from './read-api/month.ts';
 import { startReadApi } from './read-api/server.ts';
-import { createDueReminders } from './reminders/send-due.ts';
 import { createKeepReceiptAnswerHandler } from './retention/keep-receipt-decision.ts';
-import { createRetention } from './retention/retention-job.ts';
 import { groundedRoutes } from './routing/grounded-route.ts';
-import { startScheduler } from './scheduler/scheduler.ts';
 import { createModelProbe } from './setup/model-probe.ts';
 import { appSetupGuide, cachedSetupGaps, type SetupGap, setupGuide } from './setup/setup-guide.ts';
 import { storedConversation } from './store/conversation.ts';
@@ -83,7 +78,6 @@ import {
   revokeConnectionTool,
   revokeConnectionToolsNotIn,
 } from './store/permissions.ts';
-import { createWeeklySummary } from './summary/weekly-summary.ts';
 import { openTelegramDoor } from './telegram-door.ts';
 
 // The composition root: one process, one SQLite file, the front doors in the same process (PRD
@@ -591,56 +585,16 @@ export const startAnomander = <M>(config: Config, deps: AnomanderDeps<M>): Anoma
   // out late once a door is there (R-25 AC7), the digest is tried again until noon (R-26 AC5) and
   // the summary is skipped (decision 5 of the desktop PRD).
   const reachable = () => config.telegram !== undefined || app.connected();
-  // DK-22: they also run when the app connects. Every scheduled job and those runs go through
-  // this one chain, so two jobs never overlap (a receipt is never read while retention may
-  // delete its images), whoever started them.
-  let jobRuns: Promise<unknown> = Promise.resolve();
-  const oneJobAtATime =
-    <T>(job: () => Promise<T>) =>
-    (): Promise<T> => {
-      const run = jobRuns.then(job);
-      jobRuns = run.catch(() => {});
-      return run;
-    };
-  const unasked = <T>(job: () => Promise<T>) =>
-    oneJobAtATime(async () => (reachable() ? job() : undefined));
-  const retention = createRetention({
+  // DK-22: every scheduled job, and their runs when the app connects (below), go through one
+  // chain inside `startJobs`, so two jobs never overlap.
+  const { scheduler, sendMorningDigest, sendDueReminders, drainQueue } = startJobs({
+    config,
     db,
-    inboxDir: config.inboxDir,
-    timeZone: config.timeZone,
     now,
     notify,
     logger,
-  });
-  // B5: right after retention, so the day's copy holds nothing retention erased (§16).
-  const dailyBackup = createDailyBackup({ db, now, logger });
-  const summary = createWeeklySummary({ db, timeZone: config.timeZone, now, notify });
-  const queue = createReceiptQueue({ db, readQueued: receipts.readQueued, notify, now, logger });
-  const dueReminders = createDueReminders({ db, timeZone: config.timeZone, now, notify, logger });
-  const digest = createMorningDigest({ db, timeZone: config.timeZone, now, notify, logger });
-  const sendMorningDigest = unasked(digest.send);
-  const sendDueReminders = unasked(dueReminders.send);
-  const drainQueue = unasked(queue.drain);
-  const scheduler = startScheduler({
-    retentionCron: config.retentionCron,
-    weeklySummaryCron: config.weeklySummaryCron,
-    timeZone: config.timeZone,
-    jobs: {
-      retain: oneJobAtATime(async () => {
-        try {
-          return await retention.retain();
-        } finally {
-          await dailyBackup.run();
-        }
-      }),
-      sendMorningDigest,
-      sendDueReminders,
-      // T13 F1: a receipt is read only where its reply can be told; it waits for a door.
-      drainQueue,
-      watchReceipts: oneJobAtATime(retention.watchQueuedReceipts),
-      sendWeeklySummary: unasked(summary.send),
-    },
-    logger,
+    readQueued: receipts.readQueued,
+    reachable,
   });
 
   // RA-2: the read API, only while `ANOMANDER_API_TOKEN` is set (AC1). It opens its own
