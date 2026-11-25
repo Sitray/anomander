@@ -12,6 +12,7 @@ import {
   buttons,
   decisionButtons,
   formatAmount,
+  getCurrency,
   type PrincipalReceipt,
   type ReceiptHandler,
   type Reply,
@@ -107,7 +108,11 @@ const questionFor = (
       // S-4 names the expense already recorded; it uses only "Apuntar" and "Descartar".
       const earlier = consistency.duplicateOf ?? { ...stored, merchant };
       return {
-        question: strings.duplicate(earlier.total_cents, earlier.merchant, earlier.occurred_on),
+        question: strings.duplicate(
+          { cents: earlier.total_cents, currency: stored.currency },
+          earlier.merchant,
+          earlier.occurred_on,
+        ),
         options: [buttons.register, buttons.discard],
       };
     }
@@ -260,7 +265,7 @@ export const createReceiptExpenseCycle = (deps: ReceiptExpenseDeps): ReceiptExpe
         total_cents: reading.total.value,
         lines,
       },
-      { today: todayIn(timeZone, now()), existingExpenses: listCurrentExpenses(db) },
+      { today: todayIn(timeZone, now()), existingExpenses: listCurrentExpenses(db, getCurrency()) },
     );
 
     // §10 step 6, R-6: the authority check is code.
@@ -289,6 +294,8 @@ export const createReceiptExpenseCycle = (deps: ReceiptExpenseDeps): ReceiptExpe
       merchant,
       occurred_on: reading.occurredOn.value,
       total_cents: reading.total.value,
+      // DK-25: the reader reports no currency; one currency per principal.
+      currency: getCurrency(),
       category: categorization.category,
       category_basis: categoryBasis,
       // §10: only the inferences the expense rests on survive.

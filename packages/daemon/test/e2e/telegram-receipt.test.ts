@@ -40,7 +40,13 @@ beforeEach(async () => {
   readerCalls = [];
   interpreterRecent = [];
   api = await startFakeTelegramApi();
+  await start();
+});
+
+/** Starts the daemon over the fake API, with `env` laid over the test's configuration. */
+const start = async (env: Record<string, string> = {}) => {
   const config = loadConfig({
+    ...env,
     TELEGRAM_BOT_TOKEN: api.token,
     ANOMANDER_PRINCIPAL_CHAT_ID: String(PRINCIPAL),
     ANOMANDER_DB_PATH: join(scratch, 'anomander.db'),
@@ -69,7 +75,7 @@ beforeEach(async () => {
     now: () => NOW,
   });
   await anomander.started;
-});
+};
 
 afterEach(async () => {
   await anomander.stop();
@@ -161,6 +167,35 @@ describe('a receipt photo over Telegram', () => {
       query("SELECT subject_type, mode FROM assertions WHERE predicate = 'images_received'"),
     ).toEqual([{ subject_type: 'document', mode: 'observed' }]);
     expect(imagesLeft()).toEqual([]);
+  });
+
+  // DK-25 (B15): a receipt is written in the principal's currency, and an expense in another
+  // currency is never its duplicate, even with the same merchant, day and figure.
+  it('DK-25: writes a receipt in the principal currency; one in another currency is no duplicate', async () => {
+    addPolicy();
+    withDb((db) => {
+      const mercadona = db
+        .prepare(
+          "INSERT INTO entities (kind, name, created_at) VALUES ('merchant', 'Mercadona', ?)",
+        )
+        .run(NOW.toISOString()).lastInsertRowid;
+      db.prepare(
+        `INSERT INTO expenses (merchant_id, occurred_on, total_cents, currency, mode, status, created_at)
+         VALUES (?, '2026-10-29', 2340, 'EUR', 'declared', 'current', ?)`,
+      ).run(mercadona, NOW.toISOString());
+    });
+    await anomander.stop();
+    await start({ ANOMANDER_CURRENCY: 'USD' });
+    readerFixture = 'adds-up';
+    sendPhoto('receipt');
+
+    const [reply] = await api.waitForSent(1);
+
+    expect(reply?.text).toBe('Apuntado: 23,40\u00a0US$ en Mercadona (supermercado).');
+    expect(query('SELECT total_cents, currency, status FROM expenses ORDER BY id')).toEqual([
+      { total_cents: 2340, currency: 'EUR', status: 'current' },
+      { total_cents: 2340, currency: 'USD', status: 'current' },
+    ]);
   });
 
   it('asks S-3 with three buttons when the lines do not add up (R-6 AC2, AC3)', async () => {
