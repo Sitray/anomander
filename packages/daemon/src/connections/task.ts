@@ -15,10 +15,13 @@ import type { Connection, ToolInfo } from './connection.ts';
 // DK-11: a task that uses the tools of the servers the principal connected. The processor is
 // given the tools and asks for calls; it never makes one (R-14 AC3). Every call it asks for
 // stops here, and the code decides:
-// - a tool the principal marked read-only runs by itself, while nothing another server answered
-//   is in the task: what was read from one server never leaves towards another unasked; unless
-//   the call carries an argument its server says asks (`asksWith`, T17);
-// - anything else waits for "Permitir", shown by code with its exact arguments.
+// - a tool the principal marked read-only, or allowed with "Permitir siempre" for that server as
+//   it is now (DK-24), runs by itself, while nothing another server answered is in the task: what
+//   was read from one server never leaves towards another unasked; unless the call carries an
+//   argument its server says asks (`asksWith`, T17);
+// - anything else waits for "Permitir", shown by code with a plain line and its exact arguments.
+//   "Permitir siempre" is offered with it when the server can be told apart and no argument of
+//   its asks: only the principal's press on it grants, never the processor.
 // The task carries the principal's words, what ANOMANDER remembers about them (DK-14 AC1) and
 // what the tools answered, nothing of the ledger.
 
@@ -32,12 +35,18 @@ const MAX_NAME = 80;
 const MAX_DESCRIPTION = 1_000;
 /** The longest schema of a tool's arguments handed to the processor. */
 const MAX_SCHEMA = 8_000;
+/** DK-24 AC4: the longest value, and the longest line, of the plain line above the arguments. */
+const MAX_SUMMARY_VALUE = 60;
+const MAX_SUMMARY = 200;
 
 export type TaskOutcome =
   /** The task is over: the processor's own words. */
   | { kind: 'answer'; text: string }
-  /** A call waits for the principal: `text` says what it is, `id` answers it. */
-  | { kind: 'ask'; id: string; text: string }
+  /**
+   * A call waits for the principal: `text` says what it is, `id` answers it. `grantable` when
+   * "Permitir siempre" may be offered: the tool it would allow (DK-24).
+   */
+  | { kind: 'ask'; id: string; text: string; grantable?: GrantableCall }
   /** The principal refused a call: nothing more was done. */
   | { kind: 'stopped' }
   /** That call no longer waits: answered already, or its task ended. */
@@ -59,6 +68,13 @@ export interface ConnectionProblems {
   unreachable: readonly string[];
 }
 
+/** DK-24: one tool of one server, as it is configured now (`Connection.identity`). */
+export interface GrantableCall {
+  server: string;
+  tool: string;
+  identity: string;
+}
+
 /** A call code decided: which tool of which server, and whether it was sent (DK-14 AC2). */
 export interface DecidedCall {
   server: string;
@@ -72,8 +88,12 @@ export interface ConnectionTasks {
    * whichever one was waiting for the principal.
    */
   start(task: string): Promise<TaskOutcome>;
-  /** The principal's answer to the call `id`: it is performed at most once. */
-  answer(id: string, allow: boolean): Promise<TaskOutcome>;
+  /**
+   * The principal's answer to the call `id`: it is performed at most once. `confirmed`, when
+   * given with `allow`, is called once that call is found waiting, before it is made: where
+   * "Permitir siempre" is stored (DK-24 AC5); never for a call that no longer waits.
+   */
+  answer(id: string, allow: boolean, confirmed?: () => void): Promise<TaskOutcome>;
 }
 
 export interface ConnectionTasksDeps<M> {
@@ -88,6 +108,8 @@ export interface ConnectionTasksDeps<M> {
   newId?: () => string;
   /** Told of each call when code sends it or the principal refuses it (DK-14 AC2). */
   decided?: (call: DecidedCall) => void;
+  /** DK-24: whether the principal allowed that tool always; none is without it. */
+  alwaysAllowed?: (call: GrantableCall) => boolean;
 }
 
 /** The prompt of a task with connections, in the language the daemon chose at startup. */
@@ -185,6 +207,57 @@ const shownArguments = (args: unknown): string | null => {
   return json.length > MAX_SHOWN_ARGUMENTS ? null : json;
 };
 
+/** `text` cut to `max` characters, never inside one, with "…" when it was longer. */
+const shortened = (text: string, max: number): string => {
+  const characters = Array.from(text);
+  return characters.length <= max ? text : `${characters.slice(0, max - 1).join('')}…`;
+};
+
+/** `character` written as its code, as `seen` writes one. */
+const codeOf = (character: string): string =>
+  `\\u${character.charCodeAt(0).toString(16).padStart(4, '0')}`;
+
+/**
+ * DK-24 AC4: a name or a text of the plain line. The quotes that mark a text are written as their
+ * code, so a value cannot close its own and fake another argument; a backslash is doubled, so a
+ * code typed in a value never reads as one written for a character that cannot be seen.
+ */
+const plainText = (text: string): string =>
+  seen(
+    text.replace(/[\\«»]/g, (character) => (character === '\\' ? '\\\\' : codeOf(character))),
+    ' ',
+  );
+
+/** An argument's name: as a text, and its commas as their code, the mark between arguments. */
+const plainName = (name: string): string => plainText(name).replace(/,/g, codeOf);
+
+/** A value that is not a text, as compact JSON, which escapes its own backslashes and quotes. */
+const plainJson = (json: string): string => seen(json.replace(/[«»]/g, codeOf), ' ');
+
+/**
+ * DK-24 AC4: the arguments in one plain line, each value cut short; `null` when there are none.
+ * What cannot be seen is written as its code, as in the JSON below it, which stays exact.
+ */
+const summaryOf = (args: Record<string, unknown>): string | null => {
+  const entries = Object.entries(args);
+  if (entries.length === 0) return null;
+  const pieces = entries.map(([name, value]) => {
+    const shown =
+      typeof value === 'string'
+        ? `«${plainText(shortened(value, MAX_SUMMARY_VALUE))}»`
+        : plainJson(shortened(JSON.stringify(value) ?? 'null', MAX_SUMMARY_VALUE));
+    return `${plainName(shortened(name, MAX_SUMMARY_VALUE))} ${shown}`;
+  });
+  // Cut between arguments, never inside one, so no code is ever cut in half.
+  let line = '';
+  for (const piece of pieces) {
+    const next = line === '' ? piece : `${line}, ${piece}`;
+    if (line !== '' && Array.from(next).length > MAX_SUMMARY) return `${line}, …`;
+    line = next;
+  }
+  return line;
+};
+
 const resultOf = (call: ToolCall, text: string, isError: boolean): ToolResultMessage => ({
   role: 'toolResult',
   toolCallId: call.id,
@@ -209,6 +282,7 @@ export const createConnectionTasks = <M>(deps: ConnectionTasksDeps<M>): Connecti
   const { complete, model, connections, logger, newId = () => crypto.randomUUID() } = deps;
   const problems = deps.problems ?? (() => ({ invalid: false, unreachable: [] }));
   const decided = deps.decided ?? (() => {});
+  const alwaysAllowed = deps.alwaysAllowed ?? (() => false);
   const pending = new Map<string, Pending>();
 
   /** Answers every call of a turn: `first` with what happened, the others as not run. */
@@ -246,11 +320,39 @@ export const createConnectionTasks = <M>(deps: ConnectionTasksDeps<M>): Connecti
     }
   };
 
+  /** DK-24: the tool a call is of, when its server can be told apart from another. */
+  const grantableOf = ({ connection, tool }: Target): GrantableCall | undefined =>
+    connection.identity === undefined
+      ? undefined
+      : { server: connection.name, tool: tool.name, identity: connection.identity };
+
   /** Whether the call may run without asking (see the head of this file). */
-  const runsByItself = (run: Run, { connection, tool }: Target, call: ToolCall): boolean =>
-    connection.readOnly.has(tool.name) &&
-    !(connection.asksWith?.[tool.name] ?? []).some((name) => Object.hasOwn(call.arguments, name)) &&
-    [...run.answered].every((server) => server === connection.name);
+  const runsByItself = (run: Run, target: Target, call: ToolCall): boolean => {
+    const { connection, tool } = target;
+    const granted = grantableOf(target);
+    return (
+      (connection.readOnly.has(tool.name) || (granted !== undefined && alwaysAllowed(granted))) &&
+      !(connection.asksWith?.[tool.name] ?? []).some((name) =>
+        Object.hasOwn(call.arguments, name),
+      ) &&
+      [...run.answered].every((server) => server === connection.name)
+    );
+  };
+
+  /**
+   * DK-24: the tool "Permitir siempre" would allow for a call that asks; none for a tool that is
+   * read-only or allowed already (it asks for another reason), or of a server some of whose
+   * arguments ask (T17: such a server reaches any address, so its calls always ask).
+   */
+  const offered = ({ connection, tool }: Target): GrantableCall | undefined => {
+    const granted = grantableOf({ connection, tool });
+    return granted === undefined ||
+      connection.readOnly.has(tool.name) ||
+      Object.keys(connection.asksWith ?? {}).length > 0 ||
+      alwaysAllowed(granted)
+      ? undefined
+      : granted;
+  };
 
   const advance = async (run: Run): Promise<TaskOutcome> => {
     const cutShort = (kind: 'failed' | 'provider_limit'): TaskOutcome => ({
@@ -303,10 +405,17 @@ export const createConnectionTasks = <M>(deps: ConnectionTasksDeps<M>): Connecti
       }
       const id = newId();
       pending.set(id, step);
+      const grantable = offered(target);
       return {
         kind: 'ask',
         id,
-        text: strings.connectionCall(target.tool.name, target.connection.name, shown),
+        text: strings.connectionCall(
+          target.tool.name,
+          target.connection.name,
+          summaryOf(call.arguments),
+          shown,
+        ),
+        ...(grantable === undefined ? {} : { grantable }),
       };
     }
   };
@@ -335,7 +444,7 @@ export const createConnectionTasks = <M>(deps: ConnectionTasksDeps<M>): Connecti
         answered: new Set(),
       });
     },
-    answer: async (id, allow) => {
+    answer: async (id, allow, confirmed) => {
       const step = pending.get(id);
       if (step === undefined) return { kind: 'gone' };
       // Taken out first: a second answer finds nothing to perform.
@@ -345,6 +454,7 @@ export const createConnectionTasks = <M>(deps: ConnectionTasksDeps<M>): Connecti
         decided({ server: connection.name, tool: tool.name, allowed: false });
         return { kind: 'stopped' };
       }
+      confirmed?.();
       await perform(step);
       return advance(step.run);
     },

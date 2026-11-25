@@ -99,7 +99,8 @@ export interface ChatComputer {
 
 /**
  * A task for the servers the principal connected (DK-11). The daemon runs it: a call that needs
- * their permission comes back as a reply with "Permitir" and "Detener" buttons. Only the app
+ * their permission comes back as a reply with "Permitir" and "Detener" buttons, and "Permitir
+ * siempre" between them when it can be granted (DK-24). Only the app
  * can send it.
  */
 export interface ChatConnect {
@@ -203,6 +204,32 @@ export interface ChatAiUsageRequest {
   id: string;
 }
 
+/**
+ * DK-24 AC3: the tools the principal allowed with "Permitir siempre", for the window's
+ * "Conexiones". Answered with `ChatConnectionGrants`. Only reads.
+ */
+export interface ChatConnectionGrantsRequest {
+  type: 'connection_grants';
+  id: string;
+}
+
+/** DK-24 AC3: takes one "Permitir siempre" back ("Quitar"). Answered with `done`. */
+export interface ChatRevokeConnectionGrant {
+  type: 'revoke_connection_grant';
+  id: string;
+  /** The grant's `id`, as `ChatConnectionGrants` gave it. */
+  grantId: number;
+}
+
+/**
+ * DK-23 AC4: "Probar" in the setup screen: one minimal call to the saved model
+ * (`ANOMANDER_MODEL`), counted against the daily AI budget (R-12). Answered with a `ChatProbe`.
+ */
+export interface ChatProbeModel {
+  type: 'probe_model';
+  id: string;
+}
+
 export type ChatRequest =
   | ChatAiUsageRequest
   | ChatText
@@ -219,7 +246,10 @@ export type ChatRequest =
   | ChatForgetAction
   | ChatExpensesRequest
   | ChatUndoExpense
-  | ChatCorrectExpense;
+  | ChatCorrectExpense
+  | ChatConnectionGrantsRequest
+  | ChatRevokeConnectionGrant
+  | ChatProbeModel;
 
 /** DK-16: the most stored messages a `history` request returns. */
 export const HISTORY_LIMIT = 500;
@@ -380,6 +410,55 @@ export interface ChatAiUsage {
   limit: number;
 }
 
+/** DK-24: a tool the principal allowed always, for that server as it is configured now. */
+export interface ChatConnectionGrant {
+  id: number;
+  /** The server's name in `mcp.json`. */
+  server: string;
+  tool: string;
+  /** When the principal pressed "Permitir siempre": ISO 8601, UTC. */
+  at: string;
+}
+
+/** DK-24: the answer to a `connection_grants` request, by server and then tool. */
+export interface ChatConnectionGrants {
+  type: 'connection_grants';
+  inReplyTo: string;
+  grants: ChatConnectionGrant[];
+}
+
+/**
+ * DK-23 AC4: how a probe of the model ended, never the provider's own words, which can quote the
+ * key: `ok`; `model_unset`, `vision_model_unset` (the model is saved, the one for photos is not) or
+ * `model_unknown` while the setup names no usable model;
+ * `not_connected` without a key or a login; `budget_exhausted` (R-12, no call made); and from the
+ * call itself `key_refused`, `model_unavailable`, `provider_limit`, `timed_out` or `failed`.
+ */
+export const PROBE_OUTCOMES = [
+  'ok',
+  'model_unset',
+  'vision_model_unset',
+  'model_unknown',
+  'not_connected',
+  'budget_exhausted',
+  'key_refused',
+  'model_unavailable',
+  'provider_limit',
+  'timed_out',
+  'failed',
+] as const;
+export type ProbeOutcome = (typeof PROBE_OUTCOMES)[number];
+
+/**
+ * DK-23 AC4: the answer to a `probe_model` request. The window asks it on a connection of its own,
+ * so it is not one of the chat's `ChatEvent`s.
+ */
+export interface ChatProbe {
+  type: 'probe';
+  inReplyTo: string;
+  outcome: ProbeOutcome;
+}
+
 export type ChatEvent =
   | ChatAiUsage
   | ChatReply
@@ -388,4 +467,5 @@ export type ChatEvent =
   | ChatHistory
   | ChatMemories
   | ChatActions
-  | ChatExpenses;
+  | ChatExpenses
+  | ChatConnectionGrants;

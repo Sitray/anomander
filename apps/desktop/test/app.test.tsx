@@ -1,5 +1,10 @@
 // @vitest-environment jsdom
-import { formatAmount, formatDate, strings as replies } from '@anomander/protocol';
+import {
+  formatAmount,
+  formatDate,
+  LOCAL_CHANNEL_PROTOCOL,
+  strings as replies,
+} from '@anomander/protocol';
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { App } from '../src/App.tsx';
@@ -7,6 +12,7 @@ import { type LoginOutcome, type LoginStep, type Snapshot, shell } from '../src/
 import { strings } from '../src/strings.ts';
 import { FakeWebSocket } from './fake-web-socket.ts';
 import {
+  CHANNEL,
   CONNECTIONS,
   EMPTY_SETUP,
   FILLED_SETUP,
@@ -249,18 +255,19 @@ describe('the setup', () => {
     mocked.saveSetup.mockResolvedValue({
       daemon: STARTING,
       channel: null,
-      setup: { ...EMPTY_SETUP, model: 'openai/gpt-4o-mini' },
+      setup: { ...EMPTY_SETUP, model: 'openai/gpt-5-mini' },
     });
     fireEvent.change(screen.getByLabelText(strings.setup.model), {
-      target: { value: 'openai/gpt-4o-mini' },
+      target: { value: 'openai/gpt-5-mini' },
     });
     fireEvent.click(screen.getByRole('button', { name: strings.setup.save }));
 
     await waitFor(() => expect(setupHeading()).toBeNull());
     expect(mocked.saveSetup).toHaveBeenCalledWith({
       principalChatId: '',
-      model: 'openai/gpt-4o-mini',
-      visionModel: '',
+      model: 'openai/gpt-5-mini',
+      // DK-23 AC2: left empty, photos are read with the same model.
+      visionModel: 'openai/gpt-5-mini',
       providerKeys: {},
     });
   });
@@ -270,10 +277,10 @@ describe('the setup', () => {
     mocked.saveSetup.mockResolvedValue({
       daemon: STARTING,
       channel: null,
-      setup: { ...EMPTY_SETUP, model: 'openai/gpt-4o-mini' },
+      setup: { ...EMPTY_SETUP, model: 'openai/gpt-5-mini' },
     });
     fireEvent.change(screen.getByLabelText(strings.setup.model), {
-      target: { value: 'openai/gpt-4o-mini' },
+      target: { value: 'openai/gpt-5-mini' },
     });
     fireEvent.click(screen.getByRole('button', { name: strings.setup.save }));
 
@@ -300,10 +307,10 @@ describe('the setup', () => {
     mocked.saveSetup.mockResolvedValue({
       daemon: STARTING,
       channel: null,
-      setup: { ...EMPTY_SETUP, model: 'openai/gpt-4o-mini' },
+      setup: { ...EMPTY_SETUP, model: 'openai/gpt-5-mini' },
     });
     fireEvent.change(screen.getByLabelText(strings.setup.model), {
-      target: { value: 'openai/gpt-4o-mini' },
+      target: { value: 'openai/gpt-5-mini' },
     });
     fireEvent.click(screen.getByRole('button', { name: strings.setup.save }));
 
@@ -451,6 +458,32 @@ describe('the connections', () => {
 
     await waitFor(() => expect(screen.getByText(strings.connections.none)).toBeTruthy());
     expect(mocked.removeConnection).toHaveBeenCalledWith('notes');
+  });
+
+  it('DK-24 AC3: list the tools allowed always, read on a connection of their own to the channel', async () => {
+    mocked.connections.mockResolvedValue(CONNECTIONS);
+    await open(runningSnapshot());
+    fireEvent.click(screen.getByRole('button', { name: strings.status.openConnections }));
+    await screen.findByRole('list', { name: strings.connections.servers });
+
+    expect(FakeWebSocket.instances).toHaveLength(2);
+    const socket = FakeWebSocket.last;
+    act(() => socket.open());
+    await waitFor(() => expect(socket.lastRequest.type).toBe('connection_grants'));
+    const grant = { id: 4, server: 'notes', tool: 'create', at: '2026-11-25T09:00:00.000Z' };
+    act(() =>
+      socket.receive({
+        type: 'connection_grants',
+        inReplyTo: socket.lastRequest.id,
+        grants: [grant],
+      }),
+    );
+
+    expect(
+      await screen.findByRole('button', {
+        name: strings.connections.revokeGrantFor('create', 'notes'),
+      }),
+    ).toBeTruthy();
   });
 
   it('give way to the setup, which still saves', async () => {
@@ -760,5 +793,59 @@ describe('usage frictions (DK-21)', () => {
     );
 
     expect(setupHeading()).toBeTruthy();
+  });
+});
+
+// DK-23 AC4: "Probar" asks the daemon on its own connection to the local channel.
+describe('"Probar" in the setup', () => {
+  const KEY = 'sk-secret-key-the-provider-quoted';
+  const probe = async () => {
+    await open(runningSnapshot());
+    fireEvent.click(screen.getByRole('button', { name: strings.status.openSetup }));
+    const chat = FakeWebSocket.last;
+    fireEvent.click(screen.getByRole('button', { name: strings.setup.probe }));
+    const socket = FakeWebSocket.last;
+    expect(socket).not.toBe(chat);
+    return socket;
+  };
+
+  it('sends probe_model with the channel token and shows only its outcome', async () => {
+    const socket = await probe();
+    expect(socket.url).toBe(CHANNEL.url);
+    expect(socket.protocols).toEqual([LOCAL_CHANNEL_PROTOCOL, TOKEN]);
+    act(() => socket.open());
+    const request = socket.lastRequest;
+    expect(request.type).toBe('probe_model');
+    // Anything beside the outcome is not shown, even if the daemon sent it.
+    act(() =>
+      socket.receiveRaw(
+        JSON.stringify({
+          type: 'probe',
+          inReplyTo: request.id,
+          outcome: 'key_refused',
+          detail: KEY,
+        }),
+      ),
+    );
+
+    expect(await screen.findByText(strings.setup.probeOutcome.key_refused)).toBeTruthy();
+    expect(document.documentElement.outerHTML).not.toContain(KEY);
+    expect(socket.readyState).toBe(FakeWebSocket.CLOSED);
+  });
+
+  it('says the connection was lost when it closes before the answer', async () => {
+    const socket = await probe();
+    act(() => socket.open());
+    act(() => socket.drop());
+
+    expect(await screen.findByText(strings.setup.probeLost)).toBeTruthy();
+  });
+
+  it('says it failed when the daemon answers something else', async () => {
+    const socket = await probe();
+    act(() => socket.open());
+    act(() => socket.receive(replyTo(socket.lastRequest.id, { text: 'S-22' })));
+
+    expect(await screen.findByText(strings.setup.probeOutcome.failed)).toBeTruthy();
   });
 });

@@ -4,10 +4,12 @@ import type { AddressInfo } from 'node:net';
 import {
   type ButtonPress,
   type ChatAction,
+  type ChatConnectionGrant,
   type ChatEvent,
   type ChatExpensesRequest,
   type ChatHistoryRequest,
   type ChatMemory,
+  type ChatProbe,
   type ChatRequest,
   type ChatStoredMessage,
   type ComputerRequest,
@@ -17,6 +19,7 @@ import {
   LOCAL_CHANNEL_PROTOCOL,
   MAX_COMPUTER_STEPS,
   type PrincipalText,
+  type ProbeOutcome,
   type ReceiptHandler,
   type ScreenQuestion,
   strings,
@@ -88,6 +91,17 @@ export interface ExpensesLedger {
   correct(expenseId: number): Promise<DoorReply | null>;
 }
 
+/**
+ * DK-24 AC3: the tools the principal allowed with "Permitir siempre", for the window's
+ * "Conexiones", and "Quitar". Nothing of a call's arguments is in them.
+ */
+export interface ConnectionGrants {
+  /** Those in force, by server and then tool. */
+  list(): ChatConnectionGrant[];
+  /** Revokes one; nothing when it is not one in force. */
+  revoke(id: number): void;
+}
+
 export interface LocalChannelDeps {
   /** `ANOMANDER_LOCAL_TOKEN`: never logged (DK-3 AC2). */
   token: string;
@@ -97,6 +111,8 @@ export interface LocalChannelDeps {
   conversation: StoredConversation;
   memory: StoredMemory;
   expenses: ExpensesLedger;
+  /** Absent, as in the setup guide, the list is empty and nothing can be revoked. */
+  grants?: ConnectionGrants;
   /**
    * DK-21: today's processor calls and the daily limit (R-12). Absent while no database is open
    * (the setup guide): the window is told it could not be read (S-22).
@@ -104,6 +120,11 @@ export interface LocalChannelDeps {
   aiUsage?: () => { calls: number; limit: number };
   logger: Logger;
   now?: () => Date;
+  /**
+   * DK-23 AC4: "Probar": one minimal call to the saved model, outside the chat's turn. It never
+   * throws; without it a probe answers `failed`.
+   */
+  probe?: () => Promise<ProbeOutcome>;
 }
 
 export interface LocalChannelAddress {
@@ -187,6 +208,11 @@ const requestSchema = z.discriminatedUnion('type', [
   // DK-17 AC6
   z.strictObject({ type: z.literal('undo_expense'), id, expenseId: z.int().positive() }),
   z.strictObject({ type: z.literal('correct_expense'), id, expenseId: z.int().positive() }),
+  // DK-24 AC3
+  z.strictObject({ type: z.literal('connection_grants'), id }),
+  z.strictObject({ type: z.literal('revoke_connection_grant'), id, grantId: z.int().positive() }),
+  // DK-23 AC4
+  z.strictObject({ type: z.literal('probe_model'), id }),
   // DK-21
   z.strictObject({ type: z.literal('ai_usage'), id }),
 ]);
@@ -223,6 +249,13 @@ const unsupported = (images: ChatRequest & { type: 'receipt' }): string | undefi
 
 export const startLocalChannel = (deps: LocalChannelDeps): LocalChannel => {
   const { handlers, conversation, memory, expenses, logger, now = () => new Date() } = deps;
+  const grants: ConnectionGrants = deps.grants ?? {
+    list: () => [],
+    revoke: () => {
+      throw new Error('no store to revoke a grant from');
+    },
+  };
+  const { probe = async (): Promise<ProbeOutcome> => 'failed' } = deps;
   const expected = digest(deps.token);
   // DK-3 AC2: exactly the protocol and then the token, compared in constant time.
   const authorized = (header: string | undefined): boolean => {
@@ -238,7 +271,7 @@ export const startLocalChannel = (deps: LocalChannelDeps): LocalChannel => {
   type Listing =
     | ChatHistoryRequest
     | ChatExpensesRequest
-    | { type: 'memories' | 'actions' | 'ai_usage' };
+    | { type: 'memories' | 'actions' | 'ai_usage' | 'connection_grants' | 'probe_model' };
   /** DK-21: today's AI calls; without a database to read them from, the request fails. */
   const usage = (request: ChatRequest & { type: 'ai_usage' }): ChatEvent => {
     if (deps.aiUsage === undefined) throw new Error('no database is open to read the AI budget');
@@ -297,6 +330,12 @@ export const startLocalChannel = (deps: LocalChannelDeps): LocalChannel => {
           await memory.forgetAction(request.actionId);
           return null;
         })();
+      // DK-24 AC3: "Quitar", answered `done`.
+      case 'revoke_connection_grant':
+        return (async () => {
+          grants.revoke(request.grantId);
+          return null;
+        })();
       // DK-17 AC6: answered as the expense's buttons in the chat are.
       case 'undo_expense':
         return expenses.undo(request.expenseId);
@@ -334,7 +373,7 @@ export const startLocalChannel = (deps: LocalChannelDeps): LocalChannel => {
     }
   };
 
-  const send = (socket: WebSocket, event: ChatEvent): Promise<void> =>
+  const send = (socket: WebSocket, event: ChatEvent | ChatProbe): Promise<void> =>
     new Promise((resolve, reject) => {
       socket.send(JSON.stringify(event), (error) => (error ? reject(error) : resolve()));
     });
@@ -346,7 +385,7 @@ export const startLocalChannel = (deps: LocalChannelDeps): LocalChannel => {
       await send(socket, { type: 'rejected', inReplyTo: request.rejected });
       return;
     }
-    let answered: DoorReply | ChatStoredMessage[] | ChatEvent | null;
+    let answered: DoorReply | ChatStoredMessage[] | ChatEvent | ChatProbe | null;
     try {
       // DK-16 S4: the latest messages, oldest first. Their words are never logged.
       // DK-17: the month's expenses, never logged either.
@@ -357,9 +396,13 @@ export const startLocalChannel = (deps: LocalChannelDeps): LocalChannel => {
             ? listed(request)
             : request.type === 'expenses'
               ? { type: 'expenses', inReplyTo: request.id, ...expenses.month(request.month) }
-              : request.type === 'ai_usage'
-                ? usage(request)
-                : await answer(request);
+              : request.type === 'connection_grants'
+                ? { type: 'connection_grants', inReplyTo: request.id, grants: grants.list() }
+                : request.type === 'probe_model'
+                  ? { type: 'probe', inReplyTo: request.id, outcome: await probe() }
+                  : request.type === 'ai_usage'
+                    ? usage(request)
+                    : await answer(request);
     } catch (error) {
       logger.error(`The daemon failed to handle a ${request.type} from the local channel`, {
         error,

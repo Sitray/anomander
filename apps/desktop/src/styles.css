@@ -1239,6 +1239,22 @@ button {
   margin-top: calc(var(--s2) * -1);
 }
 
+/* DK-23 AC4: "Probar" with its outcome beside it, which wraps under it when long. */
+.probe-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s2) var(--s3);
+}
+
+.probe-row .button {
+  height: 1.875rem;
+}
+
+.probe-result:empty {
+  display: none;
+}
+
 /* ---------- Connections ---------- */
 
 .connectors,
@@ -1349,6 +1365,39 @@ button {
 
 .server-oauth-state {
   color: var(--text-2);
+}
+
+/* DK-24 AC3: the tools a server runs without asking, each with "Quitar". */
+.server-grants {
+  flex-basis: 100%;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--s1) var(--s3);
+  font-size: var(--text-sm);
+}
+
+.server-grants-label {
+  color: var(--text-2);
+}
+
+.server-grants ul {
+  display: contents;
+  list-style: none;
+}
+
+/* Inside a row of `.keys`: none of that row's padding or rule between rows. */
+.keys .server-grants li {
+  display: inline-flex;
+  align-items: baseline;
+  gap: var(--s2);
+  padding: 0;
+  border-top: 0;
+}
+
+.server-grant-tool {
+  font-family: var(--mono);
+  overflow-wrap: anywhere;
 }
 
 /* ---------- Subscriptions (DK-15) ---------- */

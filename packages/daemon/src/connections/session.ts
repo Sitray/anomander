@@ -5,6 +5,7 @@ import type { ActionRecord } from '../store/history.ts';
 import {
   type ConnectionTasks,
   type DecidedCall,
+  type GrantableCall,
   MAX_CONNECTION_CALLS,
   type TaskOutcome,
 } from './task.ts';
@@ -18,7 +19,7 @@ import {
 
 /** The data of the buttons under a call that waits for the principal (DK-11). */
 const CONNECTION_BUTTON = 'connection:';
-const CONNECTION_PRESS = /^connection:([^:]+):(allow|refuse)$/;
+const CONNECTION_PRESS = /^connection:([^:]+):(allow|always|refuse)$/;
 /** The longest text Telegram delivers in one message. */
 const TELEGRAM_MAX_TEXT = 4096;
 
@@ -49,6 +50,12 @@ export interface ConnectionSessionDeps {
   keep: (record: Omit<ActionRecord, 'endedAt'>) => void;
   /** Sends to Telegram: a task asked there is answered there, by itself. */
   send: (message: DoorReply) => Promise<void>;
+  /**
+   * DK-24: the principal pressed "Permitir siempre" on a call of `call`, at `door`: stores the
+   * grant. Called only once the task confirmed that call waits, before it is made. Without it
+   * none is offered.
+   */
+  grant?: (call: GrantableCall, door: Door) => void;
   logger: Logger;
 }
 
@@ -78,6 +85,8 @@ interface Asked {
   waiting: boolean;
   /** Asked in words already stored as a turn (`run`). */
   routed: boolean;
+  /** DK-24: the call that waits, by its id, and the tool "Permitir siempre" would allow. */
+  offer?: { id: string; call: GrantableCall };
 }
 
 /** How a task was cut short, and that it had made calls by then: they are not undone. */
@@ -85,7 +94,7 @@ const cutShort = (text: string, performed: number): string =>
   performed === 0 ? text : `${text} ${strings.connectionPerformed(performed)}`;
 
 export const createConnectionSession = (deps: ConnectionSessionDeps): ConnectionSession => {
-  const { tasks, turnLock, turns, keep, send, logger } = deps;
+  const { tasks, turnLock, turns, keep, send, grant, logger } = deps;
 
   const connectionReply = (outcome: TaskOutcome, current: Asked): DoorReply => {
     switch (outcome.kind) {
@@ -96,14 +105,21 @@ export const createConnectionSession = (deps: ConnectionSessionDeps): Connection
           { text: outcome.text },
           current.door,
         );
-      case 'ask':
+      case 'ask': {
+        const button = (label: string, answer: string) => ({
+          label,
+          data: `${CONNECTION_BUTTON}${outcome.id}:${answer}`,
+        });
+        const always = grant !== undefined && outcome.grantable !== undefined;
         return {
           text: outcome.text,
           buttons: [
-            { label: strings.connectionAllow(), data: `${CONNECTION_BUTTON}${outcome.id}:allow` },
-            { label: strings.connectionRefuse(), data: `${CONNECTION_BUTTON}${outcome.id}:refuse` },
+            button(strings.connectionAllow(), 'allow'),
+            ...(always ? [button(strings.connectionAllowAlways(), 'always')] : []),
+            button(strings.connectionRefuse(), 'refuse'),
           ],
         };
+      }
       case 'stopped':
         return { text: strings.connectionStopped() };
       case 'gone':
@@ -147,8 +163,11 @@ export const createConnectionSession = (deps: ConnectionSessionDeps): Connection
   const say = turnLock.inTurn(
     async ({ outcome, task }: { outcome: TaskOutcome; task: Asked }) => {
       // A call that waits is not an end, nor is a press on one that no longer waits.
-      if (outcome.kind === 'ask') task.waiting = true;
-      else if (outcome.kind !== 'gone') keepTask(task, outcome.kind);
+      if (outcome.kind === 'ask') {
+        task.waiting = true;
+        if (outcome.grantable === undefined) delete task.offer;
+        else task.offer = { id: outcome.id, call: outcome.grantable };
+      } else if (outcome.kind !== 'gone') keepTask(task, outcome.kind);
       return connectionReply(outcome, task);
     },
     { ends: true },
@@ -193,7 +212,17 @@ export const createConnectionSession = (deps: ConnectionSessionDeps): Connection
         return { text: strings.connectionGone() };
       }
       const [, id = '', answer] = pressed;
-      return connectionStep(asked, () => tasks.answer(id, answer === 'allow'));
+      // DK-24 AC5: only the press on "Permitir siempre" of the call that waits grants; the
+      // processor never sees a button, and a press it was not offered for grants nothing.
+      const { offer } = asked;
+      // Any answer to that call ends the offer: a later press on it grants nothing.
+      if (offer?.id === id) delete asked.offer;
+      if (answer !== 'always') {
+        return connectionStep(asked, () => tasks.answer(id, answer === 'allow'));
+      }
+      if (offer?.id !== id || grant === undefined) return { text: strings.connectionGone() };
+      // Stored only once the task found that call waiting, before it is made.
+      return connectionStep(asked, () => tasks.answer(id, true, () => grant(offer.call, door)));
     },
     decided: (call) => {
       asked.calls.push(call);

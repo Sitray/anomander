@@ -8,13 +8,23 @@
 // A value (of a variable or a header) is typed into an uncontrolled field and kept in a ref, so
 // it never enters React state or a DOM attribute, and it is dropped once saved. The shell never
 // sends one back: of what is stored the screen only has the names.
-import { OAUTH_CONNECTIONS } from '@anomander/protocol';
+//
+// DK-24 AC3: with the daemon's channel, each server lists the tools allowed with "Permitir
+// siempre", each with "Quitar". The daemon keeps them, not the file.
+import { type ChatConnectionGrant, OAUTH_CONNECTIONS } from '@anomander/protocol';
 import { type FormEvent, useEffect, useId, useRef, useState } from 'react';
 import { Field } from '../setup/SetupScreen.tsx';
-import type { ConnectionInput, ConnectionServer, ConnectionsView, OAuthConnect } from '../shell.ts';
+import type {
+  ConnectionInput,
+  ConnectionServer,
+  ConnectionsView,
+  LocalChannel,
+  OAuthConnect,
+} from '../shell.ts';
 import { ErrorBlock } from '../status/StatusBar.tsx';
 import { strings } from '../strings.ts';
 import { messageOf } from '../ui/message-of.ts';
+import { useConnectionGrants } from './use-connection-grants.ts';
 import { boxed, isServerName, isServerUrl, unboxed } from './validation.ts';
 import { hasWebSearch, webSearchInput } from './web-search.ts';
 
@@ -29,6 +39,11 @@ export interface ConnectionsScreenProps {
   onConnectOAuth?: (name: string) => Promise<OAuthConnect>;
   /** Forgets the OAuth tokens of a server; otherwise as `onRemove`. */
   onForgetOAuth?: (name: string) => Promise<ConnectionsView>;
+  /**
+   * DK-24 AC3: the daemon's channel, for the tools allowed always; `null` while it is not
+   * running. Without it, none is listed.
+   */
+  channel?: LocalChannel | null;
   onClose: () => void;
 }
 
@@ -426,8 +441,10 @@ export function ConnectionsScreen({
   onRemove,
   onConnectOAuth,
   onForgetOAuth,
+  channel,
   onClose,
 }: ConnectionsScreenProps) {
+  const granted = useConnectionGrants(channel);
   const [view, setView] = useState<ConnectionsView | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [attempt, setAttempt] = useState(0);
@@ -767,6 +784,16 @@ export function ConnectionsScreen({
                       </button>
                     </>
                   )}
+                  <AlwaysAllowed
+                    server={server.name}
+                    grants={
+                      granted.grants.state === 'ready'
+                        ? granted.grants.items.filter((grant) => grant.server === server.name)
+                        : []
+                    }
+                    disabled={granted.revoking}
+                    onRevoke={granted.revoke}
+                  />
                   {server.kind === 'http' && onConnectOAuth !== undefined && (
                     <span className="server-oauth">
                       {server.oauth && (
@@ -802,6 +829,7 @@ export function ConnectionsScreen({
               ))}
             </ul>
           )}
+          {granted.grants.state === 'failed' && <p className="field-note">{text.grantsFailed}</p>}
         </div>
 
         {changeable && (
@@ -856,6 +884,13 @@ export function ConnectionsScreen({
             <ErrorBlock label={strings.status.errorDetail}>{rejection}</ErrorBlock>
           </div>
         )}
+        {granted.problem !== null && (
+          <div className="setup-alert" role="alert">
+            <p>
+              {granted.problem === 'unknown' ? text.revokeGrantUnknown : text.revokeGrantFailed}
+            </p>
+          </div>
+        )}
         {connectorRejection !== null && (
           <div className="setup-alert" role="alert">
             <p>{text.connectorRejected(connectorRejection.title)}</p>
@@ -869,5 +904,39 @@ export function ConnectionsScreen({
         </div>
       </footer>
     </section>
+  );
+}
+
+interface AlwaysAllowedProps {
+  server: string;
+  /** Its tools allowed with "Permitir siempre". */
+  grants: readonly ChatConnectionGrant[];
+  disabled: boolean;
+  onRevoke: (grantId: number) => void;
+}
+
+/** DK-24 AC3: a server's tools allowed always, each with "Quitar"; nothing when it has none. */
+function AlwaysAllowed({ server, grants, disabled, onRevoke }: AlwaysAllowedProps) {
+  if (grants.length === 0) return null;
+  return (
+    <span className="server-grants">
+      <span className="server-grants-label">{text.alwaysAllowed}</span>
+      <ul aria-label={text.alwaysAllowedIn(server)}>
+        {grants.map((grant) => (
+          <li key={grant.id}>
+            <span className="server-grant-tool">{grant.tool}</span>
+            <button
+              type="button"
+              className="link"
+              aria-label={text.revokeGrantFor(grant.tool, server)}
+              disabled={disabled}
+              onClick={() => onRevoke(grant.id)}
+            >
+              {text.revokeGrant}
+            </button>
+          </li>
+        ))}
+      </ul>
+    </span>
   );
 }

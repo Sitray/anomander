@@ -9,12 +9,14 @@ pub mod daemon;
 pub mod data_dir;
 pub mod diagnostics;
 pub mod file_mode;
+pub mod hotkey;
 pub mod ledger_import;
 pub mod locale;
 pub mod login;
 pub mod notch;
 pub mod notification;
 pub mod oauth_connect;
+pub mod platform;
 pub mod screen;
 pub mod secure_store;
 pub mod setup;
@@ -638,6 +640,8 @@ fn set_up(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         on_menu,
     )?;
     notch::build(app)?;
+    // DK-20: after the tray, which can bring the chat too; without the hotkey the app still works.
+    hotkey::install(app.handle());
     app.manage(Shell {
         core,
         supervisor,
@@ -691,6 +695,7 @@ pub fn run() {
     locale::choose(locale);
     let app = tauri::Builder::default()
         .plugin(locale::plugin(locale))
+        .plugin(platform::plugin())
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_clipboard_manager::init())
         // DK-21: the file dialog of the ledger import; the window may only open it.
