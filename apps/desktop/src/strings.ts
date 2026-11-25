@@ -314,6 +314,16 @@ const es = {
     removing: 'Quitando…',
     /** The shell refused; its own message follows, verbatim. */
     removeRejected: 'No se ha quitado. Esto dice la aplicación:',
+    /** DK-24 AC3 (S-183 to S-187): the tools allowed with "Permitir siempre", under their server. */
+    alwaysAllowed: 'Siempre permitidas:',
+    alwaysAllowedIn: (server: string) => `Herramientas siempre permitidas de ${server}`,
+    revokeGrant: 'Quitar',
+    revokeGrantFor: (tool: string, server: string) =>
+      `Quitar «Permitir siempre» de ${tool} en ${server}`,
+    grantsFailed: 'No se han podido leer las herramientas siempre permitidas.',
+    revokeGrantFailed: 'No se ha quitado. Inténtalo otra vez.',
+    revokeGrantUnknown:
+      'Se ha perdido la conexión con ANOMANDER y no sé si se ha quitado. Vuelve a abrir Conexiones para verlo.',
     close: 'Cerrar',
     /** The form, for any other server. */
     advanced: 'Avanzado',
@@ -852,6 +862,15 @@ const en: Strings = {
     keepServer: "Don't remove",
     removing: 'Removing…',
     removeRejected: 'Not removed. This is what the app says:',
+    alwaysAllowed: 'Always allowed:',
+    alwaysAllowedIn: (server: string) => `Tools always allowed for ${server}`,
+    revokeGrant: 'Remove',
+    revokeGrantFor: (tool: string, server: string) =>
+      `Remove “Always allow” for ${tool} on ${server}`,
+    grantsFailed: "The tools always allowed couldn't be read.",
+    revokeGrantFailed: 'Not removed. Try again.',
+    revokeGrantUnknown:
+      "The connection with ANOMANDER was lost and I don't know whether it was removed. Open Connections again to see.",
     close: 'Close',
     advanced: 'Advanced',
     advancedNote: 'For any other MCP server: a program on this Mac or an address, written by hand.',
