@@ -17,7 +17,7 @@ use crate::secure_store::SecretStore;
 use crate::setup::{
     apply_setup, load_secrets, save_settings, setup_state, Settings, SetupInput, TELEGRAM_BOT_TOKEN,
 };
-use crate::snapshot::{SetupState, Snapshot};
+use crate::snapshot::{NotificationMode, SetupState, Snapshot};
 
 /// The words a secret's name usually holds. Every value of `mcp.json` is kept as one, and the
 /// code cannot tell which are: a value whose name has one of these words, or any header, is
@@ -185,6 +185,24 @@ impl Core {
             channel: update.channel,
             setup: self.setup_state(),
         }
+    }
+
+    /// DK-22: what the notifications show, as last saved.
+    pub fn notifications(&self) -> NotificationMode {
+        lock(&self.setup).settings.notifications
+    }
+
+    /// DK-22: saves what the notifications show, at once. The daemon is not touched.
+    pub fn set_notifications(&self, mode: NotificationMode) -> Result<(), String> {
+        let mut setup = lock(&self.setup);
+        let settings = Settings {
+            notifications: mode,
+            ..setup.settings.clone()
+        };
+        save_settings(&self.data, &settings)
+            .map_err(|error| format!("could not save the settings: {error}"))?;
+        setup.settings = settings;
+        Ok(())
     }
 
     /// DK-5 AC1: stores the secrets and saves the rest. The daemon is not touched here.
@@ -558,6 +576,7 @@ impl Core {
 mod tests {
     use super::*;
     use crate::secure_store::MemoryStore;
+    use crate::setup::load_settings;
     use serde_json::json;
     use std::collections::BTreeMap;
 
@@ -612,6 +631,7 @@ mod tests {
             vision_model: None,
             provider_keys: vec!["OPENAI_API_KEY".into()],
             connection_secrets: Vec::new(),
+            notifications: NotificationMode::Content,
         };
         (store, settings)
     }
@@ -636,6 +656,26 @@ mod tests {
     }
 
     const LOGIN: &str = r#"{"openai":{"type":"api_key","key":"sk-login-1"}}"#;
+
+    #[test]
+    fn notify_only_is_saved_at_once_and_the_setup_says_it() -> Result<(), String> {
+        let (store, settings) = configured();
+        let f = fixture(store, settings);
+        assert_eq!(f.core.notifications(), NotificationMode::Content);
+
+        f.core.set_notifications(NotificationMode::NoticeOnly)?;
+
+        assert_eq!(f.core.notifications(), NotificationMode::NoticeOnly);
+        assert_eq!(
+            f.core.setup_state().notifications,
+            NotificationMode::NoticeOnly
+        );
+        let saved = load_settings(&f.root.join("settings.json"))?;
+        assert_eq!(saved.notifications, NotificationMode::NoticeOnly);
+        // The rest of the setup is left as it was.
+        assert_eq!(saved.model.as_deref(), Some("openai/gpt-4o-mini"));
+        Ok(())
+    }
 
     #[test]
     fn a_launch_hands_over_the_login_kept_in_the_store_and_hides_its_tokens() {

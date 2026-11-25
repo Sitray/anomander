@@ -10,6 +10,7 @@ import { ExpensesScreen } from './expenses/ExpensesScreen.tsx';
 import { LedgerScreen } from './ledger/LedgerScreen.tsx';
 import { SubscriptionsScreen } from './login/SubscriptionsScreen.tsx';
 import { MemoryScreen } from './memory/MemoryScreen.tsx';
+import { NotificationsSetting } from './setup/NotificationsSetting.tsx';
 import { isComplete, SetupScreen } from './setup/SetupScreen.tsx';
 import { shell as native, type SetupInput } from './shell.ts';
 import { ErrorBlock, StatusBar } from './status/StatusBar.tsx';
@@ -156,6 +157,12 @@ export function App() {
                   onOpenLedger={() => setOpen('ledger')}
                   onOpenSubscriptions={() => setOpen('subscriptions')}
                   onAddWebSearch={onAddWebSearch}
+                  notifications={
+                    <NotificationsSetting
+                      mode={snapshot.setup.notifications}
+                      onChoose={shell.setNotifications}
+                    />
+                  }
                 />
               </div>
             )}

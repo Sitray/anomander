@@ -24,6 +24,8 @@ export interface SetupScreenProps {
    * setup only.
    */
   onAddWebSearch?: () => Promise<boolean>;
+  /** DK-22: what the notifications show, a setting saved apart from "Guardar". */
+  notifications?: ReactNode;
 }
 
 const { setup: text } = strings;
@@ -442,6 +444,8 @@ function SetupForm(props: FormProps) {
             )}
           </div>
         </fieldset>
+
+        {props.notifications}
       </div>
 
       <footer className="setup-footer">
@@ -470,6 +474,7 @@ function SetupForm(props: FormProps) {
 
 export function SetupScreen(props: SetupScreenProps) {
   const { setup, onSave, onClose, onOpenLedger, onOpenSubscriptions, onAddWebSearch } = props;
+  const { notifications } = props;
   // After a save the form starts over from what was stored, with every secret field empty.
   const [stored, setStored] = useState({ setup, saves: 0 });
   return (
@@ -482,6 +487,7 @@ export function SetupScreen(props: SetupScreenProps) {
       {...(onOpenLedger === undefined ? {} : { onOpenLedger })}
       {...(onOpenSubscriptions === undefined ? {} : { onOpenSubscriptions })}
       {...(onAddWebSearch === undefined ? {} : { onAddWebSearch })}
+      {...(notifications === undefined ? {} : { notifications })}
       onSaved={(saved) => setStored({ setup: saved, saves: stored.saves + 1 })}
     />
   );

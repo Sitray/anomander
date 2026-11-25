@@ -665,6 +665,14 @@ and keep its secrets in the operating system instead of a text file.
     armed, and hands it to the shell to notify as an answer is (only while the window is not in
     front). Known limit: a notice that arrives before the stored conversation an empty chat asked
     for keeps that conversation from being shown (DK-16 AC3: nothing is merged).
+  - AC4: the setup screen has "Notificaciones" with "Mostrar contenido" (the default, as before:
+    the start of the message, at most 180 characters) and "Solo avisar", which shows "ANOMANDER
+    tiene algo para ti" ("ANOMANDER has something for you" in English) and nothing of the message,
+    so no amount or memory reaches a locked screen. It applies to every notification the shell
+    shows: an answer, a notice, and the one that says the diagnostics were copied. The choice is
+    saved at once in `settings.json` (`notifications`: absent or `notice_only`) by the command
+    `set_notifications`, apart from "Guardar", and starts nothing again; when it cannot be
+    saved the screen says so and the choice in force stays.
 
 ## 6. Decisions
 
