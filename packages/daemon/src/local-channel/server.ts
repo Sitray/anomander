@@ -10,6 +10,7 @@ import {
   type ChatHistoryRequest,
   type ChatMemory,
   type ChatProbe,
+  type ChatProgress,
   type ChatRequest,
   type ChatStoredMessage,
   type ComputerRequest,
@@ -26,6 +27,7 @@ import {
 } from '@anomander/protocol';
 import { type WebSocket, WebSocketServer } from 'ws';
 import { z } from 'zod';
+import { runStoppable } from '../processor/cancel.ts';
 import type { Logger } from '../processor/ports.ts';
 import { type ExpensesMonth, isMonth } from '../read-api/month.ts';
 
@@ -229,7 +231,12 @@ const requestSchema = z.discriminatedUnion('type', [
   z.strictObject({ type: z.literal('probe_model'), id }),
   // DK-21
   z.strictObject({ type: z.literal('ai_usage'), id }),
+  // DK-19
+  z.strictObject({ type: z.literal('cancel'), id, target: id }),
 ]);
+
+/** DK-19: the requests whose turn the principal can stop from the app. */
+const STOPPABLE = new Set<ChatRequest['type']>(['text', 'screen', 'connect']);
 
 /** The request in a frame, or the `id` it carried when it is not one. */
 const parseRequest = (frame: string): ChatRequest | { rejected: string | null } => {
@@ -282,11 +289,13 @@ export const startLocalChannel = (deps: LocalChannelDeps): LocalChannel => {
     );
   };
 
-  /** The requests answered with a list in `handle`, not with a reply. */
+  /** The requests answered with a list or at once in `handle`, not with a reply. */
   type Listing =
     | ChatHistoryRequest
     | ChatExpensesRequest
-    | { type: 'memories' | 'actions' | 'ai_usage' | 'connection_grants' | 'probe_model' };
+    | {
+        type: 'memories' | 'actions' | 'ai_usage' | 'connection_grants' | 'probe_model' | 'cancel';
+      };
   /** DK-21: today's AI calls; without a database to read them from, the request fails. */
   const usage = (request: ChatRequest & { type: 'ai_usage' }): ChatEvent => {
     if (deps.aiUsage === undefined) throw new Error('no database is open to read the AI budget');
@@ -388,16 +397,48 @@ export const startLocalChannel = (deps: LocalChannelDeps): LocalChannel => {
     }
   };
 
-  const send = (socket: WebSocket, event: ChatEvent | ChatProbe): Promise<void> =>
+  const send = (socket: WebSocket, event: ChatEvent | ChatProbe | ChatProgress): Promise<void> =>
     new Promise((resolve, reject) => {
       socket.send(JSON.stringify(event), (error) => (error ? reject(error) : resolve()));
     });
 
-  const handle = async (socket: WebSocket, frame: string | null): Promise<void> => {
+  /**
+   * DK-19: the turns of one connection that can still be stopped, by request id. A cancel for one
+   * that ended, or never was, does nothing.
+   */
+  type Stoppable = Map<string, AbortController>;
+
+  /** Runs a stoppable request's turn in its own scope, telling the window its phases. */
+  const stoppably = (
+    socket: WebSocket,
+    stoppable: Stoppable,
+    request: Exclude<ChatRequest, Listing>,
+  ): Promise<DoorReply | null> => {
+    const controller = new AbortController();
+    stoppable.set(request.id, controller);
+    const report = (phase: ChatProgress['phase']) => {
+      send(socket, { type: 'progress', of: request.id, phase }).catch(() => {});
+    };
+    return runStoppable(controller.signal, report, () => answer(request)).finally(() => {
+      if (stoppable.get(request.id) === controller) stoppable.delete(request.id);
+    });
+  };
+
+  const handle = async (
+    socket: WebSocket,
+    frame: string | null,
+    stoppable: Stoppable,
+  ): Promise<void> => {
     const request = frame === null ? { rejected: null } : parseRequest(frame);
     if ('rejected' in request) {
       logger.warn('local channel rejected a frame that is not a request');
       await send(socket, { type: 'rejected', inReplyTo: request.rejected });
+      return;
+    }
+    // DK-19: at once, never in the chat's turn, which the turn it stops may be holding.
+    if (request.type === 'cancel') {
+      stoppable.get(request.target)?.abort();
+      await send(socket, { type: 'done', inReplyTo: request.id });
       return;
     }
     let answered: DoorReply | ChatStoredMessage[] | ChatEvent | ChatProbe | null;
@@ -417,7 +458,9 @@ export const startLocalChannel = (deps: LocalChannelDeps): LocalChannel => {
                   ? { type: 'probe', inReplyTo: request.id, outcome: await probe() }
                   : request.type === 'ai_usage'
                     ? usage(request)
-                    : await answer(request);
+                    : STOPPABLE.has(request.type)
+                      ? await stoppably(socket, stoppable, request)
+                      : await answer(request);
     } catch (error) {
       logger.error(`The daemon failed to handle a ${request.type} from the local channel`, {
         error,
@@ -471,10 +514,11 @@ export const startLocalChannel = (deps: LocalChannelDeps): LocalChannel => {
     [...sockets.clients].filter((socket) => socket.readyState === socket.OPEN);
 
   sockets.on('connection', (socket: WebSocket) => {
+    const stoppable: Stoppable = new Map();
     socket.on('error', (error) => logger.warn('local channel connection error', { error }));
     onConnected?.();
     socket.on('message', (data, isBinary) => {
-      handle(socket, isBinary ? null : data.toString()).catch((error: unknown) => {
+      handle(socket, isBinary ? null : data.toString(), stoppable).catch((error: unknown) => {
         // The app closed its window before the answer: the reply was not delivered.
         logger.warn('local channel could not send an answer', { error });
       });

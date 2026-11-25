@@ -19,6 +19,8 @@ import {
   type ChatText,
   EXPENSE_MODES,
   LOCAL_CHANNEL_PROTOCOL,
+  PROGRESS_PHASES,
+  type ProgressPhase,
 } from '@anomander/protocol';
 import type { LocalChannel } from '../shell.ts';
 
@@ -56,6 +58,8 @@ export interface ChatClientOptions {
   onConnection: (state: ConnectionState) => void;
   /** Called exactly once for every request `send` returned an id for. */
   onOutcome: (requestId: string, outcome: Outcome) => void;
+  /** DK-19: what the daemon is doing for a request still owed its answer. */
+  onProgress?: (requestId: string, phase: ProgressPhase) => void;
   /** DK-22: what ANOMANDER sent unasked; it answers no request. */
   onNotice?: (notice: ChatNotice) => void;
   /** Defaults to the platform's `WebSocket`. */
@@ -67,6 +71,11 @@ export interface ChatClient {
   setChannel(channel: LocalChannel | null): void;
   /** Sends `request` and returns its id, or `null` when nothing was sent: no open connection. */
   send(request: NewRequest): string | null;
+  /**
+   * DK-19: asks the daemon to stop the turn of `requestId`, still owed its answer; `false` when
+   * nothing was sent. The answer to `requestId` still comes, and says whether it was stopped.
+   */
+  cancel(requestId: string): boolean;
   /**
    * DK-16: asks for the stored conversation; its messages, oldest first, or `null` when it did
    * not come: no open connection, rejected, or the connection was lost first.
@@ -250,6 +259,20 @@ const parseExpenses = (event: Record<string, unknown>): ChatExpenses | undefined
   };
 };
 
+/** DK-19: a progress event, only with a phase the window knows. */
+const parseProgress = (data: unknown): { of: string; phase: ProgressPhase } | undefined => {
+  if (typeof data !== 'string') return undefined;
+  try {
+    const { type, of, phase } = (JSON.parse(data) ?? {}) as Record<string, unknown>;
+    if (type !== 'progress' || typeof of !== 'string' || !isKnown(PROGRESS_PHASES, phase)) {
+      return undefined;
+    }
+    return { of, phase };
+  } catch {
+    return undefined;
+  }
+};
+
 /** DK-22: a button only as the window can show it: one that comes back, or one that opens a link. */
 const isButton = (value: unknown): value is ChatNotice['buttons'][number] => {
   if (typeof value !== 'object' || value === null) return false;
@@ -321,6 +344,7 @@ export const createChatClient = (options: ChatClientOptions): ChatClient => {
   const {
     onConnection,
     onOutcome,
+    onProgress,
     onNotice,
     createSocket = (url, protocols) => new WebSocket(url, protocols),
   } = options;
@@ -400,6 +424,11 @@ export const createChatClient = (options: ChatClientOptions): ChatClient => {
       report('open');
     };
     opened.onmessage = (message) => {
+      const progress = parseProgress(message.data);
+      if (progress !== undefined) {
+        if (inFlight.has(progress.of)) onProgress?.(progress.of, progress.phase);
+        return;
+      }
       const event = parseEvent(message.data);
       if (event?.type === 'notice') {
         onNotice?.(event);
@@ -454,6 +483,12 @@ export const createChatClient = (options: ChatClientOptions): ChatClient => {
       inFlight.add(id);
       socket.send(JSON.stringify({ ...request, id }));
       return id;
+    },
+    cancel(requestId) {
+      if (socket === null || socket.readyState !== OPEN || !inFlight.has(requestId)) return false;
+      // Its `done` names an id never in flight, so it settles nothing.
+      socket.send(JSON.stringify({ type: 'cancel', id: crypto.randomUUID(), target: requestId }));
+      return true;
     },
     async requestHistory() {
       const event = await ask({ type: 'history' });

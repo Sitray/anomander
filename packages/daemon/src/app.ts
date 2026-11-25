@@ -60,6 +60,7 @@ import {
   startLocalChannel,
 } from './local-channel/server.ts';
 import { createPatternOffers } from './patterns/pattern-offers.ts';
+import { turnAborted, turnStopped, withCancel } from './processor/cancel.ts';
 import { createPiAiComputerPlanner } from './processor/computer-planner.ts';
 import { createPiAiCorrectionInterpreter } from './processor/correction-interpreter.ts';
 import type { Complete, Logger } from './processor/ports.ts';
@@ -281,6 +282,17 @@ const doorOf = (channelRef: string): Door =>
 const routesOf = (door: Door): readonly RouteKind[] =>
   door === 'app' && process.platform !== 'win32' ? ROUTE_KINDS : ['connect'];
 
+/**
+ * DK-19: a turn the principal stopped from the app says so (S-130), and that what was done stays:
+ * its buttons and their delivery are kept, so an expense written before the stop can be undone.
+ */
+const sayingStopped =
+  <I, R extends { text: string }>(handler: (input: I) => Promise<R>) =>
+  async (input: I): Promise<R> => {
+    const reply = await handler(input);
+    return turnStopped() ? { ...reply, text: strings.turnCancelled() } : reply;
+  };
+
 /** What a handler answers once its turn is over: a `Later` is waited for outside the turn. */
 const settled = async (answer: DoorReply | Later | null): Promise<DoorReply | null> =>
   answer !== null && 'later' in answer ? answer.later : answer;
@@ -462,11 +474,14 @@ export const startAnomander = <M>(config: Config, deps: AnomanderDeps<M>): Anoma
     now,
   });
   // R-22 AC2, AC3: each attempt has its own timeout; each retry counts against the budget.
-  const timed = withRetry(withTimeout(complete, config.processorTimeoutMs), {
-    mayRetry: () => budget.tryConsume(),
+  // DK-19: a turn stopped from the app aborts its processor call, whichever wrapper made it.
+  const timed = withRetry(withTimeout(withCancel(complete), config.processorTimeoutMs), {
+    // DK-19: a stopped turn makes no retry, so it spends none.
+    mayRetry: () => !turnAborted() && budget.tryConsume(),
     logger,
   });
-  const ai = budgeted(timed, budget);
+  // DK-19: outside the budget too, so a call refused after a stop is never counted (R-12).
+  const ai = withCancel(budgeted(timed, budget));
   // DK-23 AC4: "Probar": one call, never retried, counted against the budget.
   const probe = createModelProbe({
     complete,
@@ -581,8 +596,8 @@ export const startAnomander = <M>(config: Config, deps: AnomanderDeps<M>): Anoma
   // DK-13, security audit M5: a route starts only when its task is the principal's own words.
   const recordedText = recordingTurns(
     turns,
-    (message) => message.text,
-    groundedRoutes(onText, logger),
+    (message: PrincipalText) => message.text,
+    sayingStopped(groundedRoutes(onText, logger)),
     (message) => doorOf(message.channelRef),
   );
   // A press is kept at the door it was made at: a stored Telegram reply can be pressed in the app.
@@ -622,7 +637,7 @@ export const startAnomander = <M>(config: Config, deps: AnomanderDeps<M>): Anoma
   const recordedScreen = recordingTurns(
     turns,
     (question: ScreenQuestion) => screenTurn(question.text),
-    async (question: ScreenQuestion) => {
+    sayingStopped(async (question: ScreenQuestion): Promise<DoorReply> => {
       const reading = await screenReader({
         question: question.text,
         image: question.image,
@@ -633,7 +648,8 @@ export const startAnomander = <M>(config: Config, deps: AnomanderDeps<M>): Anoma
         kind: 'screen',
         door: 'app',
         task: question.text,
-        outcome: reading.kind,
+        // DK-19: a look stopped from the app is kept as stopped, not as failed.
+        outcome: turnStopped() ? 'cancelled' : reading.kind,
         steps: null,
         calls: null,
       });
@@ -647,7 +663,7 @@ export const startAnomander = <M>(config: Config, deps: AnomanderDeps<M>): Anoma
         case 'failed':
           return { text: strings.screenNotSeen() };
       }
-    },
+    }),
     () => 'app',
   );
 

@@ -3305,6 +3305,119 @@ describe('hardening (T14)', () => {
   });
 });
 
+describe('stopping a turn from the app (DK-19)', () => {
+  const says = (text: string): AssistantMessage['content'] => [{ type: 'text', text }];
+  const calls = (name: string): AssistantMessage['content'] => [
+    { type: 'toolCall', id: `call-${name}`, name, arguments: { query: 'Lisboa' } },
+  ];
+  const server = (name: string, made: string[] = []): Connection => ({
+    name,
+    tools: [{ name: 'web_search', description: 'search', inputSchema: { type: 'object' } }],
+    readOnly: new Set(['web_search']),
+    call: async (tool) => {
+      made.push(tool);
+      return { text: `result of ${tool}`, isError: false };
+    },
+  });
+
+  it('stops a text while it is interpreted: S-130, nothing written, and the reply is kept', async () => {
+    let release = () => {};
+    interpreting = new Promise((resolveHeld) => {
+      release = resolveHeld;
+    });
+    const chat = await client(await start());
+    const asked = chat.ask({ type: 'text', text: '23 € cena' });
+    await vi.waitFor(() => expect(interpreted).toHaveLength(1));
+
+    expect(await chat.ask({ type: 'cancel', target: 'm1' })).toEqual({
+      type: 'done',
+      inReplyTo: 'm2',
+    });
+    expect(reply(await asked).text).toBe(strings.turnCancelled());
+    release();
+    expect(query('SELECT id FROM expenses')).toEqual([]);
+    const stored = await chat.ask({ type: 'history' });
+    expect(stored.type === 'history' && stored.messages.at(-1)?.text).toBe(strings.turnCancelled());
+  });
+
+  it('a call refused after the stop does not count against the daily AI limit (R-12)', async () => {
+    const calls = () =>
+      query<{ calls: number }>('SELECT SUM(calls) AS calls FROM ai_usage')[0]?.calls ?? 0;
+    let release = () => {};
+    interpreting = new Promise((resolveHeld) => {
+      release = resolveHeld;
+    });
+    const chat = await client(await start());
+    const first = chat.ask({ type: 'text', text: '23 € cena' });
+    // Waits for the first turn: stopped before it starts, it never calls the processor.
+    const second = chat.ask({ type: 'text', text: '23 € cena' });
+    await vi.waitFor(() => expect(interpreted).toHaveLength(1));
+    await chat.ask({ type: 'cancel', target: 'm2' });
+    release();
+    await first;
+    expect(reply(await second).text).toBe(strings.turnCancelled());
+    const spent = calls();
+
+    await chat.ask({ type: 'text', text: '23 € cena' });
+
+    // The stopped turn spent nothing: one turn costs what the first one did.
+    expect(calls() - spent).toBe(spent);
+  });
+
+  it('stops a look at the screen while it is read, and keeps it as stopped', async () => {
+    let release = () => {};
+    seen = () =>
+      new Promise((resolveSeen) => {
+        release = () => resolveSeen(SEEN);
+      });
+    const chat = await client(await start());
+    const asked = chat.ask({ type: 'screen', text: '¿qué ves?', image: png() });
+    await vi.waitFor(() => expect(screens).toHaveLength(1));
+
+    await chat.ask({ type: 'cancel', target: 'm1' });
+
+    expect(reply(await asked).text).toBe(strings.turnCancelled());
+    release();
+    expect(query<{ outcome: string }>('SELECT outcome FROM action_history')).toEqual([
+      { outcome: 'cancelled' },
+    ]);
+  });
+
+  it('stops a task with connections before its next step', async () => {
+    const made: string[] = [];
+    connected = [server('notes', made)];
+    let release = () => {};
+    held = new Promise((resolveHeld) => {
+      release = resolveHeld;
+    });
+    tooled = [calls('notes__web_search'), says('Hecho.')];
+    const chat = await client(await start());
+    const asked = chat.ask({ type: 'connect', task: 'Busca el hotel de Lisboa' });
+    await vi.waitFor(() => expect(tasked).toHaveLength(1));
+
+    await chat.ask({ type: 'cancel', target: 'm1' });
+
+    expect(reply(await asked).text).toBe(strings.turnCancelled());
+    release();
+    expect(made).toEqual([]);
+  });
+
+  it('says what a task with connections is doing: searching the web, or using a connection', async () => {
+    connected = [server(WEB_SEARCH_CONNECTION.name), server('notes')];
+    tooled = [calls(`${WEB_SEARCH_CONNECTION.name}__web_search`), says('49,99 €.')];
+    const chat = await client(await start());
+    await chat.ask({ type: 'connect', task: 'Busca el mejor precio' });
+    tooled = [calls('notes__web_search'), says('Nada.')];
+    await chat.ask({ type: 'connect', task: 'Busca en mis notas' });
+
+    const progress = chat.events.filter((event) => (event.type as string) === 'progress');
+    expect(progress).toEqual([
+      { type: 'progress', of: 'm1', phase: 'web_search' },
+      { type: 'progress', of: 'm2', phase: 'connection' },
+    ]);
+  });
+});
+
 describe("today's AI calls in the window (DK-21)", () => {
   it('answers ai_usage with the calls counted today in TZ and the limit, counting none', async () => {
     const chat = await client(

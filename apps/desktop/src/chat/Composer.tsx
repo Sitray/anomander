@@ -31,12 +31,14 @@ export interface ComposerProps {
   onOpenSetup?: (() => void) | undefined;
   onRemove: (id: string) => void;
   onSubmit: () => void;
+  /** B23: the caret goes to the box, at the end, each time this changes. */
+  focusRequest?: number;
 }
 
 export function Composer(props: ComposerProps) {
   const { text, attachments, notice, disabled, blocked, onText, onFiles, onRemove, onSubmit } =
     props;
-  const { model, onOpenSetup } = props;
+  const { model, onOpenSetup, focusRequest = 0 } = props;
   const reasonId = useId();
   const textarea = useRef<HTMLTextAreaElement>(null);
   const picker = useRef<HTMLInputElement>(null);
@@ -56,6 +58,14 @@ export function Composer(props: ComposerProps) {
   useEffect(() => {
     if (!disabled && document.activeElement === document.body) textarea.current?.focus();
   }, [disabled]);
+
+  // B23: an example was put in the box; the principal goes on from there.
+  useEffect(() => {
+    const element = textarea.current;
+    if (focusRequest === 0 || element === null) return;
+    element.focus();
+    element.setSelectionRange(element.value.length, element.value.length);
+  }, [focusRequest]);
 
   const submit = (event: FormEvent) => {
     event.preventDefault();

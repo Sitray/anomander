@@ -139,6 +139,10 @@ is framework-free, so it is tested against a fake `WebSocket` (`test/fake-web-so
   `revoke_connection_grant` and reads the list again. Without a running daemon none is listed.
 - **A reply is plain text** (DK-4 AC1): shown exactly as received, line breaks kept, never HTML
   or Markdown.
+- **While an answer is owed** (DK-19) the chat says what ANOMANDER is doing in a live region,
+  with the daemon's optional `progress` for a task with connections. "Detener", or Esc, sends
+  `cancel` for a text or a look; the daemon stops what it safely can and its answer says so
+  (S-130). Esc stops a task on the computer first, as "Detener tarea".
 - **Delivery honesty.** A `rejected` request did nothing: the window says it was not sent and
   offers to send it again. A connection lost while a request was in flight may have reached the
   daemon: the window says it does not know, and offers no one-click resend that could register

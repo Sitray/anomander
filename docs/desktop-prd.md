@@ -826,6 +826,44 @@ and keep its secrets in the operating system instead of a text file.
     `set_notifications`, apart from "Guardar", and starts nothing again; when it cannot be
     saved the screen says so and the choice in force stays.
 
+- DK-19 The chat says what it does (backlog B23, B25, B26 and B27's "Esc to stop a task", asked
+  by the principal on 2026-11-25: "si, intenta hacer el 1 y 2 en paralelo si puedes").
+  - AC1: the empty chat, while there is a channel, says what ANOMANDER does ("¿En qué te echo una
+    mano?": expenses, reminders, the screen, connections) and offers five examples: "¿Cuánto llevo
+    gastado este mes?", "Recuérdame mañana a las 9 llamar al dentista", "¿Qué ves en mi
+    pantalla?", "Busca en internet qué tiempo hará mañana" and "¿Qué sabes de mí?". A press puts
+    the example in the composer, with the caret at its end; it is never sent by itself.
+  - AC2: replies are plain text: the text interpreter is asked for every reply without Markdown
+    and with web addresses written out, as the screen reader and tasks with connections already
+    were (R-14 unchanged: the prompt only shapes words). The chat turns each `http` or `https`
+    address of a reply into a link and each such link button into a button; a press sends
+    `open_link` to the shell, which parses the address and opens it in the principal's browser
+    (the system's `open`, or `ShellExecuteW` on Windows), never in the window, only when it is an
+    absolute `http` or `https` address with a host and no user name. Any other scheme
+    (`javascript:`, `file:`) or a relative address stays text, and a link button with one is named
+    as before ("solo se puede abrir desde Telegram"). Only the chat window may call `open_link`.
+    Telegram is unchanged but for the prompt.
+  - AC3: while an answer is owed the chat says what ANOMANDER is doing, in a live region that is
+    always in the page, so each phase is announced: "ANOMANDER está pensando…" for a text or a
+    step, "Leyendo el ticket…" for a receipt, "Mirando tu pantalla…" for a look. While a task with
+    connections calls a tool the daemon says so with an optional `progress` event (`of`, the
+    request's id, and `phase`: `web_search` for the web search connection or any server that runs
+    its package, `connection` for any other), and the chat says "Buscando en internet…" or "Usando
+    tus conexiones…". A window that ignores the event loses nothing.
+  - AC4: next to the phase of a text or a look, "Detener" sends `cancel` with the id of the
+    request owed (`target`); the daemon answers `done` at once, outside the chat's turn. It stops
+    the turn as far as it safely can: the processor call that runs is aborted, none starts after
+    it, and a task with connections stops before its next step; a tool call that runs, and what
+    was already written (an expense), are not undone. The answer to the request then comes as
+    usual: S-130 when a processor call of the turn was stopped (with the calls a task had made, as
+    for any task cut short), its buttons kept, so an expense written before the stop can still be
+    undone; the answer it had reached otherwise. It is stored as any reply, and a stopped look is
+    kept in the history as `cancelled` ("La paraste"). The chat says "Deteniendo…" until the answer
+    comes. A receipt, a press and a step of a task on the computer offer no "Detener": the task has
+    its own "Detener tarea" (DK-10). Turns from Telegram are never stopped.
+  - AC5: Esc does what "Detener tarea" does while a task on the computer runs, and otherwise what
+    "Detener" does, only while the chat is the screen shown and an input method is not composing.
+
 ## 6. Decisions
 
 1. **Where the daemon runs.** Decided (2026-11-10): on the principal's machine, started by the
@@ -865,7 +903,7 @@ the principal to confirm:
 | The token (DK-3 AC2) | `ANOMANDER_LOCAL_TOKEN`, handed over on the daemon's stdin by the app (DK-5 AC2), at least 32 characters of `A-Z a-z 0-9 . _ ~ + -`. Unset: the channel is off and no port opens, as under Docker |
 | The port | `ANOMANDER_LOCAL_PORT`, default `4312`, always on `127.0.0.1`. The app picks a free one at each launch |
 | Presenting the token | As the second WebSocket subprotocol: `new WebSocket(url, ['anomander.v1', token])` |
-| Messages | `ChatRequest` (`text`, `receipt`, `button`, `screen`, `computer`, `connect`, `history`, `clear_history`, `expenses`, `memories`, `forget_memory`, `actions`, `forget_action`, `ai_usage`, `connection_grants`, `revoke_connection_grant`) and `ChatEvent` (`reply`, `notice`, `done`, `rejected`, `history`, `expenses`, `memories`, `actions`, `ai_usage`, `connection_grants`) in `packages/protocol/src/local-channel.ts`. `notice` is the only event the daemon pushes unasked (DK-22) |
+| Messages | `ChatRequest` (`text`, `receipt`, `button`, `screen`, `computer`, `connect`, `history`, `clear_history`, `expenses`, `memories`, `forget_memory`, `actions`, `forget_action`, `cancel`, `ai_usage`, `connection_grants`, `revoke_connection_grant`) and `ChatEvent` (`reply`, `notice`, `done`, `rejected`, `history`, `expenses`, `memories`, `actions`, `ai_usage`, `connection_grants`), and the optional `ChatProgress` (`progress`, DK-19), in `packages/protocol/src/local-channel.ts`. `notice` is the only event the daemon pushes unasked (DK-22) |
 | Why the daemon stopped (DK-2 AC3) | Exit code `3`: another daemon runs on the same database. `4`: another process uses the bot. `1`: anything else. `exitCodes` in `packages/protocol` |
 | The single-daemon lock (DK-2 AC1) | `<database>.lock` beside the database, held while the daemon runs and freed by the operating system when it ends, so a crash leaves nothing stale |
 

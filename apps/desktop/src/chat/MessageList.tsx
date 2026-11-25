@@ -1,17 +1,21 @@
 // DK-4: the conversation. Presentational: messages in, a retry or a press out.
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { Fragment, type ReactNode, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { DaemonStatus } from '../shell.ts';
 import { strings } from '../strings.ts';
 import { AlertIcon, CheckIcon, CopyIcon, FileIcon, Mark } from '../ui/icons.tsx';
 import type { Attachment } from './attachments.ts';
 import type { BotMessage, Message, OwnMessage } from './conversation.ts';
+import { isWebAddress, piecesOf } from './links.ts';
 import { matchesIn } from './search.ts';
+import type { Turn } from './use-chat.ts';
 
 /** What the empty conversation says, and what it offers. */
 export interface EmptyState {
   title: string;
   body: string;
   action?: { label: string; run: () => void };
+  /** B23: what can be asked here, offered while there is a channel. */
+  examples?: readonly string[];
 }
 
 /**
@@ -20,7 +24,9 @@ export interface EmptyState {
  */
 export const emptyStateFor = (daemon: DaemonStatus | null, onStart?: () => void): EmptyState => {
   const { chat } = strings;
-  if (daemon === null) return { title: chat.emptyTitle, body: chat.emptyBody };
+  if (daemon === null) {
+    return { title: chat.emptyTitle, body: chat.emptyBody, examples: chat.examples };
+  }
   if (daemon.state === 'failing') return chat.emptyFailing;
   if (daemon.state === 'stopped') {
     if (daemon.reason === 'not_configured') return chat.emptyNotConfigured;
@@ -36,6 +42,17 @@ export interface MessageListProps {
   messages: Message[];
   /** The daemon owes an answer. */
   waiting: boolean;
+  /** DK-19: the answer owed, to say its phase and offer to stop it; absent, only that it works. */
+  turn?: Turn | null;
+  /** DK-19: stops the turn owed, when it can be stopped. */
+  onStop?: () => void;
+  /** B23: puts an example in the composer; it is never sent by itself. */
+  onExample?: (text: string) => void;
+  /**
+   * B25: opens a web address in the principal's browser. Absent where the window cannot: the
+   * addresses stay plain text and a link button is only named.
+   */
+  onOpenLink?: ((url: string) => void) | undefined;
   /** What the empty conversation says; by default, what can be done here. */
   empty?: EmptyState;
   onRetry: (message: OwnMessage) => void;
@@ -54,19 +71,37 @@ export interface MessageListProps {
 /** How long a copied message shows it was. */
 const COPIED_MS = 2000;
 
-/** DK-21: `text` with every match of `search` marked. Text nodes only: never HTML. */
-const Highlighted = ({ text, search }: { text: string; search: string }) => {
-  const matches = matchesIn(text, search);
-  if (matches.length === 0) return <>{text}</>;
-  const parts = [];
-  let from = 0;
+/**
+ * DK-21: `text` from `from` to `to`, with the part of every match in it marked. Text nodes only:
+ * never HTML. A match that crosses the ends is marked up to them, so a reply cut into pieces
+ * (B25) keeps the marks of its whole text.
+ */
+const marked = (
+  text: string,
+  matches: ReadonlyArray<[number, number]>,
+  from = 0,
+  to = text.length,
+): ReactNode[] => {
+  const parts: ReactNode[] = [];
+  let at = from;
   for (const [start, end] of matches) {
-    parts.push(text.slice(from, start), <mark key={start}>{text.slice(start, end)}</mark>);
-    from = end;
+    const markFrom = Math.max(start, from);
+    const markTo = Math.min(end, to);
+    if (markFrom >= markTo) continue;
+    parts.push(
+      text.slice(at, markFrom),
+      <mark key={markFrom}>{text.slice(markFrom, markTo)}</mark>,
+    );
+    at = markTo;
   }
-  parts.push(text.slice(from));
-  return <>{parts}</>;
+  parts.push(text.slice(at, to));
+  return parts;
 };
+
+/** DK-21: `text` with every match of `search` marked. Text nodes only: never HTML. */
+const Highlighted = ({ text, search }: { text: string; search: string }) => (
+  <>{marked(text, matchesIn(text, search))}</>
+);
 
 /** DK-21: when a message was sent and its copy button, under it. */
 const Meta = ({
@@ -106,6 +141,18 @@ interface Reading {
   copied: boolean;
   onCopy: (message: Message) => void;
 }
+
+/** DK-19: what ANOMANDER is doing for the answer owed, in words. */
+const phaseOf = (turn: Turn | null): string => {
+  const { chat } = strings;
+  if (turn === null) return chat.thinking;
+  if (turn.stopping) return chat.stopping;
+  if (turn.phase === 'web_search') return chat.searchingWeb;
+  if (turn.phase === 'connection') return chat.usingConnections;
+  if (turn.kind === 'screen') return chat.lookingAtScreen;
+  if (turn.kind === 'receipt') return chat.readingReceipt;
+  return chat.thinking;
+};
 
 /** How far from the end still counts as reading the latest message. */
 const NEAR_END_PX = 80;
@@ -318,6 +365,58 @@ const OfferCard = ({
   );
 };
 
+/**
+ * B25: a reply's text, exactly as received (DK-4 AC1): text nodes, never HTML or Markdown. Where
+ * the window can open them, its http(s) addresses are links to the browser; never in the window.
+ */
+const ReplyText = ({
+  text,
+  search,
+  onOpenLink,
+}: {
+  text: string;
+  /** DK-21: its matches are marked, in the links too. */
+  search: string;
+  onOpenLink: MessageListProps['onOpenLink'];
+}) => {
+  if (onOpenLink === undefined) {
+    return (
+      <p className="message-text">
+        <Highlighted text={text} search={search} />
+      </p>
+    );
+  }
+  const matches = matchesIn(text, search);
+  let from = 0;
+  return (
+    <p className="message-text">
+      {piecesOf(text).map((piece, index) => {
+        const start = from;
+        const end = start + ('url' in piece ? piece.url : piece.text).length;
+        from = end;
+        return 'url' in piece ? (
+          <a
+            // biome-ignore lint/suspicious/noArrayIndexKey: the pieces of one text never move.
+            key={index}
+            className="message-link"
+            href={piece.url}
+            rel="noreferrer"
+            onClick={(event) => {
+              event.preventDefault();
+              onOpenLink(piece.url);
+            }}
+          >
+            {marked(text, matches, start, end)}
+          </a>
+        ) : (
+          // biome-ignore lint/suspicious/noArrayIndexKey: the pieces of one text never move.
+          <Fragment key={index}>{marked(text, matches, start, end)}</Fragment>
+        );
+      })}
+    </p>
+  );
+};
+
 const Bot = ({
   message,
   onRestart,
@@ -325,6 +424,7 @@ const Bot = ({
   onAllow,
   onRefuse,
   onAddWebSearch,
+  onOpenLink,
   search,
   copied,
   onCopy,
@@ -335,18 +435,17 @@ const Bot = ({
   onAllow: MessageListProps['onAllow'];
   onRefuse: MessageListProps['onRefuse'];
   onAddWebSearch: MessageListProps['onAddWebSearch'];
+  onOpenLink: MessageListProps['onOpenLink'];
 } & Reading) => {
   const { press, proposal, start, offer } = message;
   const choices = message.buttons.filter((button) => 'data' in button);
-  // DK-4 AC7: this WebView cannot open a link, so a link button is named, never offered.
+  // DK-4 AC7, B25: a link button opens its address where the window can; otherwise it is named.
   const links = message.buttons.filter((button) => 'url' in button);
+  const opens = (url: string) => onOpenLink !== undefined && isWebAddress(url);
   return (
     <li className="message bot">
       <span className="sr-only">{strings.chat.bot}</span>
-      {/* DK-4 AC1: exactly as received. A text node: never HTML, never Markdown. */}
-      <p className="message-text">
-        <Highlighted text={message.text} search={search} />
-      </p>
+      <ReplyText text={message.text} search={search} onOpenLink={onOpenLink} />
       <Meta message={message} copied={copied} onCopy={onCopy} />
       {message.door === 'telegram' && <p className="message-note">{strings.chat.viaTelegram}</p>}
       {choices.length > 0 && (
@@ -378,18 +477,36 @@ const Bot = ({
       {proposal === null && press?.delivery === 'unknown' && (
         <Problem>{strings.chat.pressUnknown}</Problem>
       )}
-      {links.map((button) => (
-        <p key={button.label} className="message-note">
-          {strings.chat.linkOnlyInTelegram(button.label)}
-        </p>
-      ))}
+      {links.some((button) => opens(button.url)) && (
+        <div className="choices">
+          {links
+            .filter((button) => opens(button.url))
+            .map((button) => (
+              <button
+                key={button.label}
+                type="button"
+                className="button choice"
+                onClick={() => onOpenLink?.(button.url)}
+              >
+                {button.label}
+              </button>
+            ))}
+        </div>
+      )}
+      {links
+        .filter((button) => !opens(button.url))
+        .map((button) => (
+          <p key={button.label} className="message-note">
+            {strings.chat.linkOnlyInTelegram(button.label)}
+          </p>
+        ))}
     </li>
   );
 };
 
 export function MessageList(props: MessageListProps) {
   const { messages, waiting, onRetry, onRestart, onPress, onAllow, onRefuse } = props;
-  const { onAddWebSearch, search = '' } = props;
+  const { onAddWebSearch, turn = null, onStop, onExample, onOpenLink, search = '' } = props;
   const empty = props.empty ?? emptyStateFor(null);
   /** DK-21: the message just copied, for a moment. */
   const [copied, setCopied] = useState<string | null>(null);
@@ -444,6 +561,17 @@ export function MessageList(props: MessageListProps) {
               {empty.action.label}
             </button>
           )}
+          {empty.examples !== undefined && onExample !== undefined && (
+            <ul className="examples" aria-label={strings.chat.examplesLabel}>
+              {empty.examples.map((example) => (
+                <li key={example}>
+                  <button type="button" className="example" onClick={() => onExample(example)}>
+                    {example}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
         </div>
       )}
       <ol className="messages" role="log" aria-live="polite" aria-label={strings.chat.conversation}>
@@ -466,6 +594,7 @@ export function MessageList(props: MessageListProps) {
               onAllow={onAllow}
               onRefuse={onRefuse}
               onAddWebSearch={onAddWebSearch}
+              onOpenLink={onOpenLink}
               search={search}
               copied={copied === message.id}
               onCopy={copy}
@@ -477,16 +606,33 @@ export function MessageList(props: MessageListProps) {
       <p className="sr-only" aria-live="polite">
         {copied === null ? '' : strings.chat.copied}
       </p>
-      {waiting && (
-        <div className="thinking">
-          <span className="sr-only">{strings.chat.thinking}</span>
-          <span className="thinking-dots" aria-hidden="true">
-            <i />
-            <i />
-            <i />
-          </span>
-        </div>
-      )}
+      {/* DK-19: the phase is in a live region that is always there, so each change is announced. */}
+      <div className="thinking" data-waiting={waiting || undefined}>
+        <p className="thinking-status" aria-live="polite">
+          {waiting && (
+            <>
+              <span className="thinking-dots" aria-hidden="true">
+                <i />
+                <i />
+                <i />
+              </span>
+              <span className="thinking-phase">{phaseOf(turn)}</span>
+            </>
+          )}
+        </p>
+        {waiting && turn?.stoppable === true && onStop !== undefined && (
+          <button
+            type="button"
+            className="link"
+            title={strings.chat.stopTurnHint}
+            aria-keyshortcuts="Escape"
+            disabled={turn.stopping}
+            onClick={onStop}
+          >
+            {strings.chat.stopTurn}
+          </button>
+        )}
+      </div>
     </div>
   );
 }

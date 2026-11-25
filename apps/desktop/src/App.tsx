@@ -81,6 +81,12 @@ export function App() {
     [connections, saveConnection],
   );
 
+  // B25: a web address of a reply opens in the browser. A refusal leaves the window as it is:
+  // the shell refuses only what is not an http(s) address, which the chat never offers.
+  const openLink = useCallback((url: string) => {
+    native.openLink(url).catch(() => {});
+  }, []);
+
   // B48: the shell shows the window again (closing it only hides it); the chat then shows what
   // the daemon keeps now. Subscribed as `useShell` subscribes "Detener tarea".
   // DK-18: a forget in Memoria erased the turns of the stored conversation that said it; the chat
@@ -152,6 +158,7 @@ export function App() {
                 onCaptureScreen={shell.captureScreen}
                 onPerformAction={shell.performAction}
                 onReveal={shell.reveal}
+                onOpenLink={openLink}
                 onTaskRunning={shell.setTaskRunning}
                 subscribeStop={shell.onStopTask}
                 subscribeShown={subscribeShown}

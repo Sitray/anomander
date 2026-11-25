@@ -493,6 +493,8 @@ const es = {
   /** S-81: `/exportar` in the app (R-29 AC4). */
   exportOnlyInTelegram: () =>
     'De momento la exportación solo llega por Telegram: escribe /exportar allí.',
+  /** S-130: a turn the principal stopped from the app (desktop DK-19); what was done stays. */
+  turnCancelled: () => 'Lo he dejado aquí. Lo que ya estaba hecho se queda como está.',
   /**
    * S-90 to S-94 (R-30): S-90 for every expense, S-91 with a filter, S-92 and S-93 when nothing
    * was spent, each followed by S-94 when some expense of the period is pending confirmation.
@@ -727,6 +729,7 @@ const en: typeof es = {
   exportFailed: () => "I couldn't export your data. Try again in a while.",
   exportOnlyInTelegram: () =>
     'For now the export only comes through Telegram: send /exportar there.',
+  turnCancelled: () => 'I stopped there. Anything already done stays as it is.',
   expenseQuery: (answer) => {
     const [from, to] = queryDays(answer);
     const period = answer.from === answer.to ? `on ${from}` : `from ${from} to ${to}`;

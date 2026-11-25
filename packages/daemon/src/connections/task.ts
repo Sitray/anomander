@@ -1,4 +1,4 @@
-import { strings } from '@anomander/protocol';
+import { strings, WEB_SEARCH_CONNECTION } from '@anomander/protocol';
 import type {
   AssistantMessage,
   Context,
@@ -7,6 +7,7 @@ import type {
   ToolResultMessage,
 } from '@earendil-works/pi-ai';
 import { AiBudgetExhaustedError } from '../budget/ai-budget.ts';
+import { reportPhase, TurnCancelledError } from '../processor/cancel.ts';
 import { languageName, replyLanguage } from '../processor/language.ts';
 import type { Complete, Logger } from '../processor/ports.ts';
 import { isProviderLimit } from '../processor/provider-limit.ts';
@@ -56,6 +57,8 @@ export type TaskOutcome =
   // The task was cut short: `performed` is the calls it had sent to a server by then.
   | { kind: 'too_many_calls'; performed: number }
   | { kind: 'failed'; performed: number }
+  /** DK-19: the principal stopped it from the app, before its next step. */
+  | { kind: 'cancelled'; performed: number }
   | { kind: 'budget_exhausted'; performed: number }
   /** The provider's own quota or rate limit is spent. */
   | { kind: 'provider_limit'; performed: number };
@@ -300,6 +303,12 @@ export const createConnectionTasks = <M>(deps: ConnectionTasksDeps<M>): Connecti
     // From here on what this server answers, or made of the call, is in the task.
     run.answered.add(connection.name);
     run.performed += 1;
+    // DK-19: the window says what the task is doing while the call runs. The web search is its
+    // preset's name, or any server that runs its package (T17 gives those its `asksWith`).
+    const searching =
+      connection.name === WEB_SEARCH_CONNECTION.name ||
+      connection.asksWith?.web_search !== undefined;
+    reportPhase(searching ? 'web_search' : 'connection');
     try {
       const result = await connection.call(tool.name, call.arguments);
       settle(run, call, rest, cut(result.text), result.isError);
@@ -368,6 +377,9 @@ export const createConnectionTasks = <M>(deps: ConnectionTasksDeps<M>): Connecti
       } catch (error) {
         if (error instanceof AiBudgetExhaustedError) {
           return { kind: 'budget_exhausted', performed: run.performed };
+        }
+        if (error instanceof TurnCancelledError) {
+          return { kind: 'cancelled', performed: run.performed };
         }
         const reason = (error as Error).message;
         logger.warn('connection task failed', { reason: `processor call failed: ${reason}` });

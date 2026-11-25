@@ -69,6 +69,23 @@ describe('an empty chat', () => {
   });
 });
 
+describe('the examples of an empty chat (B23)', () => {
+  it('fill the composer with what can be asked, and send nothing by themselves', async () => {
+    const socket = openChat();
+    const examples = within(screen.getByRole('list', { name: strings.chat.examplesLabel }));
+
+    expect(examples.getAllByRole('button').map((button) => button.textContent)).toEqual(
+      strings.chat.examples,
+    );
+    fireEvent.click(examples.getByRole('button', { name: strings.chat.examples[0] }));
+
+    expect(composer().value).toBe(strings.chat.examples[0]);
+    expect(document.activeElement).toBe(composer());
+    await act(async () => {});
+    expect(socket.requests).toEqual([]);
+  });
+});
+
 describe('typing', () => {
   it('sends the text on Enter, shows it and clears the composer (DK-4 AC1)', async () => {
     const socket = openChat();
@@ -230,6 +247,107 @@ describe('a question with buttons (DK-4 AC3)', () => {
     expect(screen.queryByRole('button', { name: 'Abrir' })).toBeNull();
     expect(screen.queryByRole('link')).toBeNull();
     expect(screen.getByText(strings.chat.linkOnlyInTelegram('Abrir'))).toBeTruthy();
+  });
+});
+
+describe('while ANOMANDER works (DK-19)', () => {
+  const stopButton = () => screen.queryByRole('button', { name: strings.chat.stopTurn });
+
+  it('says what it is doing in a live region, and what the daemon says it is doing', async () => {
+    const socket = openChat();
+    say('busca el mejor precio de la Switch 2');
+    const request = await sentRequest(socket);
+
+    expect(screen.getByText(strings.chat.thinking).closest('[aria-live]')).not.toBeNull();
+    act(() =>
+      socket.receiveRaw(JSON.stringify({ type: 'progress', of: request.id, phase: 'web_search' })),
+    );
+    expect(screen.getByText(strings.chat.searchingWeb).closest('[aria-live]')).not.toBeNull();
+    act(() =>
+      socket.receiveRaw(JSON.stringify({ type: 'progress', of: request.id, phase: 'connection' })),
+    );
+    expect(screen.getByText(strings.chat.usingConnections)).toBeTruthy();
+  });
+
+  it('"Detener" asks the daemon to stop the turn, and its answer says whether it did', async () => {
+    const socket = openChat();
+    say('23 € cena');
+    const request = await sentRequest(socket);
+    await waitFor(() => expect(stopButton()).not.toBeNull());
+
+    fireEvent.click(stopButton() as HTMLElement);
+
+    expect(await sentRequest(socket, 2)).toMatchObject({ type: 'cancel', target: request.id });
+    expect(screen.getByText(strings.chat.stopping)).toBeTruthy();
+    expect((stopButton() as HTMLButtonElement).disabled).toBe(true);
+    act(() => socket.receive(replyTo(request.id, { text: replies.turnCancelled() })));
+    expect(screen.getByText(replies.turnCancelled())).toBeTruthy();
+    expect(stopButton()).toBeNull();
+  });
+
+  it('Esc stops the answer owed, as "Detener" does (B27)', async () => {
+    const socket = openChat();
+    say('¿qué tiempo hace?');
+    const request = await sentRequest(socket);
+    // Once the window knows the request it owes: what "Detener" would stop.
+    await waitFor(() => expect(stopButton()).not.toBeNull());
+
+    fireEvent.keyDown(document, { key: 'Escape' });
+
+    expect(await sentRequest(socket, 2)).toMatchObject({ type: 'cancel', target: request.id });
+  });
+
+  it('a receipt says it is being read, and is not offered to stop', async () => {
+    const socket = openChat();
+    fireEvent.paste(composer(), { clipboardData: { files: [image('ticket.png')] } });
+    fireEvent.click(screen.getByRole('button', { name: strings.chat.send }));
+    await sentRequest(socket);
+
+    expect(screen.getByText(strings.chat.readingReceipt)).toBeTruthy();
+    expect(stopButton()).toBeNull();
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(socket.requests).toHaveLength(1);
+  });
+});
+
+describe('web addresses in a reply (B25)', () => {
+  const openWithLinks = () => {
+    const onOpenLink = vi.fn();
+    render(<ChatScreen daemon={RUNNING} channel={CHANNEL} onOpenLink={onOpenLink} />);
+    act(() => FakeWebSocket.last.open());
+    return { socket: FakeWebSocket.last, onOpenLink };
+  };
+
+  it('opens an http(s) address of a reply in the browser, and nothing else is a link', async () => {
+    const { socket, onOpenLink } = openWithLinks();
+    say('¿dónde la compro?');
+    const request = await sentRequest(socket);
+    const text =
+      'En https://example.com/switch-2?ref=a. Ni javascript:alert(1) ni file:///etc/passwd.';
+    act(() => socket.receive(replyTo(request.id, { text })));
+
+    expect(screen.getAllByRole('link')).toHaveLength(1);
+    fireEvent.click(screen.getByRole('link', { name: 'https://example.com/switch-2?ref=a' }));
+
+    expect(onOpenLink).toHaveBeenCalledWith('https://example.com/switch-2?ref=a');
+    // The reply reads as it came.
+    expect(screen.getByRole('log').textContent).toContain(text);
+  });
+
+  it('opens a link button where the window can open it', async () => {
+    const { socket, onOpenLink } = openWithLinks();
+    say('/login');
+    const request = await sentRequest(socket);
+    act(() =>
+      socket.receive(
+        replyTo(request.id, { buttons: [{ label: 'Abrir', url: 'https://example.com/login' }] }),
+      ),
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Abrir' }));
+
+    expect(onOpenLink).toHaveBeenCalledWith('https://example.com/login');
+    expect(screen.queryByText(strings.chat.linkOnlyInTelegram('Abrir'))).toBeNull();
   });
 });
 
@@ -570,11 +688,12 @@ describe('a look at the screen (DK-9, DK-13)', () => {
     await routed(socket, 'screen', question);
     const look = await sentRequest(socket, 2);
 
-    expect(screen.getByText(strings.chat.thinking)).toBeTruthy();
+    // DK-19: it says it is looking.
+    expect(screen.getByText(strings.chat.lookingAtScreen)).toBeTruthy();
     act(() => socket.receive(replyTo(look.id, { text: 'Es de Ana, sobre la reunión.' })));
 
     expect(screen.getByText('Es de Ana, sobre la reunión.')).toBeTruthy();
-    expect(screen.queryByText(strings.chat.thinking)).toBeNull();
+    expect(screen.queryByText(strings.chat.lookingAtScreen)).toBeNull();
   });
 
   it('says it cannot look where the window cannot capture the screen', async () => {
@@ -993,6 +1112,23 @@ describe('a task on the computer (DK-10, DK-13)', () => {
       const third = await sentRequest(socket, 4);
       expect(stop()).not.toBeNull();
       act(() => socket.receive(replyTo(third.id, { text: 'Hecho.' })));
+      expect(stop()).toBeNull();
+    });
+
+    it('Esc stops the task while it runs, as "Detener tarea" does (B27)', async () => {
+      const { socket, onPerformAction } = openWithComputer();
+      const request = await started(socket);
+
+      fireEvent.keyDown(document, { key: 'Escape' });
+      act(() =>
+        socket.receive(
+          replyTo(request.id, { text: PROPOSAL, computer: CLICK, confirm: false } as never),
+        ),
+      );
+      await act(async () => {});
+
+      expect(onPerformAction).not.toHaveBeenCalled();
+      expect(screen.getByText(strings.chat.computerRefused)).toBeTruthy();
       expect(stop()).toBeNull();
     });
 
@@ -2208,5 +2344,46 @@ describe('reading the conversation (DK-21)', () => {
     fireEvent.change(search, { target: { value: 'pizza' } });
     expect(marks()).toEqual([]);
     expect(screen.getByText(strings.chat.searchCount(0))).toBeTruthy();
+  });
+
+  it('highlights the words of a web address too, and it still opens (B25)', async () => {
+    const onOpenLink = vi.fn();
+    render(<ChatScreen daemon={RUNNING} channel={CHANNEL} onOpenLink={onOpenLink} />);
+    act(() => FakeWebSocket.last.open());
+    const socket = FakeWebSocket.last;
+    await answered(
+      socket,
+      '¿dónde?',
+      new Date().toISOString(),
+      'Mira https://example.com/tienda ya.',
+    );
+
+    fireEvent.change(screen.getByRole('searchbox', { name: strings.chat.search }), {
+      target: { value: 'tienda ya' },
+    });
+
+    const marks = [...screen.getByRole('log').querySelectorAll('mark')];
+    expect(marks.map((mark) => mark.textContent)).toEqual(['tienda', ' ya']);
+    expect(marks[0]?.closest('a')).not.toBeNull();
+    expect(screen.getByText(strings.chat.searchCount(1))).toBeTruthy();
+    fireEvent.click(screen.getByRole('link', { name: 'https://example.com/tienda' }));
+    expect(onOpenLink).toHaveBeenCalledWith('https://example.com/tienda');
+  });
+
+  it('Esc in a search with words leaves the answer owed running (DK-19)', async () => {
+    const socket = openChat();
+    await answered(socket, '23 € cena', new Date().toISOString(), 'Apuntado.');
+    say('¿qué tiempo hace?');
+    await sentRequest(socket, socket.requests.length + 1);
+    const sent = socket.requests.length;
+    await waitFor(() =>
+      expect(screen.queryByRole('button', { name: strings.chat.stopTurn })).not.toBeNull(),
+    );
+    const search = screen.getByRole('searchbox', { name: strings.chat.search });
+    fireEvent.change(search, { target: { value: 'cena' } });
+
+    fireEvent.keyDown(search, { key: 'Escape' });
+
+    expect(socket.requests).toHaveLength(sent);
   });
 });

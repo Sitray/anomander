@@ -46,6 +46,7 @@ vi.mock('../src/shell.ts', () => ({
     captureScreen: vi.fn(),
     performAction: vi.fn(),
     reveal: vi.fn(),
+    openLink: vi.fn(),
     setTaskRunning: vi.fn(),
     onStopTask: vi.fn(),
     onChatShown: vi.fn(),
@@ -73,6 +74,7 @@ beforeEach(() => {
   mocked.setThinking.mockResolvedValue(undefined);
   mocked.notifyReply.mockResolvedValue(undefined);
   mocked.reveal.mockResolvedValue(undefined);
+  mocked.openLink.mockResolvedValue(undefined);
   mocked.setTaskRunning.mockResolvedValue(undefined);
   mocked.onStopTask.mockResolvedValue(() => {});
   mocked.onChatShown.mockResolvedValue(() => {});
@@ -110,6 +112,31 @@ describe('opening', () => {
     expect(FakeWebSocket.last.url).toBe('ws://127.0.0.1:4312');
     expect(FakeWebSocket.last.protocols.at(1)).toBe(TOKEN);
     expect(setupHeading()).toBeNull();
+  });
+
+  it('opens a web address of a reply, and a link button, through the shell (B25)', async () => {
+    await open(runningSnapshot());
+    const socket = FakeWebSocket.last;
+    act(() => socket.open());
+    fireEvent.change(composer(), { target: { value: '/login' } });
+    fireEvent.keyDown(composer(), { key: 'Enter' });
+    await waitFor(() => expect(socket.requests).toHaveLength(1));
+    act(() =>
+      socket.receive(
+        replyTo(socket.lastRequest.id, {
+          text: 'Entra en https://example.com/login.',
+          buttons: [{ label: 'Abrir', url: 'https://example.com/abrir' }],
+        }),
+      ),
+    );
+
+    fireEvent.click(screen.getByRole('link', { name: 'https://example.com/login' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Abrir' }));
+
+    expect(mocked.openLink.mock.calls).toEqual([
+      ['https://example.com/login'],
+      ['https://example.com/abrir'],
+    ]);
   });
 
   it('says it is loading until the shell answers', () => {

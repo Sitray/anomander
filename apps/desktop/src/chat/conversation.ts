@@ -445,6 +445,31 @@ export const isWaiting = (conversation: Conversation): boolean =>
       : message.press?.delivery === 'pending' || message.start?.delivery === 'pending',
   );
 
+/**
+ * DK-19: the answer owed now, the latest one: a text, a receipt, a look at the screen, or a step
+ * (a press, or a step of a task on the computer). `requestId` is `null` until it left.
+ */
+export interface Owed {
+  kind: 'text' | 'receipt' | 'screen' | 'step';
+  requestId: string | null;
+}
+
+export const owedAnswer = (conversation: Conversation): Owed | null => {
+  for (const message of [...conversation.messages].reverse()) {
+    if (message.kind === 'own') {
+      if (message.delivery !== 'pending') continue;
+      const kind = message.attachments.length > 0 ? 'receipt' : 'text';
+      return { kind, requestId: message.requestId };
+    }
+    const { start, press } = message;
+    if (start?.delivery === 'pending') {
+      return { kind: start.route.to === 'screen' ? 'screen' : 'step', requestId: start.requestId };
+    }
+    if (press?.delivery === 'pending') return { kind: 'step', requestId: press.requestId };
+  }
+  return null;
+};
+
 /** Whether `delivery` says the daemon may never have had it. */
 const mayBeMissing = (delivery: Delivery | undefined): boolean =>
   delivery === 'not_sent' || delivery === 'unknown';

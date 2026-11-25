@@ -573,6 +573,7 @@ Amounts are formatted with `Intl.NumberFormat('es-ES', { style: 'currency', curr
 | S-102 | `Corregido: {total} ({categoria}).` (S-8 for an expense with no merchant, R-7 AC2) |
 | S-103 | `¿Qué gasto corrijo? Dímelo con su importe, por ejemplo: el de 23,40 €.` |
 | S-104 | `No encuentro un gasto reciente que corregir.` |
+| S-130 | `Lo he dejado aquí. Lo que ya estaba hecho se queda como está.` (a turn stopped from the app, desktop PRD DK-19 AC4) |
 | S-171 | `- Elegir el modelo: abre Configuración, en la barra de arriba.` (S-71 in the desktop app's chat, desktop PRD DK-23 AC5) |
 | S-172 | `- Un modelo que exista: {modelo} no lo encuentro. Elige otro en Configuración.` (S-72 in the app's chat, once per model) |
 | S-173 | `- Conectar tu cuenta de {proveedor}: pon su clave en Configuración o conéctala en Suscripciones.` (S-73 in the app's chat) |

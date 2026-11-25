@@ -277,6 +277,11 @@ export const shell = {
   ): Promise<ArrayBuffer> => invoke('perform_action', { action, keepHidden, permitted }),
   /** Brings the app and the chat back to the front. */
   reveal: (): Promise<void> => invoke('reveal'),
+  /**
+   * B25: opens an absolute `http` or `https` address in the principal's browser, never in the
+   * window; the shell refuses any other.
+   */
+  openLink: (url: string): Promise<void> => invoke('open_link', { url }),
   /** Whether a task goes by itself, so the menu bar offers "Detener tarea" (DK-10). */
   setTaskRunning: (running: boolean): Promise<void> => invoke('set_task_running', { running }),
   /** The principal chose "Detener tarea" in the menu bar. */

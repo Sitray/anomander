@@ -103,9 +103,18 @@ const es = {
     you: 'Tú',
     bot: 'ANOMANDER',
 
-    emptyTitle: 'Cuéntame un gasto',
+    emptyTitle: '¿En qué te echo una mano?',
     emptyBody:
-      'Escríbelo como te salga, por ejemplo «23\u00a0€\u00a0cena», o suelta aquí la foto de un ticket.',
+      'Apunto tus gastos, te recuerdo cosas, miro tu pantalla y uso tus conexiones. Escríbelo como te salga, por ejemplo «23\u00a0€\u00a0cena», o suelta aquí la foto de un ticket.',
+    /** B23: what can be asked here; a press fills the composer and sends nothing. */
+    examplesLabel: 'Ejemplos',
+    examples: [
+      '¿Cuánto llevo gastado este mes?',
+      'Recuérdame mañana a las 9 llamar al dentista',
+      '¿Qué ves en mi pantalla?',
+      'Busca en internet qué tiempo hará mañana',
+      '¿Qué sabes de mí?',
+    ],
 
     /** The empty chat while there is no daemon to talk to: it says what to do, not what to type. */
     emptyStopped: {
@@ -210,6 +219,14 @@ const es = {
     },
 
     thinking: 'ANOMANDER está pensando…',
+    /** DK-19: what ANOMANDER is doing for the answer owed, and the way to stop it. */
+    readingReceipt: 'Leyendo el ticket…',
+    lookingAtScreen: 'Mirando tu pantalla…',
+    usingConnections: 'Usando tus conexiones…',
+    searchingWeb: 'Buscando en internet…',
+    stopping: 'Deteniendo…',
+    stopTurn: 'Detener',
+    stopTurnHint: 'Detener (Esc)',
 
     /** `rejected`, or never left: nothing was done, so sending again is safe. */
     notSent: 'No se ha enviado.',
@@ -577,6 +594,8 @@ const es = {
           cannot: 'No se pudo hacer',
           failed: 'Falló',
           stopped: 'La paraste',
+          /** DK-19: stopped from the chat while it ran. */
+          cancelled: 'La paraste',
           replaced: 'La sustituyó otra',
           too_many_steps: 'Demasiados pasos',
           budget_exhausted: 'Sin llamadas de IA ese día',
@@ -774,9 +793,17 @@ const en: Strings = {
     you: 'You',
     bot: 'ANOMANDER',
 
-    emptyTitle: 'Tell me about an expense',
+    emptyTitle: 'What can I help you with?',
     emptyBody:
-      'Write it however it comes to you, for example “€23 dinner”, or drop a photo of a receipt here.',
+      'I log your expenses, remind you of things, look at your screen and use your connections. Write it however it comes to you, for example “€23 dinner”, or drop a photo of a receipt here.',
+    examplesLabel: 'Examples',
+    examples: [
+      'How much have I spent this month?',
+      'Remind me tomorrow at 9 to call the dentist',
+      "What's on my screen?",
+      "Search the web for tomorrow's weather",
+      'What do you know about me?',
+    ],
 
     emptyStopped: {
       title: 'ANOMANDER is stopped',
@@ -863,6 +890,13 @@ const en: Strings = {
     },
 
     thinking: 'ANOMANDER is thinking…',
+    readingReceipt: 'Reading the receipt…',
+    lookingAtScreen: 'Looking at your screen…',
+    usingConnections: 'Using your connections…',
+    searchingWeb: 'Searching the web…',
+    stopping: 'Stopping…',
+    stopTurn: 'Stop',
+    stopTurnHint: 'Stop (Esc)',
 
     notSent: 'Not sent.',
     sendAgain: 'Send again',
@@ -1193,6 +1227,7 @@ const en: Strings = {
           cannot: 'Could not be done',
           failed: 'Failed',
           stopped: 'You stopped it',
+          cancelled: 'You stopped it',
           replaced: 'Replaced by another',
           too_many_steps: 'Too many steps',
           budget_exhausted: 'No AI calls left that day',
