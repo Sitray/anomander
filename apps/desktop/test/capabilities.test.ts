@@ -77,6 +77,8 @@ describe('the windows’ command permissions', () => {
       'save_setup',
       'answer_login',
       'save_connection',
+      // B25: only the chat opens a web address in the browser.
+      'open_link',
     ]) {
       expect(notch).not.toContain(allow(command));
     }

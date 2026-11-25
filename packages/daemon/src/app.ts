@@ -56,7 +56,7 @@ import {
   startLocalChannel,
 } from './local-channel/server.ts';
 import { createPatternOffers } from './patterns/pattern-offers.ts';
-import { turnStopped, withCancel } from './processor/cancel.ts';
+import { turnAborted, turnStopped, withCancel } from './processor/cancel.ts';
 import { createPiAiComputerPlanner } from './processor/computer-planner.ts';
 import { createPiAiCorrectionInterpreter } from './processor/correction-interpreter.ts';
 import type { Complete, Logger } from './processor/ports.ts';
@@ -436,10 +436,12 @@ export const startAnomander = <M>(config: Config, deps: AnomanderDeps<M>): Anoma
   // R-22 AC2, AC3: each attempt has its own timeout; each retry counts against the budget.
   // DK-19: a turn stopped from the app aborts its processor call, whichever wrapper made it.
   const timed = withRetry(withTimeout(withCancel(complete), config.processorTimeoutMs), {
-    mayRetry: () => budget.tryConsume(),
+    // DK-19: a stopped turn makes no retry, so it spends none.
+    mayRetry: () => !turnAborted() && budget.tryConsume(),
     logger,
   });
-  const ai = budgeted(timed, budget);
+  // DK-19: outside the budget too, so a call refused after a stop is never counted (R-12).
+  const ai = withCancel(budgeted(timed, budget));
 
   const phraser = createPiAiReplyPhraser({ complete: ai, model, logger });
   // R-16 AC3, DK-16: every exchange with the principal is a recent turn, kept in the stored

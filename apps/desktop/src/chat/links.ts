@@ -7,14 +7,18 @@ export type Piece = { text: string } | { url: string };
 
 /** A candidate: a scheme, then anything up to a space or a quote mark around it. */
 const CANDIDATE = /https?:\/\/[^\s<>"'«»“”‘’]+/gi;
-/** What ends a sentence after an address is not part of it. */
-const TRAILING = /[.,;:!?]+$/;
+/** What ends a sentence after an address is not part of it, an ellipsis too. */
+const TRAILING = /[.,;:!?…]+$/;
 
-/** Whether `address` is a web address the browser may open. */
+/**
+ * Whether `address` is a web address the browser may open: the shell's `open_link` opens no
+ * other, so a user name (`https://ana@evil.com`) stays text, as it is refused there.
+ */
 export const isWebAddress = (address: string): boolean => {
   try {
-    const { protocol, hostname } = new URL(address);
-    return (protocol === 'https:' || protocol === 'http:') && hostname !== '';
+    const { protocol, hostname, username, password } = new URL(address);
+    const web = protocol === 'https:' || protocol === 'http:';
+    return web && hostname !== '' && username === '' && password === '';
   } catch {
     return false;
   }

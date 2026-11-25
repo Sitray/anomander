@@ -3318,6 +3318,30 @@ describe('stopping a turn from the app (DK-19)', () => {
     expect(stored.type === 'history' && stored.messages.at(-1)?.text).toBe(strings.turnCancelled());
   });
 
+  it('a call refused after the stop does not count against the daily AI limit (R-12)', async () => {
+    const calls = () =>
+      query<{ calls: number }>('SELECT SUM(calls) AS calls FROM ai_usage')[0]?.calls ?? 0;
+    let release = () => {};
+    interpreting = new Promise((resolveHeld) => {
+      release = resolveHeld;
+    });
+    const chat = await client(await start());
+    const first = chat.ask({ type: 'text', text: '23 € cena' });
+    // Waits for the first turn: stopped before it starts, it never calls the processor.
+    const second = chat.ask({ type: 'text', text: '23 € cena' });
+    await vi.waitFor(() => expect(interpreted).toHaveLength(1));
+    await chat.ask({ type: 'cancel', target: 'm2' });
+    release();
+    await first;
+    expect(reply(await second).text).toBe(strings.turnCancelled());
+    const spent = calls();
+
+    await chat.ask({ type: 'text', text: '23 € cena' });
+
+    // The stopped turn spent nothing: one turn costs what the first one did.
+    expect(calls() - spent).toBe(spent);
+  });
+
   it('stops a look at the screen while it is read, and keeps it as stopped', async () => {
     let release = () => {};
     seen = () =>

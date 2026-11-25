@@ -33,6 +33,9 @@ export const runStoppable = <T>(
   work: () => Promise<T>,
 ): Promise<T> => scope.run({ signal, interrupted: false, report }, work);
 
+/** Whether the running turn was asked to stop: a retry is then neither counted nor made. */
+export const turnAborted = (): boolean => scope.getStore()?.signal.aborted ?? false;
+
 /** Whether a processor call of the running turn was stopped: its reply must say so (S-130). */
 export const turnStopped = (): boolean => scope.getStore()?.interrupted ?? false;
 
