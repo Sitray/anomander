@@ -51,6 +51,8 @@ export interface ChatScreenProps {
    * there. Absent where the window cannot add one: the chat then only says it is missing.
    */
   onAddWebSearch?: () => Promise<boolean>;
+  /** B25: opens an http(s) address in the principal's browser; absent where the shell cannot. */
+  onOpenLink?: (url: string) => void;
 }
 
 /** Why there is no channel, in the principal's words. */
@@ -74,7 +76,7 @@ const proposing = ({ messages }: Conversation): boolean =>
 export function ChatScreen(props: ChatScreenProps) {
   const { daemon, channel, onThinking, onReply, onCaptureScreen, onPerformAction } = props;
   const { onReveal, onTaskRunning, subscribeStop, model = null, onAddWebSearch } = props;
-  const { subscribeShown } = props;
+  const { subscribeShown, onOpenLink } = props;
   const draft = useDraft();
   const computer = useMemo(
     () =>
@@ -251,6 +253,7 @@ export function ChatScreen(props: ChatScreenProps) {
         turn={turn}
         onStop={cancel}
         onExample={fillWith}
+        onOpenLink={onOpenLink}
         empty={emptyStateFor(disabled ? daemon : null, props.onStart)}
         onRetry={chat.retry}
         onRestart={chat.restart}

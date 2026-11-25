@@ -651,6 +651,13 @@ and keep its secrets in the operating system instead of a text file.
     gastado este mes?", "Recuérdame mañana a las 9 llamar al dentista", "¿Qué ves en mi
     pantalla?", "Busca en internet qué tiempo hará mañana" and "¿Qué sabes de mí?". A press puts
     the example in the composer, with the caret at its end; it is never sent by itself.
+  - AC2: replies are plain text: the text interpreter is asked for every reply without Markdown
+    and with web addresses written out, as the screen reader and tasks with connections already
+    were (R-14 unchanged: the prompt only shapes words). Where the shell can open the browser, the
+    chat turns each `http` or `https` address of a reply into a link and a link button into a
+    button, both opened in the principal's browser, never in the window; any other scheme
+    (`javascript:`, `file:`) stays text. Elsewhere the addresses stay plain text and a link button
+    is named as before (DK-4 AC7). Telegram is unchanged but for the prompt.
   - AC3: while an answer is owed the chat says what ANOMANDER is doing, in a live region that is
     always in the page, so each phase is announced: "ANOMANDER está pensando…" for a text or a
     step, "Leyendo el ticket…" for a receipt, "Mirando tu pantalla…" for a look. While a task with

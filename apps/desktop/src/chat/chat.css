@@ -71,3 +71,11 @@
   border-color: var(--text-3);
   color: var(--text);
 }
+
+/* B25: a web address in a reply, opened in the browser. */
+.message-link {
+  color: var(--accent-ink);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  overflow-wrap: anywhere;
+}

@@ -310,6 +310,47 @@ describe('while ANOMANDER works (DK-19)', () => {
   });
 });
 
+describe('web addresses in a reply (B25)', () => {
+  const openWithLinks = () => {
+    const onOpenLink = vi.fn();
+    render(<ChatScreen daemon={RUNNING} channel={CHANNEL} onOpenLink={onOpenLink} />);
+    act(() => FakeWebSocket.last.open());
+    return { socket: FakeWebSocket.last, onOpenLink };
+  };
+
+  it('opens an http(s) address of a reply in the browser, and nothing else is a link', async () => {
+    const { socket, onOpenLink } = openWithLinks();
+    say('¿dónde la compro?');
+    const request = await sentRequest(socket);
+    const text =
+      'En https://example.com/switch-2?ref=a. Ni javascript:alert(1) ni file:///etc/passwd.';
+    act(() => socket.receive(replyTo(request.id, { text })));
+
+    expect(screen.getAllByRole('link')).toHaveLength(1);
+    fireEvent.click(screen.getByRole('link', { name: 'https://example.com/switch-2?ref=a' }));
+
+    expect(onOpenLink).toHaveBeenCalledWith('https://example.com/switch-2?ref=a');
+    // The reply reads as it came.
+    expect(screen.getByRole('log').textContent).toContain(text);
+  });
+
+  it('opens a link button where the window can open it', async () => {
+    const { socket, onOpenLink } = openWithLinks();
+    say('/login');
+    const request = await sentRequest(socket);
+    act(() =>
+      socket.receive(
+        replyTo(request.id, { buttons: [{ label: 'Abrir', url: 'https://example.com/login' }] }),
+      ),
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Abrir' }));
+
+    expect(onOpenLink).toHaveBeenCalledWith('https://example.com/login');
+    expect(screen.queryByText(strings.chat.linkOnlyInTelegram('Abrir'))).toBeNull();
+  });
+});
+
 describe('delivery honesty', () => {
   it('says a rejected message was not sent and sends it again when asked', async () => {
     const socket = openChat();

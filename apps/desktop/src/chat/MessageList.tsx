@@ -5,6 +5,7 @@ import { strings } from '../strings.ts';
 import { AlertIcon, FileIcon, Mark } from '../ui/icons.tsx';
 import type { Attachment } from './attachments.ts';
 import type { BotMessage, Message, OwnMessage } from './conversation.ts';
+import { isWebAddress, piecesOf } from './links.ts';
 import type { Turn } from './use-chat.ts';
 
 /** What the empty conversation says, and what it offers. */
@@ -46,6 +47,11 @@ export interface MessageListProps {
   onStop?: () => void;
   /** B23: puts an example in the composer; it is never sent by itself. */
   onExample?: (text: string) => void;
+  /**
+   * B25: opens a web address in the principal's browser. Absent where the window cannot: the
+   * addresses stay plain text and a link button is only named.
+   */
+  onOpenLink?: ((url: string) => void) | undefined;
   /** What the empty conversation says; by default, what can be done here. */
   empty?: EmptyState;
   onRetry: (message: OwnMessage) => void;
@@ -274,6 +280,43 @@ const OfferCard = ({
   );
 };
 
+/**
+ * B25: a reply's text, exactly as received (DK-4 AC1): text nodes, never HTML or Markdown. Where
+ * the window can open them, its http(s) addresses are links to the browser; never in the window.
+ */
+const ReplyText = ({
+  text,
+  onOpenLink,
+}: {
+  text: string;
+  onOpenLink: MessageListProps['onOpenLink'];
+}) => {
+  if (onOpenLink === undefined) return <p className="message-text">{text}</p>;
+  return (
+    <p className="message-text">
+      {piecesOf(text).map((piece, index) =>
+        'url' in piece ? (
+          <a
+            // biome-ignore lint/suspicious/noArrayIndexKey: the pieces of one text never move.
+            key={index}
+            className="message-link"
+            href={piece.url}
+            rel="noreferrer"
+            onClick={(event) => {
+              event.preventDefault();
+              onOpenLink(piece.url);
+            }}
+          >
+            {piece.url}
+          </a>
+        ) : (
+          piece.text
+        ),
+      )}
+    </p>
+  );
+};
+
 const Bot = ({
   message,
   onRestart,
@@ -281,6 +324,7 @@ const Bot = ({
   onAllow,
   onRefuse,
   onAddWebSearch,
+  onOpenLink,
 }: {
   message: BotMessage;
   onRestart: MessageListProps['onRestart'];
@@ -288,16 +332,17 @@ const Bot = ({
   onAllow: MessageListProps['onAllow'];
   onRefuse: MessageListProps['onRefuse'];
   onAddWebSearch: MessageListProps['onAddWebSearch'];
+  onOpenLink: MessageListProps['onOpenLink'];
 }) => {
   const { press, proposal, start, offer } = message;
   const choices = message.buttons.filter((button) => 'data' in button);
-  // DK-4 AC7: this WebView cannot open a link, so a link button is named, never offered.
+  // DK-4 AC7, B25: a link button opens its address where the window can; otherwise it is named.
   const links = message.buttons.filter((button) => 'url' in button);
+  const opens = (url: string) => onOpenLink !== undefined && isWebAddress(url);
   return (
     <li className="message bot">
       <span className="sr-only">{strings.chat.bot}</span>
-      {/* DK-4 AC1: exactly as received. A text node: never HTML, never Markdown. */}
-      <p className="message-text">{message.text}</p>
+      <ReplyText text={message.text} onOpenLink={onOpenLink} />
       {message.door === 'telegram' && <p className="message-note">{strings.chat.viaTelegram}</p>}
       {choices.length > 0 && (
         <div className="choices">
@@ -328,18 +373,36 @@ const Bot = ({
       {proposal === null && press?.delivery === 'unknown' && (
         <Problem>{strings.chat.pressUnknown}</Problem>
       )}
-      {links.map((button) => (
-        <p key={button.label} className="message-note">
-          {strings.chat.linkOnlyInTelegram(button.label)}
-        </p>
-      ))}
+      {links.some((button) => opens(button.url)) && (
+        <div className="choices">
+          {links
+            .filter((button) => opens(button.url))
+            .map((button) => (
+              <button
+                key={button.label}
+                type="button"
+                className="button choice"
+                onClick={() => onOpenLink?.(button.url)}
+              >
+                {button.label}
+              </button>
+            ))}
+        </div>
+      )}
+      {links
+        .filter((button) => !opens(button.url))
+        .map((button) => (
+          <p key={button.label} className="message-note">
+            {strings.chat.linkOnlyInTelegram(button.label)}
+          </p>
+        ))}
     </li>
   );
 };
 
 export function MessageList(props: MessageListProps) {
   const { messages, waiting, onRetry, onRestart, onPress, onAllow, onRefuse } = props;
-  const { onAddWebSearch, turn = null, onStop, onExample } = props;
+  const { onAddWebSearch, turn = null, onStop, onExample, onOpenLink } = props;
   const empty = props.empty ?? emptyStateFor(null);
   const scroller = useRef<HTMLDivElement>(null);
   /** Whether the principal is reading the end; scrolling up to reread must not be undone. */
@@ -400,6 +463,7 @@ export function MessageList(props: MessageListProps) {
               onAllow={onAllow}
               onRefuse={onRefuse}
               onAddWebSearch={onAddWebSearch}
+              onOpenLink={onOpenLink}
             />
           ),
         )}
