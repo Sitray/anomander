@@ -9,6 +9,7 @@ import {
   ROUTE_KINDS,
   type RouteKind,
   type ScreenQuestion,
+  setCurrency,
   setLocale,
   strings,
 } from '@anomander/protocol';
@@ -384,8 +385,10 @@ export const startSetupGuide = (config: Config, deps: SetupGuideDeps): Anomander
 };
 
 export const startAnomander = <M>(config: Config, deps: AnomanderDeps<M>): Anomander => {
-  // Before any text is built: one daemon speaks one language for its whole life.
+  // Before any text is built: one daemon speaks one language for its whole life, and writes new
+  // expenses in one currency (DK-25).
   setLocale(config.locale);
+  setCurrency(config.currency);
   const { complete, model, logger = console, now = () => new Date() } = deps;
   const textModel = config.model;
   const visionModel = config.visionModel;

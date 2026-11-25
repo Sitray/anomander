@@ -5,7 +5,7 @@ import {
   type CategoryPolicy,
   type ProcessorInference,
 } from '@anomander/core';
-import type { Delivery } from '@anomander/protocol';
+import type { Delivery, Money } from '@anomander/protocol';
 import type Database from 'better-sqlite3';
 import { z } from 'zod';
 
@@ -57,6 +57,8 @@ export const listActivePolicies = (db: Database.Database): CategoryPolicy[] =>
 
 export interface TextExpenseRegistration {
   total_cents: number;
+  /** The principal's currency when it is registered (DK-25). */
+  currency: string;
   merchant: string | null;
   occurred_on: string;
   category: string | null;
@@ -173,14 +175,15 @@ export const registerTextExpense = (
     const actionId = insertAction(db, proposalId, registration.authorized_by, now);
     const expense = db
       .prepare(
-        `INSERT INTO expenses (merchant_id, occurred_on, total_cents, category_id, category_basis,
-           mode, document_id, status, created_by_action_id, created_at)
-         VALUES (?, ?, ?, ?, ?, 'declared', NULL, 'current', ?, ?)`,
+        `INSERT INTO expenses (merchant_id, occurred_on, total_cents, currency, category_id,
+           category_basis, mode, document_id, status, created_by_action_id, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, 'declared', NULL, 'current', ?, ?)`,
       )
       .run(
         merchantId,
         registration.occurred_on,
         registration.total_cents,
+        registration.currency,
         categoryId,
         registration.category_basis,
         actionId,
@@ -237,6 +240,10 @@ export const registerTextExpense = (
 
 export interface StoredExpense {
   total_cents: number;
+  /** Its currency, which every amount said about it is in (DK-25). */
+  currency: string;
+  /** `total_cents` in `currency`, as a text says it. */
+  total: Money;
   merchant: string | null;
   category: string | null;
   occurred_on: string;
@@ -247,8 +254,8 @@ export interface StoredExpense {
 /** R-9 AC1: the reply is built from this row, read back after registering. */
 export const readExpense = (db: Database.Database, expenseId: number): StoredExpense => {
   const row = db
-    .prepare<[number], StoredExpense>(
-      `SELECT e.total_cents, m.name AS merchant, c.name AS category, e.occurred_on,
+    .prepare<[number], Omit<StoredExpense, 'total'>>(
+      `SELECT e.total_cents, e.currency, m.name AS merchant, c.name AS category, e.occurred_on,
          (SELECT coalesce(sum(l.amount_cents), 0) FROM purchase_lines l WHERE l.expense_id = e.id)
            AS lines_sum_cents
        FROM expenses e
@@ -258,7 +265,7 @@ export const readExpense = (db: Database.Database, expenseId: number): StoredExp
     )
     .get(expenseId);
   if (!row) throw new Error(`expense ${expenseId} was not stored`);
-  return row;
+  return { ...row, total: { cents: row.total_cents, currency: row.currency } };
 };
 
 /**

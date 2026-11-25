@@ -42,13 +42,14 @@ const addExpense = (
   cents: number,
   category: string | null,
   status: 'current' | 'pending' | 'refuted' = 'current',
+  currency = 'EUR',
 ) =>
   db
     .prepare(
-      `INSERT INTO expenses (occurred_on, total_cents, category_id, mode, status, created_at)
-       VALUES (?, ?, (SELECT id FROM categories WHERE name = ?), 'declared', ?, ?)`,
+      `INSERT INTO expenses (occurred_on, total_cents, currency, category_id, mode, status, created_at)
+       VALUES (?, ?, ?, (SELECT id FROM categories WHERE name = ?), 'declared', ?, ?)`,
     )
-    .run(occurredOn, cents, category, status, SENT_AT.toISOString());
+    .run(occurredOn, cents, currency, category, status, SENT_AT.toISOString());
 
 const send = () =>
   createWeeklySummary({
@@ -113,6 +114,19 @@ describe('R-10 weekly summary', () => {
 
     expect(reply?.text).toBe(
       'Semana del 26 de octubre al 1 de noviembre: 10,00 €. Restaurantes 10,00 € · Supermercado 0,00 € · Sin clasificar 0,00 €. Pendientes de confirmar: 0.',
+    );
+  });
+
+  // DK-25 (B15): no conversion, so a week with two currencies says each sum apart.
+  it('DK-25: a week with expenses in two currencies says each sum apart, never added', async () => {
+    addExpense('2026-10-26', 3000, 'supermercado');
+    addExpense('2026-10-27', 1200, 'supermercado', 'current', 'USD');
+    addExpense('2026-10-28', 6000, null);
+
+    const reply = await sendSummary();
+
+    expect(reply?.text).toBe(
+      'Semana del 26 de octubre al 1 de noviembre: 90,00\u00a0€ y 12,00\u00a0US$. Supermercado 30,00\u00a0€ y 12,00\u00a0US$ · Restaurantes 0,00\u00a0€ · Sin clasificar 60,00\u00a0€. Pendientes de confirmar: 0.',
     );
   });
 });

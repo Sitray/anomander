@@ -97,10 +97,11 @@ const complete = async (_model: string, context: Context): Promise<AssistantMess
     : answering(answer(input));
 };
 
-const start = async () => {
+const start = async (env: Record<string, string> = {}) => {
   anomander = startAnomander(
     {
       ...loadConfig({
+        ...env,
         TELEGRAM_BOT_TOKEN: api.token,
         ANOMANDER_PRINCIPAL_CHAT_ID: String(PRINCIPAL),
         ANOMANDER_DB_PATH: join(scratch, 'anomander.db'),
@@ -281,6 +282,33 @@ describe('undoing and correcting a typed expense', () => {
     api.push(updates.callbackQuery({ chatId: PRINCIPAL }, undo.data, 1));
     expect((await api.waitForSent(1)).at(-1)?.text).toBe(S19);
     chat.close();
+  });
+
+  // DK-25 (B15): one currency per principal, set in Configuración; what is stored keeps its own.
+  it('DK-25: a typed expense is written in the principal currency, and a stored one keeps its own', async () => {
+    const reply = await registered();
+    await anomander.stop();
+    await start({ ANOMANDER_CURRENCY: 'USD' });
+
+    expect(await press(reply, 'Deshacer')).toBe(S101);
+    const inferred = (predicate: string, value: unknown, quote: string) => ({
+      subject_type: 'expense',
+      subject_id: null,
+      predicate,
+      value_json: value,
+      mode: 'inferred',
+      basis_json: { quote },
+      confidence: 0.9,
+    });
+    interpretations.set('23 cena', () => ({
+      kind: 'expense',
+      inferences: [inferred('total', 2300, '23'), inferred('category', 'restaurantes', 'cena')],
+    }));
+    expect((await say('23 cena')).text).toBe('Apuntado: 23,00\u00a0US$ (restaurantes).');
+    expect(query('SELECT total_cents, currency, status FROM expenses ORDER BY id')).toEqual([
+      { total_cents: 2300, currency: 'EUR', status: 'refuted' },
+      { total_cents: 2300, currency: 'USD', status: 'current' },
+    ]);
   });
 
   it('R-7 AC6: "Corregir" asks S-7, and the text supersedes the declaration with a new declared one', async () => {

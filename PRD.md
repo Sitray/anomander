@@ -474,11 +474,11 @@ The principal asks what they spent ("¿cuánto llevo gastado este mes?") and get
 
 ## 12. User-facing strings (verbatim, `es-ES`)
 
-The table below is the Spanish reference. The English table in `packages/protocol/src/strings.ts` says the same with the same keys and placeholders; it is used when `ANOMANDER_LOCALE` is `en`, where amounts read `€23.40`, dates `29 October`, and a reminder's `{cuando}` reads `today at 9:00`, `on 29 October at 9:00` or `every Monday and Thursday at 8:00`.
+The table below is the Spanish reference. The English table in `packages/protocol/src/strings.ts` says the same with the same keys and placeholders; it is used when `ANOMANDER_LOCALE` is `en`, where amounts read `€23.40` (`US$12.30`), dates `29 October`, and a reminder's `{cuando}` reads `today at 9:00`, `on 29 October at 9:00` or `every Monday and Thursday at 8:00`.
 
 S-1, S-2, S-16, S-21, S-36, S-39, S-40 and S-41 are the reference and the fallback for the phrased replies of R-21; every other string is sent exactly as written.
 
-Amounts are formatted with `Intl.NumberFormat('es-ES', { style: 'currency', currency: 'EUR' })`, for example `23,40 €`. Dates use `d 'de' MMMM`, for example `29 de octubre`.
+Amounts are formatted with `Intl.NumberFormat('es-ES', { style: 'currency', currency })` in the expense's own currency (`expenses.currency`), for example `23,40 €` or `12,30 US$`; an amount that is no expense's, such as S-103's example, is in the principal's currency, `ANOMANDER_CURRENCY` (DK-25). One currency per principal and no conversion: a total or a `{desglose}` amount whose expenses hold more than one currency is said per currency, the principal's first and then by code, joined as a list (`45,20 € y 12,00 US$`), never added up. Dates use `d 'de' MMMM`, for example `29 de octubre`.
 
 | ID | String |
 | --- | --- |
@@ -926,6 +926,7 @@ One Node process (the daemon) and one SQLite file. The Telegram front door runs 
 | `ANOMANDER_AUTH_PATH` | Model login credentials (R-27 AC5) | `./data/auth.json` |
 | `ANOMANDER_LOCALE` | Language of the bot and of the model's replies: `es` or `en` | `es` |
 | `TZ` | Time zone | `Europe/Madrid` |
+| `ANOMANDER_CURRENCY` | The principal's currency (ISO 4217, any case): new expenses are written in it, the stored ones keep theirs, with no conversion (DK-25) | `EUR` |
 
 Secrets live only in `.env`, which is git-ignored. `.env.example` lists every variable. Model credentials are not ANOMANDER variables: pi-ai reads each provider's own variable (for example `OPENAI_API_KEY` or `ANTHROPIC_API_KEY`), which also goes in `.env`.
 

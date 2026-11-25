@@ -58,7 +58,7 @@ export const createRegisterExpenseDecision =
         answerDecision(db, decision.id, null);
       })();
       const stored = readExpense(db, expenseId);
-      return { text: strings.discarded(stored.total_cents, stored.merchant ?? '') };
+      return { text: strings.discarded(stored.total, stored.merchant ?? '') };
     }
 
     if (option !== buttons.register) {
@@ -83,13 +83,13 @@ export const createRegisterExpenseDecision =
     const text =
       stored.merchant === null
         ? await phraser({
-            reference: strings.registeredNoMerchant(stored.total_cents, stored.category),
-            facts: [formatAmount(stored.total_cents), category],
+            reference: strings.registeredNoMerchant(stored.total, stored.category),
+            facts: [formatAmount(stored.total), category],
             message: option,
           })
         : await phraser({
-            reference: strings.registered(stored.total_cents, stored.merchant, stored.category),
-            facts: [formatAmount(stored.total_cents), stored.merchant, category],
+            reference: strings.registered(stored.total, stored.merchant, stored.category),
+            facts: [formatAmount(stored.total), stored.merchant, category],
             message: option,
           });
     return thenOfferPattern(verifiedReply(db, actionId, text, now, logger), expenseId, patterns);

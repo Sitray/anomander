@@ -12,6 +12,7 @@ import {
   decisionButtons,
   formatAmount,
   formatDate,
+  getCurrency,
   type PrincipalText,
   type RouteKind,
   strings,
@@ -437,6 +438,8 @@ export const createTextExpenseHandler = (deps: TextExpenseDeps): TextHandler => 
     const { expenseId, actionId, ask } = db.transaction(() => {
       const registered = registerTextExpense(db, {
         total_cents: total,
+        // DK-25: one currency per principal, whatever symbol the message wrote.
+        currency: getCurrency(),
         merchant,
         occurred_on: occurredOn,
         category: categorization.category,
@@ -458,12 +461,12 @@ export const createTextExpenseHandler = (deps: TextExpenseDeps): TextHandler => 
     const stored = readExpense(db, expenseId);
     const text =
       stored.merchant === null
-        ? await phrase(strings.registeredNoMerchant(stored.total_cents, stored.category), [
-            formatAmount(stored.total_cents),
+        ? await phrase(strings.registeredNoMerchant(stored.total, stored.category), [
+            formatAmount(stored.total),
             stored.category ?? uncategorized(),
           ])
-        : await phrase(strings.registered(stored.total_cents, stored.merchant, stored.category), [
-            formatAmount(stored.total_cents),
+        : await phrase(strings.registered(stored.total, stored.merchant, stored.category), [
+            formatAmount(stored.total),
             stored.merchant,
             stored.category ?? uncategorized(),
           ]);

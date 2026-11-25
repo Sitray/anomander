@@ -644,6 +644,29 @@ and keep its secrets in the operating system instead of a text file.
     was not forgotten (the reply S-22) the item stays and the screen says so; when the connection
     was lost first, that it cannot know.
 
+- DK-25 Time zone and currency (backlog B15, decided 2026-11-25: "Al configurar se toman la zona
+  horaria y la moneda del sistema operativo, y se pueden cambiar en Configuración. Una sola
+  moneda por usuario, sin conversión. Los gastos que ya están guardados siguen en EUR.").
+  - AC1: the daemon reads the principal's currency in `ANOMANDER_CURRENCY` (ISO 4217, any case),
+    beside `TZ`. Without either, it keeps `Europe/Madrid` and `EUR`, so Docker and existing
+    installs see nothing change; a value that is not an IANA zone or an ISO 4217 code stops it
+    with the variable named.
+  - AC2: a new expense, typed or from a receipt, is written in the principal's currency, whatever
+    symbol the message wrote; the expenses already stored keep theirs and are never rewritten or
+    converted.
+  - AC3: every amount said about an expense (S-1 to S-8, S-100 to S-102, the receipt questions,
+    the Gastos screen) is in its own currency, in the language's format: `12,30 €`, `12,30 US$`;
+    `€12.30`, `US$12.30` in English. One formatter in `packages/protocol` says them all.
+  - AC4: a sum never adds two currencies. When the expenses of a total or of a `{desglose}` line
+    (S-9, S-90, S-91, the Gastos screen's total and pending) hold more than one currency, it is
+    said per currency, the principal's first and then by code: `45,20 € y 12,00 US$`. With one
+    currency every figure reads as before.
+  - AC5: the first setup proposes the system's time zone and the currency of the system's region
+    (`EUR` when the region has none the app knows); "Configuración" lets the principal change
+    both, the zone from the IANA list and the currency from a short list or any ISO 4217 code.
+    They take effect when ANOMANDER starts again, which saving the setup does, and the screen
+    says so.
+
 ## 6. Decisions
 
 1. **Where the daemon runs.** Decided (2026-11-10): on the principal's machine, started by the

@@ -1,5 +1,14 @@
 import { todayIn } from '@anomander/core';
-import { type ExpenseQueryAnswer, foldCareful, type Reply, strings } from '@anomander/protocol';
+import {
+  compareSums,
+  type ExpenseQueryAnswer,
+  foldCareful,
+  type Money,
+  type Reply,
+  strings,
+  subtractByCurrency,
+  sumByCurrency,
+} from '@anomander/protocol';
 import type Database from 'better-sqlite3';
 import { z } from 'zod';
 import { type CapabilityEnv, defineCapability } from '../capabilities/capability.ts';
@@ -41,11 +50,41 @@ Resolve the period from the "today" field: "este mes" is from the first day of t
 /** AC3: how many merchants a category's answer lists (assumption). */
 const TOP_MERCHANTS = 3;
 
-/** Spent per name (a category or a merchant), as `{desglose}` lists it. */
+/** Spent per name (a category or a merchant), as `{desglose}` lists it, per currency. */
 interface Spent {
   name: string | null;
-  cents: number;
+  cents: Money[];
 }
+
+/** One row of a sum grouped by a key and the currency. */
+interface SpentRow extends Money {
+  key: number | null;
+  name: string | null;
+}
+
+/** As SQLite's `ORDER BY name` compares text: byte by byte. */
+const byName = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0);
+
+/**
+ * Folds the rows of each key into one sum per currency (DK-25), and orders them as `{desglose}`
+ * does: an unnamed key last, the largest sum first in the currencies of `order`, then by name.
+ */
+const spentBy = (rows: readonly SpentRow[], order: readonly string[]): Spent[] => {
+  const keys = new Map<number | null, { name: string | null; amounts: Money[] }>();
+  for (const { key, name, cents, currency } of rows) {
+    const entry = keys.get(key) ?? { name, amounts: [] };
+    entry.amounts.push({ cents, currency });
+    keys.set(key, entry);
+  }
+  return [...keys.values()]
+    .map(({ name, amounts }) => ({ name, cents: sumByCurrency(amounts) }))
+    .sort(
+      (a, b) =>
+        Number(a.name === null) - Number(b.name === null) ||
+        compareSums(a.cents, b.cents, order) ||
+        byName(a.name ?? '', b.name ?? ''),
+    );
+};
 
 /** The ids of the merchants whose name contains `text`, ignoring case and accents (AC3). */
 const merchantsMatching = (db: Database.Database, text: string): number[] => {
@@ -94,12 +133,16 @@ const compute = (
     params.push(...merchantIds);
   }
   const where = conditions.join(' AND ');
+  // DK-25: every sum is kept per currency, never added across currencies.
   const totals = db
-    .prepare<unknown[], { total: number; count: number }>(
-      `SELECT COALESCE(SUM(e.total_cents), 0) AS total, COUNT(*) AS count FROM expenses e
-       WHERE e.status = 'current' AND ${where}`,
+    .prepare<unknown[], Money & { count: number }>(
+      `SELECT e.currency AS currency, SUM(e.total_cents) AS cents, COUNT(*) AS count
+       FROM expenses e WHERE e.status = 'current' AND ${where}
+       GROUP BY e.currency`,
     )
-    .get(...params) ?? { total: 0, count: 0 };
+    .all(...params);
+  const total = sumByCurrency(totals);
+  const order = total.map(({ currency }) => currency);
   const pending =
     db
       .prepare<unknown[], { count: number }>(
@@ -110,31 +153,38 @@ const compute = (
   // rest (other merchants and expenses with none) as one amount, so the breakdown sums the total.
   const breakdown: Spent[] =
     categoryId === null
-      ? db
-          .prepare<unknown[], Spent>(
-            `SELECT c.name AS name, SUM(e.total_cents) AS cents FROM expenses e
-             LEFT JOIN categories c ON c.id = e.category_id
-             WHERE e.status = 'current' AND ${where}
-             GROUP BY e.category_id
-             ORDER BY c.name IS NULL, cents DESC, c.name`,
-          )
-          .all(...params)
-      : db
-          .prepare<unknown[], Spent>(
-            `SELECT m.name AS name, SUM(e.total_cents) AS cents FROM expenses e
-             JOIN entities m ON m.id = e.merchant_id
-             WHERE e.status = 'current' AND ${where}
-             GROUP BY e.merchant_id
-             ORDER BY cents DESC, m.name
-             LIMIT ${TOP_MERCHANTS}`,
-          )
-          .all(...params);
-  const listed = breakdown.reduce((sum, { cents }) => sum + cents, 0);
+      ? spentBy(
+          db
+            .prepare<unknown[], SpentRow>(
+              `SELECT e.category_id AS key, c.name AS name, e.currency AS currency,
+                 SUM(e.total_cents) AS cents FROM expenses e
+               LEFT JOIN categories c ON c.id = e.category_id
+               WHERE e.status = 'current' AND ${where}
+               GROUP BY e.category_id, e.currency`,
+            )
+            .all(...params),
+          order,
+        )
+      : spentBy(
+          db
+            .prepare<unknown[], SpentRow>(
+              `SELECT e.merchant_id AS key, m.name AS name, e.currency AS currency,
+                 SUM(e.total_cents) AS cents FROM expenses e
+               JOIN entities m ON m.id = e.merchant_id
+               WHERE e.status = 'current' AND ${where}
+               GROUP BY e.merchant_id, e.currency`,
+            )
+            .all(...params),
+          order,
+        ).slice(0, TOP_MERCHANTS);
   return {
-    total: totals.total,
-    count: totals.count,
+    total,
+    count: totals.reduce((sum, { count }) => sum + count, 0),
     breakdown,
-    others: totals.total - listed,
+    others: subtractByCurrency(
+      total,
+      breakdown.flatMap(({ cents }) => cents),
+    ),
     pending,
   };
 };

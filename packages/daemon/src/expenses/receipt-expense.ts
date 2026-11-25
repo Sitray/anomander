@@ -97,7 +97,10 @@ const questionFor = (
   switch (reason) {
     case 'lines_mismatch':
       return {
-        question: strings.linesMismatch(stored.lines_sum_cents, stored.total_cents),
+        question: strings.linesMismatch(
+          { cents: stored.lines_sum_cents, currency: stored.currency },
+          stored.total,
+        ),
         options: allOptions(),
       };
     case 'duplicate': {
@@ -111,13 +114,13 @@ const questionFor = (
     // The reader only returns calendar dates, so an invalid date is one after today.
     case 'invalid_date':
       return {
-        question: strings.futureReceipt(stored.total_cents, merchant, stored.occurred_on),
+        question: strings.futureReceipt(stored.total, merchant, stored.occurred_on),
         options: allOptions(),
       };
     case 'needs_confirmation':
       return {
         question: strings.confirmCategory(
-          stored.total_cents,
+          stored.total,
           merchant,
           stored.occurred_on,
           stored.category,
@@ -311,12 +314,12 @@ export const createReceiptExpenseCycle = (deps: ReceiptExpenseDeps): ReceiptExpe
       const stored = readExpense(db, expenseId);
       const reference =
         stored.merchant === null
-          ? strings.registeredNoMerchant(stored.total_cents, stored.category)
-          : strings.registered(stored.total_cents, stored.merchant, stored.category);
+          ? strings.registeredNoMerchant(stored.total, stored.category)
+          : strings.registered(stored.total, stored.merchant, stored.category);
       const text = await phraser({
         reference,
         facts: [
-          formatAmount(stored.total_cents),
+          formatAmount(stored.total),
           ...(stored.merchant === null ? [] : [stored.merchant]),
           stored.category ?? uncategorized(),
         ],
