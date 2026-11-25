@@ -15,6 +15,8 @@ export interface Gasto {
   total_cents: number;
   modo: string;
   origen: 'texto' | 'ticket';
+  /** The expense's currency, ISO 4217 (B71); `total_cents` is in it. */
+  moneda: string;
 }
 
 /** A row of `lineas_de_compra`. */
@@ -27,12 +29,27 @@ export interface LineaDeCompra {
   categoria: string | null;
   fecha: Day;
   modo: string;
+  /** The expense's currency, ISO 4217 (B71); `precio_cents` is in it. */
+  moneda: string;
 }
 
-/** The one row of `pendientes_de_confirmar`. */
-export interface Pendientes {
+/** The pending expenses of one currency. */
+export interface PendientesEnMoneda {
+  moneda: string;
   cantidad: number;
   total_cents: number;
+}
+
+/**
+ * The one row of `pendientes_de_confirmar` (B71): `total_cents` and `moneda` while every pending
+ * expense is in one currency (`0` and `null` when none is), both `null` when they are in several,
+ * since a total never adds two currencies; `por_moneda` has each currency's, by code.
+ */
+export interface Pendientes {
+  cantidad: number;
+  total_cents: number | null;
+  moneda: string | null;
+  por_moneda: PendientesEnMoneda[];
 }
 
 /** Both days inclusive. */
@@ -85,9 +102,12 @@ export const readLineas = (
         )
         .all(desde, hasta, producto);
 
-/** How many expenses are pending and their total; `0` and `0` when none is. */
+/** How many expenses are pending and their totals; `0` and `0` when none is. */
 export const readPendientes = (db: Database.Database): Pendientes => {
-  const sql = 'SELECT cantidad, total_cents FROM pendientes_de_confirmar';
+  const sql = 'SELECT cantidad, total_cents, moneda, por_moneda FROM pendientes_de_confirmar';
   // The view always has its one row; the fallback only satisfies the type.
-  return db.prepare<[], Pendientes>(sql).get() ?? { cantidad: 0, total_cents: 0 };
+  const row = db
+    .prepare<[], Omit<Pendientes, 'por_moneda'> & { por_moneda: string }>(sql)
+    .get() ?? { cantidad: 0, total_cents: 0, moneda: null, por_moneda: '[]' };
+  return { ...row, por_moneda: JSON.parse(row.por_moneda) as PendientesEnMoneda[] };
 };

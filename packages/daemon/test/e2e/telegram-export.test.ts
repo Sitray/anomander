@@ -82,11 +82,11 @@ describe('/exportar over Telegram (R-29 AC3)', () => {
     ]);
     expect(documents.every((document) => document.chatId === PRINCIPAL)).toBe(true);
     expect(new TextDecoder().decode(documents[0]?.bytes)).toMatch(
-      /^id,fecha,comercio,categoria,total_cents,modo,origen\r\n\d+,2026-11-23,,restaurantes,2300,declared,texto\r\n$/,
+      /^id,fecha,comercio,categoria,total_cents,modo,origen,moneda\r\n\d+,2026-11-23,,restaurantes,2300,declared,texto,EUR\r\n$/,
     );
     expect(JSON.parse(new TextDecoder().decode(documents[3]?.bytes))).toMatchObject({
       exported_at: NOW.toISOString(),
-      pendientes_de_confirmar: { cantidad: 0, total_cents: 0 },
+      pendientes_de_confirmar: { cantidad: 0, total_cents: 0, moneda: null, por_moneda: [] },
     });
 
     const exportsDir = join(scratch, 'exports');

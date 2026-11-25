@@ -39,7 +39,9 @@ in the app of apps.
 - **No public port.** §20 of `PRD.md`: any web front door goes behind authentication. v1 binds
   to the local machine or a private network only.
 - **Mode is always there.** No row is served without the mode of its expense.
-- **Money in cents.** Readers format it themselves.
+- **Money in cents, in its own currency.** Readers format it themselves. Every row that carries
+  an amount says its currency (`moneda`, ISO 4217), and no total adds two currencies (DK-25,
+  backlog B71).
 
 ## 5. Requirements (draft)
 
@@ -48,20 +50,30 @@ refuted expenses are never served as expenses; pending ones are counted apart (R
 
 - RA-1 Views. New read-only views, columns in Spanish like `supermarket_purchases` (R-11):
   - `gastos`: one row per current expense: `id`, `fecha`, `comercio`, `categoria`,
-    `total_cents`, `modo`, `origen` (`texto` or `ticket`).
+    `total_cents`, `modo`, `origen` (`texto` or `ticket`), `moneda` (the expense's currency).
   - `lineas_de_compra`: one row per purchase line of a current expense, any category:
     `gasto_id`, `producto`, `cantidad`, `precio_cents`, `comercio`, `categoria`, `fecha`,
-    `modo`.
-  - `pendientes_de_confirmar`: the count and total of `pending` expenses.
-  `supermarket_purchases` stays as it is.
+    `modo`, `moneda` (the expense's currency, that of `precio_cents`).
+  - `pendientes_de_confirmar`: always one row, the count and total of `pending` expenses:
+    `cantidad`, `total_cents`, `moneda` and `por_moneda`. `total_cents` and `moneda` are the
+    total and its currency while every pending expense is in one currency (`0` and `NULL` when
+    none is pending), and both `NULL` when they are in several. `por_moneda` is a JSON array with
+    one `{"moneda", "cantidad", "total_cents"}` per currency, by code (`[]` when none is).
+  `supermarket_purchases` stays as it is. `moneda` and `por_moneda` were added by
+  `0010_read_views_currency.sql` (backlog B71), after the columns readers already had.
   - AC1: "23 € cena" gives one `gastos` row with `total_cents = 2300`, `modo = 'declared'`
     and `origen = 'texto'`, and no `lineas_de_compra` row. A receipt gives `origen = 'ticket'`
     and one `lineas_de_compra` row per line, whose `gasto_id` is the expense's `id`.
   - AC2: an expense with no merchant or no category is still listed, with `comercio` or
     `categoria` `NULL`.
   - AC3: `pending` and `refuted` expenses appear in neither `gastos` nor `lineas_de_compra`;
-    two pending expenses of 10,00 € and 5,00 € give `pendientes_de_confirmar` a count of 2 and a
-    total of 1500.
+    two pending expenses of 10,00 € and 5,00 € give `pendientes_de_confirmar` a count of 2, a
+    total of 1500 and `moneda = 'EUR'`.
+  - AC4 (backlog B71): every `gastos` and `lineas_de_compra` row says its expense's currency in
+    `moneda`. Pending expenses of 10,00 € and 3,00 US$ give `pendientes_de_confirmar` a count of
+    2, `total_cents` and `moneda` `NULL`, and `por_moneda`
+    `[{"moneda":"EUR","cantidad":1,"total_cents":1000},{"moneda":"USD","cantidad":1,"total_cents":300}]`:
+    never a sum across currencies.
 - RA-2 Read API. The daemon serves the views of RA-1 over HTTP, read only.
   - AC1: it is off by default: with no `ANOMANDER_API_TOKEN` in `.env`, the daemon opens no
     port.
@@ -78,7 +90,8 @@ refuted expenses are never served as expenses; pending ones are counted apart (R
   - AC4: it offers only `GET`. Any other method gets `405`, and the database is unchanged.
   - AC5: `GET /v1/gastos?desde=YYYY-MM-DD&hasta=YYYY-MM-DD`,
     `GET /v1/lineas?desde=…&hasta=…&producto=…` and `GET /v1/pendientes` return the matching
-    view rows as JSON. Response bodies are never logged.
+    view rows as JSON; `/v1/pendientes` gives `por_moneda` as an array. Response bodies are
+    never logged.
   - AC6: the queries behind each endpoint live in one place in the daemon, so the later MCP
     server (decision 2) exposes the same ones instead of writing its own. The desktop app's
     "Gastos" screen reads through them too (DK-17 in `docs/desktop-prd.md`).

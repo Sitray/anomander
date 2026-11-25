@@ -82,6 +82,7 @@ export {
   type LineaDeCompra,
   openReadOnly,
   type Pendientes,
+  type PendientesEnMoneda,
   readGastos,
   readLineas,
   readPendientes,

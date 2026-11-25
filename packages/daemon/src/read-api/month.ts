@@ -9,12 +9,12 @@ import {
   sumByCurrency,
 } from '@anomander/protocol';
 import type Database from 'better-sqlite3';
-import { readGastos, readLineas } from './queries.ts';
+import { readGastos, readLineas, readPendientes } from './queries.ts';
 
 // DK-17 (docs/desktop-prd.md): the expenses of one month for the window's "Gastos" screen,
-// through the same queries as the read API (RA-2 AC6). The views give one mode per expense; how
-// its category was chosen and its currency (DK-25) are read beside them, from `expenses`, since
-// this is the daemon's own window and not an outside reader (read access §4).
+// through the same queries as the read API (RA-2 AC6). The views give one mode and one currency
+// (DK-25, B71) per expense; how its category was chosen is read beside them, from `expenses`,
+// since this is the daemon's own window and not an outside reader (read access §4).
 
 /** What the local channel answers to an `expenses` request, without the request's id. */
 export type ExpensesMonth = Omit<ChatExpenses, 'type' | 'inReplyTo'>;
@@ -51,11 +51,8 @@ export const readExpensesMonth = (
   }
   const beside = new Map(
     db
-      .prepare<
-        [string, string],
-        { id: number; category_basis: CategoryMode | null; currency: string }
-      >(
-        `SELECT id, category_basis, currency FROM expenses
+      .prepare<[string, string], { id: number; category_basis: CategoryMode | null }>(
+        `SELECT id, category_basis FROM expenses
          WHERE status = 'current' AND occurred_on BETWEEN ? AND ?`,
       )
       .all(range.desde, range.hasta)
@@ -68,8 +65,7 @@ export const readExpensesMonth = (
       merchant: gasto.comercio,
       category: gasto.categoria,
       totalCents: gasto.total_cents,
-      // Every expense the view lists is current, so it is in `beside`; the fallback is for the type.
-      currency: beside.get(gasto.id)?.currency ?? getCurrency(),
+      currency: gasto.moneda,
       // The view's CHECK on `expenses.mode` allows only these.
       mode: gasto.modo as ExpenseMode,
       // A basis left from a category since removed says nothing about this row.
@@ -79,13 +75,8 @@ export const readExpensesMonth = (
       lines: lines.get(gasto.id) ?? 0,
     }),
   );
-  // DK-25: `pendientes_de_confirmar` adds every currency, so the pending ones are summed here.
-  const pending = db
-    .prepare<[], Money & { count: number }>(
-      `SELECT currency, SUM(total_cents) AS cents, COUNT(*) AS count FROM expenses
-       WHERE status = 'pending' GROUP BY currency`,
-    )
-    .all();
+  // B71: `pendientes_de_confirmar` keeps one total per currency, never one across them.
+  const pending = readPendientes(db);
   return {
     month: asked,
     expenses,
@@ -93,8 +84,13 @@ export const readExpensesMonth = (
       expenses.map(({ totalCents, currency }) => ({ cents: totalCents, currency })),
     ),
     pending: {
-      count: pending.reduce((sum, { count }) => sum + count, 0),
-      totals: perCurrency(pending),
+      count: pending.cantidad,
+      totals: perCurrency(
+        pending.por_moneda.map(({ moneda, total_cents }) => ({
+          cents: total_cents,
+          currency: moneda,
+        })),
+      ),
     },
   };
 };

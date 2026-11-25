@@ -30,6 +30,7 @@ const expense = (
   totalCents: number,
   status: 'current' | 'pending' | 'refuted',
   lines: [string, number, number][] = [],
+  currency = 'EUR',
 ): number => {
   const merchantId = Number(
     db
@@ -39,12 +40,12 @@ const expense = (
   const id = Number(
     db
       .prepare(
-        `INSERT INTO expenses (merchant_id, occurred_on, total_cents, category_id, mode, status,
-           created_at)
-         VALUES (?, '2026-11-23', ?, (SELECT id FROM categories WHERE name = 'supermercado'),
+        `INSERT INTO expenses (merchant_id, occurred_on, total_cents, currency, category_id, mode,
+           status, created_at)
+         VALUES (?, '2026-11-23', ?, ?, (SELECT id FROM categories WHERE name = 'supermercado'),
                  'declared', ?, ?)`,
       )
-      .run(merchantId, totalCents, status, NOW.toISOString()).lastInsertRowid,
+      .run(merchantId, totalCents, currency, status, NOW.toISOString()).lastInsertRowid,
   );
   for (const [name, quantity, amount] of lines) {
     db.prepare(
@@ -79,14 +80,17 @@ describe('the ledger export', () => {
 
     const csv = (name: string) => readFileSync(join(folder, name), 'utf8');
     expect(csv('gastos.csv')).toBe(
-      'id,fecha,comercio,categoria,total_cents,modo,origen\r\n' +
-        `${kept},2026-11-23,Mercadona,supermercado,1250,declared,texto\r\n`,
+      'id,fecha,comercio,categoria,total_cents,modo,origen,moneda\r\n' +
+        `${kept},2026-11-23,Mercadona,supermercado,1250,declared,texto,EUR\r\n`,
     );
     expect(csv('lineas_de_compra.csv')).toBe(
-      'gasto_id,producto,cantidad,precio_cents,comercio,categoria,fecha,modo\r\n' +
-        `${kept},"Leche, entera",2,250,Mercadona,supermercado,2026-11-23,declared\r\n`,
+      'gasto_id,producto,cantidad,precio_cents,comercio,categoria,fecha,modo,moneda\r\n' +
+        `${kept},"Leche, entera",2,250,Mercadona,supermercado,2026-11-23,declared,EUR\r\n`,
     );
-    expect(csv('pendientes_de_confirmar.csv')).toBe('cantidad,total_cents\r\n1,900\r\n');
+    expect(csv('pendientes_de_confirmar.csv')).toBe(
+      'cantidad,total_cents,moneda,por_moneda\r\n' +
+        '1,900,EUR,"[{""moneda"":""EUR"",""cantidad"":1,""total_cents"":900}]"\r\n',
+    );
     expect(JSON.parse(csv('ledger.json'))).toEqual({
       exported_at: '2026-11-24T10:30:00.000Z',
       gastos: [
@@ -98,6 +102,7 @@ describe('the ledger export', () => {
           total_cents: 1250,
           modo: 'declared',
           origen: 'texto',
+          moneda: 'EUR',
         },
       ],
       lineas_de_compra: [
@@ -110,9 +115,49 @@ describe('the ledger export', () => {
           categoria: 'supermercado',
           fecha: '2026-11-23',
           modo: 'declared',
+          moneda: 'EUR',
         },
       ],
-      pendientes_de_confirmar: { cantidad: 1, total_cents: 900 },
+      pendientes_de_confirmar: {
+        cantidad: 1,
+        total_cents: 900,
+        moneda: 'EUR',
+        por_moneda: [{ moneda: 'EUR', cantidad: 1, total_cents: 900 }],
+      },
+    });
+  });
+
+  it('B71: says the currency of every row and never adds pending ones of two currencies', () => {
+    const eur = expense('Mercadona', 1250, 'current');
+    const usd = expense('Target', 1200, 'current', [['Milk', 1, 1200]], 'USD');
+    expense('Lidl', 900, 'pending');
+    expense('Walmart', 300, 'pending', [], 'USD');
+
+    const { folder } = exportLedger(db, scratch, NOW);
+
+    const csv = (name: string) => readFileSync(join(folder, name), 'utf8');
+    expect(csv('gastos.csv')).toContain(
+      `${eur},2026-11-23,Mercadona,supermercado,1250,declared,texto,EUR\r\n`,
+    );
+    expect(csv('gastos.csv')).toContain(
+      `${usd},2026-11-23,Target,supermercado,1200,declared,texto,USD\r\n`,
+    );
+    expect(csv('lineas_de_compra.csv')).toContain(',declared,USD\r\n');
+    expect(csv('pendientes_de_confirmar.csv')).toBe(
+      'cantidad,total_cents,moneda,por_moneda\r\n' +
+        '2,,,"[{""moneda"":""EUR"",""cantidad"":1,""total_cents"":900},' +
+        '{""moneda"":""USD"",""cantidad"":1,""total_cents"":300}]"\r\n',
+    );
+    const ledger = JSON.parse(csv('ledger.json'));
+    expect(ledger.gastos.map((gasto: { moneda: string }) => gasto.moneda)).toEqual(['EUR', 'USD']);
+    expect(ledger.pendientes_de_confirmar).toEqual({
+      cantidad: 2,
+      total_cents: null,
+      moneda: null,
+      por_moneda: [
+        { moneda: 'EUR', cantidad: 1, total_cents: 900 },
+        { moneda: 'USD', cantidad: 1, total_cents: 300 },
+      ],
     });
   });
 
