@@ -201,8 +201,13 @@ const stageNode = async (stage, target) => {
   const top = archive.file.replace(/\.(tar\.gz|zip)$/, '');
   const extracted = join(stage, '.node');
   mkdirSync(extracted);
-  // bsdtar reads both archives, on macOS and on Windows alike.
-  run('tar', ['-xf', cached, '-C', extracted, `${top}/${archive.binary}`, `${top}/LICENSE`]);
+  // bsdtar reads both archives, on macOS and on Windows alike. On Windows the name is absolute:
+  // under Git Bash `tar` is GNU tar, which cannot read a .zip.
+  const tar =
+    process.platform === 'win32'
+      ? join(process.env.SystemRoot ?? 'C:\\Windows', 'System32', 'tar.exe')
+      : 'tar';
+  run(tar, ['-xf', cached, '-C', extracted, `${top}/${archive.binary}`, `${top}/LICENSE`]);
   const bin = join(stage, 'bin');
   mkdirSync(bin);
   const node = join(bin, posix.basename(archive.binary));

@@ -21,8 +21,9 @@ jobs:
     defaults:
       run:
         shell: bash
+    # The token goes only to the two gh steps, never to pnpm install or the build, which run
+    # third-party code.
     env:
-      GH_TOKEN: ${{ github.token }}
       TAG: ${{ github.ref_name }}
     steps:
       # The files keep their LF endings on Windows, as the build expects.
@@ -39,11 +40,17 @@ jobs:
           version="${BASH_REMATCH[1]}"
           app="$(node -p "require('./apps/desktop/src-tauri/tauri.conf.json').version")"
           [[ "$app" == "$version" ]] || { echo "::error::$TAG but tauri.conf.json says $app"; exit 1; }
+          package="$(node -p "require('./apps/desktop/package.json').version")"
+          [[ "$package" == "$version" ]] || { echo "::error::$TAG but apps/desktop/package.json says $package"; exit 1; }
+          cargo="$(sed -n 's/^version = "\(.*\)"$/\1/p' apps/desktop/src-tauri/Cargo.toml | head -n 1)"
+          [[ "$cargo" == "$version" ]] || { echo "::error::$TAG but Cargo.toml says $cargo"; exit 1; }
           echo "VERSION=$version" >> "$GITHUB_ENV"
 
       # The draft first, so scripts/release.sh, run on the Mac while this builds, finds it and adds
       # the macOS zip to the same release instead of making a second draft.
       - name: create the draft release if the tag has none
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1 ||
             gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --draft --verify-tag \
@@ -74,6 +81,8 @@ jobs:
 
       - name: upload the installer and its SHA-256
         working-directory: apps/desktop/src-tauri/target/release/bundle/nsis
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           shopt -s nullglob
           installers=(*-setup.exe)
