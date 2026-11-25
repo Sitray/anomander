@@ -357,6 +357,15 @@ const answerTo = (request: Said): Answer => {
     }
     return { text: 'Apuntado: 47,85 € en Mercadona, supermercado, 12 líneas.' };
   }
+  // DK-17 AC6: a row's "Deshacer" and "Corregir", answered as the expense's buttons in the chat.
+  if (request.type === 'undo_expense' || request.type === 'correct_expense') {
+    const row = `expense:${request.expenseId}`;
+    if (closed.has(row)) return { text: 'Esa pregunta ya no está abierta.' };
+    if (request.type === 'correct_expense')
+      return { text: '¿Qué cambio? Escríbelo, por ejemplo: total 28,40' };
+    closed.add(row);
+    return { text: 'Deshecho: he quitado 23,00 € de tus gastos.' };
+  }
   if (request.type === 'screen') return { text: 'Veo una pantalla de un solo color.' };
   if (request.type === 'computer') return { text: 'En esta vista previa no toco nada. Hecho.' };
   const text = ('task' in request ? request.task : request.text).toLowerCase();
