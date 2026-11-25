@@ -57,6 +57,15 @@ export const todayIn = (timeZone: string, now: Date): string => {
   return `${part('year')}-${part('month')}-${part('day')}`;
 };
 
+const WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+
+/**
+ * The English weekday of a calendar day `YYYY-MM-DD`, such as `Monday`. A day has the same
+ * weekday everywhere, so the weekday of `todayIn(timeZone, now)` is the one in `timeZone` (B59).
+ */
+export const weekdayOf = (day: string): string =>
+  WEEKDAYS[new Date(`${day}T12:00:00Z`).getUTCDay()] ?? '';
+
 /** R-4: the deterministic checks every proposed receipt expense goes through. */
 export const checkConsistency = (
   expense: ProposedReceiptExpense,

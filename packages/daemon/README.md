@@ -702,7 +702,7 @@ mistake. A new endpoint adds its query there, over a view.
 
 `CorrectionInterpreter` (`src/processor/correction-interpreter.ts`) reads a correction text.
 `createPiAiCorrectionInterpreter` follows the text interpreter: one system prompt, one user turn
-(`expense`, `categories`, `today`, `message`), no tools, and inferences `total`, `merchant`,
+(`expense`, `categories`, `today`, `weekday`, `message`), no tools, and inferences `total`, `merchant`,
 `category` and `occurred_on`
 through `validateProcessorOutput`. Its recorded responses live in
 `test/fixtures/correction-interpreter/`.
@@ -712,7 +712,11 @@ through `validateProcessorOutput`. Its recorded responses live in
 one user turn, never a `tools` key (R-14 AC3). It parses a single JSON object from the text
 blocks (code fences allowed), validates its envelope with Zod, and passes each inference
 through `validateProcessorOutput`, so anything claiming `observed`, `declared` or `confirmed`
-is rejected and logged (R-14 AC2).
+is rejected and logged (R-14 AC2). Its user turn starts with `today` (`YYYY-MM-DD` in `TZ`) and
+`weekday`, today's English weekday (`weekdayOf` in `@anomander/core`), so "el lunes" or "la
+semana pasada" never depend on the model working out the weekday (B59). Amounts are asked for
+as hundredths of the principal's currency, `euro cents` with `EUR` (`src/processor/currency.ts`,
+B73), in this prompt as in the receipt reader's and the correction interpreter's.
 
 `ReceiptReader` (`src/processor/receipt-reader.ts`) reads receipts. `createPiAiReceiptReader`
 calls `ANOMANDER_VISION_MODEL` with one user turn: a text block (`today`, `categories`,

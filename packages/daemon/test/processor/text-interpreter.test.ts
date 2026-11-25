@@ -7,6 +7,7 @@ import {
   createPiAiTextInterpreter,
   MAX_CONNECTED_TOOLS,
   MAX_TOOL_PURPOSE,
+  textInterpreterPrompt,
 } from '../../src/processor/text-interpreter.ts';
 
 // Contract tests (PRD §15) on recorded responses: fixtures/text-interpreter/*.json.
@@ -74,6 +75,7 @@ describe('pi-ai text interpreter', () => {
     const userTurn = contexts[0]?.messages[0]?.content;
     expect(JSON.parse(String(userTurn))).toEqual({
       today: '2026-10-30',
+      weekday: 'Friday',
       categories: ['restaurantes', 'supermercado'],
       recent: [],
       memories: [],
@@ -426,5 +428,25 @@ describe('pi-ai text interpreter', () => {
       expect(contexts[0]?.systemPrompt).toEqual(expect.any(String));
       expect(contexts[0]?.messages).toEqual([expect.objectContaining({ role: 'user' })]);
     }
+  });
+
+  // B59: "el lunes" and "la semana pasada" need the weekday; the model is told it, not left to
+  // compute it from the date.
+  it('B59: tells the weekday of "today" beside it, and says to resolve dates from both', async () => {
+    const { interpret, contexts } = interpreterFor('conversation');
+
+    await interpret({ ...input('hola'), today: '2026-11-23' });
+
+    const turn = JSON.parse(String(contexts[0]?.messages[0]?.content));
+    expect(turn).toMatchObject({ today: '2026-11-23', weekday: 'Monday' });
+    expect(Object.keys(turn).slice(0, 2)).toEqual(['today', 'weekday']);
+    const prompt = textInterpreterPrompt();
+    expect(prompt).toContain(
+      '"occurred_on": the date as YYYY-MM-DD, only when the message names a date ("ayer", "el lunes"). Resolve it from the "today" and "weekday" fields.',
+    );
+    expect(prompt).toContain('Resolve the period from the "today" and "weekday" fields:');
+    expect(prompt).toContain(
+      'The user turn is a JSON object with the fields "today", "weekday" (the day of the week of "today"), "categories",',
+    );
   });
 });

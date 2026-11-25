@@ -8,6 +8,7 @@ import {
   type ExistingExpense,
   type ProposedReceiptExpense,
   todayIn,
+  weekdayOf,
 } from '../src/index.ts';
 
 const receipt = (overrides: Partial<ProposedReceiptExpense> = {}): ProposedReceiptExpense => ({
@@ -57,6 +58,15 @@ describe('R-4 consistency checks', () => {
     expect(todayIn('Europe/Madrid', lateEvening)).toBe('2026-10-31');
     expect(todayIn('UTC', lateEvening)).toBe('2026-10-30');
     expect(todayIn('America/New_York', lateEvening)).toBe('2026-10-30');
+  });
+
+  it('B59: the weekday of today is the one in the time zone, not in UTC', () => {
+    const lateEvening = new Date('2026-10-30T23:30:00Z');
+
+    expect(weekdayOf(todayIn('Europe/Madrid', lateEvening))).toBe('Saturday');
+    expect(weekdayOf(todayIn('UTC', lateEvening))).toBe('Friday');
+    expect(weekdayOf('2026-11-23')).toBe('Monday');
+    expect(weekdayOf('2026-11-29')).toBe('Sunday');
   });
 
   it('AC3: a current expense with the same merchant, date and total is a duplicate', () => {
