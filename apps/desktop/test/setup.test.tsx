@@ -79,6 +79,8 @@ describe('saving', () => {
       model: 'openai/gpt-4o-mini',
       visionModel: 'openai/gpt-4o-mini',
       providerKeys: {},
+      timeZone: 'Europe/Madrid',
+      currency: 'EUR',
     });
     expect('telegramBotToken' in input).toBe(false);
   });
@@ -209,6 +211,8 @@ describe('saving', () => {
       model: 'openai/gpt-4o-mini',
       visionModel: '',
       providerKeys: {},
+      timeZone: expect.any(String),
+      currency: expect.any(String),
     });
     // Saved and able to start: nothing is said to be missing.
     await waitFor(() => expect(field(text.model).value).toBe('openai/gpt-4o-mini'));
@@ -496,5 +500,72 @@ describe('web search on the first setup', () => {
     );
 
     expect(screen.queryByRole('checkbox', { name: text.webSearch })).toBeNull();
+  });
+});
+
+// DK-25 AC5: the time zone and the currency, proposed from this system while none is stored.
+describe('the time zone and the currency (DK-25)', () => {
+  const region = strings.region;
+  const select = (label: string): HTMLSelectElement => screen.getByLabelText(label);
+  const choose = (label: string, value: string): void => {
+    fireEvent.change(select(label), { target: { value } });
+  };
+
+  afterEach(() => vi.restoreAllMocks());
+
+  it('proposes the system zone and the currency of its region, and saves them', async () => {
+    const real = Intl.DateTimeFormat.prototype.resolvedOptions;
+    vi.spyOn(Intl.DateTimeFormat.prototype, 'resolvedOptions').mockImplementation(function (
+      this: Intl.DateTimeFormat,
+    ) {
+      return { ...real.call(this), timeZone: 'America/Mexico_City' };
+    });
+    vi.spyOn(navigator, 'language', 'get').mockReturnValue('es-MX');
+    const { onSave } = renderSetup(CONFIGURED);
+
+    expect(select(region.timeZone).value).toBe('America/Mexico_City');
+    expect(select(region.currency).value).toBe('MXN');
+    expect(screen.getByText(region.help)).toBeTruthy();
+    save();
+
+    expect(await saved(onSave)).toMatchObject({
+      timeZone: 'America/Mexico_City',
+      currency: 'MXN',
+    });
+  });
+
+  it('shows a stored choice over what the system says, and a save keeps it unchanged', async () => {
+    vi.spyOn(navigator, 'language', 'get').mockReturnValue('es-MX');
+    const { onSave } = renderSetup({ ...FILLED_SETUP, timeZone: 'Asia/Tokyo', currency: 'JPY' });
+
+    expect(select(region.timeZone).value).toBe('Asia/Tokyo');
+    expect(select(region.currency).value).toBe('other');
+    expect(field(region.currencyCode).value).toBe('JPY');
+    save();
+
+    expect(await saved(onSave)).toMatchObject({ timeZone: 'Asia/Tokyo', currency: 'JPY' });
+  });
+
+  it('shows the stored ones; any other ISO 4217 code goes under "Otra"', async () => {
+    const { onSave } = renderSetup(FILLED_SETUP);
+    expect(select(region.timeZone).value).toBe('Europe/Madrid');
+    expect(select(region.currency).value).toBe('EUR');
+
+    choose(region.timeZone, 'Asia/Tokyo');
+    choose(region.currency, 'other');
+    fill(region.currencyCode, ' jpy ');
+    save();
+
+    expect(await saved(onSave)).toMatchObject({ timeZone: 'Asia/Tokyo', currency: 'JPY' });
+  });
+
+  it('refuses a currency code that does not exist, and saves nothing', () => {
+    const { onSave } = renderSetup(FILLED_SETUP);
+    choose(region.currency, 'other');
+    fill(region.currencyCode, 'XYZ');
+    save();
+
+    expect(screen.getByText(region.currencyInvalid)).toBeTruthy();
+    expect(onSave).not.toHaveBeenCalled();
   });
 });

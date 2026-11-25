@@ -239,6 +239,8 @@ describe('the setup', () => {
       model: '',
       visionModel: '',
       providerKeys: {},
+      timeZone: expect.any(String),
+      currency: expect.any(String),
     });
     expect(screen.getByRole('status').textContent).toBe(strings.status.starting);
   });
@@ -262,6 +264,8 @@ describe('the setup', () => {
       model: 'openai/gpt-4o-mini',
       visionModel: '',
       providerKeys: {},
+      timeZone: expect.any(String),
+      currency: expect.any(String),
     });
   });
 
@@ -469,6 +473,8 @@ describe('the connections', () => {
       model: 'openai/gpt-4o-mini',
       visionModel: 'openai/gpt-4o-mini',
       providerKeys: {},
+      timeZone: expect.any(String),
+      currency: expect.any(String),
     });
   });
 });

@@ -2,11 +2,14 @@
 //
 // Secrets (the bot token, the provider keys) are typed into uncontrolled fields and kept in a
 // ref, so they never enter React state or a DOM attribute, and they are dropped once saved.
+import { isCurrency } from '@anomander/protocol';
 import { type FormEvent, type ReactNode, useEffect, useId, useRef, useState } from 'react';
 import type { SetupInput, SetupState } from '../shell.ts';
 import { ErrorBlock } from '../status/StatusBar.tsx';
 import { strings } from '../strings.ts';
 import { messageOf } from '../ui/message-of.ts';
+import { type Region, RegionFields } from './RegionFields.tsx';
+import { currencyCode, currencyOfLanguage, systemTimeZone } from './region.ts';
 import { isChatId, isModelId, isProviderKeyName, KNOWN_PROVIDER_KEYS } from './validation.ts';
 
 export interface SetupScreenProps {
@@ -29,7 +32,14 @@ export interface SetupScreenProps {
 const { setup: text } = strings;
 const OTHER = 'other';
 
-type FieldName = 'botToken' | 'chatId' | 'model' | 'visionModel' | 'keyName' | 'keyValue';
+type FieldName =
+  | 'botToken'
+  | 'chatId'
+  | 'model'
+  | 'visionModel'
+  | 'keyName'
+  | 'keyValue'
+  | 'currency';
 type Errors = Partial<Record<FieldName, string>>;
 /** What saving will do to a provider key. */
 type KeyChange = 'store' | 'remove';
@@ -96,6 +106,11 @@ function SetupForm(props: FormProps) {
   const [keyName, setKeyName] = useState('');
   const [changes, setChanges] = useState<Record<string, KeyChange>>({});
   const [errors, setErrors] = useState<Errors>({});
+  // DK-25 AC5: what is stored, or what this system says while nothing is.
+  const [region, setRegion] = useState<Region>(() => ({
+    timeZone: setup.timeZone ?? systemTimeZone(),
+    currency: setup.currency ?? currencyOfLanguage(navigator.language),
+  }));
   const [saving, setSaving] = useState(false);
   const [rejection, setRejection] = useState<string | null>(null);
   /** The web search was saved on this screen: a setup refused after it does not undo it. */
@@ -157,6 +172,8 @@ function SetupForm(props: FormProps) {
       model: model.trim(),
       visionModel: visionModel.trim(),
       providerKeys: {},
+      timeZone: region.timeZone,
+      currency: currencyCode(region.currency),
     };
     // Omitted keeps the stored token.
     const token = botToken.current?.value.trim() ?? '';
@@ -177,6 +194,7 @@ function SetupForm(props: FormProps) {
           ? {}
           : { model: text.modelInvalid }),
       ...(isModelId(input.visionModel) ? {} : { visionModel: text.modelInvalid }),
+      ...(isCurrency(input.currency) ? {} : { currency: strings.region.currencyInvalid }),
       // A key typed but not added is still meant to be saved.
       ...takeTypedKey(false),
     };
@@ -313,6 +331,8 @@ function SetupForm(props: FormProps) {
             </p>
           )}
         </fieldset>
+
+        <RegionFields value={region} currencyError={errors.currency} onChange={setRegion} />
 
         {offersWebSearch && (
           <fieldset>

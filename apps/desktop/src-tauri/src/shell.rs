@@ -525,6 +525,8 @@ impl Core {
             paths: &paths,
             local_token: &self.token,
             local_port: port,
+            time_zone: settings.time_zone.as_deref(),
+            currency: settings.currency.as_deref(),
         };
         let env = child_env(&parent, &inputs);
         let handover = handover_line(&inputs);
@@ -612,6 +614,7 @@ mod tests {
             vision_model: None,
             provider_keys: vec!["OPENAI_API_KEY".into()],
             connection_secrets: Vec::new(),
+            ..Settings::default()
         };
         (store, settings)
     }
@@ -646,6 +649,26 @@ mod tests {
         assert_eq!(login_env(&spec).as_deref(), Some(LOGIN));
         assert!(spec.secrets.iter().any(|secret| secret == "sk-login-1"));
         assert!(!spec.secrets.iter().any(|secret| secret == "api_key"));
+    }
+
+    // DK-25: the zone and the currency saved in Configuración reach the daemon's next start.
+    #[test]
+    fn the_zone_and_the_currency_saved_in_configuracion_reach_the_daemon() -> Result<(), String> {
+        let (store, settings) = configured();
+        let f = fixture(store, settings);
+        let input: SetupInput = serde_json::from_value(json!({
+            "principalChatId": "42", "model": "openai/gpt-4o-mini", "visionModel": "",
+            "timeZone": "America/Mexico_City", "currency": "mxn"
+        }))
+        .map_err(|e| e.to_string())?;
+        f.core.save_setup(&input)?;
+        let env: BTreeMap<String, String> = ready(&f.core).env.into_iter().collect();
+        assert_eq!(env.get("TZ").map(String::as_str), Some("America/Mexico_City"));
+        assert_eq!(
+            env.get("ANOMANDER_CURRENCY").map(String::as_str),
+            Some("MXN")
+        );
+        Ok(())
     }
 
     #[test]

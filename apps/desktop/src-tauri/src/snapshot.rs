@@ -74,6 +74,10 @@ pub struct SetupState {
     pub model: Option<String>,
     pub vision_model: Option<String>,
     pub provider_keys: Vec<String>,
+    /// DK-25: the zone chosen in Configuración; `None` while unset, when the window proposes one.
+    pub time_zone: Option<String>,
+    /// DK-25: the currency chosen in Configuración; `None` while unset.
+    pub currency: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
@@ -107,6 +111,8 @@ mod tests {
                 model: Some("openai/gpt-4o-mini".into()),
                 vision_model: None,
                 provider_keys: vec!["OPENAI_API_KEY".into()],
+                time_zone: None,
+                currency: Some("USD".into()),
             },
         };
         assert_eq!(
@@ -119,7 +125,9 @@ mod tests {
                     "principalChatId": "42",
                     "model": "openai/gpt-4o-mini",
                     "visionModel": null,
-                    "providerKeys": ["OPENAI_API_KEY"]
+                    "providerKeys": ["OPENAI_API_KEY"],
+                    "timeZone": null,
+                    "currency": "USD"
                 }
             }))
         );

@@ -5,6 +5,7 @@ use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 
+use crate::daemon::launch::is_time_zone;
 use crate::data_dir::DataDir;
 use crate::secure_store::SecretStore;
 use crate::snapshot::SetupState;
@@ -25,6 +26,13 @@ pub struct Settings {
     pub provider_keys: Vec<String>,
     /// The Keychain accounts that hold values of `mcp.json` (`connection_secrets`).
     pub connection_secrets: Vec<String>,
+    /// DK-25: the daemon's `TZ`, chosen in Configuración; unset, this machine's zone. Left out of
+    /// the file while unset, so a setup saved before reads and writes as it did.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub time_zone: Option<String>,
+    /// DK-25: the daemon's `ANOMANDER_CURRENCY` (ISO 4217); unset, the daemon's `EUR`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub currency: Option<String>,
 }
 
 /// `SetupInput` of `shell.ts`. Holds secrets: no `Debug`.
@@ -40,6 +48,12 @@ pub struct SetupInput {
     /// A string stores the key (an empty one changes nothing), `null` removes it.
     #[serde(default)]
     pub provider_keys: BTreeMap<String, Option<String>>,
+    /// DK-25: an IANA zone; empty (or omitted) leaves it unset.
+    #[serde(default)]
+    pub time_zone: String,
+    /// DK-25: an ISO 4217 code, any case; empty (or omitted) leaves it unset.
+    #[serde(default)]
+    pub currency: String,
 }
 
 /// The secrets one start of the daemon needs. No `Debug`.
@@ -69,6 +83,11 @@ fn is_model_id(value: &str) -> bool {
     value
         .split_once('/')
         .is_some_and(|(provider, id)| !provider.is_empty() && !id.is_empty())
+}
+
+/// The shape of an ISO 4217 code once in upper case. The daemon checks it is a known one.
+fn is_currency(value: &str) -> bool {
+    value.len() == 3 && value.bytes().all(|byte| byte.is_ascii_uppercase())
 }
 
 /// A trimmed value, `None` when empty.
@@ -135,6 +154,14 @@ pub fn apply_setup(
     {
         return Err(HALF_TELEGRAM.to_owned());
     }
+    let time_zone = optional(&input.time_zone);
+    if let Some(zone) = time_zone.as_deref().filter(|zone| !is_time_zone(zone)) {
+        return Err(format!("the time zone must be an IANA zone such as Europe/Madrid: {zone}"));
+    }
+    let currency = optional(&input.currency).map(|code| code.to_ascii_uppercase());
+    if let Some(code) = currency.as_deref().filter(|code| !is_currency(code)) {
+        return Err(format!("the currency must be an ISO 4217 code such as EUR: {code}"));
+    }
     let model = checked_model("model", &input.model)?;
     let vision_model = checked_model("vision model", &input.vision_model)?;
     if let Some(name) = input
@@ -173,6 +200,8 @@ pub fn apply_setup(
         vision_model,
         provider_keys,
         connection_secrets: current.connection_secrets.clone(),
+        time_zone,
+        currency,
     })
 }
 
@@ -187,6 +216,8 @@ pub fn setup_from_env_file(text: &str) -> SetupInput {
         model: String::new(),
         vision_model: String::new(),
         provider_keys: BTreeMap::new(),
+        time_zone: String::new(),
+        currency: String::new(),
     };
     for line in text.lines() {
         let line = line.trim();
@@ -225,6 +256,8 @@ pub fn setup_state(settings: &Settings, has_telegram_bot_token: bool) -> SetupSt
         model: settings.model.clone(),
         vision_model: settings.vision_model.clone(),
         provider_keys: settings.provider_keys.clone(),
+        time_zone: settings.time_zone.clone(),
+        currency: settings.currency.clone(),
     }
 }
 
@@ -318,6 +351,7 @@ mod tests {
                 vision_model: None,
                 provider_keys: vec!["ANTHROPIC_API_KEY".into(), "OPENAI_API_KEY".into()],
                 connection_secrets: Vec::new(),
+                ..Settings::default()
             }
         );
         assert_eq!(
@@ -411,6 +445,42 @@ mod tests {
         }
     }
 
+    // DK-25: the time zone and the currency go with the settings; empty is unset, so the daemon
+    // keeps its defaults.
+    #[test]
+    fn the_time_zone_and_the_currency_are_kept_with_the_settings() -> Result<(), String> {
+        let store = MemoryStore::default();
+        let chosen = input(json!({
+            "principalChatId": "", "model": "", "visionModel": "",
+            "timeZone": " America/Argentina/Buenos_Aires ", "currency": "usd"
+        }));
+        let settings = apply_setup(&chosen, &Settings::default(), &store)?;
+        assert_eq!(
+            settings.time_zone.as_deref(),
+            Some("America/Argentina/Buenos_Aires")
+        );
+        assert_eq!(settings.currency.as_deref(), Some("USD"));
+        let unset = input(json!({ "principalChatId": "", "model": "", "visionModel": "" }));
+        let settings = apply_setup(&unset, &settings, &store)?;
+        assert_eq!((settings.time_zone, settings.currency), (None, None));
+        for (value, needle) in [
+            (json!({ "timeZone": "Europe/Ma drid" }), "time zone"),
+            (json!({ "timeZone": "../x" }), "time zone"),
+            (json!({ "currency": "EURO" }), "currency"),
+            (json!({ "currency": "€" }), "currency"),
+        ] {
+            let mut value = value;
+            value["principalChatId"] = json!("");
+            value["model"] = json!("");
+            value["visionModel"] = json!("");
+            match apply_setup(&input(value), &Settings::default(), &store) {
+                Err(message) => assert!(message.contains(needle), "{message}"),
+                Ok(_) => panic!("accepted an invalid {needle}"),
+            }
+        }
+        Ok(())
+    }
+
     #[test]
     fn a_negative_chat_id_is_valid_and_an_empty_one_is_unset() -> Result<(), String> {
         let store = MemoryStore::default();
@@ -494,6 +564,8 @@ mod tests {
             vision_model: None,
             provider_keys: vec!["OPENAI_API_KEY".into()],
             connection_secrets: Vec::new(),
+            time_zone: Some("Asia/Tokyo".into()),
+            currency: Some("JPY".into()),
         };
         assert_eq!(
             setup_state(&settings, true),
@@ -503,6 +575,9 @@ mod tests {
                 model: Some("openai/gpt-4o-mini".into()),
                 vision_model: None,
                 provider_keys: vec!["OPENAI_API_KEY".into()],
+                // DK-25: what Configuración chose, so the window shows it back.
+                time_zone: Some("Asia/Tokyo".into()),
+                currency: Some("JPY".into()),
             }
         );
     }
@@ -535,6 +610,7 @@ mod tests {
             vision_model: Some("openai/gpt-4o".into()),
             provider_keys: vec!["OPENAI_API_KEY".into()],
             connection_secrets: vec!["mcp/notes/env/TOKEN".into()],
+            ..Settings::default()
         };
         save_settings(&dir, &settings).map_err(|e| e.to_string())?;
         let text = std::fs::read_to_string(dir.settings_path()).map_err(|e| e.to_string())?;

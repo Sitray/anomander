@@ -124,6 +124,8 @@ const saveSetup = (input: SetupInput): Snapshot => {
     model: input.model === '' ? null : input.model,
     visionModel: input.visionModel === '' ? null : input.visionModel,
     providerKeys: [...providerKeys],
+    timeZone: input.timeZone === '' ? null : input.timeZone,
+    currency: input.currency === '' ? null : input.currency,
   };
   const ready = setup.hasTelegramBotToken && setup.principalChatId !== null;
   snapshot = {

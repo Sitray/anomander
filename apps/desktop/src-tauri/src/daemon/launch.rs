@@ -62,7 +62,7 @@ pub fn system_time_zone() -> Option<String> {
 }
 
 /// The shape of an IANA zone name. The daemon refuses to start with a `TZ` that is not one.
-fn is_time_zone(zone: &str) -> bool {
+pub fn is_time_zone(zone: &str) -> bool {
     !zone.is_empty()
         && zone.len() <= 64
         && zone.split('/').all(|part| {
@@ -128,6 +128,10 @@ pub struct DaemonInputs<'a> {
     pub paths: &'a DaemonPaths,
     pub local_token: &'a str,
     pub local_port: u16,
+    /// DK-25: the zone chosen in Configuración, over this machine's.
+    pub time_zone: Option<&'a str>,
+    /// DK-25: the currency chosen in Configuración; unset, the daemon's default.
+    pub currency: Option<&'a str>,
 }
 
 /// The `ANOMANDER_LOCALE` of `parent` (the system's language, as the shell read it), for a child
@@ -149,9 +153,19 @@ pub fn child_env(
         .collect();
     env.extend(system_env(parent));
     env.push(("PATH".into(), search_path(parent("PATH").as_deref())));
-    // Without it the daemon takes its default zone, whatever this machine's is.
-    if let Some(zone) = parent("TZ").filter(|zone| is_time_zone(zone)) {
+    // DK-25: the zone chosen in Configuración, else this machine's. Without either the daemon
+    // takes its default zone, whatever this machine's is.
+    let zone = inputs
+        .time_zone
+        .filter(|zone| is_time_zone(zone))
+        .map(str::to_owned)
+        .or_else(|| parent("TZ").filter(|zone| is_time_zone(zone)));
+    if let Some(zone) = zone {
         env.push(("TZ".into(), zone));
+    }
+    // DK-25: without it the daemon writes new expenses in euros.
+    if let Some(currency) = inputs.currency {
+        env.push(("ANOMANDER_CURRENCY".into(), currency.to_owned()));
     }
     // The system's language, as the shell read it; without it the daemon speaks Spanish.
     if let Some(locale) = handed_locale(parent) {
@@ -340,6 +354,8 @@ mod tests {
             paths,
             local_token: "t".repeat(64).leak(),
             local_port: 50123,
+            time_zone: None,
+            currency: None,
         }
     }
 
@@ -457,6 +473,8 @@ mod tests {
             paths: &paths,
             local_token: "t",
             local_port: 1,
+            time_zone: None,
+            currency: None,
         };
         let env: BTreeMap<_, _> = child_env(&|_| None, &inputs).into_iter().collect();
         let handed: BTreeMap<String, String> =
@@ -501,6 +519,8 @@ mod tests {
             paths: &paths,
             local_token: "t",
             local_port: 1,
+            time_zone: None,
+            currency: None,
         };
         let handed: BTreeMap<String, String> =
             serde_json::from_str(&handover_line(&inputs)).unwrap_or_default();
@@ -533,6 +553,8 @@ mod tests {
                 paths: &paths,
                 local_token: "t",
                 local_port: 1,
+                time_zone: None,
+                currency: None,
             };
             child_env(&parent, &inputs).into_iter().collect()
         };
@@ -554,6 +576,30 @@ mod tests {
         }
     }
 
+    // DK-25: what the principal chose in Configuración wins over this machine's zone.
+    #[test]
+    fn the_daemon_gets_the_zone_and_the_currency_chosen_in_configuracion() {
+        let paths = paths();
+        let parent = |name: &str| (name == "TZ").then(|| "Europe/Madrid".to_owned());
+        let env_with = |time_zone, currency| -> BTreeMap<String, String> {
+            let inputs = DaemonInputs {
+                time_zone,
+                currency,
+                ..full_inputs(&[], &paths)
+            };
+            child_env(&parent, &inputs).into_iter().collect()
+        };
+        let chosen = env_with(Some("America/Mexico_City"), Some("MXN"));
+        assert_eq!(chosen.get("TZ").map(String::as_str), Some("America/Mexico_City"));
+        assert_eq!(
+            chosen.get("ANOMANDER_CURRENCY").map(String::as_str),
+            Some("MXN")
+        );
+        let unset = env_with(None, None);
+        assert_eq!(unset.get("TZ").map(String::as_str), Some("Europe/Madrid"));
+        assert!(!unset.contains_key("ANOMANDER_CURRENCY"));
+    }
+
     #[test]
     fn the_daemon_speaks_the_language_the_shell_read_from_the_system() {
         let paths = paths();
@@ -573,6 +619,8 @@ mod tests {
                 paths: &paths,
                 local_token: "t",
                 local_port: 1,
+                time_zone: None,
+                currency: None,
             };
             child_env(&parent, &inputs).into_iter().collect()
         };

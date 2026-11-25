@@ -584,6 +584,20 @@ const es = {
     retry: 'Reintentar',
     closed: 'ANOMANDER no está en marcha. Arráncalo para ver tus gastos.',
   },
+  /** DK-25 AC5: the time zone and the currency, in the setup. */
+  region: {
+    section: 'Zona horaria y moneda',
+    help: 'Se aplican cuando ANOMANDER vuelve a arrancar, que es al guardar.',
+    timeZone: 'Zona horaria',
+    timeZoneHelp: 'Las fechas de tus gastos y la hora de tus recordatorios.',
+    currency: 'Moneda',
+    currencyHelp:
+      'La de los gastos nuevos. Los que ya están guardados siguen en la suya: no se convierten.',
+    otherCurrency: 'Otra',
+    currencyCode: 'Código de la moneda',
+    currencyCodeHelp: 'Su código ISO 4217, de tres letras, como JPY.',
+    currencyInvalid: 'Escribe un código de moneda de tres letras que exista, como JPY.',
+  },
 } as const;
 
 /** The shape of the text, the same in every language: the Spanish keys and parameters. */
@@ -1094,6 +1108,19 @@ const en: Strings = {
     retry: 'Try again',
     closed: 'ANOMANDER is not running. Start it to see your expenses.',
   },
+  region: {
+    section: 'Time zone and currency',
+    help: 'They apply when ANOMANDER starts again, which saving does.',
+    timeZone: 'Time zone',
+    timeZoneHelp: 'The dates of your expenses and the time of your reminders.',
+    currency: 'Currency',
+    currencyHelp:
+      'The one of new expenses. Those already saved keep their own: nothing is converted.',
+    otherCurrency: 'Other',
+    currencyCode: 'Currency code',
+    currencyCodeHelp: 'Its three-letter ISO 4217 code, such as JPY.',
+    currencyInvalid: 'Type a three-letter currency code that exists, such as JPY.',
+  },
 };
 
 /** The text of the window, each section in the window's language at the moment it is read. */
@@ -1109,4 +1136,5 @@ export const strings: Strings = {
   memory: perLocale<Strings['memory']>({ es: es.memory, en: en.memory }),
   ledger: perLocale<Strings['ledger']>({ es: es.ledger, en: en.ledger }),
   expenses: perLocale<Strings['expenses']>({ es: es.expenses, en: en.expenses }),
+  region: perLocale<Strings['region']>({ es: es.region, en: en.region }),
 };
