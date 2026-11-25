@@ -11,6 +11,7 @@ import {
   type ChatExpense,
   type ChatExpenses,
   type ChatMemory,
+  type ChatNotice,
   type ChatReceipt,
   type ChatReply,
   type ChatScreen,
@@ -55,6 +56,8 @@ export interface ChatClientOptions {
   onConnection: (state: ConnectionState) => void;
   /** Called exactly once for every request `send` returned an id for. */
   onOutcome: (requestId: string, outcome: Outcome) => void;
+  /** DK-22: what ANOMANDER sent unasked; it answers no request. */
+  onNotice?: (notice: ChatNotice) => void;
   /** Defaults to the platform's `WebSocket`. */
   createSocket?: (url: string, protocols: string[]) => ChatSocket;
 }
@@ -247,11 +250,35 @@ const parseExpenses = (event: Record<string, unknown>): ChatExpenses | undefined
   };
 };
 
+/** DK-22: a button only as the window can show it: one that comes back, or one that opens a link. */
+const isButton = (value: unknown): value is ChatNotice['buttons'][number] => {
+  if (typeof value !== 'object' || value === null) return false;
+  const { label, data, url } = value as Record<string, unknown>;
+  return typeof label === 'string' && (typeof data === 'string' || typeof url === 'string');
+};
+
+/** DK-22: a notice only as the window can show it. */
+const parseNotice = (event: Record<string, unknown>): ChatNotice | undefined => {
+  const { channelRef, text, buttons, sentAt } = event;
+  if (typeof channelRef !== 'string' || channelRef === '' || typeof text !== 'string') {
+    return undefined;
+  }
+  return {
+    type: 'notice',
+    inReplyTo: null,
+    channelRef,
+    text,
+    buttons: Array.isArray(buttons) ? buttons.filter(isButton) : [],
+    sentAt: typeof sentAt === 'string' ? sentAt : '',
+  };
+};
+
 const parseEvent = (data: unknown): ChatEvent | undefined => {
   if (typeof data !== 'string') return undefined;
   try {
     const event = JSON.parse(data) as Partial<ChatEvent> | null;
     if (event?.type === 'reply') return withOffer(withRoute(event as ChatReply));
+    if (event?.type === 'notice') return parseNotice(event as Record<string, unknown>);
     if (event?.type === 'history') {
       const { messages } = event as { messages: unknown };
       return Array.isArray(messages)
@@ -294,6 +321,7 @@ export const createChatClient = (options: ChatClientOptions): ChatClient => {
   const {
     onConnection,
     onOutcome,
+    onNotice,
     createSocket = (url, protocols) => new WebSocket(url, protocols),
   } = options;
 
@@ -373,6 +401,10 @@ export const createChatClient = (options: ChatClientOptions): ChatClient => {
     };
     opened.onmessage = (message) => {
       const event = parseEvent(message.data);
+      if (event?.type === 'notice') {
+        onNotice?.(event);
+        return;
+      }
       // A `rejected` without an id cannot be one of ours: every request carries its id.
       if (event === undefined || event.inReplyTo === null) return;
       const waiting = awaited.get(event.inReplyTo);

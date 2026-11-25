@@ -10,6 +10,7 @@ import { ExpensesScreen } from './expenses/ExpensesScreen.tsx';
 import { LedgerScreen } from './ledger/LedgerScreen.tsx';
 import { SubscriptionsScreen } from './login/SubscriptionsScreen.tsx';
 import { MemoryScreen } from './memory/MemoryScreen.tsx';
+import { NotificationsSetting } from './setup/NotificationsSetting.tsx';
 import { probeModel } from './setup/probe.ts';
 import { isComplete, SetupScreen } from './setup/SetupScreen.tsx';
 import { useAiUsage } from './setup/use-ai-usage.ts';
@@ -169,6 +170,12 @@ export function App() {
                   onOpenLedger={() => setOpen('ledger')}
                   onOpenSubscriptions={() => setOpen('subscriptions')}
                   onAddWebSearch={onAddWebSearch}
+                  notifications={
+                    <NotificationsSetting
+                      mode={snapshot.setup.notifications}
+                      onChoose={shell.setNotifications}
+                    />
+                  }
                   aiUsage={aiUsage}
                   {...(onProbe === undefined ? {} : { onProbe })}
                 />

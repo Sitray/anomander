@@ -23,6 +23,7 @@ const COMMANDS: &[&str] = &[
     "perform_action",
     "reveal",
     "set_task_running",
+    "set_notifications",
 ];
 
 /// Test binaries get no app manifest, so on Windows the Tauri app in `tests/capabilities.rs` could

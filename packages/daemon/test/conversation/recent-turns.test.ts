@@ -176,6 +176,96 @@ describe('recent turns', () => {
     expect(stored()).toEqual([]);
   });
 
+  it('DK-22: goes to Telegram and the connected app, calls onDelivered once and is kept once, as Telegram gave it', async () => {
+    const turns = createRecentTurns({ db, now: () => AT, logger });
+    const delivered: string[] = [];
+    const pushed: string[] = [];
+    const notify = recordingNotices(
+      turns,
+      async (message) => {
+        message.onDelivered?.({ channelRef: 'telegram:9', deliveredAt: AT.toISOString() });
+      },
+      {
+        connected: () => true,
+        notify: async (message) => {
+          pushed.push(message.text);
+          message.onDelivered?.({ channelRef: 'desktop:1', deliveredAt: AT.toISOString() });
+        },
+      },
+    );
+
+    await notify({
+      text: 'Recordatorio',
+      onDelivered: (delivery) => delivered.push(delivery.channelRef),
+    });
+
+    expect(pushed).toEqual(['Recordatorio']);
+    expect(delivered).toEqual(['telegram:9']);
+    expect(stored()).toMatchObject([
+      { from: 'anomander', door: 'telegram', channelRef: 'telegram:9' },
+    ]);
+  });
+
+  it('DK-22: without Telegram, the connected app delivers it, and it is kept as the app gave it', async () => {
+    const turns = createRecentTurns({ db, now: () => AT, logger });
+    const notify = recordingNotices(
+      turns,
+      async () => {
+        throw new Error('Telegram is not configured');
+      },
+      {
+        connected: () => true,
+        notify: async (message) => {
+          message.onDelivered?.({ channelRef: 'desktop:1', deliveredAt: AT.toISOString() });
+        },
+      },
+    );
+
+    await notify({ text: 'Recordatorio' });
+
+    expect(stored()).toMatchObject([{ from: 'anomander', door: 'app', channelRef: 'desktop:1' }]);
+  });
+
+  it('DK-22: when Telegram fails and the app got it, logs one fixed line without its words', async () => {
+    const turns = createRecentTurns({ db, now: () => AT, logger });
+    const notify = recordingNotices(
+      turns,
+      async () => {
+        throw new Error('400: Bad Request: llamar a mamá');
+      },
+      {
+        connected: () => true,
+        notify: async (message) => {
+          message.onDelivered?.({ channelRef: 'desktop:1', deliveredAt: AT.toISOString() });
+        },
+      },
+      logger,
+    );
+
+    await notify({ text: 'Recordatorio: llamar a mamá.' });
+
+    expect(logger.warn).toHaveBeenCalledTimes(1);
+    expect(logger.warn).toHaveBeenCalledWith('an unasked message reached the app but not Telegram');
+    expect(JSON.stringify(logger.warn.mock.calls)).not.toContain('mamá');
+  });
+
+  it("DK-22: with no app connected and no Telegram, rejects with Telegram's failure and keeps nothing", async () => {
+    const turns = createRecentTurns({ db, now: () => AT, logger });
+    const pushed = vi.fn(async () => {});
+    const notify = recordingNotices(
+      turns,
+      async () => {
+        throw new Error('Telegram is not configured');
+      },
+      { connected: () => false, notify: pushed },
+    );
+
+    await expect(notify({ text: 'Recordatorio' })).rejects.toThrow('Telegram is not configured');
+
+    expect(pushed).not.toHaveBeenCalled();
+    expect(stored()).toEqual([]);
+  });
+
   it('a failure to store a turn never changes the reply, and is logged without its words', () => {
     const turns = createRecentTurns({ db, now: () => AT, logger });
     db.exec('DROP TABLE conversation');

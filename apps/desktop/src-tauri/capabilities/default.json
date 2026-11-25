@@ -27,6 +27,7 @@
     "allow-perform-action",
     "allow-reveal",
     "allow-set-task-running",
+    "allow-set-notifications",
     "dialog:allow-open"
   ]
 }

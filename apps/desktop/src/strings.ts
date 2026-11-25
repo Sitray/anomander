@@ -703,6 +703,15 @@ const es = {
     retry: 'Reintentar',
     closed: 'ANOMANDER no está en marcha. Arráncalo para ver tus gastos.',
   },
+  /** DK-22 (B29): what the notifications show, in the setup. */
+  notifications: {
+    title: 'Notificaciones',
+    content: 'Mostrar contenido',
+    contentHelp: 'El aviso enseña el principio del mensaje, también con la pantalla bloqueada.',
+    noticeOnly: 'Solo avisar',
+    noticeOnlyHelp: 'El aviso dice «ANOMANDER tiene algo para ti», sin nada del mensaje.',
+    failed: 'No se ha podido guardar. Sigue como estaba.',
+  },
 } as const;
 
 /** The shape of the text, the same in every language: the Spanish keys and parameters. */
@@ -1293,6 +1302,15 @@ const en: Strings = {
     retry: 'Try again',
     closed: 'ANOMANDER is not running. Start it to see your expenses.',
   },
+  notifications: {
+    title: 'Notifications',
+    content: 'Show content',
+    contentHelp: 'The notification shows the start of the message, also on a locked screen.',
+    noticeOnly: 'Notify only',
+    noticeOnlyHelp:
+      'The notification says “ANOMANDER has something for you”, with nothing of the message.',
+    failed: 'It could not be saved. It stays as it was.',
+  },
 };
 
 /** The text of the window, each section in the window's language at the moment it is read. */
@@ -1308,4 +1326,8 @@ export const strings: Strings = {
   memory: perLocale<Strings['memory']>({ es: es.memory, en: en.memory }),
   ledger: perLocale<Strings['ledger']>({ es: es.ledger, en: en.ledger }),
   expenses: perLocale<Strings['expenses']>({ es: es.expenses, en: en.expenses }),
+  notifications: perLocale<Strings['notifications']>({
+    es: es.notifications,
+    en: en.notifications,
+  }),
 };

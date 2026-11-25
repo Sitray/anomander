@@ -471,7 +471,7 @@ describe('the chat over the local channel', () => {
     ]);
   });
 
-  it('DK-4 AC5: a message ANOMANDER sends unasked goes to Telegram only', async () => {
+  it('DK-4 AC5: the reply to a Telegram input (S-10) goes to Telegram only, never to the app', async () => {
     const daemon = await start();
     const chat = await client(daemon);
     // R-12 AC2, AC3: a receipt over the cap is queued; S-10 goes out unasked, once.

@@ -40,6 +40,12 @@ export interface LocalChannel {
   token: string;
 }
 
+/**
+ * DK-22 (B29): what the shell's notifications show: the start of the message (`content`, the
+ * default), or only that ANOMANDER has something (`notice_only`).
+ */
+export type NotificationMode = 'content' | 'notice_only';
+
 /** What the setup screen shows. Secrets are never sent back: only whether each one is stored. */
 export interface SetupState {
   hasTelegramBotToken: boolean;
@@ -51,6 +57,8 @@ export interface SetupState {
   visionModel: string | null;
   /** The provider variables whose key is stored, such as `OPENAI_API_KEY`. */
   providerKeys: string[];
+  /** DK-22: what the notifications show; absent is `content`. */
+  notifications?: NotificationMode;
 }
 
 export interface Snapshot {
@@ -277,6 +285,9 @@ export const shell = {
   onChatShown: (handler: () => void): Promise<UnlistenFn> => listen(CHAT_SHOWN_EVENT, handler),
   /** An answer arrived: the shell notifies it unless the window is in front. */
   notifyReply: (text: string): Promise<void> => invoke('notify_reply', { text }),
+  /** DK-22: saves what the notifications show, at once; the daemon is not touched. */
+  setNotifications: (mode: NotificationMode): Promise<Snapshot> =>
+    invoke('set_notifications', { mode }),
   onSnapshot: (handler: (snapshot: Snapshot) => void): Promise<UnlistenFn> =>
     listen<Snapshot>(SNAPSHOT_EVENT, (event) => handler(event.payload)),
 };

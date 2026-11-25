@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::data_dir::DataDir;
 use crate::secure_store::SecretStore;
-use crate::snapshot::SetupState;
+use crate::snapshot::{NotificationMode, SetupState};
 
 /// The Keychain account of the bot token: the daemon's variable name.
 pub const TELEGRAM_BOT_TOKEN: &str = "TELEGRAM_BOT_TOKEN";
@@ -25,6 +25,10 @@ pub struct Settings {
     pub provider_keys: Vec<String>,
     /// The Keychain accounts that hold values of `mcp.json` (`connection_secrets`).
     pub connection_secrets: Vec<String>,
+    /// DK-22: what the notifications show. Left out of the file while it is the default, so a
+    /// file saved before it reads the same.
+    #[serde(skip_serializing_if = "NotificationMode::is_content")]
+    pub notifications: NotificationMode,
     /// DK-21: `ANOMANDER_DAILY_AI_CALL_LIMIT`; unset, the daemon's default. Absent from the file
     /// while unset, so a file written before it reads the same. A value edited by hand that is
     /// not a count reads as unset, and the rest of the file still loads.
@@ -203,6 +207,7 @@ pub fn apply_setup(
         vision_model,
         provider_keys,
         connection_secrets: current.connection_secrets.clone(),
+        notifications: current.notifications,
         daily_ai_call_limit: input.daily_ai_call_limit.or(current.daily_ai_call_limit),
     })
 }
@@ -257,6 +262,7 @@ pub fn setup_state(settings: &Settings, has_telegram_bot_token: bool) -> SetupSt
         model: settings.model.clone(),
         vision_model: settings.vision_model.clone(),
         provider_keys: settings.provider_keys.clone(),
+        notifications: settings.notifications,
     }
 }
 
@@ -436,6 +442,7 @@ mod tests {
                 vision_model: None,
                 provider_keys: vec!["ANTHROPIC_API_KEY".into(), "OPENAI_API_KEY".into()],
                 connection_secrets: Vec::new(),
+                notifications: NotificationMode::Content,
                 daily_ai_call_limit: None,
             }
         );
@@ -613,6 +620,7 @@ mod tests {
             vision_model: None,
             provider_keys: vec!["OPENAI_API_KEY".into()],
             connection_secrets: Vec::new(),
+            notifications: NotificationMode::Content,
             daily_ai_call_limit: None,
         };
         assert_eq!(
@@ -623,8 +631,46 @@ mod tests {
                 model: Some("openai/gpt-4o-mini".into()),
                 vision_model: None,
                 provider_keys: vec!["OPENAI_API_KEY".into()],
+                notifications: NotificationMode::Content,
             }
         );
+    }
+
+    #[test]
+    fn settings_saved_before_the_switch_show_the_content_and_notify_only_is_kept(
+    ) -> Result<(), String> {
+        let parent = tempfile::tempdir().map_err(|e| e.to_string())?;
+        let dir = DataDir::open(parent.path().join("ANOMANDER")).map_err(|e| e.to_string())?;
+        std::fs::write(dir.settings_path(), r#"{"principalChatId":"42"}"#)
+            .map_err(|e| e.to_string())?;
+        let old = load_settings(&dir.settings_path())?;
+        assert_eq!(old.notifications, NotificationMode::Content);
+        assert_eq!(
+            setup_state(&old, false).notifications,
+            NotificationMode::Content
+        );
+
+        let chosen = Settings {
+            notifications: NotificationMode::NoticeOnly,
+            ..old
+        };
+        save_settings(&dir, &chosen).map_err(|e| e.to_string())?;
+        let text = std::fs::read_to_string(dir.settings_path()).map_err(|e| e.to_string())?;
+        assert!(text.contains(r#""notifications": "notice_only""#), "{text}");
+        assert_eq!(load_settings(&dir.settings_path())?, chosen);
+        Ok(())
+    }
+
+    #[test]
+    fn a_save_of_the_setup_keeps_the_notifications_chosen() -> Result<(), String> {
+        let store = MemoryStore::default();
+        let current = Settings {
+            notifications: NotificationMode::NoticeOnly,
+            ..Settings::default()
+        };
+        let settings = apply_setup(&full_input(), &current, &store)?;
+        assert_eq!(settings.notifications, NotificationMode::NoticeOnly);
+        Ok(())
     }
 
     #[test]
@@ -655,6 +701,7 @@ mod tests {
             vision_model: Some("openai/gpt-4o".into()),
             provider_keys: vec!["OPENAI_API_KEY".into()],
             connection_secrets: vec!["mcp/notes/env/TOKEN".into()],
+            notifications: NotificationMode::Content,
             daily_ai_call_limit: None,
         };
         save_settings(&dir, &settings).map_err(|e| e.to_string())?;
