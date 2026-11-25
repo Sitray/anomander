@@ -87,6 +87,15 @@ export interface ChatClient {
    * It only reads, so asking again is always safe.
    */
   requestExpenses(month?: string): Promise<ChatExpenses | 'failed' | 'lost'>;
+  /**
+   * DK-17 AC6: "Deshacer" or "Corregir" on a row of "Gastos"; the daemon's reply, as the expense's
+   * button in the chat gets it. `not_sent`: no open connection, or the daemon rejected it;
+   * `unknown`: the connection was lost first, so it may have been done.
+   */
+  amendExpense(
+    action: 'undo' | 'correct',
+    expenseId: number,
+  ): Promise<ChatReply | 'not_sent' | 'unknown'>;
   dispose(): void;
 }
 
@@ -287,7 +296,8 @@ export const createChatClient = (options: ChatClientOptions): ChatClient => {
       | { type: 'history' | 'clear_history' | 'memories' | 'actions' }
       | { type: 'expenses'; month?: string }
       | { type: 'forget_memory'; memoryId: number }
-      | { type: 'forget_action'; actionId: number },
+      | { type: 'forget_action'; actionId: number }
+      | { type: 'undo_expense' | 'correct_expense'; expenseId: number },
   ): Promise<ChatEvent | null | undefined> => {
     if (socket === null || socket.readyState !== OPEN) return Promise.resolve(undefined);
     const id = crypto.randomUUID();
@@ -386,6 +396,14 @@ export const createChatClient = (options: ChatClientOptions): ChatClient => {
       const event = await ask({ type: 'expenses', ...(month === undefined ? {} : { month }) });
       if (event === null || event === undefined) return 'lost';
       return event.type === 'expenses' ? event : 'failed';
+    },
+    async amendExpense(action, expenseId) {
+      const event = await ask({
+        type: action === 'undo' ? 'undo_expense' : 'correct_expense',
+        expenseId,
+      });
+      if (event === null) return 'unknown';
+      return event?.type === 'reply' ? event : 'not_sent';
     },
     dispose() {
       release();

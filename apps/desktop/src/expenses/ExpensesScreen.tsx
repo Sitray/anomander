@@ -1,7 +1,14 @@
-// DK-17: the expenses of a month, read only, over the `gastos` and `pendientes_de_confirmar`
-// views. The container asks the daemon; `ExpensesTable` only shows what it answered.
-import { type ChatExpense, type ChatExpenses, formatAmount, formatDate } from '@anomander/protocol';
-import { type ReactNode, useEffect, useRef } from 'react';
+// DK-17: the expenses of a month, over the `gastos` and `pendientes_de_confirmar` views. The
+// container asks the daemon; `ExpensesTable` only shows what it answered. AC6: each row's
+// "Corregir" and "Deshacer" press the expense's own buttons of the chat (R-7 AC4 to AC8).
+import {
+  type ChatExpense,
+  type ChatExpenses,
+  formatAmount,
+  formatDate,
+  strings as replies,
+} from '@anomander/protocol';
+import { type ReactNode, useEffect, useId, useRef, useState } from 'react';
 import type { LocalChannel } from '../shell.ts';
 import { strings } from '../strings.ts';
 import { ChevronLeftIcon, ChevronRightIcon } from '../ui/icons.tsx';
@@ -13,14 +20,99 @@ export interface ExpensesScreenProps {
   /** `null` while the daemon is not running. */
   channel: LocalChannel | null;
   onClose: () => void;
+  /** AC6: the daemon stored a row's press and its reply in the conversation; the chat follows. */
+  onAmended?: () => void;
+  /** AC6: "Corregir" was asked what to change (S-7): the principal answers in the chat. */
+  onCorrecting?: () => void;
 }
 
-export function ExpensesScreen({ channel, onClose }: ExpensesScreenProps) {
-  const { state, month, current, show, retry } = useExpenses(channel);
+export function ExpensesScreen({ channel, onClose, onAmended, onCorrecting }: ExpensesScreenProps) {
+  const { state, month, current, show, retry, amend } = useExpenses(channel);
   const heading = useRef<HTMLHeadingElement>(null);
+  /** The expense whose "Deshacer" was pressed, waiting for "Sí, deshacer". */
+  const [asking, setAsking] = useState<number | null>(null);
+  const [amending, setAmending] = useState(false);
+  /** What the last press got: the daemon's reply, or why there is none. */
+  const [note, setNote] = useState<string | null>(null);
+  const question = useId();
 
   // The screen replaces the chat: start reading it from its title.
   useEffect(() => heading.current?.focus(), []);
+
+  const press = async (action: 'undo' | 'correct', expenseId: number) => {
+    setAmending(true);
+    setNote(null);
+    const outcome = await amend(action, expenseId);
+    setAmending(false);
+    setAsking(null);
+    if (outcome === 'not_sent' || outcome === 'unknown') {
+      setNote(outcome === 'unknown' ? text.amendUnknown : text.amendNotSent);
+      if (outcome === 'unknown') onAmended?.();
+      return;
+    }
+    setNote(outcome.text);
+    onAmended?.();
+    // R-7 AC6: the next text is the correction, written in the chat.
+    if (action === 'correct' && outcome.text === replies.askCorrection()) onCorrecting?.();
+  };
+
+  /** A row's "Corregir" and "Deshacer", or the question "Deshacer" opened. */
+  const rowAction = (expense: ChatExpense): ReactNode => {
+    const amount = formatAmount(expense.totalCents);
+    const date = formatDate(expense.date);
+    if (asking === expense.id) {
+      return (
+        <span className="memory-confirm">
+          <span id={question}>{text.confirmUndo}</span>
+          <button
+            type="button"
+            className="link"
+            aria-describedby={question}
+            disabled={amending}
+            onClick={() => void press('undo', expense.id)}
+          >
+            {text.confirmYes}
+          </button>
+          <button
+            type="button"
+            className="link"
+            aria-describedby={question}
+            // biome-ignore lint/a11y/noAutofocus: the button it replaces had the focus.
+            autoFocus
+            disabled={amending}
+            onClick={() => setAsking(null)}
+          >
+            {text.keep}
+          </button>
+        </span>
+      );
+    }
+    return (
+      <span className="expenses-actions">
+        <button
+          type="button"
+          className="link"
+          aria-label={text.correctLabel(amount, date)}
+          disabled={amending}
+          onClick={() => void press('correct', expense.id)}
+        >
+          {text.correct}
+        </button>
+        <button
+          type="button"
+          className="link"
+          aria-label={text.undoLabel(amount, date)}
+          disabled={amending}
+          onClick={() => {
+            setNote(null);
+            setAsking(expense.id);
+          }}
+        >
+          {text.undo}
+        </button>
+      </span>
+    );
+  };
 
   const title = month === null ? '' : text.month(month);
   return (
@@ -28,7 +120,9 @@ export function ExpensesScreen({ channel, onClose }: ExpensesScreenProps) {
       className="setup expenses-screen"
       aria-labelledby="expenses-title"
       onKeyDown={(event) => {
-        if (event.key === 'Escape') onClose();
+        if (event.key !== 'Escape' || amending) return;
+        if (asking !== null) setAsking(null);
+        else onClose();
       }}
     >
       <div className="setup-body">
@@ -80,7 +174,14 @@ export function ExpensesScreen({ channel, onClose }: ExpensesScreenProps) {
                 </button>
               </div>
             )}
-            {state.kind === 'shown' && <ExpensesTable answer={state.answer} />}
+            {note !== null && (
+              <p className="expenses-note" role="status">
+                {note}
+              </p>
+            )}
+            {state.kind === 'shown' && (
+              <ExpensesTable answer={state.answer} rowAction={rowAction} />
+            )}
           </div>
         )}
       </div>
@@ -98,10 +199,7 @@ export function ExpensesScreen({ channel, onClose }: ExpensesScreenProps) {
 
 export interface ExpensesTableProps {
   answer: ChatExpenses;
-  /**
-   * DK-17 AC6 (pending): the action of each row, "Corregir" once the correction of a typed
-   * expense (B20) exists. Absent, the table has no column for it and offers no button.
-   */
+  /** AC6: the actions of each row, "Corregir" and "Deshacer". Absent, there is no column for them. */
   rowAction?: (expense: ChatExpense) => ReactNode;
 }
 
