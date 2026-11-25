@@ -15,7 +15,8 @@ use crate::ledger_import::{self, LedgerImport};
 use crate::oauth_connect::{self, OAuthSet};
 use crate::secure_store::SecretStore;
 use crate::setup::{
-    apply_setup, load_secrets, save_settings, setup_state, Settings, SetupInput, TELEGRAM_BOT_TOKEN,
+    apply_setup, load_secrets, save_settings, setup_state, Settings, SetupInput,
+    DAILY_AI_CALL_LIMITS, TELEGRAM_BOT_TOKEN,
 };
 use crate::snapshot::{SetupState, Snapshot};
 
@@ -527,8 +528,12 @@ impl Core {
             local_port: port,
         };
         let mut env = child_env(&parent, &inputs);
-        // DK-21: the principal's own limit; unset, the daemon keeps its default.
-        if let Some(limit) = settings.daily_ai_call_limit {
+        // DK-21: the principal's own limit; unset, or out of range in a file edited by hand, the
+        // daemon keeps its default.
+        if let Some(limit) = settings
+            .daily_ai_call_limit
+            .filter(|limit| DAILY_AI_CALL_LIMITS.contains(limit))
+        {
             env.push(("ANOMANDER_DAILY_AI_CALL_LIMIT".into(), limit.to_string()));
         }
         let handover = handover_line(&inputs);
@@ -1073,6 +1078,19 @@ mod tests {
 
         let (store, settings) = configured();
         assert_eq!(limit(&ready(&fixture(store, settings).core)), None);
+    }
+
+    #[test]
+    fn a_stored_daily_ai_call_limit_outside_1_to_10000_leaves_the_daemons_default() {
+        for bad in [0, 10_001, u32::MAX] {
+            let (store, mut settings) = configured();
+            settings.daily_ai_call_limit = Some(bad);
+            let spec = ready(&fixture(store, settings).core);
+            assert!(!spec
+                .env
+                .iter()
+                .any(|(n, _)| n == "ANOMANDER_DAILY_AI_CALL_LIMIT"));
+        }
     }
 
     #[test]

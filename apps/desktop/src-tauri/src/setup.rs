@@ -26,9 +26,21 @@ pub struct Settings {
     /// The Keychain accounts that hold values of `mcp.json` (`connection_secrets`).
     pub connection_secrets: Vec<String>,
     /// DK-21: `ANOMANDER_DAILY_AI_CALL_LIMIT`; unset, the daemon's default. Absent from the file
-    /// while unset, so a file written before it reads the same.
-    #[serde(skip_serializing_if = "Option::is_none")]
+    /// while unset, so a file written before it reads the same. A value edited by hand that is
+    /// not a count reads as unset, and the rest of the file still loads.
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "lenient_count"
+    )]
     pub daily_ai_call_limit: Option<u32>,
+}
+
+/// Any JSON value as an `Option<u32>`: `None` for anything that is not a count that fits.
+fn lenient_count<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<Option<u32>, D::Error> {
+    let value = serde_json::Value::deserialize(deserializer)?;
+    Ok(value.as_u64().and_then(|count| u32::try_from(count).ok()))
 }
 
 /// `SetupInput` of `shell.ts`. Holds secrets: no `Debug`.
@@ -358,6 +370,33 @@ mod tests {
             );
             assert_eq!(store.get("OPENAI_API_KEY").ok().flatten(), None);
         }
+    }
+
+    #[test]
+    fn a_stored_daily_ai_call_limit_that_is_not_a_count_reads_as_unset_and_the_rest_loads(
+    ) -> Result<(), String> {
+        let dir = tempfile::tempdir().map_err(|e| e.to_string())?;
+        let path = dir.path().join("settings.json");
+        for bad in [
+            json!(-5),
+            json!("mucho"),
+            json!(2.5),
+            json!(4_294_967_296_u64),
+        ] {
+            let file = json!({ "model": "openai/gpt-4o-mini", "dailyAiCallLimit": bad });
+            std::fs::write(&path, file.to_string()).map_err(|e| e.to_string())?;
+            let settings = load_settings(&path)?;
+            assert_eq!(
+                settings.model.as_deref(),
+                Some("openai/gpt-4o-mini"),
+                "{bad}"
+            );
+            assert_eq!(settings.daily_ai_call_limit, None, "{bad}");
+        }
+        std::fs::write(&path, json!({ "dailyAiCallLimit": 300 }).to_string())
+            .map_err(|e| e.to_string())?;
+        assert_eq!(load_settings(&path)?.daily_ai_call_limit, Some(300));
+        Ok(())
     }
 
     #[test]
