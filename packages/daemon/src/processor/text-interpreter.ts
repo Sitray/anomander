@@ -6,6 +6,7 @@ import { AiBudgetExhaustedError } from '../budget/ai-budget.ts';
 import { type Capability, capabilityFor } from '../capabilities/capability.ts';
 import { CAPABILITIES } from '../capabilities/registry.ts';
 import { quotedFrom } from '../store/memory.ts';
+import { centsName, wholeAmount } from './currency.ts';
 import { languageName, replyLanguage } from './language.ts';
 import type { Complete, ConnectedTool, Logger, MemoryFact, TextInterpreter } from './ports.ts';
 
@@ -22,11 +23,12 @@ export type {
 // R-17 AC5 and R-2 AC6: the processor classifies a text and returns inferences only. It never
 // writes (R-14 AC1); the expense cycle decides what to store.
 
-/** How the principal writes an amount, in the language the daemon chose at startup. */
-const AMOUNT_EXAMPLES = {
-  es: '"23,40" is 2340, "23 €" is 2300',
-  en: '"23.40" is 2340, "€23" is 2300',
-} as const;
+/**
+ * How the principal writes an amount, in the language the daemon chose at startup and in their
+ * currency (B73): `"23,40" is 2340, "23 €" is 2300`.
+ */
+const amountExamples = (): string =>
+  `${getLocale() === 'es' ? '"23,40"' : '"23.40"'} is 2340, "${wholeAmount(23)}" is 2300`;
 
 // R-24 AC1: the prompt is these built-in kinds, then each registered capability's section. The
 // replies are asked for, and their references written, in the language chosen at startup.
@@ -40,7 +42,7 @@ If the message states an expense, reply:
 Each inference is an object with these fields and no others:
 {"subject_type":"expense","subject_id":null,"predicate":"<predicate>","value_json":<value>,"mode":"inferred","basis_json":{"quote":"<the words of the message it rests on>"},"confidence":<number from 0 to 1>}
 Predicates:
-- "total": the amount paid, as an integer number of euro cents (${AMOUNT_EXAMPLES[getLocale()]}). Always include it when the message states an amount.
+- "total": the amount paid, as an integer number of ${centsName()} (${amountExamples()}). Always include it when the message states an amount.
 - "merchant": who was paid, only when the message names it.
 - "occurred_on": the date as YYYY-MM-DD, only when the message names a date ("ayer", "el lunes"). Resolve it from the "today" field.
 - "category": one of the names in the "categories" field that fits the expense, only if one fits.

@@ -20,8 +20,8 @@ import Database from 'better-sqlite3';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { type Anomander, startAnomander } from '../../src/app.ts';
 import { loadConfig } from '../../src/config.ts';
-import { CORRECTION_INTERPRETER_PROMPT } from '../../src/processor/correction-interpreter.ts';
-import { RECEIPT_READER_PROMPT } from '../../src/processor/receipt-reader.ts';
+import { correctionInterpreterPrompt } from '../../src/processor/correction-interpreter.ts';
+import { receiptReaderPrompt } from '../../src/processor/receipt-reader.ts';
 import { replyPhraserPrompt } from '../../src/processor/reply-phraser.ts';
 
 // End to end (PRD §15): undoing and correcting a typed expense (R-7 AC4 to AC8), through the fake
@@ -78,10 +78,10 @@ const correcting = (expenseId: number | null, total: number, quote: string) => (
 });
 
 const complete = async (_model: string, context: Context): Promise<AssistantMessage> => {
-  if (context.systemPrompt === RECEIPT_READER_PROMPT) {
+  if (context.systemPrompt === receiptReaderPrompt()) {
     return recorded('receipt-reader/lines-mismatch');
   }
-  if (context.systemPrompt === CORRECTION_INTERPRETER_PROMPT) {
+  if (context.systemPrompt === correctionInterpreterPrompt()) {
     return recorded('correction-interpreter/total-28-40');
   }
   // R-21 AC2: a wording without the facts is not sent, so the replies are the §12 strings.

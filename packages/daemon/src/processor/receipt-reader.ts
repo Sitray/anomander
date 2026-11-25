@@ -1,6 +1,7 @@
 import { isCalendarDate, validateProcessorOutput } from '@anomander/core';
 import type { AssistantMessage, Context, ImageContent } from '@earendil-works/pi-ai';
 import { z } from 'zod';
+import { centsName } from './currency.ts';
 import type {
   Complete,
   Inferred,
@@ -24,7 +25,9 @@ export type {
 // It never writes (R-14 AC1) and gets no tools (R-14 AC3); the receipt cycle decides what to
 // store.
 
-export const RECEIPT_READER_PROMPT = `You read the images of one shop receipt for a personal assistant. You can only answer; you have no tools and you never store anything.
+/** The receipt reader's prompt, in the principal's currency (B73). */
+export const receiptReaderPrompt =
+  (): string => `You read the images of one shop receipt for a personal assistant. You can only answer; you have no tools and you never store anything.
 
 Reply with exactly one JSON object and nothing else.
 
@@ -35,7 +38,7 @@ Each inference is an object with these fields and no others:
 Predicates:
 - "merchant": the business name printed on the receipt. Exactly one.
 - "occurred_on": the purchase date as YYYY-MM-DD. Exactly one.
-- "total": the total paid, as an integer number of euro cents ("23,40" is 2340). Exactly one.
+- "total": the total paid, as an integer number of ${centsName()} ("23,40" is 2340). Exactly one.
 - "line": one per product line, in printed order, with value {"name":"<as printed>","quantity":<number>,"amount_cents":<integer cents of the whole line>}.
 - "category": one of the names in the "categories" field that fits the expense, only if one fits.
 - "declared_category": a category the user named in the "caption" field, written as the user wrote it.
@@ -168,7 +171,7 @@ export const createPiAiReceiptReader =
     }));
     // R-14 AC3: one system prompt and one user turn with text and images; never `tools`.
     const context: Context = {
-      systemPrompt: RECEIPT_READER_PROMPT,
+      systemPrompt: receiptReaderPrompt(),
       messages: [
         {
           role: 'user',
