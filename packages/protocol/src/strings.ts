@@ -461,6 +461,15 @@ const es = {
   /** S-73. `provider` is the login button label, such as `ChatGPT`, or the pi-ai provider ID. */
   setupProviderUnconnected: (provider: string) =>
     `- Conectar tu cuenta de ${provider} (/login o su API key en el .env).`,
+  // DK-23 AC5: the same gaps as the desktop app's chat says them: about the window, never `.env`.
+  /** S-171. */
+  appSetupModelUnset: () => '- Elegir el modelo: abre Configuración, en la barra de arriba.',
+  /** S-172. */
+  appSetupModelUnknown: (model: string) =>
+    `- Un modelo que exista: ${model} no lo encuentro. Elige otro en Configuración.`,
+  /** S-173. `provider` as in S-73. */
+  appSetupProviderUnconnected: (provider: string) =>
+    `- Conectar tu cuenta de ${provider}: pon su clave en Configuración o conéctala en Suscripciones.`,
   /** S-74 (R-10 AC6); "No" replies S-55. */
   confirmWeeklySummary: () => '¿Te mando cada semana un resumen de tus gastos?',
   /** S-75: the reply to "Sí" to S-74 (R-10 AC6). */
@@ -694,6 +703,11 @@ const en: typeof es = {
     `- A model that exists in ${variable}: I can't find ${model}.`,
   setupProviderUnconnected: (provider) =>
     `- Your ${provider} account connected (/login or its API key in the .env).`,
+  appSetupModelUnset: () => '- The model chosen: open Settings, in the bar at the top.',
+  appSetupModelUnknown: (model) =>
+    `- A model that exists: I can't find ${model}. Pick another one in Settings.`,
+  appSetupProviderUnconnected: (provider) =>
+    `- Your ${provider} account connected: add its key in Settings or connect it in Subscriptions.`,
   confirmWeeklySummary: () => 'Shall I send you a summary of your expenses every week?',
   weeklySummaryOn: () => "Done: I'll send you a summary of your expenses every week.",
   weeklySummaryAlreadyOn: () => 'I already send you a summary of your expenses every week.',

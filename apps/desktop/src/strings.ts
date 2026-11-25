@@ -9,7 +9,12 @@
 // The language is the window's (`locale.ts`): each section is read in it at the moment it is
 // read, so a section kept in a variable still follows it.
 
-import { type ExpenseMode, type OAuthConnectionName, perLocale } from '@anomander/protocol';
+import {
+  type ExpenseMode,
+  type OAuthConnectionName,
+  type ProbeOutcome,
+  perLocale,
+} from '@anomander/protocol';
 import { platform } from './platform.ts';
 
 /** DK-17: `2026-11` as the name of its month and its year in `locale`. */
@@ -242,15 +247,24 @@ const es = {
     chatIdMissing:
       'Falta tu ID de chat. Telegram necesita el token y tu ID de chat; sin Telegram, deja los dos en blanco.',
 
+    /** DK-23 AC2: the providers by name; a model is suggested for the one chosen. */
+    modelProvider: 'Proveedor del modelo',
+    chooseProvider: 'Elige uno',
+    otherModel: 'Otro modelo…',
     model: 'Modelo',
-    modelHelp: 'Entiende lo que escribes. Va con su proveedor delante.',
+    modelHelp:
+      'Entiende lo que escribes. Al elegir el proveedor te proponemos uno; puedes escribir otro, con su proveedor delante.',
     modelExample: 'openai/gpt-4o-mini',
     /** As a placeholder it must read as an example, not as a value already set. */
     modelPlaceholder: 'p. ej. openai/gpt-4o-mini',
     visionModel: 'Modelo para fotos',
-    visionModelHelp: 'Lee las fotos de los tickets. Mismo formato que el anterior.',
+    visionModelHelp:
+      'Lee las fotos de los tickets. Mismo formato que el anterior; con un modelo propuesto, vacío usa el mismo.',
     modelInvalid: 'Escríbelo con el proveedor delante, como openai/gpt-4o-mini.',
     modelMissing: 'Falta el modelo. Sin él ANOMANDER no puede contestarte.',
+    /** DK-23 AC2: a model not offered by name may not read photos, so the one for photos is asked. */
+    visionModelMissing:
+      'Falta el modelo para fotos: escribe uno que lea imágenes, o elige un proveedor de la lista.',
 
     keys: 'Claves de proveedores',
     keysHelp: 'La clave de API del proveedor de cada modelo. Está en su panel de desarrollador.',
@@ -271,6 +285,34 @@ const es = {
     keyValue: 'Clave',
     keyValueMissing: 'Falta la clave.',
     addKey: 'Añadir',
+    /** DK-23 AC3: the key of the model's provider, named by whose it is. */
+    keyFor: (owner: string) => `Clave de ${owner}`,
+    keyForHelp: 'Está en el panel de desarrollador del proveedor.',
+    keyStoredKeep: 'Guardada. Déjala en blanco para mantenerla.',
+
+    /** DK-23 AC4: one real call to the saved model, through ANOMANDER. */
+    probe: 'Probar',
+    probing: 'Probando…',
+    probeHelp:
+      'Hace una llamada de verdad al modelo guardado, con su clave, y cuenta en el límite diario de llamadas.',
+    probeSaveFirst: 'Guarda primero: Probar usa el modelo y la clave guardados.',
+    probeNotRunning: 'Para probar, ANOMANDER tiene que estar en marcha.',
+    probeLost: 'Se ha perdido la conexión con ANOMANDER antes de la respuesta. Vuelve a probar.',
+    probeOutcome: {
+      ok: 'Funciona: el modelo ha contestado.',
+      model_unset: 'Aún no hay un modelo guardado.',
+      vision_model_unset:
+        'Falta el modelo para fotos. Escribe uno que lea imágenes en «Modelo para fotos» y guarda.',
+      model_unknown: 'ANOMANDER no conoce ese modelo. Elige otro.',
+      not_connected: 'Falta la clave del proveedor, o conectar tu suscripción.',
+      budget_exhausted: 'Hoy ya se ha llegado al límite diario de llamadas a la IA. Prueba mañana.',
+      key_refused: 'El proveedor no acepta la clave. Revisa que esté bien copiada.',
+      model_unavailable: 'El proveedor no tiene ese modelo, o tu cuenta no puede usarlo.',
+      provider_limit:
+        'El proveedor dice que se ha acabado tu cuota o que vas demasiado rápido. Revisa tu plan.',
+      timed_out: 'El proveedor no ha contestado a tiempo. Prueba otra vez en un rato.',
+      failed: 'El proveedor ha dado un error. Prueba otra vez en un rato.',
+    } satisfies Record<ProbeOutcome, string>,
 
     save: 'Guardar y arrancar',
     saving: 'Guardando…',
@@ -814,14 +856,21 @@ const en: Strings = {
     chatIdMissing:
       'Your chat ID is missing. Telegram needs the token and your chat ID; without Telegram, leave both blank.',
 
+    modelProvider: 'Model provider',
+    chooseProvider: 'Choose one',
+    otherModel: 'Another model…',
     model: 'Model',
-    modelHelp: 'It understands what you write. Its provider goes first.',
+    modelHelp:
+      'It understands what you write. Choosing the provider suggests one; you can write another, with its provider first.',
     modelExample: 'openai/gpt-4o-mini',
     modelPlaceholder: 'e.g. openai/gpt-4o-mini',
     visionModel: 'Model for photos',
-    visionModelHelp: 'It reads the photos of receipts. Same format as the one above.',
+    visionModelHelp:
+      'It reads the photos of receipts. Same format as the one above; with a suggested model, empty uses the same.',
     modelInvalid: 'Write it with the provider first, like openai/gpt-4o-mini.',
     modelMissing: "The model is missing. Without it ANOMANDER can't answer you.",
+    visionModelMissing:
+      'The model for photos is missing: write one that reads images, or choose a provider from the list.',
 
     keys: 'Provider keys',
     keysHelp: "The API key of each model's provider. It's in their developer dashboard.",
@@ -842,6 +891,32 @@ const en: Strings = {
     keyValue: 'Key',
     keyValueMissing: 'The key is missing.',
     addKey: 'Add',
+    keyFor: (owner: string) => `${owner} key`,
+    keyForHelp: "It's in the provider's developer dashboard.",
+    keyStoredKeep: 'Saved. Leave it blank to keep it.',
+
+    probe: 'Test',
+    probing: 'Testing…',
+    probeHelp:
+      'It makes a real call to the saved model, with its key, and counts against the daily call limit.',
+    probeSaveFirst: 'Save first: Test uses the saved model and key.',
+    probeNotRunning: 'To test, ANOMANDER has to be running.',
+    probeLost: 'The connection to ANOMANDER was lost before the answer. Test again.',
+    probeOutcome: {
+      ok: 'It works: the model answered.',
+      model_unset: 'No model is saved yet.',
+      vision_model_unset:
+        'The model for photos is missing. Write one that reads images in "Model for photos" and save.',
+      model_unknown: "ANOMANDER doesn't know that model. Choose another one.",
+      not_connected: "The provider's key is missing, or your subscription is not connected.",
+      budget_exhausted: 'The daily limit of AI calls has been reached today. Try tomorrow.',
+      key_refused: "The provider doesn't accept the key. Check it was copied right.",
+      model_unavailable: "The provider doesn't have that model, or your account can't use it.",
+      provider_limit:
+        'The provider says your quota is used up or you are going too fast. Check your plan.',
+      timed_out: "The provider didn't answer in time. Try again in a while.",
+      failed: 'The provider gave an error. Try again in a while.',
+    },
 
     save: 'Save and start',
     saving: 'Saving…',

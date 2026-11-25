@@ -10,6 +10,7 @@ import { ExpensesScreen } from './expenses/ExpensesScreen.tsx';
 import { LedgerScreen } from './ledger/LedgerScreen.tsx';
 import { SubscriptionsScreen } from './login/SubscriptionsScreen.tsx';
 import { MemoryScreen } from './memory/MemoryScreen.tsx';
+import { probeModel } from './setup/probe.ts';
 import { isComplete, SetupScreen } from './setup/SetupScreen.tsx';
 import { shell as native, type SetupInput } from './shell.ts';
 import { useSetupShortcut } from './shortcuts.ts';
@@ -64,6 +65,10 @@ export function App() {
     },
     [saveSetup, close],
   );
+
+  // DK-23 AC4: "Probar" asks the daemon, so only while it runs.
+  const channel = snapshot?.channel ?? null;
+  const onProbe = channel === null ? undefined : () => probeModel(channel);
 
   const { connections, saveConnection } = shell;
   // DK-11 AC11: from the first setup and from the chat; a server already named so is kept.
@@ -160,6 +165,7 @@ export function App() {
                   onOpenLedger={() => setOpen('ledger')}
                   onOpenSubscriptions={() => setOpen('subscriptions')}
                   onAddWebSearch={onAddWebSearch}
+                  {...(onProbe === undefined ? {} : { onProbe })}
                 />
               </div>
             )}

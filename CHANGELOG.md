@@ -22,6 +22,8 @@ On `main` since 0.1.0. The interface speaks English or Spanish, and the app runs
 - **Shortcuts**: Cmd+Shift+Space (Ctrl+Shift+Space on Windows) opens the chat from any app and hides it again; Cmd+, (Ctrl+, on Windows) opens the setup. A hotkey another app holds is skipped and the app works without it (DK-20). Adds `tauri-plugin-global-shortcut` 2.4.1, used by the shell only.
 - **Windows wording**: on Windows the window speaks of the Credential Manager and "este equipo", never of macOS, the Keychain or System Settings; a look at the screen or a task on the computer answers "Eso todavía no puedo hacerlo en Windows." instead of the macOS permission message (DK-20).
 
+- **Onboarding without developer knowledge** (DK-23): the setup screen asks for the model first and Telegram last; "Proveedor del modelo" lists the providers by name with a suggested model, "Otro modelo…" still takes any `provider/model`; the key is named by its provider ("Clave de Google AI Studio"), never by its variable, and stored as before; "Probar" makes one real call to the saved model (counted against the daily AI budget) and says how it went in plain words, never with the provider's text, which can quote the key. While setup is incomplete, the app's chat says to open Configuración instead of `.env` and `/login`; Telegram's guide is unchanged. "Modelo para fotos" left empty is saved as the model when that is a suggested one, known to read photos; otherwise it is asked for.
+
 ### Changed
 
 - The CI workflow runs only by hand while GitHub Actions minutes are unavailable. `scripts/ci-local.sh` runs the same checks locally before a merge to `main`.

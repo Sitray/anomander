@@ -126,7 +126,8 @@ describe('main.ts without Telegram', () => {
     socket.addEventListener('open', () =>
       socket.send(JSON.stringify({ type: 'text', id: 'm1', text: 'hola' })),
     );
-    expect((await answer).text).toContain('ANOMANDER_MODEL');
+    // DK-23 AC5: in the app's own words, about its window.
+    expect((await answer).text).toContain('Configuración');
     socket.close();
 
     if (AS_THE_APP) daemon?.stdin?.end();
