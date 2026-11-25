@@ -6,6 +6,7 @@ import {
   type ChatAction,
   type ChatButtonPress,
   type ChatComputer,
+  type ChatConnectionGrant,
   type ChatEvent,
   type ChatExpense,
   type ChatExpenses,
@@ -84,6 +85,10 @@ export interface ChatClient {
   forgetMemory(memoryId: number): Promise<'done' | 'not_done' | 'unknown'>;
   /** DK-18: erases one action of the history; what became of it, as `clearHistory`. */
   forgetAction(actionId: number): Promise<'done' | 'not_done' | 'unknown'>;
+  /** DK-24: the tools allowed with "Permitir siempre", or `null` when they did not come. */
+  requestConnectionGrants(): Promise<ChatConnectionGrant[] | null>;
+  /** DK-24: "Quitar" on one of them; what became of it, as `clearHistory`. */
+  revokeConnectionGrant(grantId: number): Promise<'done' | 'not_done' | 'unknown'>;
   /**
    * DK-17: the expenses of `month` (`YYYY-MM`; absent, the daemon's current month). `failed`: the
    * daemon answered without them; `lost`: nothing was sent, or the connection was lost first.
@@ -99,6 +104,11 @@ export interface ChatClient {
     action: 'undo' | 'correct',
     expenseId: number,
   ): Promise<ChatReply | 'not_sent' | 'rejected' | 'unknown'>;
+  /**
+   * DK-21: today's AI calls and the daily limit, or `null` when they did not come, as
+   * `requestHistory`. It only reads, so asking again is always safe.
+   */
+  requestAiUsage(): Promise<{ calls: number; limit: number } | null>;
   dispose(): void;
 }
 
@@ -179,6 +189,18 @@ const isAction = (value: unknown): value is ChatAction => {
     isKnown(ONE_OF.door, door) &&
     typeof task === 'string' &&
     typeof outcome === 'string' &&
+    typeof at === 'string'
+  );
+};
+
+/** DK-24: a "Permitir siempre" only as the window can show it. */
+const isGrant = (value: unknown): value is ChatConnectionGrant => {
+  if (typeof value !== 'object' || value === null) return false;
+  const { id, server, tool, at } = value as Record<string, unknown>;
+  return (
+    typeof id === 'number' &&
+    typeof server === 'string' &&
+    typeof tool === 'string' &&
     typeof at === 'string'
   );
 };
@@ -275,7 +297,20 @@ const parseEvent = (data: unknown): ChatEvent | undefined => {
         ? { ...(event as ChatEvent & { type: 'actions' }), actions: actions.filter(isAction) }
         : undefined;
     }
+    if (event?.type === 'connection_grants') {
+      const { grants } = event as { grants: unknown };
+      return Array.isArray(grants)
+        ? {
+            ...(event as ChatEvent & { type: 'connection_grants' }),
+            grants: grants.filter(isGrant),
+          }
+        : undefined;
+    }
     if (event?.type === 'expenses') return parseExpenses(event as Record<string, unknown>);
+    if (event?.type === 'ai_usage') {
+      const { calls, limit } = event as Record<string, unknown>;
+      return isCount(calls) && isCount(limit) ? (event as ChatEvent) : undefined;
+    }
     return event?.type === 'done' || event?.type === 'rejected' ? (event as ChatEvent) : undefined;
   } catch {
     return undefined;
@@ -321,7 +356,16 @@ export const createChatClient = (options: ChatClientOptions): ChatClient => {
   /** Sends `request` and waits for its answer: `undefined` when nothing was sent. */
   const ask = (
     request:
-      | { type: 'history' | 'clear_history' | 'memories' | 'actions' }
+      | {
+          type:
+            | 'history'
+            | 'clear_history'
+            | 'memories'
+            | 'actions'
+            | 'ai_usage'
+            | 'connection_grants';
+        }
+      | { type: 'revoke_connection_grant'; grantId: number }
       | { type: 'expenses'; month?: string }
       | { type: 'forget_memory'; memoryId: number }
       | { type: 'forget_action'; actionId: number }
@@ -373,7 +417,9 @@ export const createChatClient = (options: ChatClientOptions): ChatClient => {
         event.type === 'history' ||
         event.type === 'expenses' ||
         event.type === 'memories' ||
-        event.type === 'actions'
+        event.type === 'actions' ||
+        event.type === 'ai_usage' ||
+        event.type === 'connection_grants'
       ) {
         return;
       }
@@ -424,6 +470,11 @@ export const createChatClient = (options: ChatClientOptions): ChatClient => {
     },
     forgetMemory: (memoryId) => erased(ask({ type: 'forget_memory', memoryId })),
     forgetAction: (actionId) => erased(ask({ type: 'forget_action', actionId })),
+    async requestConnectionGrants() {
+      const event = await ask({ type: 'connection_grants' });
+      return event?.type === 'connection_grants' ? event.grants : null;
+    },
+    revokeConnectionGrant: (grantId) => erased(ask({ type: 'revoke_connection_grant', grantId })),
     async requestExpenses(month) {
       const event = await ask({ type: 'expenses', ...(month === undefined ? {} : { month }) });
       if (event === null || event === undefined) return 'lost';
@@ -437,6 +488,10 @@ export const createChatClient = (options: ChatClientOptions): ChatClient => {
       if (event === null) return 'unknown';
       if (event === undefined) return 'not_sent';
       return event.type === 'reply' ? event : 'rejected';
+    },
+    async requestAiUsage() {
+      const event = await ask({ type: 'ai_usage' });
+      return event?.type === 'ai_usage' ? { calls: event.calls, limit: event.limit } : null;
     },
     dispose() {
       release();

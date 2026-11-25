@@ -251,7 +251,7 @@ export const useChat = (channel: LocalChannel | null, options: ChatOptions = {})
   const say = useCallback(
     (text: string, attachments: Attachment[]) => {
       const id = crypto.randomUUID();
-      dispatch({ type: 'said', id, text, attachments });
+      dispatch({ type: 'said', id, text, attachments, at: new Date().toISOString() });
       void deliver(id, text, attachments);
     },
     [deliver],

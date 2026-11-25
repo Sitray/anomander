@@ -88,4 +88,9 @@ describe('the windows’ command permissions', () => {
       expect(known, permission).toContain(permission);
     }
   });
+
+  it('lets the main window only open the file dialog (DK-21), and the notch none of it', () => {
+    expect(main.filter((p) => p.startsWith('dialog:'))).toEqual(['dialog:allow-open']);
+    expect(notch.filter((p) => p.startsWith('dialog:'))).toEqual([]);
+  });
 });

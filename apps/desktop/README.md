@@ -81,6 +81,9 @@ src/
   locale.ts           the window's language: the system's, as the shell hands it, Spanish for a
                       Spanish system and English for any other (the browser's with no shell)
   strings.ts          every string the principal reads, in Spanish and English, in one place
+  platform.ts         macOS or Windows, as the shell hands it: the text names the Keychain or the
+                      Credential Manager by it (DK-20)
+  shortcuts.ts        Cmd+, (Ctrl+, on Windows) opens the setup; the chat hotkey is the shell's
   App.tsx             the container: status on top; chat, setup, connections or subscriptions under it
   styles.css          the one stylesheet: tokens, then each part
   chat/
@@ -130,6 +133,10 @@ is framework-free, so it is tested against a fake `WebSocket` (`test/fake-web-so
   `actions` each time it opens. "Olvidar" asks first and sends `forget_memory` or
   `forget_action`; the daemon also erases the turns of the stored conversation that say it, so
   the chat then asks for it again. Nothing of either list is kept by the window.
+- **Siempre permitidas** (DK-24): "Conexiones" opens its own connection to the channel, as
+  Memoria does, and asks for `connection_grants` each time it opens; under each server it lists
+  the tools allowed with "Permitir siempre", each with "Quitar", which sends
+  `revoke_connection_grant` and reads the list again. Without a running daemon none is listed.
 - **A reply is plain text** (DK-4 AC1): shown exactly as received, line breaks kept, never HTML
   or Markdown.
 - **Delivery honesty.** A `rejected` request did nothing: the window says it was not sent and
@@ -137,8 +144,12 @@ is framework-free, so it is tested against a fake `WebSocket` (`test/fake-web-so
   daemon: the window says it does not know, and offers no one-click resend that could register
   an expense twice. A button press can always be pressed again: a closed question answers S-19.
 - **Files** dropped, pasted or picked wait in the composer and go as one `receipt`, at most 10
-  and at most 45 MB together (the daemon closes a connection whose frame is over 64 MB). A file
-  that is not an image is sent as it is, so the daemon answers as it would in Telegram (DK-4 AC6).
+  and at most 45 MB together (the daemon closes a connection whose frame is over 64 MB). Only
+  images are taken (`image/*`, R-20): a PDF or any other file stays out of the draft and the
+  composer says why (DK-21 AC2).
+- **Reading the chat** (DK-21 AC5): each message shows its time, local, and has a copy button;
+  "Buscar en la conversación" marks the matches in the loaded messages (`search.ts`: case and
+  accents ignored), counts them and brings the first into view.
 - **The chat decides the way** (DK-13). The composer has no modes: every message goes as it is,
   and the daemon may answer a plain text with a `route` to a look at the screen or a task on the
   computer, in its own words ("Miro tu pantalla.", "Me pongo con ello en tu ordenador."). The
@@ -148,7 +159,10 @@ is framework-free, so it is tested against a fake `WebSocket` (`test/fake-web-so
   and starts again as what it is, never as a plain text. Where the window cannot capture or act,
   it says so. A task with connections asked in words is run by the daemon itself.
 - **The model** (`ANOMANDER_MODEL` of the setup) is named under the composer in small type, as
-  the setup holds it; nothing is shown when none is set.
+  the setup holds it; nothing is shown when none is set. Pressed, it opens the setup (DK-21 AC3),
+  which shows today's AI calls and the daily limit, asked with `ai_usage` (`use-ai-usage.ts`),
+  and takes a new limit (1 to 10000), saved as `dailyAiCallLimit` in `settings.json` and handed
+  to the daemon as `ANOMANDER_DAILY_AI_CALL_LIMIT` at its next start.
 - **The screen** (DK-9) is captured when the daemon routes the principal's words to a look, with
   the window hidden for that moment. The capture is shown in the conversation and sent at once
   as a `screen` request with the principal's words. The shell keeps its file only while reading
@@ -346,11 +360,11 @@ is framework-free, so it is tested against a fake `WebSocket` (`test/fake-web-so
   daemon logs references, reasons and amounts, never what the principal wrote (§16); an error
   from a provider or a connected server is logged as it came.
 - **A ledger from Docker** (DK-12) is imported from the setup screen's link: the principal
-  pastes the full path of a file they copied out of the volume. The shell runs
+  pastes the full path of a file they copied out of the volume, or chooses it with "Elegir
+  archivo…" (DK-21: `tauri-plugin-dialog`, only `dialog:allow-open`, SQLite files shown). The shell runs
   `packages/daemon/scripts/import-ledger.ts` with the daemon stopped (`Supervisor::while_stopped`:
   no start runs meanwhile) and shows the one word it printed. Only an empty ledger is replaced,
-  and it is moved aside, never deleted; the source is only read. There is no file dialog: it
-  would be a new plugin and capability.
+  and it is moved aside, never deleted; the source is only read.
 
 ## Design
 

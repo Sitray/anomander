@@ -29,7 +29,7 @@ The Mac app:
 | No mode buttons | You just write. From your words the daemon decides whether to look at the screen, act on the computer or use your connections, and says which | DK-13 |
 | A look at the screen | Captures the screen and answers about it. The capture is never stored | DK-9 |
 | Tasks on the computer | One step at a time, at most 12. A routine step runs; a step of care (Enter, Space, Spotlight, the app switcher, a click on a send, pay or delete control, every fifth step) waits for "Permitir" | DK-10 |
-| Connections | MCP servers from `mcp.json` or the Conexiones screen: one "Conectar" for Notion, Linear and Atlassian, or any server by hand under "Avanzado", with OAuth for servers reached by URL. A tool marked read-only runs; any other call waits for "Permitir" | DK-11 |
+| Connections | MCP servers from `mcp.json` or the Conexiones screen: one "Conectar" for Notion, Linear and Atlassian, or any server by hand under "Avanzado", with OAuth for servers reached by URL. A tool marked read-only runs; any other call waits for "Permitir", shown in a plain line above its exact arguments, or "Permitir siempre" for that tool of that server, listed in Conexiones with "Quitar" | DK-11, DK-24 |
 | Web search | Checked on the first setup, or the "Búsqueda web" card in Conexiones, adds `pi-web-access` (pinned, with its dependencies, in `pnpm-lock.yaml`). "Búscame dónde comprar…" then searches the web instead of using the computer; with no key, searches go to Exa. Reading a page asks first | DK-11 AC11, AC13, DK-13 AC5 |
 | Memories and history | Looks and computer tasks know what you told it about yourself. A local history of what it did answers "¿qué hiciste ayer?" and is erased on request | DK-14 |
 | Memoria | A screen with what it remembers about you, each marked "Me lo dijiste" or "Lo deduje", and what it did, each with "Olvidar" | DK-18 |
@@ -140,7 +140,7 @@ Your data stays on the machine that runs ANOMANDER, except for what goes to thes
 | The model provider you chose | What you write, the last turns of the conversation (at most 10, from the last 30 minutes), your memories, the recent history of what ANOMANDER did, the tools of your connections, receipt photos, and the screen capture of a look at the screen or of a task on the computer |
 | Telegram, if you set up a bot | Your messages and receipt photos to the bot, and its replies and reminders |
 | Exa (exa.ai), if web search is on | What ANOMANDER searches for, with no account. Another search engine or a proxy asks first; pages are read from your machine, after "Permitir" |
-| The servers you connect (Notion, Linear, Atlassian or your own) | The calls ANOMANDER makes to their tools. A tool marked read-only runs without asking; any other call waits for "Permitir" |
+| The servers you connect (Notion, Linear, Atlassian or your own) | The calls ANOMANDER makes to their tools. A tool marked read-only, or one you allowed with "Permitir siempre", runs without asking; any other call waits for "Permitir" |
 | Apps holding your read API token | The views `gastos`, `lineas_de_compra` and `pendientes_de_confirmar`. Off unless `ANOMANDER_API_TOKEN` is set; an address off the machine also needs `ANOMANDER_API_ALLOW_PLAIN_HTTP=1` |
 
 What stays local:
@@ -212,7 +212,7 @@ Steps:
    APPLE_SIGNING_IDENTITY="<identity name or hash>" pnpm --dir apps/desktop tauri build --debug
    ```
    The app is `apps/desktop/src-tauri/target/debug/bundle/macos/ANOMANDER.app`.
-4. **Set it up.** Open the app and fill in the setup screen: the models and a key, or connect a subscription from Suscripciones. Telegram is optional: add the bot token and your Telegram ID to talk to ANOMANDER there too, or leave both empty to use the app's chat alone. "Búsqueda web" comes checked: leave it so to let ANOMANDER search the internet (the note beside it says what leaves the Mac), or uncheck it and add it later from Conexiones.
+4. **Set it up.** Open the app and fill in the setup screen: choose the model's provider (a model is suggested for it) and paste its key, or connect a subscription from Suscripciones; "Probar" checks the saved model with one real call. Telegram is optional: add the bot token and your Telegram ID to talk to ANOMANDER there too, or leave both empty to use the app's chat alone. "Búsqueda web" comes checked: leave it so to let ANOMANDER search the internet (the note beside it says what leaves the Mac), or uncheck it and add it later from Conexiones.
 5. **Allow it.** In System Settings › Privacy & Security, turn ANOMANDER on under Screen Recording (for a look at the screen) and Accessibility (for tasks on the computer). Until then the app says how and does nothing.
 
 Good to know:
@@ -221,11 +221,12 @@ Good to know:
 | --- | --- |
 | You moved or deleted this checkout | Build again. The app runs the daemon from `packages/daemon/src/main.ts` of the checkout it was built in |
 | You want to work on the window | `pnpm --dir apps/desktop tauri dev`, or the window alone in a browser. See [`apps/desktop/README.md`](apps/desktop/README.md) |
+| You want the chat from any app | Cmd+Shift+Space opens it, and hides it again when it is in front (Ctrl+Shift+Space on Windows). Cmd+, opens the setup (Ctrl+, on Windows). If another app holds the hotkey, ANOMANDER works without it |
 | macOS asks for the keychain password once | Entries stored by an unsigned build ask once. [`apps/desktop/README.md`](apps/desktop/README.md#signing-the-build) says how to clear them |
 
 ## Run the app on Windows
 
-The same app, built from this repository on your Windows PC, with the chat, the setup, connections, subscription login and Telegram. A look at the screen and tasks on the computer are macOS-only for now: on Windows the app answers them with its macOS permission message. As on the Mac, stop a Docker install first (DK-2 AC2).
+The same app, built from this repository on your Windows PC, with the chat, the setup, connections, subscription login and Telegram. A look at the screen and tasks on the computer are macOS-only for now: on Windows the app says they are not on Windows yet, and its text speaks of the Credential Manager and "este equipo", never of macOS (DK-20). As on the Mac, stop a Docker install first (DK-2 AC2).
 
 You need:
 

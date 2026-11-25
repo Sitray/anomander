@@ -335,7 +335,11 @@ type Said = Exclude<
       | 'memories'
       | 'forget_memory'
       | 'actions'
-      | 'forget_action';
+      | 'forget_action'
+      | 'ai_usage'
+      | 'connection_grants'
+      | 'revoke_connection_grant'
+      | 'probe_model';
   }
 >;
 
@@ -602,6 +606,14 @@ class ScriptedSocket extends FakeWebSocket {
       setTimeout(() => this.receive(memoryAnswer(request)), 300);
       return;
     }
+    // DK-21: today's AI calls, for the setup.
+    if (request.type === 'ai_usage') {
+      setTimeout(
+        () => this.receive({ type: 'ai_usage', inReplyTo: request.id, calls: 12, limit: 200 }),
+        300,
+      );
+      return;
+    }
     if (request.type === 'expenses') {
       setTimeout(() => {
         if (params.get('expenses') === 'fail') {
@@ -617,6 +629,26 @@ class ScriptedSocket extends FakeWebSocket {
           this.receive({ ...expensesOf(request.month ?? thisMonth), inReplyTo: request.id });
         }
       }, 300);
+      return;
+    }
+    // DK-24: the preview grants nothing, so it lists none and every "Quitar" is done.
+    if (request.type === 'connection_grants' || request.type === 'revoke_connection_grant') {
+      setTimeout(() => {
+        this.receive(
+          request.type === 'connection_grants'
+            ? { type: 'connection_grants', inReplyTo: request.id, grants: [] }
+            : { type: 'done', inReplyTo: request.id },
+        );
+      }, 300);
+      return;
+    }
+    // DK-23 AC4: "Probar" in the setup, on its own connection.
+    if (request.type === 'probe_model') {
+      const outcome = params.get('probe') ?? 'ok';
+      setTimeout(
+        () => this.receiveRaw(JSON.stringify({ type: 'probe', inReplyTo: request.id, outcome })),
+        700,
+      );
       return;
     }
     if (request.type === 'history' || request.type === 'clear_history') {

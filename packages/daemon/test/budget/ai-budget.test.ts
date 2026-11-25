@@ -67,6 +67,22 @@ describe('R-12 daily AI budget', () => {
   });
 });
 
+describe('DK-21: what the window shows of the budget', () => {
+  it("reads today's calls in TZ and the limit, counting nothing and writing nothing", () => {
+    const budget = createAiBudget({ db, limit: 200, timeZone: TZ, now });
+    expect(budget.usage()).toEqual({ calls: 0, limit: 200 });
+    expect(usage()).toEqual([]);
+
+    budget.tryConsume();
+    budget.tryConsume();
+    expect(budget.usage()).toEqual({ calls: 2, limit: 200 });
+    // 23:30 UTC is already the next day in Madrid: nothing counted yet there.
+    clock = new Date('2026-10-30T23:30:00.000Z');
+    expect(budget.usage()).toEqual({ calls: 0, limit: 200 });
+    expect(usage()).toEqual([{ day: '2026-10-30', calls: 2, limit_notified: 0 }]);
+  });
+});
+
 describe('R-21 AC4: phrasing counts against the budget', () => {
   const REFERENCE = 'Apuntado: 23,00 € en Mercadona (restaurantes).';
   const PHRASED = '¡Hecho! 23,00 € en Mercadona, en restaurantes.';

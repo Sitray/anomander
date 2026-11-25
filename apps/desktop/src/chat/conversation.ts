@@ -29,6 +29,8 @@ export interface OwnMessage {
   requestId: string | null;
   /** DK-16: a stored message that came through Telegram. */
   door?: 'telegram';
+  /** DK-21: when it was written, ISO 8601; absent when not known. */
+  at?: string;
 }
 
 /** DK-13: the look at the screen or the task on the computer a plain text was routed to. */
@@ -85,6 +87,8 @@ export interface BotMessage {
   door?: 'telegram';
   /** DK-22: when a message sent unasked was sent; only on one that came as a `notice`. */
   sentAt?: string;
+  /** DK-21: when the daemon sent it, ISO 8601; absent when not known. */
+  at?: string;
 }
 
 /** DK-11 AC13: the web search offered in one press, and the request asked again once added. */
@@ -110,7 +114,7 @@ export interface Conversation {
 export type ConversationAction =
   | { type: 'connection'; state: ConnectionState }
   /** The principal sent a message; it has not left yet. */
-  | { type: 'said'; id: string; text: string; attachments: Attachment[] }
+  | { type: 'said'; id: string; text: string; attachments: Attachment[]; at?: string }
   /** The principal asked to send a message that was not sent again. */
   | { type: 'retried'; id: string }
   /** A message left through the socket as `requestId`, or could not leave at all (`null`). */
@@ -190,6 +194,7 @@ const offerFor = (
 const fromStore = (stored: ChatStoredMessage): Message => {
   const id = `stored:${stored.id}`;
   const door = stored.door === 'telegram' ? { door: 'telegram' as const } : {};
+  const { at } = stored;
   if (stored.from === 'principal') {
     const { text } = stored;
     return {
@@ -199,6 +204,7 @@ const fromStore = (stored: ChatStoredMessage): Message => {
       attachments: [],
       delivery: 'delivered',
       requestId: null,
+      at,
       ...door,
     };
   }
@@ -214,6 +220,7 @@ const fromStore = (stored: ChatStoredMessage): Message => {
     proposal: null,
     start: null,
     offer: null,
+    at,
     ...door,
   };
 };
@@ -281,6 +288,7 @@ export const reduceConversation = (
             attachments: action.attachments,
             delivery: 'pending',
             requestId: null,
+            ...(action.at === undefined ? {} : { at: action.at }),
           },
         ],
       };
@@ -307,7 +315,7 @@ export const reduceConversation = (
         settle(message, action.requestId, deliveryOf(action.outcome)),
       );
       if (action.outcome.type !== 'reply') return settled;
-      const { channelRef, text, buttons } = action.outcome.reply;
+      const { channelRef, text, buttons, sentAt } = action.outcome.reply;
       return {
         ...settled,
         // The answer is always a new message, even to a press (DK-4 AC3).
@@ -319,6 +327,7 @@ export const reduceConversation = (
             channelRef,
             text,
             buttons,
+            at: sentAt,
             press: null,
             proposal: action.proposal ?? null,
             offer: offerFor(settled.messages, action.requestId, action.outcome.reply.offer),
@@ -421,6 +430,7 @@ export const reduceConversation = (
         start: null,
         offer: null,
         sentAt,
+        at: sentAt,
       };
       return { ...conversation, messages: [...messages, shown] };
     }

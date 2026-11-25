@@ -15,7 +15,8 @@ use crate::ledger_import::{self, LedgerImport};
 use crate::oauth_connect::{self, OAuthSet};
 use crate::secure_store::SecretStore;
 use crate::setup::{
-    apply_setup, load_secrets, save_settings, setup_state, Settings, SetupInput, TELEGRAM_BOT_TOKEN,
+    apply_setup, load_secrets, save_settings, setup_state, Settings, SetupInput,
+    DAILY_AI_CALL_LIMITS, TELEGRAM_BOT_TOKEN,
 };
 use crate::snapshot::{NotificationMode, SetupState, Snapshot};
 
@@ -544,7 +545,15 @@ impl Core {
             local_token: &self.token,
             local_port: port,
         };
-        let env = child_env(&parent, &inputs);
+        let mut env = child_env(&parent, &inputs);
+        // DK-21: the principal's own limit; unset, or out of range in a file edited by hand, the
+        // daemon keeps its default.
+        if let Some(limit) = settings
+            .daily_ai_call_limit
+            .filter(|limit| DAILY_AI_CALL_LIMITS.contains(limit))
+        {
+            env.push(("ANOMANDER_DAILY_AI_CALL_LIMIT".into(), limit.to_string()));
+        }
         let handover = handover_line(&inputs);
         // A stored token is hidden even when it is not handed over.
         let mut redacted = vec![self.token.clone()];
@@ -632,6 +641,7 @@ mod tests {
             provider_keys: vec!["OPENAI_API_KEY".into()],
             connection_secrets: Vec::new(),
             notifications: NotificationMode::Content,
+            daily_ai_call_limit: None,
         };
         (store, settings)
     }
@@ -1089,6 +1099,38 @@ mod tests {
         settings.model = None;
         let f = fixture(store, settings);
         assert!(!without_telegram(&ready(&f.core)));
+    }
+
+    #[test]
+    fn a_stored_daily_ai_call_limit_reaches_the_daemons_environment_and_none_leaves_its_default() {
+        let limit = |spec: &LaunchSpec| {
+            spec.env
+                .iter()
+                .find(|(name, _)| name == "ANOMANDER_DAILY_AI_CALL_LIMIT")
+                .map(|(_, value)| value.clone())
+        };
+        let (store, mut settings) = configured();
+        settings.daily_ai_call_limit = Some(500);
+        assert_eq!(
+            limit(&ready(&fixture(store, settings).core)).as_deref(),
+            Some("500")
+        );
+
+        let (store, settings) = configured();
+        assert_eq!(limit(&ready(&fixture(store, settings).core)), None);
+    }
+
+    #[test]
+    fn a_stored_daily_ai_call_limit_outside_1_to_10000_leaves_the_daemons_default() {
+        for bad in [0, 10_001, u32::MAX] {
+            let (store, mut settings) = configured();
+            settings.daily_ai_call_limit = Some(bad);
+            let spec = ready(&fixture(store, settings).core);
+            assert!(!spec
+                .env
+                .iter()
+                .any(|(n, _)| n == "ANOMANDER_DAILY_AI_CALL_LIMIT"));
+        }
     }
 
     #[test]

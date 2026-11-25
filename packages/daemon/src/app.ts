@@ -6,6 +6,7 @@ import {
   MAX_COMPUTER_STEPS,
   type Notify,
   type PrincipalText,
+  type ProbeOutcome,
   ROUTE_KINDS,
   type RouteKind,
   type ScreenQuestion,
@@ -49,6 +50,7 @@ import { createReceiptExpenseCycle } from './expenses/receipt-expense.ts';
 import { createTextExpenseHandler } from './expenses/text-expense.ts';
 import {
   type ChatHandlers,
+  type ConnectionGrants,
   type ExpensesLedger,
   type LocalChannel,
   type LocalChannelAddress,
@@ -74,13 +76,27 @@ import { createKeepReceiptAnswerHandler } from './retention/keep-receipt-decisio
 import { createRetention } from './retention/retention-job.ts';
 import { groundedRoutes } from './routing/grounded-route.ts';
 import { startScheduler } from './scheduler/scheduler.ts';
-import { cachedSetupGaps, describeGap, type SetupGap, setupGuide } from './setup/setup-guide.ts';
+import { createModelProbe, probeWithoutModel } from './setup/model-probe.ts';
+import {
+  appSetupGuide,
+  cachedSetupGaps,
+  describeGap,
+  type SetupGap,
+  setupGuide,
+} from './setup/setup-guide.ts';
 import { storedConversation } from './store/conversation.ts';
 import { acquireDaemonLock } from './store/daemon-lock.ts';
 import { applyMigrations, openDatabase } from './store/database.ts';
 import { exportLedger } from './store/export.ts';
 import { type ActionRecord, forgetAction, listActions, recordAction } from './store/history.ts';
 import { forgetMemoryAndItsTurns, listMemories, memoryNotesFor } from './store/memory.ts';
+import {
+  connectionToolGranted,
+  connectionToolGrants,
+  grantConnectionTool,
+  revokeConnectionTool,
+  revokeConnectionToolsNotIn,
+} from './store/permissions.ts';
 import { createWeeklySummary } from './summary/weekly-summary.ts';
 import { openTelegramDoor } from './telegram-door.ts';
 
@@ -217,6 +233,11 @@ const startChannel = (
   expenses: ExpensesLedger,
   logger: Logger,
   now?: () => Date,
+  grants?: ConnectionGrants,
+  /** DK-23 AC4: "Probar". */
+  probe?: () => Promise<ProbeOutcome>,
+  /** DK-21: absent while no database is open. */
+  aiUsage?: () => { calls: number; limit: number },
   /** DK-22: an app connected, so what waited for a door can go out. */
   onConnected?: () => void,
 ): LocalChannel | undefined =>
@@ -231,6 +252,9 @@ const startChannel = (
         expenses,
         logger,
         ...(now === undefined ? {} : { now }),
+        ...(grants === undefined ? {} : { grants }),
+        ...(probe === undefined ? {} : { probe }),
+        ...(aiUsage === undefined ? {} : { aiUsage }),
         ...(onConnected === undefined ? {} : { onConnected }),
       });
 
@@ -250,8 +274,12 @@ const isExport = (text: string) => /^\/exportar(?:@\w+)?(?:\s|$)/.test(text.trim
 const doorOf = (channelRef: string): Door =>
   channelRef.startsWith('desktop:') ? 'app' : 'telegram';
 
-/** DK-13 AC1: a look and a task on the computer need the app; connections serve both doors. */
-const ROUTES: Record<Door, readonly RouteKind[]> = { app: ROUTE_KINDS, telegram: ['connect'] };
+/**
+ * DK-13 AC1: a look and a task on the computer need the app; connections serve both doors.
+ * DK-20: on Windows the app has neither yet, so it offers only connections, as Telegram does.
+ */
+const routesOf = (door: Door): readonly RouteKind[] =>
+  door === 'app' && process.platform !== 'win32' ? ROUTE_KINDS : ['connect'];
 
 /** What a handler answers once its turn is over: a `Later` is waited for outside the turn. */
 const settled = async (answer: DoorReply | Later | null): Promise<DoorReply | null> =>
@@ -293,6 +321,8 @@ export const startSetupGuide = (config: Config, deps: SetupGuideDeps): Anomander
   // DK-2 AC1: no store runs here, but the daemon is still the only one of its data folder.
   const lock = acquireDaemonLock(config.dbPath);
   const guide = { text: setupGuide(gaps) };
+  // DK-23 AC5: the app's chat gets the guide about its window.
+  const appGuide = { text: appSetupGuide(gaps) };
   let send = async (_: DoorReply): Promise<void> => {
     throw new Error('send used before the bot was created');
   };
@@ -330,12 +360,12 @@ export const startSetupGuide = (config: Config, deps: SetupGuideDeps): Anomander
     config,
     {
       // R-17 AC7: a code pasted in the app's chat while a login waits goes to it, never stored.
-      onText: async (message) => (login?.takePasted(message.text) === true ? null : guide),
-      onReceipt: async () => guide,
-      onButton: async () => guide,
-      onScreen: async () => guide,
-      onComputer: async () => guide,
-      onConnect: async () => guide,
+      onText: async (message) => (login?.takePasted(message.text) === true ? null : appGuide),
+      onReceipt: async () => appGuide,
+      onButton: async () => appGuide,
+      onScreen: async () => appGuide,
+      onComputer: async () => appGuide,
+      onConnect: async () => appGuide,
     },
     // No store runs here: the app's chat starts empty, and an erase cannot be done yet.
     {
@@ -367,6 +397,11 @@ export const startSetupGuide = (config: Config, deps: SetupGuideDeps): Anomander
       },
     },
     logger,
+    undefined,
+    // DK-24: the setup guide holds no grants.
+    undefined,
+    // DK-23 AC4: no model can be called; the probe says why.
+    async () => probeWithoutModel(gaps, config),
   );
 
   // A failed start is the caller's to report, through `started`.
@@ -432,6 +467,15 @@ export const startAnomander = <M>(config: Config, deps: AnomanderDeps<M>): Anoma
     logger,
   });
   const ai = budgeted(timed, budget);
+  // DK-23 AC4: "Probar": one call, never retried, counted against the budget.
+  const probe = createModelProbe({
+    complete,
+    model,
+    budget,
+    gaps: setupGaps,
+    timeoutMs: config.processorTimeoutMs,
+    logger,
+  });
 
   const phraser = createPiAiReplyPhraser({ complete: ai, model, logger });
   // R-16 AC3, DK-16: every exchange with the principal is a recent turn, kept in the stored
@@ -468,7 +512,7 @@ export const startAnomander = <M>(config: Config, deps: AnomanderDeps<M>): Anoma
       logger,
       recent: turns.recent,
       patterns,
-      routes: (message) => ROUTES[doorOf(message.channelRef)],
+      routes: (message) => routesOf(doorOf(message.channelRef)),
       // T17: what the connected servers can do, so a search on the web goes to them and not to
       // the computer. Never connects a server: one not connected yet offers its read-only tools.
       connected: async () =>
@@ -656,11 +700,19 @@ export const startAnomander = <M>(config: Config, deps: AnomanderDeps<M>): Anoma
     deps.connections === undefined
       ? readConnections(config.mcpConfigPath, logger, config.mcpSecrets)
       : undefined;
+  // DK-24 AC2, AC3: a "Permitir siempre" holds only for its server as `mcp.json` has it now, so
+  // one of a server removed, renamed or changed is revoked at the start; a file that cannot be
+  // read changes none.
+  if (read !== undefined && !read.invalid) {
+    const revoked = revokeConnectionToolsNotIn(db, read.identities, now().toISOString());
+    if (revoked > 0) logger.info(`revoked ${revoked} connection grants of changed servers`);
+  }
   const servers =
     read === undefined
       ? undefined
       : createConnections({
           config: read.config,
+          identities: read.identities,
           logger,
           oauth: oauthKeeperFrom(config.mcpOAuth, deps.printOAuth ?? printOAuthForShell(), logger),
         });
@@ -677,6 +729,8 @@ export const startAnomander = <M>(config: Config, deps: AnomanderDeps<M>): Anoma
     logger,
     // DK-14 AC2: which calls were sent or refused, never their arguments or results.
     decided: (call) => connectionSession.decided(call),
+    // DK-24: code checks the principal's grant, never the processor.
+    alwaysAllowed: (call) => connectionToolGranted(db, call),
   });
 
   // What every front door calls (DK-4 AC1). R-28: `/start`, and the guide while a provider is
@@ -689,12 +743,18 @@ export const startAnomander = <M>(config: Config, deps: AnomanderDeps<M>): Anoma
    * R-28 AC4: the guide while setup is incomplete. The check runs before the turn, so a slow
    * provider never holds it (T14); inputs that wait for the same check keep their order.
    */
-  const guided = <I, R>(handler: (input: I) => Promise<R>) => {
+  const guided = <I, R>(handler: (input: I) => Promise<R>, door: Door | ((input: I) => Door)) => {
+    // DK-23 AC5: each door gets the guide in its own words.
+    const guideAt = (input: I, gaps: readonly SetupGap[]) =>
+      (typeof door === 'function' ? door(input) : door) === 'app'
+        ? appSetupGuide(gaps)
+        : setupGuide(gaps);
     const turn = inTurn(async ({ input, gaps }: { input: I; gaps: readonly SetupGap[] }) =>
-      gaps.length > 0 ? { text: setupGuide(gaps) } : handler(input),
+      gaps.length > 0 ? { text: guideAt(input, gaps) } : handler(input),
     );
     return async (input: I) => turn({ input, gaps: await setupGaps() });
   };
+  const byChannelRef = ({ channelRef }: { channelRef: string }) => doorOf(channelRef);
 
   // DK-11: one task with connections at a time, its steps outside the chat's turn (session.ts).
   const connectionSession = createConnectionSession({
@@ -703,6 +763,10 @@ export const startAnomander = <M>(config: Config, deps: AnomanderDeps<M>): Anoma
     turns,
     keep,
     send: (message) => send(message),
+    // DK-24 AC1: the principal's press on "Permitir siempre", where they pressed it.
+    grant: (call, door) => {
+      grantConnectionTool(db, call, door, now().toISOString());
+    },
     logger,
   });
 
@@ -710,7 +774,7 @@ export const startAnomander = <M>(config: Config, deps: AnomanderDeps<M>): Anoma
     const pressed = guided(async (press: ButtonPress) => {
       const answer = connectionSession.answer(press.data, door);
       return answer === undefined ? recordedButton(door)(press) : answer;
-    });
+    }, door);
     return async (press: ButtonPress) => settled(await pressed(press));
   };
   // DK-17 AC6: "Deshacer" and "Corregir" on a row of "Gastos" press the expense's own button
@@ -730,12 +794,15 @@ export const startAnomander = <M>(config: Config, deps: AnomanderDeps<M>): Anoma
         },
         () => 'app',
       ),
+      'app',
     );
     return async (expenseId: number) => settled(await pressed(expenseId));
   };
   const onConnectAt = (door: Door) => {
-    const begun = guided(async (task: string) =>
-      task === '' ? { text: strings.connectionUsage() } : connectionSession.run(task, door),
+    const begun = guided(
+      async (task: string) =>
+        task === '' ? { text: strings.connectionUsage() } : connectionSession.run(task, door),
+      door,
     );
     return async (task: string) => settled(await begun(task));
   };
@@ -753,7 +820,7 @@ export const startAnomander = <M>(config: Config, deps: AnomanderDeps<M>): Anoma
     // DK-16 AC1: its words are stored once, with the announcement, above.
     const run = connectionSession.run(route.task, doorOf(message.channelRef), true);
     return run ?? { text: reply.text };
-  });
+  }, byChannelRef);
 
   // R-29 AC3: the ledger's files, sent by Telegram after S-79; no processor call.
   const exportFromTelegram = guided(async (): Promise<DoorReply> => {
@@ -774,14 +841,14 @@ export const startAnomander = <M>(config: Config, deps: AnomanderDeps<M>): Anoma
       });
       return { text: strings.exportFailed() };
     }
-  });
+  }, 'telegram');
 
   const chat: ChatHandlers = {
     onText: async (message) => settled(await answered(message)),
-    onReceipt: guided(recordedReceipt),
+    onReceipt: guided(recordedReceipt, byChannelRef),
     onButton: onButtonAt('telegram'),
-    onScreen: guided(recordedScreen),
-    onComputer: guided(planStep),
+    onScreen: guided(recordedScreen, 'app'),
+    onComputer: guided(planStep, 'app'),
     onConnect: (request) => connectFromApp(request.task),
   };
 
@@ -941,6 +1008,20 @@ export const startAnomander = <M>(config: Config, deps: AnomanderDeps<M>): Anoma
     },
     logger,
     now,
+    // DK-24 AC3: the "Permitir siempre" in force, for "Conexiones", and "Quitar".
+    {
+      list: () =>
+        connectionToolGrants(db).map(({ id, server, tool, grantedAt }) => ({
+          id,
+          server,
+          tool,
+          at: grantedAt,
+        })),
+      revoke: (id) => revokeConnectionTool(db, id, now().toISOString()),
+    },
+    probe,
+    // DK-21: today's AI calls, for the setup screen.
+    budget.usage,
     // DK-22: what waited for a door goes out as soon as the app connects, as the next minute's
     // run would send it, in the scheduler's order. Never once the daemon stops.
     () => {
