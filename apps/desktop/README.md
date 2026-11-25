@@ -3,7 +3,7 @@
 The desktop app of milestone M6 (`docs/desktop-prd.md`): a Tauri 2 shell in Rust (`src-tauri/`)
 that starts and supervises the daemon, keeps its secrets in the macOS Keychain and lives in the
 menu bar, and a React window (`src/`) with a chat, a setup screen, a connections screen and the
-daemon's status. While ANOMANDER works the menu bar icon shows a wave (`tray.rs`); when the work
+daemon's status. While ANOMANDER works the menu bar icon shows a wave (`tray/icon.rs`); when the work
 ends a pill drops from the notch saying "Ha terminado", holds and retracts (`src-tauri/src/notch.rs`
 and the page in `src/notch/`). It drops after every task on the computer, and after an answer only
 when the chat is not in front.
@@ -264,7 +264,7 @@ is framework-free, so it is tested against a fake `WebSocket` (`test/fake-web-so
 - **The connections screen** (DK-11, the plug button of the status bar) lists the servers of
   `mcp.json` and adds, edits or removes one at a time: its name, a command with its arguments or
   a URL, its `env` or `headers`, and its `readOnly` tools. The file stays the source of truth
-  and its format does not change: the shell (`src-tauri/src/connections.rs`) reads it as the
+  and its format does not change: the shell (`src-tauri/src/connections/`) reads it as the
   daemon does, rewrites only the server that was changed, in its place, and leaves the others as
   written. A file the daemon would refuse (another key, as the `"type"` other clients write; a
   URL that is not `https` or `http` to this machine), or one that is a link, is shown as such
@@ -344,7 +344,7 @@ is framework-free, so it is tested against a fake `WebSocket` (`test/fake-web-so
   an uncontrolled field to the shell and to the script's stdin as one line, then the field is
   emptied. One login runs at a time (`login::Session`); the screen can be closed while the
   browser waits. The window never sees a token: only which accounts are connected.
-- **Telegram is optional** (DK-5 AC4). `Core::prepare` (`src-tauri/src/shell.rs`) hands the
+- **Telegram is optional** (DK-5 AC4). `Core::prepare` (`src-tauri/src/shell/mod.rs`) hands the
   daemon the bot token and `ANOMANDER_PRINCIPAL_CHAT_ID` only when both are stored; otherwise the
   local channel is its only front door. Without Telegram and without a model it is
   `not_configured`. `apply_setup` (`src-tauri/src/setup.rs`) and the setup screen refuse half of
