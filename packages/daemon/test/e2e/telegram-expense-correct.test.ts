@@ -571,6 +571,20 @@ describe('"Corregir" and "Deshacer" from the window\'s "Gastos" (DK-17 AC6)', ()
     chat.close();
   });
 
+  it('a typed correction of a registered receipt (R-7 AC7) leaves only the new declaration current too', async () => {
+    await receiptRegistered();
+    interpretations.set('no eran 23, eran 32', ({ expenses = [] }) =>
+      correcting(expenses[0]?.id ?? null, 3200, 'eran 32'),
+    );
+
+    await say('no eran 23, eran 32');
+
+    expect(gastos()).toEqual([{ total_cents: 3200 }]);
+    expect(
+      query(`SELECT mode, status FROM assertions WHERE predicate = 'total' AND status = 'current'`),
+    ).toEqual([{ mode: 'declared', status: 'current' }]);
+  });
+
   it('undo_expense on a registered receipt replies S-100', async () => {
     const expenseId = await receiptRegistered();
     const chat = await appChat();
