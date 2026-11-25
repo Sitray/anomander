@@ -1,5 +1,11 @@
 import { isCalendarDate, isLiteralAmount, type ProcessorInference, todayIn } from '@anomander/core';
-import { type PrincipalText, type Reply, strings } from '@anomander/protocol';
+import {
+  buttons,
+  decisionButtons,
+  type PrincipalText,
+  type Reply,
+  strings,
+} from '@anomander/protocol';
 import type Database from 'better-sqlite3';
 import { textValue, writtenIn } from '../expenses/declarations.ts';
 import { type PatternOffers, thenOfferPattern } from '../patterns/pattern-offers.ts';
@@ -8,8 +14,11 @@ import type { Logger } from '../processor/ports.ts';
 import {
   amendExpense,
   amendedExpenseOf,
+  type CorrectionRestore,
   closeAmendDecisions,
   currentExpenseOf,
+  openCorrectionUndoDecision,
+  restoreOf,
 } from '../store/amend-expense.ts';
 import {
   answerDecision,
@@ -21,6 +30,7 @@ import {
 } from '../store/decisions.ts';
 import { listCategories, readExpense, type StoredExpense } from '../store/expenses.ts';
 import { quotedFrom } from '../store/memory.ts';
+import { recordDecisionMessage } from '../store/receipts.ts';
 import { verifiedReply } from './register-expense-decision.ts';
 import type { OpenDecision } from './types.ts';
 
@@ -125,6 +135,54 @@ export const correctedReply = (stored: StoredExpense): string =>
     ? strings.correctedNoMerchant(stored.total, stored.category)
     : strings.corrected(stored.total, stored.merchant, stored.category);
 
+export interface CorrectionUndoAsk {
+  expenseId: number;
+  restore: CorrectionRestore;
+  /** The principal's correction message. */
+  source: string;
+  now: string;
+}
+
+/**
+ * R-7 AC9: S-8 or S-102 for a corrected registered expense, and the question its "Deshacer"
+ * answers. Called in the correction's transaction, after its other questions were closed (AC8).
+ */
+export const askUndoCorrection = (
+  db: Database.Database,
+  { expenseId, restore, source, now }: CorrectionUndoAsk,
+): { text: string; decisionId: number } => {
+  const text = correctedReply(readExpense(db, expenseId));
+  const decisionId = openCorrectionUndoDecision(db, {
+    expenseId,
+    restore,
+    source,
+    question: text,
+    options: [buttons.undo],
+    now,
+  });
+  return { text, decisionId };
+};
+
+/**
+ * R-7 AC9: the reply carries its question's "Deshacer", in Telegram and in the app, and its
+ * delivery records the message that shows it (R-17 AC2).
+ */
+export const withUndoButton = (
+  db: Database.Database,
+  reply: Reply,
+  decisionId: number,
+  logger: Logger,
+): Reply => ({
+  ...reply,
+  buttons: decisionButtons(decisionId, [buttons.undo]),
+  onDelivered: (delivery) => {
+    reply.onDelivered?.(delivery);
+    if (!recordDecisionMessage(db, decisionId, delivery.channelRef)) {
+      logger.warn('decision message already recorded', { decisionId });
+    }
+  },
+});
+
 /** What a decision's correction is applied to, and how. */
 interface CorrectionTarget {
   /**
@@ -132,14 +190,17 @@ interface CorrectionTarget {
    * question was closed (S-19).
    */
   expenseOf: (decision: OpenDecision) => number | null;
-  /** Writes the accepted correction and answers the decision, in one transaction. Returns the action. */
+  /**
+   * Writes the accepted correction and answers the decision, in one transaction. Returns the
+   * action and, for a registered expense, what "Deshacer" under the reply puts back (R-7 AC9).
+   */
   apply: (
     decision: OpenDecision,
     expenseId: number,
     correction: ExpenseCorrection,
     message: PrincipalText,
     at: string,
-  ) => number;
+  ) => { actionId: number; restore?: CorrectionRestore };
 }
 
 const createCorrection = (
@@ -217,11 +278,28 @@ const createCorrection = (
       return { text: strings.askCorrection() };
     }
 
-    const actionId = db.transaction(() => apply(decision, expenseId, correction, message, at))();
+    const { actionId, text, undoId } = db.transaction(() => {
+      const applied = apply(decision, expenseId, correction, message, at);
+      if (applied.restore === undefined) {
+        // R-9 AC1: S-8 from the stored row, verbatim (R-21 AC3: only S-1, S-2, S-16, S-21 are
+        // phrased).
+        return { ...applied, text: correctedReply(readExpense(db, expenseId)), undoId: null };
+      }
+      const asked = askUndoCorrection(db, {
+        expenseId,
+        restore: applied.restore,
+        source: message.channelRef,
+        now: at,
+      });
+      return { actionId: applied.actionId, text: asked.text, undoId: asked.decisionId };
+    })();
 
-    // R-9 AC1: S-8 from the stored row, verbatim (R-21 AC3: only S-1, S-2, S-16, S-21 are phrased).
-    const text = correctedReply(readExpense(db, expenseId));
-    return thenOfferPattern(verifiedReply(db, actionId, text, now, logger), expenseId, patterns);
+    const reply = verifiedReply(db, actionId, text, now, logger);
+    return thenOfferPattern(
+      undoId === null ? reply : withUndoButton(db, reply, undoId, logger),
+      expenseId,
+      patterns,
+    );
   };
 };
 
@@ -246,7 +324,7 @@ export const createExpenseCorrection = (deps: ExpenseCorrectionDeps): Correction
         now: at,
       });
       answerDecision(db, decision.id, answer);
-      return registered.actionId;
+      return { actionId: registered.actionId };
     },
   });
 
@@ -263,16 +341,20 @@ export const createAmendExpenseCorrection = (deps: ExpenseCorrectionDeps): Corre
     },
     apply: (decision, expenseId, correction, message, at) => {
       const { db } = deps;
-      const { actionId, declarations } = amendExpense(db, {
+      // R-17 AC2: a Telegram reply to a correction's reply (R-7 AC9) corrects the expense again, as
+      // a typed correction does (AC7): its "Deshacer" is not what the new correction executes, so
+      // it is closed with the expense's other questions (AC8).
+      const undoQuestion = restoreOf(decision) !== null;
+      const { actionId, declarations, restore } = amendExpense(db, {
         expenseId,
-        proposalId: decision.proposal_id,
+        proposalId: undoQuestion ? null : decision.proposal_id,
         correction,
         source: message.channelRef,
         receivedAt: message.receivedAt,
         now: at,
       });
-      answerDecision(db, decision.id, declarations[0] ?? null);
+      if (!undoQuestion) answerDecision(db, decision.id, declarations[0] ?? null);
       closeAmendDecisions(db, expenseId);
-      return actionId;
+      return { actionId, restore };
     },
   });

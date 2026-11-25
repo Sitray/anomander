@@ -27,7 +27,7 @@ import {
 } from '../capabilities/capability.ts';
 import { CAPABILITIES } from '../capabilities/registry.ts';
 import { RECENT_TURN_MAX_AGE_MS, type RecentTurn } from '../conversation/recent-turns.ts';
-import { acceptCorrection, correctedReply } from '../decisions/correction.ts';
+import { acceptCorrection, askUndoCorrection, withUndoButton } from '../decisions/correction.ts';
 import { verifiedReply } from '../decisions/register-expense-decision.ts';
 import { type PatternOffers, thenOfferPattern } from '../patterns/pattern-offers.ts';
 import type { ConnectedTool, Logger, MemoryFact, TextInterpreter } from '../processor/ports.ts';
@@ -325,7 +325,7 @@ export const createTextExpenseHandler = (deps: TextExpenseDeps): TextHandler => 
       });
       if (Object.keys(correction).length === 0) return { text: strings.askCorrection() };
       const at = now().toISOString();
-      const { actionId } = db.transaction(() => {
+      const { actionId, text, undoId } = db.transaction(() => {
         const amended = amendExpense(db, {
           expenseId,
           proposalId: null,
@@ -336,11 +336,17 @@ export const createTextExpenseHandler = (deps: TextExpenseDeps): TextHandler => 
         });
         // R-7 AC8: the buttons under the corrected expense's reply are closed.
         closeAmendDecisions(db, expenseId);
-        return amended;
+        // R-7 AC9: the reply carries "Deshacer", which puts back the values before this one.
+        const asked = askUndoCorrection(db, {
+          expenseId,
+          restore: amended.restore,
+          source: message.channelRef,
+          now: at,
+        });
+        return { actionId: amended.actionId, text: asked.text, undoId: asked.decisionId };
       })();
-      const text = correctedReply(readExpense(db, expenseId));
       return thenOfferPattern(
-        verifiedReply(db, actionId, text, now, logger),
+        withUndoButton(db, verifiedReply(db, actionId, text, now, logger), undoId, logger),
         expenseId,
         deps.patterns,
       );
