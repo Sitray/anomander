@@ -453,6 +453,32 @@ describe('the connections', () => {
     expect(mocked.removeConnection).toHaveBeenCalledWith('notes');
   });
 
+  it('DK-24 AC3: list the tools allowed always, read on a connection of their own to the channel', async () => {
+    mocked.connections.mockResolvedValue(CONNECTIONS);
+    await open(runningSnapshot());
+    fireEvent.click(screen.getByRole('button', { name: strings.status.openConnections }));
+    await screen.findByRole('list', { name: strings.connections.servers });
+
+    expect(FakeWebSocket.instances).toHaveLength(2);
+    const socket = FakeWebSocket.last;
+    act(() => socket.open());
+    await waitFor(() => expect(socket.lastRequest.type).toBe('connection_grants'));
+    const grant = { id: 4, server: 'notes', tool: 'create', at: '2026-11-25T09:00:00.000Z' };
+    act(() =>
+      socket.receive({
+        type: 'connection_grants',
+        inReplyTo: socket.lastRequest.id,
+        grants: [grant],
+      }),
+    );
+
+    expect(
+      await screen.findByRole('button', {
+        name: strings.connections.revokeGrantFor('create', 'notes'),
+      }),
+    ).toBeTruthy();
+  });
+
   it('give way to the setup, which still saves', async () => {
     mocked.connections.mockResolvedValue(CONNECTIONS);
     mocked.saveSetup.mockResolvedValue(runningSnapshot());
