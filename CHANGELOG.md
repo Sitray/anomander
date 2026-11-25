@@ -37,6 +37,7 @@ On `main` since 0.1.0. The interface speaks English or Spanish, and the app runs
 
 ### Changed
 
+- **Currency in the ledger's views** (B71): `gastos` and `lineas_de_compra` say each row's currency in a new last column, `moneda`, in the read API and in `/exportar` too. `pendientes_de_confirmar` keeps its one row and adds `moneda` and `por_moneda` (each currency's count and total); with pending expenses in several currencies its `total_cents` is empty instead of a sum across currencies. The stored expenses are unchanged (migration `0010`).
 - The chat's "Adjuntar fotos" takes only images: a PDF or another file stays out of the draft with a message, instead of being sent and refused (DK-21 AC2). The model's name under the composer opens the setup (AC3). The window speaks of "tus datos" instead of a "ledger", and of services instead of MCP servers, `mcp.json`, a proxy or a package (AC4).
 - The CI workflow runs only by hand while GitHub Actions minutes are unavailable. `scripts/ci-local.sh` runs the same checks locally before a merge to `main`.
 - CI also runs Biome, the typecheck and Vitest on Linux (`check-linux`), and starts the built daemon image until its health check says healthy. `scripts/ci-local.sh` runs the same smoke start when Docker is running.
@@ -48,6 +49,8 @@ On `main` since 0.1.0. The interface speaks English or Spanish, and the app runs
 
 ### Fixed
 
+- "El lunes", "la semana pasada" and other weekdays: the text interpreter and the correction interpreter are told today's weekday in `TZ` beside the date, instead of leaving the model to work it out (B59).
+- The processor reads amounts in the configured currency: the text interpreter, the receipt reader and the correction interpreter no longer ask for euro cents when `ANOMANDER_CURRENCY` is another one, and the text interpreter's examples write it as the principal does (`23 US$`, `US$23`) (B73).
 - Several presses of "Añadir búsqueda web" during a daemon restart all wait for the new daemon; before, only one request was kept.
 - The check that a task comes from the message keeps English negations and contractions, and locale tags such as `es@euro` count as Spanish.
 

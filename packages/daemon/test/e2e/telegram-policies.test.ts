@@ -13,7 +13,7 @@ import Database from 'better-sqlite3';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { type Anomander, startAnomander } from '../../src/app.ts';
 import { loadConfig } from '../../src/config.ts';
-import { RECEIPT_READER_PROMPT } from '../../src/processor/receipt-reader.ts';
+import { receiptReaderPrompt } from '../../src/processor/receipt-reader.ts';
 import { textInterpreterPrompt } from '../../src/processor/text-interpreter.ts';
 
 // End to end (PRD §15): policies (R-13 AC1), patterns noticed by code (R-13 AC2) and the
@@ -57,7 +57,7 @@ beforeEach(async () => {
     ANOMANDER_VISION_MODEL: 'openai/gpt-4o',
   });
   const complete = async (_model: string, context: Context): Promise<AssistantMessage> => {
-    if (context.systemPrompt === RECEIPT_READER_PROMPT) return recorded('receipt-reader/adds-up');
+    if (context.systemPrompt === receiptReaderPrompt()) return recorded('receipt-reader/adds-up');
     const [turn] = context.messages;
     if (context.systemPrompt === textInterpreterPrompt() && typeof turn?.content === 'string') {
       const { message } = JSON.parse(turn.content);

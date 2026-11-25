@@ -74,6 +74,8 @@ interface Seed {
   merchant?: string;
   category?: string;
   status?: 'current' | 'pending' | 'refuted';
+  /** `EUR` when absent. */
+  currency?: string;
   /** A receipt's lines; an expense without them is a text expense. */
   lines?: [string, number, number][];
 }
@@ -98,14 +100,15 @@ const expense = (seed: Seed): number => {
   const id = Number(
     db
       .prepare(
-        `INSERT INTO expenses (merchant_id, occurred_on, total_cents, category_id, mode,
+        `INSERT INTO expenses (merchant_id, occurred_on, total_cents, currency, category_id, mode,
            document_id, status, created_at)
-         VALUES (?, ?, ?, (SELECT id FROM categories WHERE name = ?), ?, ?, ?, ?)`,
+         VALUES (?, ?, ?, ?, (SELECT id FROM categories WHERE name = ?), ?, ?, ?, ?)`,
       )
       .run(
         merchantId,
         seed.fecha,
         seed.total_cents,
+        seed.currency ?? 'EUR',
         seed.category ?? null,
         documentId === null ? 'declared' : 'corroborated',
         documentId,
@@ -263,6 +266,7 @@ describe('the read API (RA-2)', () => {
         total_cents: 2300,
         modo: 'declared',
         origen: 'texto',
+        moneda: 'EUR',
       },
       {
         id: mercadona,
@@ -272,6 +276,7 @@ describe('the read API (RA-2)', () => {
         total_cents: 450,
         modo: 'corroborated',
         origen: 'ticket',
+        moneda: 'EUR',
       },
     ]);
 
@@ -289,6 +294,7 @@ describe('the read API (RA-2)', () => {
         categoria: 'supermercado',
         fecha: '2026-11-05',
         modo: 'corroborated',
+        moneda: 'EUR',
       },
       {
         gasto_id: later,
@@ -299,6 +305,7 @@ describe('the read API (RA-2)', () => {
         categoria: null,
         fecha: '2026-11-06',
         modo: 'corroborated',
+        moneda: 'EUR',
       },
     ]);
     const inexact = await get(`${base}/v1/lineas?desde=2026-11-01&hasta=2026-11-30&producto=leche`);
@@ -311,9 +318,42 @@ describe('the read API (RA-2)', () => {
 
     const pendientes = await get(`${base}/v1/pendientes`);
     expect(pendientes.status).toBe(200);
-    expect(await pendientes.json()).toEqual({ cantidad: 2, total_cents: 1500 });
+    expect(await pendientes.json()).toEqual({
+      cantidad: 2,
+      total_cents: 1500,
+      moneda: 'EUR',
+      por_moneda: [{ moneda: 'EUR', cantidad: 2, total_cents: 1500 }],
+    });
 
     expect(logged()).not.toMatch(/Mercadona|LECHE|restaurantes/);
+  });
+
+  it('B71: every row says its currency, and pending ones in two currencies are never added', async () => {
+    const base = await readApi();
+    expense({ fecha: '2026-11-01', total_cents: 2300, category: 'restaurantes' });
+    expense({
+      fecha: '2026-11-02',
+      total_cents: 1200,
+      merchant: 'Target',
+      currency: 'USD',
+      lines: [['MILK', 1, 1200]],
+    });
+    expense({ fecha: '2026-11-03', total_cents: 1000, status: 'pending' });
+    expense({ fecha: '2026-11-03', total_cents: 300, status: 'pending', currency: 'USD' });
+
+    const gastos = await (await get(`${base}/v1/gastos?desde=2026-11-01&hasta=2026-11-30`)).json();
+    expect(gastos.map((gasto: { moneda: string }) => gasto.moneda)).toEqual(['EUR', 'USD']);
+    const lineas = await (await get(`${base}/v1/lineas?desde=2026-11-01&hasta=2026-11-30`)).json();
+    expect(lineas).toMatchObject([{ producto: 'MILK', precio_cents: 1200, moneda: 'USD' }]);
+    expect(await (await get(`${base}/v1/pendientes`)).json()).toEqual({
+      cantidad: 2,
+      total_cents: null,
+      moneda: null,
+      por_moneda: [
+        { moneda: 'EUR', cantidad: 1, total_cents: 1000 },
+        { moneda: 'USD', cantidad: 1, total_cents: 300 },
+      ],
+    });
   });
 
   it('A1: a missing or malformed desde or hasta gets 400 and no data', async () => {

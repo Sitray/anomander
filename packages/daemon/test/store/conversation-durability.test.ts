@@ -60,7 +60,10 @@ describe('S2 migration 0009 over a database at 0008 with data', () => {
       endedAt: AT.toISOString(),
     });
 
-    expect(applyMigrations(db, MIGRATIONS_DIR, { now: () => AT })).toBe(1);
+    // 0009 and every migration after it.
+    expect(applyMigrations(db, MIGRATIONS_DIR, { now: () => AT })).toBe(
+      readdirSync(MIGRATIONS_DIR).filter((name) => name.endsWith('.sql') && name >= '0009').length,
+    );
     expect(applyMigrations(db)).toBe(0);
     expect(readdirSync(scratch).filter((name) => name.includes('backup')).length).toBe(1);
     expect(db.prepare('SELECT count(*) AS n FROM action_history').get()).toEqual({ n: 1 });

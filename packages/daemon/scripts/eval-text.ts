@@ -10,6 +10,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { parseArgs } from 'node:util';
+import { weekdayOf } from '@anomander/core';
 import type { AssistantMessage } from '@earendil-works/pi-ai';
 import { builtinModels } from '@earendil-works/pi-ai/providers/all';
 import { z } from 'zod';
@@ -117,8 +118,6 @@ const envelopeOf = (text: string): Record<string, unknown> | null => {
   }
 };
 
-const WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-
 const { values } = parseArgs({
   options: {
     model: { type: 'string', multiple: true },
@@ -168,7 +167,7 @@ for (const modelId of modelIds) {
   for (const item of cases) {
     const wants = Array.isArray(item.expect) ? item.expect : [item.expect];
     const today = item.now.slice(0, 10);
-    const weekday = WEEKDAYS[new Date(`${today}T12:00:00Z`).getUTCDay()];
+    const weekday = weekdayOf(today);
     const outcomes: string[] = [];
     for (let run = 0; run < runs; run++) {
       raw = '';

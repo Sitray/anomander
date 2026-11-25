@@ -8,7 +8,10 @@ import { stamp } from './backup.ts';
 // `<data folder>/exports/<yyyymmddThhmmssZ>/`. Folders get mode 700 and files mode 600 (§16). No
 // processor is involved.
 
-/** The views exported, in this order. `pendientes_de_confirmar` always has one row. */
+/**
+ * The views exported, in this order. `pendientes_de_confirmar` always has one row; its
+ * `por_moneda` is a JSON array (B71), kept as text in the CSV file and as an array in `ledger.json`.
+ */
 export const EXPORTED_VIEWS = ['gastos', 'lineas_de_compra', 'pendientes_de_confirmar'] as const;
 
 export interface LedgerExport {
@@ -35,6 +38,10 @@ const toCsv = (columns: string[], rows: Row[]): string =>
   [columns, ...rows.map((row) => columns.map((column) => row[column]))]
     .map((fields) => `${fields.map(csvField).join(',')}\r\n`)
     .join('');
+
+/** The one row of `pendientes_de_confirmar` with its `por_moneda` read as the array it holds. */
+const pendientes = (row: Row | undefined): Row | undefined =>
+  row === undefined ? row : { ...row, por_moneda: JSON.parse(String(row.por_moneda)) };
 
 /** Creates `path` empty with mode 600, then writes `text`; never overwrites a file. */
 const writePrivate = (path: string, text: string): void => {
@@ -89,7 +96,7 @@ export const exportLedger = (db: Database.Database, dataDir: string, now: Date):
     });
     const ledger: Record<string, unknown> = { exported_at: now.toISOString() };
     for (const { view, rows } of views) {
-      ledger[view] = view === 'pendientes_de_confirmar' ? rows[0] : rows;
+      ledger[view] = view === 'pendientes_de_confirmar' ? pendientes(rows[0]) : rows;
     }
     const json = join(folder, 'ledger.json');
     writePrivate(json, `${JSON.stringify(ledger, null, 2)}\n`);

@@ -32,7 +32,7 @@ import { loadConfig } from '../../src/config.ts';
 import type { Connection } from '../../src/connections/connection.ts';
 import { connectionTaskPrompt } from '../../src/connections/task.ts';
 import { computerPlannerPrompt } from '../../src/processor/computer-planner.ts';
-import { RECEIPT_READER_PROMPT } from '../../src/processor/receipt-reader.ts';
+import { receiptReaderPrompt } from '../../src/processor/receipt-reader.ts';
 import { replyPhraserPrompt } from '../../src/processor/reply-phraser.ts';
 import { screenReaderPrompt } from '../../src/processor/screen-reader.ts';
 import { textInterpreterPrompt } from '../../src/processor/text-interpreter.ts';
@@ -96,7 +96,7 @@ type Log = (message: string, fields?: Record<string, unknown>) => void;
 let logger: { info: Mock<Log>; warn: Mock<Log>; error: Mock<Log> };
 
 const complete = async (_model: string, context: Context): Promise<AssistantMessage> => {
-  if (context.systemPrompt === RECEIPT_READER_PROMPT) {
+  if (context.systemPrompt === receiptReaderPrompt()) {
     return recorded('receipt-reader/lines-mismatch');
   }
   const reply = recorded('text-interpreter/expense-23-space-euro');

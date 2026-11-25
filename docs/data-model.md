@@ -283,7 +283,7 @@ CREATE TABLE digest_sends (
 
 A row is written only after the digest's send succeeded, so a failed one is tried again on the next minute. A day when every part of the digest is empty sends nothing but gets its row all the same: its digest was the empty one, so something added later that morning does not bring a late "Buenos días". The table holds no digest text.
 
-Ledger read access (RA-1 of the draft [`read-access-prd.md`](read-access-prd.md), milestone M5b) adds three views in the migration `0007_read_views.sql`. They are the whole contract for readers such as the daemon's read API: only `current` expenses are served, every row carries its `modo`, money stays in cents and `fecha` is the `YYYY-MM-DD` day in `TZ` of `expenses.occurred_on`. `origen` is `texto` for an expense with no document and `ticket` for a receipt. A missing merchant or category is `NULL`, never a dropped row. `pendientes_de_confirmar` always has exactly one row, `0` and `0` when nothing is pending:
+Ledger read access (RA-1 of the draft [`read-access-prd.md`](read-access-prd.md), milestone M5b) adds three views in the migration `0007_read_views.sql`, recreated by `0010_read_views_currency.sql` (backlog B71) as shown here. They are the whole contract for readers such as the daemon's read API: only `current` expenses are served, every row carries its `modo`, money stays in cents and `fecha` is the `YYYY-MM-DD` day in `TZ` of `expenses.occurred_on`. `origen` is `texto` for an expense with no document and `ticket` for a receipt. A missing merchant or category is `NULL`, never a dropped row. Every row with an amount says its expense's currency in `moneda` (DK-25), and no total adds two currencies. `pendientes_de_confirmar` always has exactly one row, `0`, `0`, `NULL` and `[]` when nothing is pending; with pending expenses in several currencies its `total_cents` and `moneda` are `NULL` and `por_moneda` has each currency's. `0010` only recreates the views: the stored rows stay as they are, and the new columns come after the ones readers already had:
 
 ```sql
 -- Ledger read access (RA-1): what other applications read; they never touch the tables
@@ -296,7 +296,8 @@ SELECT
   c.name        AS categoria,
   e.total_cents AS total_cents,
   e.mode        AS modo,
-  CASE WHEN e.document_id IS NULL THEN 'texto' ELSE 'ticket' END AS origen
+  CASE WHEN e.document_id IS NULL THEN 'texto' ELSE 'ticket' END AS origen,
+  e.currency    AS moneda
 FROM expenses e
 LEFT JOIN entities m   ON m.id = e.merchant_id
 LEFT JOIN categories c ON c.id = e.category_id
@@ -312,23 +313,37 @@ SELECT
   m.name         AS comercio,
   c.name         AS categoria,
   e.occurred_on  AS fecha,
-  e.mode         AS modo
+  e.mode         AS modo,
+  e.currency     AS moneda
 FROM purchase_lines l
 JOIN expenses e        ON e.id = l.expense_id
 LEFT JOIN entities m   ON m.id = e.merchant_id
 LEFT JOIN categories c ON c.id = e.category_id
 WHERE e.status = 'current';
 
--- Always one row: how many expenses wait for the principal, and their total
+-- Always one row: how many expenses wait for the principal, and their total per currency
 CREATE VIEW pendientes_de_confirmar AS
+WITH por AS (
+  SELECT currency AS moneda, count(*) AS cantidad, sum(total_cents) AS total_cents
+  FROM expenses
+  WHERE status = 'pending'
+  GROUP BY currency
+)
 SELECT
-  count(*)                      AS cantidad,
-  coalesce(sum(total_cents), 0) AS total_cents
-FROM expenses
-WHERE status = 'pending';
+  coalesce((SELECT sum(cantidad) FROM por), 0) AS cantidad,
+  CASE (SELECT count(*) FROM por)
+    WHEN 0 THEN 0
+    WHEN 1 THEN (SELECT total_cents FROM por)
+  END AS total_cents,
+  CASE (SELECT count(*) FROM por)
+    WHEN 1 THEN (SELECT moneda FROM por)
+  END AS moneda,
+  (SELECT json_group_array(
+            json_object('moneda', moneda, 'cantidad', cantidad, 'total_cents', total_cents))
+   FROM (SELECT moneda, cantidad, total_cents FROM por ORDER BY moneda)) AS por_moneda;
 ```
 
-`supermarket_purchases` stays as it was. Unlike `0003` to `0006`, `0007` is not yet a block of PRD §13: it joins it when the draft moves into `PRD.md`.
+`supermarket_purchases` stays as it was. Unlike `0003` to `0006`, `0007` and `0010` are not yet blocks of PRD §13: they join it when the draft moves into `PRD.md`.
 
 The history of what ANOMANDER did (desktop PRD DK-14) is the table `action_history`, added by `0008_action_history.sql`: one row per look at the screen, task on the computer or task with connections when it ends, with its `kind` (`screen`, `computer`, `connect`), its `door` (`app`, `telegram`), the principal's `task` words, its `outcome` code, the `steps` of a computer task, the `calls_json` of a task with connections (server, tool and whether it was allowed; never arguments or results) and `ended_at` in UTC, indexed. It is not an assertion table: it records what was done, not a fact about the world. A confirmed `forget_history` deletes its rows; nothing else deletes them. Like `0007`, `0008` is not yet a block of PRD §13.
 

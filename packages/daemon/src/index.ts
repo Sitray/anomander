@@ -42,20 +42,20 @@ export {
 } from './expenses/receipt-expense.ts';
 export { createTextExpenseHandler, type TextExpenseDeps } from './expenses/text-expense.ts';
 export {
-  CORRECTION_INTERPRETER_PROMPT,
   type CorrectionInterpretation,
   type CorrectionInterpreter,
   type CorrectionInterpreterInput,
+  correctionInterpreterPrompt,
   createPiAiCorrectionInterpreter,
   type PiAiCorrectionInterpreterDeps,
 } from './processor/correction-interpreter.ts';
 export {
   createPiAiReceiptReader,
   type PiAiReceiptReaderDeps,
-  RECEIPT_READER_PROMPT,
   type ReceiptReader,
   type ReceiptReaderInput,
   type ReceiptReading,
+  receiptReaderPrompt,
 } from './processor/receipt-reader.ts';
 export {
   createPiAiReplyPhraser,
@@ -82,6 +82,7 @@ export {
   type LineaDeCompra,
   openReadOnly,
   type Pendientes,
+  type PendientesEnMoneda,
   readGastos,
   readLineas,
   readPendientes,

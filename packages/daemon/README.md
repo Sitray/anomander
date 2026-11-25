@@ -680,9 +680,12 @@ Every request is checked in this order:
 | --- | --- |
 | `GET /v1/gastos?desde=YYYY-MM-DD&hasta=YYYY-MM-DD` | array of `gastos` rows, by `fecha` then `id` |
 | `GET /v1/lineas?desde=…&hasta=…[&producto=…]` | array of `lineas_de_compra` rows, by `fecha`, `gasto_id`, `producto` |
-| `GET /v1/pendientes` | the one `pendientes_de_confirmar` row as an object: `cantidad`, `total_cents` |
+| `GET /v1/pendientes` | the one `pendientes_de_confirmar` row as an object: `cantidad`, `total_cents`, `moneda` and `por_moneda` as an array |
 
-Each object's keys are the view's columns (`docs/data-model.md`). `desde` and `hasta` are both
+Each object's keys are the view's columns (`docs/data-model.md`). Every `gastos` and
+`lineas_de_compra` row says its currency in `moneda`; with pending expenses in several
+currencies, `total_cents` and `moneda` of `/v1/pendientes` are `null` and `por_moneda` has each
+currency's count and total, never a sum across currencies (B71). `desde` and `hasta` are both
 required and both inclusive, calendar days in `TZ`; a missing, malformed or impossible day gets
 `400` `{"error":"desde and hasta must both be days as YYYY-MM-DD"}`. `producto` keeps only the
 lines whose product equals it exactly, as printed on the receipt (case and accents included);
@@ -699,7 +702,7 @@ mistake. A new endpoint adds its query there, over a view.
 
 `CorrectionInterpreter` (`src/processor/correction-interpreter.ts`) reads a correction text.
 `createPiAiCorrectionInterpreter` follows the text interpreter: one system prompt, one user turn
-(`expense`, `categories`, `today`, `message`), no tools, and inferences `total`, `merchant`,
+(`expense`, `categories`, `today`, `weekday`, `message`), no tools, and inferences `total`, `merchant`,
 `category` and `occurred_on`
 through `validateProcessorOutput`. Its recorded responses live in
 `test/fixtures/correction-interpreter/`.
@@ -709,7 +712,11 @@ through `validateProcessorOutput`. Its recorded responses live in
 one user turn, never a `tools` key (R-14 AC3). It parses a single JSON object from the text
 blocks (code fences allowed), validates its envelope with Zod, and passes each inference
 through `validateProcessorOutput`, so anything claiming `observed`, `declared` or `confirmed`
-is rejected and logged (R-14 AC2).
+is rejected and logged (R-14 AC2). Its user turn starts with `today` (`YYYY-MM-DD` in `TZ`) and
+`weekday`, today's English weekday (`weekdayOf` in `@anomander/core`), so "el lunes" or "la
+semana pasada" never depend on the model working out the weekday (B59). Amounts are asked for
+as hundredths of the principal's currency, `euro cents` with `EUR` (`src/processor/currency.ts`,
+B73), in this prompt as in the receipt reader's and the correction interpreter's.
 
 `ReceiptReader` (`src/processor/receipt-reader.ts`) reads receipts. `createPiAiReceiptReader`
 calls `ANOMANDER_VISION_MODEL` with one user turn: a text block (`today`, `categories`,
@@ -867,7 +874,9 @@ a header row even with no rows) and all three in `ledger.json`, into a new
 read in one transaction; folders get mode 700 and files 600, and a failed write leaves no partial
 folder. A CSV text that starts with `=`, `+`, `-`, `@`, a tab or a carriage return gets a leading
 `'`, so a spreadsheet never runs a merchant or product name read from a receipt as a formula;
-`ledger.json` keeps the text as stored. No processor is called.
+`ledger.json` keeps the text as stored. Each `gastos` and `lineas_de_compra` row has its
+`moneda`; `por_moneda` of `pendientes_de_confirmar` is JSON text in its CSV file and an array in
+`ledger.json` (B71). No processor is called.
 
 `/exportar` (PRD R-29 AC3) in Telegram calls it with the folder of `ANOMANDER_DB_PATH` and
 replies S-79 with the four files in `files`; `@anomander/telegram` sends the text, then each file

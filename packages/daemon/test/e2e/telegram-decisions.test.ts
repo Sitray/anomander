@@ -19,12 +19,12 @@ import { createTextRouter } from '../../src/decisions/router.ts';
 import { createReceiptExpenseHandler } from '../../src/expenses/receipt-expense.ts';
 import { createTextExpenseHandler } from '../../src/expenses/text-expense.ts';
 import {
-  CORRECTION_INTERPRETER_PROMPT,
+  correctionInterpreterPrompt,
   createPiAiCorrectionInterpreter,
 } from '../../src/processor/correction-interpreter.ts';
 import {
   createPiAiReceiptReader,
-  RECEIPT_READER_PROMPT,
+  receiptReaderPrompt,
 } from '../../src/processor/receipt-reader.ts';
 import { verbatimReplies } from '../../src/processor/reply-phraser.ts';
 import { createPiAiTextInterpreter } from '../../src/processor/text-interpreter.ts';
@@ -73,10 +73,10 @@ beforeEach(async () => {
   db = openDatabase(join(scratch, 'anomander.db'));
   applyMigrations(db);
   const complete = async (_model: string, context: Context): Promise<AssistantMessage> => {
-    if (context.systemPrompt === RECEIPT_READER_PROMPT) {
+    if (context.systemPrompt === receiptReaderPrompt()) {
       return recorded('receipt-reader/lines-mismatch');
     }
-    if (context.systemPrompt === CORRECTION_INTERPRETER_PROMPT) {
+    if (context.systemPrompt === correctionInterpreterPrompt()) {
       if (budgetSpent) throw new AiBudgetExhaustedError();
       const [turn] = context.messages;
       if (typeof turn?.content === 'string') correctionTurns.push(JSON.parse(turn.content));

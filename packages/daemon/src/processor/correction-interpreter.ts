@@ -1,7 +1,8 @@
-import { validateProcessorOutput } from '@anomander/core';
+import { validateProcessorOutput, weekdayOf } from '@anomander/core';
 import type { AssistantMessage, Context } from '@earendil-works/pi-ai';
 import { z } from 'zod';
 import { AiBudgetExhaustedError } from '../budget/ai-budget.ts';
+import { centsName } from './currency.ts';
 import type { Complete, CorrectionInterpretation, CorrectionInterpreter, Logger } from './ports.ts';
 
 export type {
@@ -14,20 +15,22 @@ export type {
 // values written in it, as inferences only. It never writes (R-14 AC1); code accepts a value
 // only if the principal actually wrote it.
 
-export const CORRECTION_INTERPRETER_PROMPT = `You read one message in which the user corrects an expense that a personal assistant was about to record. You can only answer; you have no tools and you never store anything.
+/** The correction interpreter's prompt, in the principal's currency (B73). */
+export const correctionInterpreterPrompt =
+  (): string => `You read one message in which the user corrects an expense that a personal assistant was about to record. You can only answer; you have no tools and you never store anything.
 
 Reply with exactly one JSON object and nothing else:
 {"kind":"correction","inferences":[...]}
 Each inference is an object with these fields and no others:
 {"subject_type":"expense","subject_id":null,"predicate":"<predicate>","value_json":<value>,"mode":"inferred","basis_json":{"quote":"<the words of the message it rests on>"},"confidence":<number from 0 to 1>}
 Predicates, only for what the message changes:
-- "total": the new amount paid, as an integer number of euro cents ("28,40" is 2840).
+- "total": the new amount paid, as an integer number of ${centsName()} ("28,40" is 2840).
 - "merchant": the new merchant, written as the user wrote it.
 - "category": the new category, written as the user wrote it.
-- "occurred_on": the new purchase date as YYYY-MM-DD, resolved against "today".
+- "occurred_on": the new purchase date as YYYY-MM-DD, resolved against "today" and "weekday".
 If the message changes none of them, reply {"kind":"correction","inferences":[]}.
 
-The user turn is a JSON object with the fields "expense" (the values being corrected), "categories", "today" and "message".`;
+The user turn is a JSON object with the fields "expense" (the values being corrected), "categories", "today", "weekday" (the day of the week of "today") and "message".`;
 
 const PREDICATES = new Set(['total', 'merchant', 'category', 'occurred_on']);
 
@@ -73,11 +76,17 @@ export const createPiAiCorrectionInterpreter =
     };
     // R-14 AC3: one system prompt and one user turn; the context never carries `tools`.
     const context: Context = {
-      systemPrompt: CORRECTION_INTERPRETER_PROMPT,
+      systemPrompt: correctionInterpreterPrompt(),
       messages: [
         {
           role: 'user',
-          content: JSON.stringify({ expense, categories, today, message: text }),
+          content: JSON.stringify({
+            expense,
+            categories,
+            today,
+            weekday: weekdayOf(today),
+            message: text,
+          }),
           timestamp: Date.now(),
         },
       ],
