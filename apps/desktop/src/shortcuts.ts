@@ -16,7 +16,8 @@ export const useSetupShortcut = (toggle: () => void): void => {
   latest.current = toggle;
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
-      if (event.key !== ',' || !withCommand(event)) return;
+      // A held key repeats: only the first press counts, or the setup flips open and closed.
+      if (event.key !== ',' || event.repeat || !withCommand(event)) return;
       event.preventDefault();
       latest.current();
     };

@@ -66,6 +66,13 @@ describe('the setup shortcut', () => {
     expect(setupHeading()).toBeNull();
   });
 
+  it('a held Cmd+, (auto-repeat) does not flip the setup back closed', async () => {
+    await open();
+    press({ metaKey: true });
+    fireEvent.keyDown(window, { key: ',', metaKey: true, repeat: true });
+    expect(setupHeading()).toBeTruthy();
+  });
+
   it('is Ctrl+, on Windows; Cmd+, does nothing', async () => {
     window.__ANOMANDER_PLATFORM__ = 'windows';
     await open();

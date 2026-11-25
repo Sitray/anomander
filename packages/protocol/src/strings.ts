@@ -14,13 +14,13 @@ const dateFormats: Record<Locale, Intl.DateTimeFormat> = {
   en: new Intl.DateTimeFormat('en-GB', dateOptions),
 };
 
-/** `2340` → `23,40 €`, or `€23.40` in English. */
 /**
  * DK-20: the daemon runs on Windows. Read each time, from the process that speaks: a page has no
  * `process` and is taken for macOS (the window has its own text for Windows).
  */
 const onWindows = (): boolean => typeof process !== 'undefined' && process.platform === 'win32';
 
+/** `2340` → `23,40 €`, or `€23.40` in English. */
 export const formatAmount = (cents: number): string =>
   amountFormats[getLocale()].format(cents / 100);
 

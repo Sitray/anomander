@@ -2,7 +2,7 @@
 import { setLocale } from '@anomander/protocol';
 import { afterEach, describe, expect, it } from 'vitest';
 import { platform } from '../src/platform.ts';
-import { strings } from '../src/strings.ts';
+import { type Strings, strings } from '../src/strings.ts';
 
 // DK-20 (B28): on Windows the window never speaks of macOS, the Keychain or "este Mac"; a look at
 // the screen and a task on the computer say they are not on Windows yet. macOS reads as before.
@@ -81,6 +81,97 @@ describe('the text on Windows', () => {
     setLocale('en');
     expect(strings.chat.screenPermission).toBe("I can't see your screen on Windows yet.");
     expect(strings.chat.computerPermission).toBe("I can't use your computer on Windows yet.");
+  });
+});
+
+/** Each other text that names the computer or its store: where it says it, in each language. */
+const WINDOWS_WORDING: [string, (text: Strings) => string, string, string][] = [
+  [
+    'chat.confirmClear',
+    (t) => t.chat.confirmClear,
+    'la borra de este equipo y',
+    'erases it from this computer and',
+  ],
+  [
+    'connections.intro',
+    (t) => t.connections.intro,
+    'sus valores, en el Administrador de credenciales de Windows.',
+    'their values, in the Windows Credential Manager.',
+  ],
+  [
+    'connections.webSearchNote',
+    (t) => t.connections.webSearchNote,
+    'Las páginas se leen desde este equipo, siempre',
+    'Pages are read from this computer, always',
+  ],
+  [
+    'connections.confirmRemove',
+    (t) => t.connections.confirmRemove('Notion'),
+    'se borrarán del Administrador de credenciales.',
+    'will be deleted from the Credential Manager.',
+  ],
+  [
+    'connections.advancedNote',
+    (t) => t.connections.advancedNote,
+    'un programa de este equipo o una dirección',
+    'a program on this computer or an address',
+  ],
+  [
+    'connections.urlHelp',
+    (t) => t.connections.urlHelp,
+    'si el servidor está en este equipo.',
+    'if the server is on this computer.',
+  ],
+  [
+    'connections.envHelp',
+    (t) => t.connections.envHelp,
+    'Los valores se guardan en el Administrador de credenciales de Windows; aquí',
+    'The values are kept in the Windows Credential Manager; only',
+  ],
+  [
+    'connections.headersHelp',
+    (t) => t.connections.headersHelp,
+    'Los valores se guardan en el Administrador de credenciales de Windows; aquí',
+    'The values are kept in the Windows Credential Manager; only',
+  ],
+  [
+    'subscriptions.intro',
+    (t) => t.subscriptions.intro,
+    'La cuenta se guarda en el Administrador de credenciales de Windows.',
+    'The account is kept in the Windows Credential Manager.',
+  ],
+  [
+    'memory.intro',
+    (t) => t.memory.intro,
+    'Todo está en este equipo, y',
+    'All of it is on this computer, and',
+  ],
+  [
+    'memory.confirmMemory',
+    (t) => t.memory.confirmMemory,
+    '¿Lo olvido? Lo borro de este equipo, y',
+    'Shall I forget it? I erase it from this computer, and',
+  ],
+  [
+    'memory.confirmAction',
+    (t) => t.memory.confirmAction,
+    '¿Lo olvido? Lo borro de este equipo, y',
+    'Shall I forget it? I erase it from this computer, and',
+  ],
+  [
+    'ledger.intro',
+    (t) => t.ledger.intro,
+    'copia su ledger a este equipo y',
+    'copy its ledger to this computer and',
+  ],
+];
+
+describe('each other text on Windows', () => {
+  it.each(WINDOWS_WORDING)('%s names this computer or its store', (_name, read, es, en) => {
+    window.__ANOMANDER_PLATFORM__ = 'windows';
+    expect(read(strings)).toContain(es);
+    setLocale('en');
+    expect(read(strings)).toContain(en);
   });
 });
 
