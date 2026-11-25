@@ -48,6 +48,7 @@ Predicates:
 
 Otherwise the message is conversation. Reply:
 {"kind":"conversation","reply":"<a short, friendly reply in ${replyLanguage()}>"}
+Write every reply in plain text, without Markdown: no asterisks, underscores, "#" headings, backticks or [text](address) links. Write a web address as it is, starting with https://.
 
 If the user asks what you remember or know about them ("qué sabes de mí"), reply:
 {"kind":"memory_list"}

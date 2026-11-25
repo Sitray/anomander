@@ -77,6 +77,8 @@ describe('the windows’ command permissions', () => {
       'save_setup',
       'answer_login',
       'save_connection',
+      // B25: only the chat opens a web address in the browser.
+      'open_link',
     ]) {
       expect(notch).not.toContain(allow(command));
     }
@@ -87,5 +89,10 @@ describe('the windows’ command permissions', () => {
     for (const permission of [...main, ...notch].filter((p) => !p.includes(':'))) {
       expect(known, permission).toContain(permission);
     }
+  });
+
+  it('lets the main window only open the file dialog (DK-21), and the notch none of it', () => {
+    expect(main.filter((p) => p.startsWith('dialog:'))).toEqual(['dialog:allow-open']);
+    expect(notch.filter((p) => p.startsWith('dialog:'))).toEqual([]);
   });
 });

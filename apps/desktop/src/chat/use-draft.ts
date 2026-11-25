@@ -5,6 +5,7 @@ import { MAX_ATTACHMENTS, strings } from '../strings.ts';
 import {
   type Attachment,
   fitInOneMessage,
+  isImage,
   releaseAttachment,
   toAttachment,
 } from './attachments.ts';
@@ -29,8 +30,10 @@ export const useDraft = (): Draft => {
   const [notice, setNotice] = useState<string | null>(null);
 
   const addFiles = useCallback(
-    (files: File[]) => {
-      if (files.length === 0) return;
+    (offered: File[]) => {
+      if (offered.length === 0) return;
+      // DK-21: R-20 reads images only, so anything else stays out instead of being refused later.
+      const files = offered.filter(isImage);
       const room = MAX_ATTACHMENTS - attachments.length;
       const next = [...attachments, ...files.slice(0, Math.max(room, 0)).map(toAttachment)];
       if (!fitInOneMessage(next)) {
@@ -39,7 +42,13 @@ export const useDraft = (): Draft => {
         return;
       }
       setAttachments(next);
-      setNotice(files.length > room ? strings.chat.tooMany : null);
+      setNotice(
+        files.length < offered.length
+          ? strings.chat.onlyImages
+          : files.length > room
+            ? strings.chat.tooMany
+            : null,
+      );
     },
     [attachments],
   );

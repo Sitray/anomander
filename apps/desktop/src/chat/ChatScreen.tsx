@@ -9,6 +9,7 @@ import './chat.css';
 import { Composer } from './Composer.tsx';
 import { type Conversation, isWaiting } from './conversation.ts';
 import { emptyStateFor, MessageList } from './MessageList.tsx';
+import { matchesIn } from './search.ts';
 import { useChat } from './use-chat.ts';
 import { useDraft } from './use-draft.ts';
 
@@ -51,6 +52,10 @@ export interface ChatScreenProps {
    * there. Absent where the window cannot add one: the chat then only says it is missing.
    */
   onAddWebSearch?: () => Promise<boolean>;
+  /** B25: opens an http(s) address in the principal's browser; absent where the shell cannot. */
+  onOpenLink?: (url: string) => void;
+  /** DK-21: opens the setup from the model's name under the composer. */
+  onOpenSetup?: () => void;
 }
 
 /** Why there is no channel, in the principal's words. */
@@ -74,7 +79,7 @@ const proposing = ({ messages }: Conversation): boolean =>
 export function ChatScreen(props: ChatScreenProps) {
   const { daemon, channel, onThinking, onReply, onCaptureScreen, onPerformAction } = props;
   const { onReveal, onTaskRunning, subscribeStop, model = null, onAddWebSearch } = props;
-  const { subscribeShown } = props;
+  const { subscribeShown, onOpenLink } = props;
   const draft = useDraft();
   const computer = useMemo(
     () =>
@@ -98,8 +103,23 @@ export function ChatScreen(props: ChatScreenProps) {
     ...(onAddWebSearch === undefined ? {} : { addWebSearch: onAddWebSearch }),
   });
   const [dropping, setDropping] = useState(false);
+  /** B23: how many times an example asked for the caret. */
+  const [focusRequest, setFocusRequest] = useState(0);
+  const fillWith = (example: string) => {
+    draft.setText(example);
+    setFocusRequest((count) => count + 1);
+  };
   const [erase, setErase] = useState<Erase>('idle');
   const eraseQuestion = useId();
+  /** DK-21: what the principal searches for in the loaded conversation. */
+  const [search, setSearch] = useState('');
+  const found =
+    search.trim() === ''
+      ? null
+      : chat.conversation.messages.reduce(
+          (count, message) => count + matchesIn(message.text, search).length,
+          0,
+        );
   /** `dragenter` minus `dragleave`: both also fire for every child the pointer crosses. */
   const dragDepth = useRef(0);
 
@@ -107,8 +127,29 @@ export function ChatScreen(props: ChatScreenProps) {
   useEffect(() => onThinking?.(waiting), [waiting, onThinking]);
   useEffect(() => () => onThinking?.(false), [onThinking]);
 
-  const { running, stop } = chat;
+  const { running, stop, turn, cancel } = chat;
   useEffect(() => onTaskRunning?.(running), [running, onTaskRunning]);
+  const section = useRef<HTMLElement>(null);
+  // DK-19, B27: Esc stops a task on the computer that runs, or else the answer owed when it can be
+  // stopped; only while the chat is the screen shown, and never what something else took.
+  const stoppable = turn?.stoppable === true && !turn.stopping;
+  useEffect(() => {
+    if (!running && !stoppable) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape' || event.defaultPrevented || event.isComposing) return;
+      if (section.current === null || section.current.closest('[hidden]') !== null) return;
+      // DK-21: Esc in a search with words empties it, as the field does; it stops nothing.
+      const { target } = event;
+      if (target instanceof HTMLInputElement && target.type === 'search' && target.value !== '') {
+        return;
+      }
+      event.preventDefault();
+      if (running) stop();
+      else cancel();
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [running, stoppable, stop, cancel]);
   useEffect(() => subscribeStop?.(stop), [subscribeStop, stop]);
   const { shownAgain } = chat;
   useEffect(() => subscribeShown?.(shownAgain), [subscribeShown, shownAgain]);
@@ -152,6 +193,7 @@ export function ChatScreen(props: ChatScreenProps) {
   return (
     // biome-ignore lint/a11y/noStaticElementInteractions: a drop target; the keyboard's way to attach is the composer's button.
     <section
+      ref={section}
       className="chat"
       data-offline={disabled || undefined}
       data-dropping={dropping || undefined}
@@ -178,6 +220,18 @@ export function ChatScreen(props: ChatScreenProps) {
     >
       {chat.conversation.messages.length > 0 && (
         <div className="chat-bar">
+          <span className="chat-search">
+            <input
+              type="search"
+              aria-label={strings.chat.search}
+              placeholder={strings.chat.search}
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+            />
+            <span className="chat-search-count" aria-live="polite">
+              {found === null ? '' : strings.chat.searchCount(found)}
+            </span>
+          </span>
           {erase === 'not_done' || erase === 'unknown' ? (
             <p className="message-problem" role="alert">
               <AlertIcon />
@@ -225,6 +279,10 @@ export function ChatScreen(props: ChatScreenProps) {
       <MessageList
         messages={chat.conversation.messages}
         waiting={waiting}
+        turn={turn}
+        onStop={cancel}
+        onExample={fillWith}
+        onOpenLink={onOpenLink}
         empty={emptyStateFor(disabled ? daemon : null, props.onStart)}
         onRetry={chat.retry}
         onRestart={chat.restart}
@@ -232,6 +290,7 @@ export function ChatScreen(props: ChatScreenProps) {
         onAllow={chat.allow}
         onRefuse={chat.refuse}
         onAddWebSearch={onAddWebSearch === undefined ? undefined : chat.addWebSearch}
+        search={search}
       />
       {chat.running && (
         <div className="task-bar">
@@ -250,8 +309,10 @@ export function ChatScreen(props: ChatScreenProps) {
         onText={draft.setText}
         onFiles={draft.addFiles}
         model={model}
+        onOpenSetup={props.onOpenSetup}
         onRemove={draft.remove}
         onSubmit={submit}
+        focusRequest={focusRequest}
       />
       {dropping && (
         <div className="drop-hint" aria-hidden="true">

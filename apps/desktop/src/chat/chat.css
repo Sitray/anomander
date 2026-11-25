@@ -21,3 +21,123 @@
   align-items: baseline;
   gap: var(--s1) var(--s3);
 }
+
+/* DK-19: what ANOMANDER is doing for the answer owed, and "Detener". The live region stays in the
+   page while nothing is owed, taking no room. */
+.thinking:not([data-waiting]) {
+  padding-block: 0;
+}
+
+.thinking[data-waiting] {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s1) var(--s3);
+}
+
+.thinking-status {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s2);
+  margin: 0;
+  color: var(--text-3);
+  font-size: var(--text-sm);
+}
+
+/* B23: what can be asked in an empty chat; a press fills the composer. */
+.examples {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: var(--s2);
+  margin: var(--s2) 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.example {
+  min-height: 1.75rem;
+  padding: var(--s1) var(--s3);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: none;
+  color: var(--text-2);
+  font: inherit;
+  font-size: var(--text-sm);
+  cursor: pointer;
+}
+
+.example:hover {
+  border-color: var(--text-3);
+  color: var(--text);
+}
+
+/* B25: a web address in a reply, opened in the browser. */
+.message-link {
+  color: var(--accent-ink);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  overflow-wrap: anywhere;
+}
+
+/* DK-21: the search of the loaded conversation, first in the bar. */
+.chat-search {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s2);
+  margin-right: auto;
+}
+
+.chat-search input {
+  width: 14rem;
+  max-width: 100%;
+}
+
+.chat-search-count {
+  color: var(--text-3);
+  font-size: var(--text-xs);
+}
+
+.messages mark {
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--accent) 30%, transparent);
+  color: inherit;
+}
+
+/* DK-21: when a message was sent, and its copy button, under it. */
+.message-meta {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  color: var(--text-3);
+  font-size: var(--text-xs);
+}
+
+.message-copy {
+  display: inline-grid;
+  place-items: center;
+  padding: 2px;
+  border: 0;
+  border-radius: 2px;
+  background: none;
+  color: inherit;
+  opacity: 0.6;
+}
+
+.message-copy:hover,
+.message-copy:focus-visible,
+.message-copy[data-copied] {
+  opacity: 1;
+}
+
+/* DK-21: the model's name opens the setup; it keeps the quiet look of the line it was. */
+.composer-model.link {
+  justify-self: end;
+  color: var(--text-3);
+  font-size: var(--text-xs);
+  font-weight: 400;
+}
+
+.composer-model.link:hover {
+  color: var(--accent-ink);
+}

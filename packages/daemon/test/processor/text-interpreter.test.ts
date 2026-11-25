@@ -265,6 +265,15 @@ describe('pi-ai text interpreter', () => {
     expect(JSON.stringify(unoffered.logger.warn.mock.calls)).not.toContain('qué ves');
   });
 
+  it('asks for every reply in plain text, with addresses written out (B25)', async () => {
+    const { interpret, contexts } = interpreterFor('conversation');
+    await interpret(input('hola'));
+
+    expect(contexts[0]?.systemPrompt).toContain(
+      'Write every reply in plain text, without Markdown',
+    );
+  });
+
   it('tells the processor which ways the door offers, none by default (DK-13 AC1)', async () => {
     const { interpret, contexts } = interpreterFor('conversation');
     await interpret({ ...input('hola'), routes: ['connect'] });

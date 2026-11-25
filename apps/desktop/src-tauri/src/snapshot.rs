@@ -1,6 +1,6 @@
 // The shapes of `apps/desktop/src/shell.ts`, the seam with the window. Field names and enum strings
 // must match it exactly; change both together.
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 /// DK-6 AC1: what the menu bar icon shows. `Starting` is a daemon launched and not yet listening.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
@@ -65,6 +65,22 @@ impl std::fmt::Debug for LocalChannel {
     }
 }
 
+/// DK-22 (B29): what the shell's notifications show: the start of the message (`content`, the
+/// default, as before), or only that ANOMANDER has something (`notice_only`).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum NotificationMode {
+    #[default]
+    Content,
+    NoticeOnly,
+}
+
+impl NotificationMode {
+    pub fn is_content(&self) -> bool {
+        *self == NotificationMode::Content
+    }
+}
+
 /// What the setup screen shows. Secrets are never sent back: only whether each one is stored.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -78,6 +94,8 @@ pub struct SetupState {
     pub time_zone: Option<String>,
     /// DK-25: the currency chosen in Configuración; `None` while unset.
     pub currency: Option<String>,
+    /// DK-22: what the notifications show.
+    pub notifications: NotificationMode,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
@@ -113,6 +131,7 @@ mod tests {
                 provider_keys: vec!["OPENAI_API_KEY".into()],
                 time_zone: None,
                 currency: Some("USD".into()),
+                notifications: NotificationMode::NoticeOnly,
             },
         };
         assert_eq!(
@@ -127,7 +146,8 @@ mod tests {
                     "visionModel": null,
                     "providerKeys": ["OPENAI_API_KEY"],
                     "timeZone": null,
-                    "currency": "USD"
+                    "currency": "USD",
+                    "notifications": "notice_only"
                 }
             }))
         );

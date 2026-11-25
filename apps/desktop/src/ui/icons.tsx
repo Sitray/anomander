@@ -105,6 +105,21 @@ export const FileIcon = () => (
   </Icon>
 );
 
+/** DK-21: copies a message. */
+export const CopyIcon = () => (
+  <Icon>
+    <rect x="5.25" y="5.25" width="8" height="8" rx="1.25" />
+    <path d="M10.75 5.25V4A1.25 1.25 0 0 0 9.5 2.75H4A1.25 1.25 0 0 0 2.75 4v5.5A1.25 1.25 0 0 0 4 10.75h1.25" />
+  </Icon>
+);
+
+/** DK-21: a message was copied. */
+export const CheckIcon = () => (
+  <Icon>
+    <path d="M3.25 8.5 6.5 11.75l6.25-7.5" />
+  </Icon>
+);
+
 /**
  * The app icon's ring and dot, as a status light and as the empty chat's mark: the ring is the
  * daemon, the dot is lit while it runs.

@@ -34,7 +34,7 @@ and keep its secrets in the operating system instead of a text file.
 - Linux. v1 is macOS, where the Keychain and the menu bar live (assumption). Windows runs the
   app from source too (README, "Run the app on Windows"): the chat, setup, connections, login,
   Telegram, the tray and the drop; a look at the screen (DK-9) and tasks on the computer (DK-10)
-  are macOS-only for now.
+  are macOS-only for now, and the app says so (DK-20 AC2).
 - Automatic updates, code signing and notarization. v1 is built and installed by the principal
   (assumption).
 - Running ANOMANDER while the app is closed. That is what Docker is for (decision 2).
@@ -82,13 +82,14 @@ and keep its secrets in the operating system instead of a text file.
     context (R-16 AC3) and the same stored conversation, which the daemon keeps and the app's chat
     shows again (DK-16).
   - AC5: what ANOMANDER sends unasked (reminders, the morning digest, the weekly summary) goes
-    to Telegram only, as today, whether or not the app's chat is open (decision 4). Without
-    Telegram (DK-5 AC4) it is not sent: a reminder waits and goes out late once Telegram is set
-    up, the digest and the summary are skipped, and the other unasked messages are logged as not
-    sent. What goes out is kept in the stored conversation (DK-16), so the app's chat shows it
-    the next time it loads the conversation.
+    to Telegram, as before, and also to the app while it is connected (DK-22, decision 4).
+    With neither door it is not sent: a reminder waits and goes out late once a door is there,
+    the digest is tried again until noon (R-26), the summary is skipped, and the other unasked
+    messages are logged as not sent. What goes out is kept in the stored conversation (DK-16),
+    so the app's chat shows it the next time it loads the conversation.
   - AC6: an input R-20 does not support gets the same reply as in Telegram: S-18 for a PDF,
-    S-20 for an image over 20 MB.
+    S-20 for an image over 20 MB. The composer itself takes only images (DK-21 AC2), so a PDF
+    reaches the daemon only from another client of the local channel.
   - AC7: `/login` and `/logout` stay in Telegram (R-27): their messages go out through the bot.
     The app has its own place for the same logins, the Suscripciones screen (DK-15); the chat
     does not offer them. While a login started in Telegram waits for a pasted code or address,
@@ -222,8 +223,9 @@ and keep its secrets in the operating system instead of a text file.
     served, as for every other message. The processor
     is given the tools and asks for calls, one at a time; it never makes one (R-14 AC3). Code
     decides each call.
-  - AC3: a tool marked read-only runs without asking; any other call waits for "Permitir", shown
-    by code with the tool, the server and the exact arguments. "Detener" ends the task. A call is
+  - AC3: a tool marked read-only runs without asking, as does one the principal allowed with
+    "Permitir siempre" (DK-24); any other call waits for "Permitir", shown by code with the tool,
+    the server, a plain line and the exact arguments. "Detener" ends the task. A call is
     made at most once. What cannot be seen in the arguments (a direction mark, a variation
     selector, a blank that is not a space) is shown as its code, in names and in values. A call
     whose arguments are over 1 500 characters as shown is never made. A call is answered where
@@ -349,8 +351,9 @@ and keep its secrets in the operating system instead of a text file.
   - AC1: the principal brings the ledger out of the Docker volume themselves (`docker compose
     stop`, then `docker compose cp daemon:/app/data/anomander.db <path>`): the app cannot reach
     the volume. In the setup screen, "¿Vienes de una instalación con Docker? Trae tu ledger"
-    opens a screen where they type or paste its full path (or one from `~/`); there is no file
-    dialog.
+    opens a screen where they type or paste its full path (or one from `~/`), or choose the file
+    in the system's dialog (DK-21 AC6). The link reads "¿Vienes de una instalación con Docker? Trae tus datos" since DK-21
+    AC4.
   - AC2: the import runs only into an app whose ledger holds no expense, and only a file that is
     an ANOMANDER ledger this build can migrate (every version in `schema_migrations` is known to
     it) and whose integrity check passes. Each refusal is said in its own sentence, and nothing
@@ -643,6 +646,223 @@ and keep its secrets in the operating system instead of a text file.
     chat asks for the stored conversation again, as after a forget confirmed in the chat. When it
     was not forgotten (the reply S-22) the item stays and the screen says so; when the connection
     was lost first, that it cannot know.
+- DK-20 Shortcuts and Windows wording (backlog B27, B28, 2026-11-25).
+  - AC1 (B28): the shell tells every webview its platform before any script runs
+    (`window.__ANOMANDER_PLATFORM__`, `macos` or `windows`, a fixed literal, as the language is).
+    On Windows the window never names macOS, the Keychain, "este Mac" or System Settings, in
+    either language: "este equipo" / "this computer", "el Administrador de credenciales de
+    Windows" / "the Windows Credential Manager". On macOS every text reads as before.
+  - AC2 (B28): on Windows a look at the screen (DK-9) and a task on the computer (DK-10) are not
+    offered: the daemon on Windows routes the app's messages as Telegram's, connections only
+    (DK-13 AC1), and answers a look or a task with "Eso todavía no puedo hacerlo en Windows." /
+    "I can't do that on Windows yet." (Telegram too). Should the window still be asked for one,
+    the shell refuses it and the window says "Todavía no puedo ver tu pantalla en Windows." or
+    "Todavía no puedo usar tu ordenador en Windows." instead of the macOS permission message.
+  - AC3 (B27): Cmd+Shift+Space on macOS, Ctrl+Shift+Space on Windows, from any app, brings the
+    chat to the front (as "Abrir chat" does, so it shows the stored conversation again); pressed
+    while the chat is in front, it hides it. The shell registers it with
+    `tauri-plugin-global-shortcut`; no window is granted the plugin's commands, so no page can
+    register a hotkey. When the system refuses it (another app holds it), the app works as before
+    and the log says "the chat hotkey could not be registered", with nothing of the principal's.
+    Not configurable yet. Known limit: on Windows it takes Ctrl+Shift+Space from every app while
+    ANOMANDER runs (in Word, a non-breaking space).
+  - AC4 (B27): in the window, Cmd+, (Ctrl+, on Windows) opens the setup, and closes it back to the
+    chat when it is open, as the status area's button.
+- DK-23 Onboarding without developer knowledge (backlog B22, 2026-11-25: "Provider/model picker
+  with suggestions, a "Probar" button, models first, an app-specific guide").
+  - AC1: the setup screen asks for the models first and for "Telegram (opcional)" last; the web
+    search and the other keys go between them. What DK-5 AC4 says about Telegram holds.
+  - AC2: "Proveedor del modelo" lists, by name, the providers the daemon reaches through pi-ai
+    (Google Gemini, OpenAI, Anthropic Claude, OpenRouter, Mistral, DeepSeek, xAI Grok, Kimi Code;
+    `apps/desktop/src/setup/providers.ts`), each with a suggested model that pi-ai knows and that
+    reads photos (a test checks both). Choosing one fills "Modelo" and "Modelo para fotos" with its
+    suggestion, keeping a photo model the principal typed. "Otro modelo…" keeps the free
+    `provider/model` field, still checked only by shape; a model typed with a listed provider
+    selects it. "Modelo para fotos" left empty is saved as the model only when that is a suggested
+    one, known to read photos; otherwise the screen asks for it ("Falta el modelo para fotos:
+    escribe uno que lea imágenes, o elige un proveedor de la lista."), so the daemon never starts
+    with half of R-28 AC2's pair nor reads receipts with a model that cannot see them.
+  - AC3: the key of the chosen provider is asked beside the model and named by whose it is,
+    "Clave de Google AI Studio", "Clave de OpenAI", never by its variable; it is stored as before
+    (DK-5 AC1), in the Keychain under the variable pi-ai reads (`GEMINI_API_KEY`). A stored key is
+    shown as "Guardada. Déjala en blanco para mantenerla."; choosing another provider drops what
+    was typed. The keys already stored are listed by provider name too; a provider not listed is
+    still added by its variable name ("Otra…"). A provider with a subscription login (R-27 AC1)
+    keeps the link to Suscripciones (DK-15).
+  - AC4: "Probar" sends `probe_model` on its own connection to the local channel; the daemon
+    makes one minimal call to the saved `ANOMANDER_MODEL`, outside the chat's turn, with the
+    processor's timeout (R-22 AC2) and no retry, and it counts against the daily AI budget (R-12:
+    a real call costs like any other). It answers `probe` with one outcome, shown in plain words:
+    "Funciona: el modelo ha contestado.", "El proveedor no acepta la clave. Revisa que esté bien
+    copiada.", "El proveedor no tiene ese modelo, o tu cuenta no puede usarlo.", "El proveedor
+    dice que se ha acabado tu cuota o que vas demasiado rápido. Revisa tu plan.", "El proveedor no
+    ha contestado a tiempo. Prueba otra vez en un rato.", "El proveedor ha dado un error. Prueba
+    otra vez en un rato.", and without a call "Falta la clave del proveedor, o conectar tu
+    suscripción." (R-28 AC2's connection gap), "Hoy ya se ha llegado al límite diario de llamadas a
+    la IA. Prueba mañana." and, while the setup guide runs, "Aún no hay un modelo guardado.",
+    "Falta el modelo para fotos. Escribe uno que lea imágenes en «Modelo para fotos» y guarda."
+    (the model is saved, the one for photos is not) or "ANOMANDER no conoce ese modelo. Elige
+    otro.". The provider's own error text can quote the key,
+    so it never reaches the window or the log: the daemon classifies it and logs only the outcome.
+    "Probar" tests what is saved: it is disabled, saying "Guarda primero: Probar usa el modelo y la
+    clave guardados.", while the model or a key has changes, and "Para probar, ANOMANDER tiene
+    que estar en marcha." while it is not running.
+  - AC5: while setup is incomplete (R-28), the app's chat gets S-70 with S-171 to S-173, about the
+    window instead of `.env` and `/login`; an unknown model named for both models is said once.
+    Telegram keeps S-71 to S-73.
+
+- DK-24 "Permitir siempre" on a connection (backlog B24, 2026-11-25: "Connections ask "Permitir"
+  even to read (presets saved with `readOnly: []`, `ConnectionsScreen.tsx:597`) and show raw JSON
+  (`protocol/strings.ts:240-241`). "Permitir siempre esta herramienta" granted by the user and
+  revocable, plus a readable line above the JSON."). It refines DK-11 AC3; AC4 and T17 still hold.
+  - AC1: a call that waits for "Permitir" (DK-11 AC3) also offers "Permitir siempre" (S-180),
+    between "Permitir" and "Detener", in the app and in Telegram alike. Pressing it makes that call
+    and grants that tool of that server: the next calls of it run without asking, at either door.
+    It is not offered for a tool marked read-only or already allowed, nor for any tool of a server
+    some of whose arguments ask (the web search program, T17: it reaches any address, so its
+    calls always ask). A preset never marks a tool read-only by its name: only the principal does,
+    by hand or with this press.
+  - AC2: the grant is a row of `permissions` (PRD §8.1, level "with permission"), operation
+    `call_connection_tool`, with the server's name, the tool, the server's identity and the door
+    it was pressed at, and when; it has no expiry. The identity is a digest of `mcp.json` as written:
+    the server's command, arguments and `env` (every name, and each value written in the file; a
+    value kept in the Keychain counts only as `@keychain`, so a new token keeps it), or its URL
+    (not its `headers`, which only reach it). Known limit (verifier, 2026-11-25): the app moves
+    every value of `env` to the Keychain, so a value changed from "Conexiones" keeps the grants;
+    adding, removing or renaming a variable drops them, and so does a value written by hand. Code
+    checks it before skipping the question; it never applies to another tool, another server, or
+    a server whose identity changed. A grant skips only the question a read-only tool skips:
+    once another server answered in the task the call still asks (DK-11 AC4), and so does a call
+    carrying an argument its server says asks.
+  - AC3: "Conexiones" lists, under each server, the tools it allows always, "Siempre permitidas:"
+    (S-183), each with "Quitar" (S-184), which revokes it at once (`revoked_at`); the window asks on
+    the local channel with `connection_grants` and `revoke_connection_grant`, on a connection of its
+    own, as "Memoria" does (DK-18 AC2). A list that cannot be read says S-185; a "Quitar" not done
+    says S-186, and one whose connection was lost first, S-187. At its start the daemon revokes
+    every grant of a server that is no longer in `mcp.json`, was renamed, or whose command or URL
+    changed, so removing a server removes its grants and adding it again does not bring them back;
+    a file it cannot read revokes none.
+  - AC4: the question says the call in one plain line above the exact JSON (S-181, S-182): each
+    argument by its name, a text inside «», anything else as compact JSON, each value cut at 60
+    characters and the line cut between arguments at 200 with "…", what cannot be seen written as
+    its code (DK-11 AC3). So that a value cannot fake another argument, the «» inside a name or a
+    value and the commas of a name are written as their code too, and a backslash is doubled, so
+    a code typed in a value never reads as one written by code. The JSON stays exact and below it.
+  - AC5: only the principal's press on "Permitir siempre" under the call that waits grants, and
+    the grant is stored only once that call is found waiting, before it is made; the
+    processor never sees a button, and a press on a call that no longer waits, or never was asked,
+    grants nothing and answers "Esa petición ya no está pendiente." (DK-11).
+  - AC6: nothing logs the arguments of a call, asked, granted or run unasked (DK-14 AC5).
+  - Assumption: the readable line keeps ANOMANDER's first person ("Quiero usar…"), as every other
+    question of the daemon does.
+
+- DK-21 Usage frictions (backlog B30 and B31, 2026-11-25: "The daily AI limit (200 by default,
+  `daemon/src/config.ts:121-125`) is invisible until it is hit. Show today's use and let it be
+  changed."; "Small frictions: "Adjuntar fotos" accepts any file (PDF sent whole, then refused);
+  ledger import path typed by hand though drop works; jargon in Spanish ("ledger", "servidores
+  MCP… mcp.json", "npm… proxy"); model under the composer not clickable; messages without time,
+  copy button or search.").
+  - AC1: the setup screen says, under the models, "Hoy: 12 de 200 llamadas a la IA": the
+    processor calls the daemon counted today in `TZ` (R-12, `ai_usage`) and
+    `ANOMANDER_DAILY_AI_CALL_LIMIT`. The window asks for them on the local channel with
+    `ai_usage` each time the setup opens; the daemon answers outside the chat's turn and counts
+    no call for it. While no database is open (the setup guide, R-28) the answer is S-22 and the
+    line is not shown. Under it, "Límite diario de llamadas a la IA" takes a whole number from 1
+    to 10000 (the window and the shell both refuse any other, and nothing is saved); empty keeps
+    the stored one. The shell keeps it in `settings.json` as `dailyAiCallLimit` and hands it to
+    the daemon as `ANOMANDER_DAILY_AI_CALL_LIMIT` at each start; unset, the daemon's default
+    (200). It applies on restart, which saving the setup does.
+  - AC2: "Adjuntar fotos" offers only images (`image/*`, as R-20 reads them). A file that is not
+    an image, dropped, pasted or picked, stays out of the draft, and the composer says "Solo puedo
+    leer fotos e imágenes de tickets. Los PDF y otros archivos se quedan fuera."; the images
+    offered with it are kept.
+  - AC3: the model named under the composer (S2) is a button that opens the setup.
+  - AC4: the window says what things are in plain words: the import of a Docker install's ledger
+    speaks of "tus datos" ("¿Vienes de una instalación con Docker? Trae tus datos"), and
+    "Conexiones" of services and programs, never of MCP servers, a proxy or a package. `mcp.json`
+    is named only where the principal must fix it by hand.
+  - AC5: every message of the chat shows when it was sent, in local time (the day too when it
+    was not today), and has a "Copiar mensaje" button that copies its text and says "Copiado".
+    The bar over the conversation has "Buscar en la conversación": it finds the words in the
+    messages loaded in the window, ignoring case and accents, marks each match, says how many
+    there are and brings the first into view.
+  - AC6: the import of a ledger (DK-12 AC1) has "Elegir archivo…": the system's file dialog
+    (`tauri-plugin-dialog`, pinned; the window may only open it, `dialog:allow-open`), showing
+    SQLite files (`.db`, `.sqlite`, `.sqlite3`), fills in the path chosen. Nothing chosen keeps
+    what was typed.
+
+- DK-22 Notifications in the app (backlog B14, 2026-11-25: "Reminders and summaries do not reach
+  an app-only user (no Telegram): the local channel only answers. Use
+  `tauri-plugin-notification`."; B29: "Notifications show up to 180 characters of the reply
+  (`src-tauri/src/lib.rs:357-368`, `notification.rs:5`), amounts and memories on a locked
+  screen. A "show content / notify only" switch.").
+  - AC1: whatever the daemon sends unasked through `notify` (a reminder, the morning digest, the
+    weekly summary, S-12, S-13, S-14, the reply to a queued receipt) goes through one fan-out: to
+    Telegram as before, and to every open connection of the app as a `notice` (its text, its
+    buttons, its own `desktop:` reference, when). It is kept once in the stored conversation
+    (DK-16), with the door and reference of the first door that delivered it, Telegram first;
+    what it starts once delivered (a decision's message, S-12 after a receipt's reply) starts
+    once. A press on a notice's button is a press as any other (DK-4 AC3). It is never logged
+    with its words.
+  - AC2: with no app connected and no Telegram it waits instead of being kept apart: no queue is
+    built. A reminder stays due, the digest is tried again until noon and a queued receipt stays
+    queued (DK-4 AC5); they go out as soon as the app connects, since the jobs that only send run
+    then. Every scheduled job and those runs share one queue, so none overlaps another (a receipt
+    is never read while retention may delete its images). A weekly summary whose time passes with
+    no door is missed, as decision 5 says. When Telegram fails and the app got it, one fixed line
+    says so in the log, without the message or the error.
+  - AC3: the window shows a notice as a message of ANOMANDER at the end of the chat, its buttons
+    armed, and hands it to the shell to notify as an answer is (only while the window is not in
+    front). A notice that arrives before the stored conversation an empty chat asked for, as when
+    the jobs run right as the app connects, does not keep it from being shown: the stored
+    conversation comes first, and after it each notice it does not hold yet (the same reference,
+    or the same words stored no earlier than the notice was sent).
+  - AC4: the setup screen has "Notificaciones" with "Mostrar contenido" (the default, as before:
+    the start of the message, at most 180 characters) and "Solo avisar", which shows "ANOMANDER
+    tiene algo para ti" ("ANOMANDER has something for you" in English) and nothing of the message,
+    so no amount or memory reaches a locked screen. It applies to every notification the shell
+    shows: an answer, a notice, and the one that says the diagnostics were copied. The choice is
+    saved at once in `settings.json` (`notifications`: absent or `notice_only`) by the command
+    `set_notifications`, apart from "Guardar", and starts nothing again; when it cannot be
+    saved the screen says so and the choice in force stays.
+
+- DK-19 The chat says what it does (backlog B23, B25, B26 and B27's "Esc to stop a task", asked
+  by the principal on 2026-11-25: "si, intenta hacer el 1 y 2 en paralelo si puedes").
+  - AC1: the empty chat, while there is a channel, says what ANOMANDER does ("¿En qué te echo una
+    mano?": expenses, reminders, the screen, connections) and offers five examples: "¿Cuánto llevo
+    gastado este mes?", "Recuérdame mañana a las 9 llamar al dentista", "¿Qué ves en mi
+    pantalla?", "Busca en internet qué tiempo hará mañana" and "¿Qué sabes de mí?". A press puts
+    the example in the composer, with the caret at its end; it is never sent by itself.
+  - AC2: replies are plain text: the text interpreter is asked for every reply without Markdown
+    and with web addresses written out, as the screen reader and tasks with connections already
+    were (R-14 unchanged: the prompt only shapes words). The chat turns each `http` or `https`
+    address of a reply into a link and each such link button into a button; a press sends
+    `open_link` to the shell, which parses the address and opens it in the principal's browser
+    (the system's `open`, or `ShellExecuteW` on Windows), never in the window, only when it is an
+    absolute `http` or `https` address with a host and no user name. Any other scheme
+    (`javascript:`, `file:`) or a relative address stays text, and a link button with one is named
+    as before ("solo se puede abrir desde Telegram"). Only the chat window may call `open_link`.
+    Telegram is unchanged but for the prompt.
+  - AC3: while an answer is owed the chat says what ANOMANDER is doing, in a live region that is
+    always in the page, so each phase is announced: "ANOMANDER está pensando…" for a text or a
+    step, "Leyendo el ticket…" for a receipt, "Mirando tu pantalla…" for a look. While a task with
+    connections calls a tool the daemon says so with an optional `progress` event (`of`, the
+    request's id, and `phase`: `web_search` for the web search connection or any server that runs
+    its package, `connection` for any other), and the chat says "Buscando en internet…" or "Usando
+    tus conexiones…". A window that ignores the event loses nothing.
+  - AC4: next to the phase of a text or a look, "Detener" sends `cancel` with the id of the
+    request owed (`target`); the daemon answers `done` at once, outside the chat's turn. It stops
+    the turn as far as it safely can: the processor call that runs is aborted, none starts after
+    it, and a task with connections stops before its next step; a tool call that runs, and what
+    was already written (an expense), are not undone. The answer to the request then comes as
+    usual: S-130 when a processor call of the turn was stopped (with the calls a task had made, as
+    for any task cut short), its buttons kept, so an expense written before the stop can still be
+    undone; the answer it had reached otherwise. It is stored as any reply, and a stopped look is
+    kept in the history as `cancelled` ("La paraste"). The chat says "Deteniendo…" until the answer
+    comes. A receipt, a press and a step of a task on the computer offer no "Detener": the task has
+    its own "Detener tarea" (DK-10). Turns from Telegram are never stopped.
+  - AC5: Esc does what "Detener tarea" does while a task on the computer runs, and otherwise what
+    "Detener" does, only while the chat is the screen shown and an input method is not composing.
 
 - DK-25 Time zone and currency (backlog B15, decided 2026-11-25: "Al configurar se toman la zona
   horaria y la moneda del sistema operativo, y se pueden cambiar en Configuración. Una sola
@@ -678,7 +898,9 @@ and keep its secrets in the operating system instead of a text file.
 2. **One daemon.** Decided (2026-11-10): the app and Docker are two ways to run the same
    daemon. One or the other, never both at once (DK-2).
 3. **Chat in v1.** Decided (2026-11-10): yes, besides control (start, stop, status, secrets).
-4. **Where unasked messages go.** Decided (2026-11-10): to Telegram only (DK-4 AC5).
+4. **Where unasked messages go.** Decided (2026-11-10): to Telegram only (DK-4 AC5). Changed
+   (2026-11-25, backlog B14): to Telegram and to the app while it is connected (DK-22), so an
+   app-only principal gets reminders and summaries too.
 5. **A missed weekly summary.** Decided (2026-11-10): it stays missed, as today (R-10): if the
    app is closed on Sunday at the summary's time, that week has none (DK-7 AC2).
 7. **Acting on the computer.** Decided (2026-11-10), then corrected the same day: routine
@@ -708,7 +930,7 @@ the principal to confirm:
 | The token (DK-3 AC2) | `ANOMANDER_LOCAL_TOKEN`, handed over on the daemon's stdin by the app (DK-5 AC2), at least 32 characters of `A-Z a-z 0-9 . _ ~ + -`. Unset: the channel is off and no port opens, as under Docker |
 | The port | `ANOMANDER_LOCAL_PORT`, default `4312`, always on `127.0.0.1`. The app picks a free one at each launch |
 | Presenting the token | As the second WebSocket subprotocol: `new WebSocket(url, ['anomander.v1', token])` |
-| Messages | `ChatRequest` (`text`, `receipt`, `button`, `screen`, `computer`, `connect`, `history`, `clear_history`, `expenses`, `memories`, `forget_memory`, `actions`, `forget_action`) and `ChatEvent` (`reply`, `done`, `rejected`, `history`, `expenses`, `memories`, `actions`) in `packages/protocol/src/local-channel.ts` |
+| Messages | `ChatRequest` (`text`, `receipt`, `button`, `screen`, `computer`, `connect`, `history`, `clear_history`, `expenses`, `memories`, `forget_memory`, `actions`, `forget_action`, `cancel`, `ai_usage`, `connection_grants`, `revoke_connection_grant`) and `ChatEvent` (`reply`, `notice`, `done`, `rejected`, `history`, `expenses`, `memories`, `actions`, `ai_usage`, `connection_grants`), and the optional `ChatProgress` (`progress`, DK-19), in `packages/protocol/src/local-channel.ts`. `notice` is the only event the daemon pushes unasked (DK-22) |
 | Why the daemon stopped (DK-2 AC3) | Exit code `3`: another daemon runs on the same database. `4`: another process uses the bot. `1`: anything else. `exitCodes` in `packages/protocol` |
 | The single-daemon lock (DK-2 AC1) | `<database>.lock` beside the database, held while the daemon runs and freed by the operating system when it ends, so a crash leaves nothing stale |
 

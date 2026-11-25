@@ -15,9 +15,10 @@ use crate::ledger_import::{self, LedgerImport};
 use crate::oauth_connect::{self, OAuthSet};
 use crate::secure_store::SecretStore;
 use crate::setup::{
-    apply_setup, load_secrets, save_settings, setup_state, Settings, SetupInput, TELEGRAM_BOT_TOKEN,
+    apply_setup, load_secrets, save_settings, setup_state, Settings, SetupInput,
+    DAILY_AI_CALL_LIMITS, TELEGRAM_BOT_TOKEN,
 };
-use crate::snapshot::{SetupState, Snapshot};
+use crate::snapshot::{NotificationMode, SetupState, Snapshot};
 
 /// The words a secret's name usually holds. Every value of `mcp.json` is kept as one, and the
 /// code cannot tell which are: a value whose name has one of these words, or any header, is
@@ -185,6 +186,24 @@ impl Core {
             channel: update.channel,
             setup: self.setup_state(),
         }
+    }
+
+    /// DK-22: what the notifications show, as last saved.
+    pub fn notifications(&self) -> NotificationMode {
+        lock(&self.setup).settings.notifications
+    }
+
+    /// DK-22: saves what the notifications show, at once. The daemon is not touched.
+    pub fn set_notifications(&self, mode: NotificationMode) -> Result<(), String> {
+        let mut setup = lock(&self.setup);
+        let settings = Settings {
+            notifications: mode,
+            ..setup.settings.clone()
+        };
+        save_settings(&self.data, &settings)
+            .map_err(|error| format!("could not save the settings: {error}"))?;
+        setup.settings = settings;
+        Ok(())
     }
 
     /// DK-5 AC1: stores the secrets and saves the rest. The daemon is not touched here.
@@ -528,7 +547,15 @@ impl Core {
             time_zone: settings.time_zone.as_deref(),
             currency: settings.currency.as_deref(),
         };
-        let env = child_env(&parent, &inputs);
+        let mut env = child_env(&parent, &inputs);
+        // DK-21: the principal's own limit; unset, or out of range in a file edited by hand, the
+        // daemon keeps its default.
+        if let Some(limit) = settings
+            .daily_ai_call_limit
+            .filter(|limit| DAILY_AI_CALL_LIMITS.contains(limit))
+        {
+            env.push(("ANOMANDER_DAILY_AI_CALL_LIMIT".into(), limit.to_string()));
+        }
         let handover = handover_line(&inputs);
         // A stored token is hidden even when it is not handed over.
         let mut redacted = vec![self.token.clone()];
@@ -560,6 +587,7 @@ impl Core {
 mod tests {
     use super::*;
     use crate::secure_store::MemoryStore;
+    use crate::setup::load_settings;
     use serde_json::json;
     use std::collections::BTreeMap;
 
@@ -614,6 +642,8 @@ mod tests {
             vision_model: None,
             provider_keys: vec!["OPENAI_API_KEY".into()],
             connection_secrets: Vec::new(),
+            notifications: NotificationMode::Content,
+            daily_ai_call_limit: None,
             ..Settings::default()
         };
         (store, settings)
@@ -639,6 +669,26 @@ mod tests {
     }
 
     const LOGIN: &str = r#"{"openai":{"type":"api_key","key":"sk-login-1"}}"#;
+
+    #[test]
+    fn notify_only_is_saved_at_once_and_the_setup_says_it() -> Result<(), String> {
+        let (store, settings) = configured();
+        let f = fixture(store, settings);
+        assert_eq!(f.core.notifications(), NotificationMode::Content);
+
+        f.core.set_notifications(NotificationMode::NoticeOnly)?;
+
+        assert_eq!(f.core.notifications(), NotificationMode::NoticeOnly);
+        assert_eq!(
+            f.core.setup_state().notifications,
+            NotificationMode::NoticeOnly
+        );
+        let saved = load_settings(&f.root.join("settings.json"))?;
+        assert_eq!(saved.notifications, NotificationMode::NoticeOnly);
+        // The rest of the setup is left as it was.
+        assert_eq!(saved.model.as_deref(), Some("openai/gpt-4o-mini"));
+        Ok(())
+    }
 
     #[test]
     fn a_launch_hands_over_the_login_kept_in_the_store_and_hides_its_tokens() {
@@ -1075,6 +1125,38 @@ mod tests {
         settings.model = None;
         let f = fixture(store, settings);
         assert!(!without_telegram(&ready(&f.core)));
+    }
+
+    #[test]
+    fn a_stored_daily_ai_call_limit_reaches_the_daemons_environment_and_none_leaves_its_default() {
+        let limit = |spec: &LaunchSpec| {
+            spec.env
+                .iter()
+                .find(|(name, _)| name == "ANOMANDER_DAILY_AI_CALL_LIMIT")
+                .map(|(_, value)| value.clone())
+        };
+        let (store, mut settings) = configured();
+        settings.daily_ai_call_limit = Some(500);
+        assert_eq!(
+            limit(&ready(&fixture(store, settings).core)).as_deref(),
+            Some("500")
+        );
+
+        let (store, settings) = configured();
+        assert_eq!(limit(&ready(&fixture(store, settings).core)), None);
+    }
+
+    #[test]
+    fn a_stored_daily_ai_call_limit_outside_1_to_10000_leaves_the_daemons_default() {
+        for bad in [0, 10_001, u32::MAX] {
+            let (store, mut settings) = configured();
+            settings.daily_ai_call_limit = Some(bad);
+            let spec = ready(&fixture(store, settings).core);
+            assert!(!spec
+                .env
+                .iter()
+                .any(|(n, _)| n == "ANOMANDER_DAILY_AI_CALL_LIMIT"));
+        }
     }
 
     #[test]

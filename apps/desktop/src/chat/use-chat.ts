@@ -1,7 +1,7 @@
 // DK-4: binds the chat client to React. It owns the connection for as long as the chat is on
 // screen and turns what the client reports into the conversation.
 
-import { strings as replies } from '@anomander/protocol';
+import { type ProgressPhase, strings as replies } from '@anomander/protocol';
 import { useCallback, useEffect, useReducer, useRef, useState } from 'react';
 import type { LocalChannel } from '../shell.ts';
 import { strings } from '../strings.ts';
@@ -13,15 +13,34 @@ import {
   type Conversation,
   emptyConversation,
   isReplaceable,
+  type Owed,
   type OwnMessage,
+  owedAnswer,
   type Route,
   reduceConversation,
 } from './conversation.ts';
 
 export type { Computer } from './computer-task-session.ts';
 
+/**
+ * DK-19: the answer owed now, and what is known of it: what the daemon said it is doing, whether
+ * the principal can stop it here, and whether they already asked to.
+ */
+export interface Turn extends Owed {
+  phase: ProgressPhase | null;
+  stoppable: boolean;
+  stopping: boolean;
+}
+
+/** DK-19: the turns the daemon can stop (`cancel`); a receipt or a step it cannot. */
+const STOPPABLE: ReadonlySet<Owed['kind']> = new Set(['text', 'screen']);
+
 export interface Chat {
   conversation: Conversation;
+  /** DK-19: the answer owed now; `null` when none is. */
+  turn: Turn | null;
+  /** DK-19: asks the daemon to stop the turn owed now, when it can be stopped. */
+  cancel(): void;
   /** Sends a text, or the attachments as one receipt with the text as caption (DK-4 AC2). */
   say(text: string, attachments: Attachment[]): void;
   /** Sends again a message that was not sent. */
@@ -135,6 +154,10 @@ export const useChat = (channel: LocalChannel | null, options: ChatOptions = {})
     setReload((count) => count + 1);
   }, []);
   const [running, setRunning] = useState(false);
+  /** DK-19: what the daemon said it is doing, by request. */
+  const [phases, setPhases] = useState<Record<string, ProgressPhase>>({});
+  /** DK-19: the requests the principal asked to stop. */
+  const [stopping, setStopping] = useState<ReadonlySet<string>>(new Set());
   /** The task on the computer (DK-10); it reads the options and the client as they are now. */
   const [session] = useState(
     () =>
@@ -177,7 +200,27 @@ export const useChat = (channel: LocalChannel | null, options: ChatOptions = {})
           });
         }
       },
+      onProgress: (requestId, phase) =>
+        setPhases((known) =>
+          known[requestId] === phase ? known : { ...known, [requestId]: phase },
+        ),
+      // DK-22: what ANOMANDER sent unasked is said in the chat and notified as an answer is.
+      onNotice: (notice) => {
+        dispatch({ type: 'notice', notice });
+        latest.current.onReply?.(notice.text);
+      },
       onOutcome: (requestId, outcome) => {
+        setPhases((known) => {
+          if (!(requestId in known)) return known;
+          const { [requestId]: _answered, ...rest } = known;
+          return rest;
+        });
+        setStopping((asked) => {
+          if (!asked.has(requestId)) return asked;
+          const rest = new Set(asked);
+          rest.delete(requestId);
+          return rest;
+        });
         // DK-13: a route is followed only in the answer to a plain text.
         const plain = texts.current.delete(requestId);
         // B48: a forget confirmed here erased the stored conversation; the window follows it.
@@ -246,7 +289,7 @@ export const useChat = (channel: LocalChannel | null, options: ChatOptions = {})
   const say = useCallback(
     (text: string, attachments: Attachment[]) => {
       const id = crypto.randomUUID();
-      dispatch({ type: 'said', id, text, attachments });
+      dispatch({ type: 'said', id, text, attachments, at: new Date().toISOString() });
       void deliver(id, text, attachments);
     },
     [deliver],
@@ -466,6 +509,22 @@ export const useChat = (channel: LocalChannel | null, options: ChatOptions = {})
     });
   }, [reload, conversation, running, recheck]);
 
+  const owed = owedAnswer(conversation);
+  const turn: Turn | null =
+    owed === null
+      ? null
+      : {
+          ...owed,
+          phase: owed.requestId === null ? null : (phases[owed.requestId] ?? null),
+          stoppable: owed.requestId !== null && STOPPABLE.has(owed.kind),
+          stopping: owed.requestId !== null && stopping.has(owed.requestId),
+        };
+  const owedId = turn?.stoppable === true && !turn.stopping ? turn.requestId : null;
+  const cancel = useCallback(() => {
+    if (owedId === null || client.current?.cancel(owedId) !== true) return;
+    setStopping((asked) => new Set(asked).add(owedId));
+  }, [owedId]);
+
   const clear = useCallback(async () => {
     const outcome = (await client.current?.clearHistory()) ?? 'not_done';
     if (outcome === 'done') dispatch({ type: 'cleared' });
@@ -474,6 +533,8 @@ export const useChat = (channel: LocalChannel | null, options: ChatOptions = {})
 
   return {
     conversation,
+    turn,
+    cancel,
     say,
     retry,
     restart,

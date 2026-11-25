@@ -269,6 +269,8 @@ Undoing or correcting a registered expense (PRD R-7 AC4-AC8) needs no table of i
 
 The weekly summary (PRD R-10 AC5-AC6) works the same way with no table of its own: the principal's "Sí" to S-74 inserts a `permissions` row with operation `send_weekly_summary` and `conditions_json` `{}`, and S-9 is sent only while one is in force.
 
+A "Permitir siempre" on a call of a task with connections (desktop PRD DK-24) needs no table either: the principal's press inserts a `permissions` row with operation `call_connection_tool` and `conditions_json` `{"server": "…", "tool": "…", "identity": "<sha256 of the command, arguments and env as written in mcp.json (a Keychain value as @keychain), or of the URL>", "door": "app" | "telegram"}`, with no `expires_at`. Several are in force at once, one per tool of a server; "Quitar" sets `revoked_at`, and so does the daemon's start for a server removed, renamed or changed in `mcp.json`. The arguments of a call are never stored.
+
 The morning digest (PRD R-26) needs no table for its permission: the principal's "Sí" to S-53 inserts a row in `permissions` with operation `send_morning_digest` and `conditions_json` `{"time": "HH:mm"}` (local time in `TZ`), revoking the earlier one, and turning it off sets `revoked_at`. The days it was sent are added by the migration `0006_digest_sends.sql`:
 
 ```sql

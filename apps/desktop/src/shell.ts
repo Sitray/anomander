@@ -4,6 +4,7 @@
 import type { ComputerAction } from '@anomander/protocol';
 import { invoke } from '@tauri-apps/api/core';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
+import { open as openDialog } from '@tauri-apps/plugin-dialog';
 
 /** DK-6 AC1: what the menu bar icon shows. `starting` is a daemon launched and not yet listening. */
 export type DaemonState = 'starting' | 'running' | 'stopped' | 'failing';
@@ -39,6 +40,12 @@ export interface LocalChannel {
   token: string;
 }
 
+/**
+ * DK-22 (B29): what the shell's notifications show: the start of the message (`content`, the
+ * default), or only that ANOMANDER has something (`notice_only`).
+ */
+export type NotificationMode = 'content' | 'notice_only';
+
 /** What the setup screen shows. Secrets are never sent back: only whether each one is stored. */
 export interface SetupState {
   hasTelegramBotToken: boolean;
@@ -54,6 +61,8 @@ export interface SetupState {
   timeZone: string | null;
   /** DK-25: the daemon's `ANOMANDER_CURRENCY`; `null` while none is. */
   currency: string | null;
+  /** DK-22: what the notifications show; absent is `content`. */
+  notifications?: NotificationMode;
 }
 
 export interface Snapshot {
@@ -75,6 +84,8 @@ export interface SetupInput {
   timeZone: string;
   /** DK-25: an ISO 4217 code; empty leaves it unset. */
   currency: string;
+  /** DK-21: `ANOMANDER_DAILY_AI_CALL_LIMIT`, from 1 to 10000; omitted keeps the stored one. */
+  dailyAiCallLimit?: number;
 }
 
 /** DK-11: a value of a server (a variable of its environment or a header): its name, never the value. */
@@ -185,6 +196,9 @@ export const STOP_TASK_EVENT = 'shell://stop-task';
 /** B48: the event the shell emits each time it shows the chat window, hidden until then. */
 export const CHAT_SHOWN_EVENT = 'shell://chat-shown';
 
+/** DK-21: what the import of a ledger reads: a SQLite file, as `anomander.db` is. */
+export const LEDGER_EXTENSIONS = ['db', 'sqlite', 'sqlite3'];
+
 export const shell = {
   snapshot: (): Promise<Snapshot> => invoke('get_snapshot'),
   /** Saves the setup and starts the daemon again with it. */
@@ -206,6 +220,18 @@ export const shell = {
    * started again after if it ran. Rejects, with the app's ledger as it was, when the import fails.
    */
   importLedger: (path: string): Promise<LedgerImport> => invoke('import_ledger', { path }),
+  /**
+   * DK-21: the system's dialog for the data file of a Docker install; the path chosen, or `null`
+   * when the principal chose none. Only SQLite files are offered: `anomander.db` is one.
+   */
+  pickLedgerFile: async (): Promise<string | null> => {
+    const picked = await openDialog({
+      multiple: false,
+      directory: false,
+      filters: [{ name: 'SQLite', extensions: LEDGER_EXTENSIONS }],
+    });
+    return typeof picked === 'string' ? picked : null;
+  },
   /**
    * DK-11: connects the HTTP server `name` with OAuth: the shell opens the browser and waits, up
    * to 5 minutes, for the principal to authorize the app. Then the daemon starts again with the
@@ -259,6 +285,11 @@ export const shell = {
   ): Promise<ArrayBuffer> => invoke('perform_action', { action, keepHidden, permitted }),
   /** Brings the app and the chat back to the front. */
   reveal: (): Promise<void> => invoke('reveal'),
+  /**
+   * B25: opens an absolute `http` or `https` address in the principal's browser, never in the
+   * window; the shell refuses any other.
+   */
+  openLink: (url: string): Promise<void> => invoke('open_link', { url }),
   /** Whether a task goes by itself, so the menu bar offers "Detener tarea" (DK-10). */
   setTaskRunning: (running: boolean): Promise<void> => invoke('set_task_running', { running }),
   /** The principal chose "Detener tarea" in the menu bar. */
@@ -267,6 +298,9 @@ export const shell = {
   onChatShown: (handler: () => void): Promise<UnlistenFn> => listen(CHAT_SHOWN_EVENT, handler),
   /** An answer arrived: the shell notifies it unless the window is in front. */
   notifyReply: (text: string): Promise<void> => invoke('notify_reply', { text }),
+  /** DK-22: saves what the notifications show, at once; the daemon is not touched. */
+  setNotifications: (mode: NotificationMode): Promise<Snapshot> =>
+    invoke('set_notifications', { mode }),
   onSnapshot: (handler: (snapshot: Snapshot) => void): Promise<UnlistenFn> =>
     listen<Snapshot>(SNAPSHOT_EVENT, (event) => handler(event.payload)),
 };

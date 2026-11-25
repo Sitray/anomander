@@ -573,11 +573,18 @@ Each message is one JSON text frame, typed in `packages/protocol/src/local-chann
 | `receipt`: one or several images in base64 | `reply`; a PDF, another file type or an image over 20 MB gets R-20's reply, as in Telegram |
 | `button`: the `data` of a reply's button | `reply`; S-19 when the decision is no longer open, whichever door closed it (DK-4 AC3) |
 | `screen`: a question and one capture of the screen in base64 (DK-9) | `reply` with what the vision processor sees (`src/processor/screen-reader.ts`): no tools, nothing stored but its question in the history (DK-14), one call against the daily AI limit; an image over 20 MB gets R-20's reply |
-| `connect`: a task for the connected MCP servers (DK-11) | `reply` in words that ends the task, or a `reply` that describes one call and carries "Permitir" and "Detener" buttons (`connection:<id>:allow`, `connection:<id>:refuse`). `src/connections/task.ts` decides every call the processor asks for; `mcp-client.ts` makes it. The servers come from `ANOMANDER_MCP_CONFIG` (`config.ts`). At most 8 calls, each processor call against the daily AI limit |
+| `connect`: a task for the connected MCP servers (DK-11) | `reply` in words that ends the task, or a `reply` that describes one call and carries "Permitir" and "Detener" buttons (`connection:<id>:allow`, `connection:<id>:refuse`), and "Permitir siempre" between them when it can be granted (`connection:<id>:always`, DK-24). Its text says the call in one plain line above the exact JSON of its arguments. `src/connections/task.ts` decides every call the processor asks for; `mcp-client.ts` makes it. The servers come from `ANOMANDER_MCP_CONFIG` (`config.ts`). At most 8 calls, each processor call against the daily AI limit |
 | `computer`: a task, one capture and the steps already done (DK-10) | `reply` whose `computer` is the one action the vision processor proposes (`src/processor/computer-planner.ts`), described by code; or a `reply` in words that ends the task. The daemon never performs anything. At most 12 steps, each one call against the daily AI limit |
 | `history`, with an optional `limit` (DK-16) | `history` with the stored conversation of both doors, oldest first: the latest `limit` messages, at most 500 (`HISTORY_LIMIT`). Each has its id, `from`, `door`, text, buttons and the reply's `channelRef`; a `reply` with S-22 when it cannot be read |
 | `clear_history` (DK-16) | `done` once the stored conversation and the recent turns are erased for real; a `reply` with S-22 when they cannot be |
+| `cancel`: the `target` id of a `text`, `screen` or `connect` request still owed (DK-19) | `done` at once, outside the chat's turn. That turn's processor call is aborted (`src/processor/cancel.ts`), none starts after it, and a task with connections stops before its next step; what was written stays. The target's own answer then says S-130 when a call was stopped |
+| `connection_grants` (DK-24) | `connection_grants` with the "Permitir siempre" in force, by server and then tool: each with its id, `server`, `tool` and `at`. Never a call's arguments |
+| `revoke_connection_grant`, with its `grantId` (DK-24) | `done` once it is revoked ("Quitar"); one not in force changes nothing |
 | A frame that is none of these | `rejected`, and nothing is done with it |
+
+While a task with connections calls a tool for a request still owed, the daemon may send
+`progress` (`of`: that request's id; `phase`: `web_search` or `connection`), never an answer
+itself (DK-19).
 
 A `reply` carries its own `channelRef`, `desktop:<uuid>`, which is recorded as the delivery
 (R-9 AC2) once the frame left through the socket. The channel only answers: what ANOMANDER
@@ -594,6 +601,13 @@ A task is asked with `connect` in the app, or with `/mcp <tarea>` in Telegram (`
 answers how to ask). A call that needs permission is asked at the door the task came from, with
 "Permitir" and "Detener", and only a press at that door answers it: the same press at the other
 door answers "Esa petición ya no está pendiente." and runs nothing.
+
+"Permitir siempre" (DK-24) makes that call and stores a `call_connection_tool` permission for
+that tool of that server (`src/store/permissions.ts`), once the call is found waiting: its name
+and `serverIdentity`, a digest of its command, arguments and `env` as written in `mcp.json` (a
+Keychain value only as `@keychain`), or of its URL (`src/connections/config.ts`). `task.ts` checks it before
+skipping the question, as for a read-only tool, so DK-11 AC4 and T17's argument rules still ask.
+At its start the daemon revokes the grants of a server removed, renamed or changed in `mcp.json`.
 
 A task does not hold the chat's turn while it waits for a server or the processor
 (`createConnectionSession` in `src/connections/session.ts`, given the chat's turn lock by

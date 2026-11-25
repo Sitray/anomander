@@ -24,6 +24,12 @@ const dateFormats: Record<Locale, Intl.DateTimeFormat> = {
 };
 
 /**
+ * DK-20: the daemon runs on Windows. Read each time, from the process that speaks: a page has no
+ * `process` and is taken for macOS (the window has its own text for Windows).
+ */
+const onWindows = (): boolean => typeof process !== 'undefined' && process.platform === 'win32';
+
+/**
  * `2340` → `23,40 €`, or `€23.40` in English: bare cents are in the principal's currency, an
  * amount in its own, and a sum per currency is said currency by currency (`45,20 € y 12,00 US$`),
  * never added up. An empty sum is zero in the principal's currency.
@@ -316,11 +322,16 @@ const es = {
   computerFailed: () => 'No he sabido qué hacer en tu ordenador. ¿Me lo pides de otra forma?',
   /**
    * DK-11: the call a task with connections wants to make, said by code. `args` is the exact
-   * JSON of its arguments.
+   * JSON of its arguments. DK-24 AC4 (S-181, S-182): `summary` is the same arguments in one
+   * plain line above it, cut short; `null` when the call carries none.
    */
-  connectionCall: (tool: string, server: string, args: string) =>
-    `Quiero usar «${tool}» de «${server}» con:\n${args}`,
+  connectionCall: (tool: string, server: string, summary: string | null, args: string) =>
+    summary === null
+      ? `Quiero usar «${tool}» de «${server}», sin datos.\n${args}`
+      : `Quiero usar «${tool}» de «${server}» con: ${summary}\n${args}`,
   connectionAllow: () => 'Permitir',
+  /** DK-24 AC1 (S-180): the same tool of the same server runs without asking from now on. */
+  connectionAllowAlways: () => 'Permitir siempre',
   connectionRefuse: () => 'Detener',
   connectionStopped: () => 'Detenido. No he hecho nada más.',
   connectionGone: () => 'Esa petición ya no está pendiente.',
@@ -330,7 +341,11 @@ const es = {
   routedScreen: () => 'Miro tu pantalla.',
   routedComputer: () => 'Me pongo con ello en tu ordenador.',
   routedConnect: () => 'Lo miro en tus conexiones.',
-  routeInApp: () => 'Eso solo puedo hacerlo desde la app de ANOMANDER en tu Mac.',
+  // DK-20: a look and a task on the computer are macOS's for now.
+  routeInApp: (): string =>
+    onWindows()
+      ? 'Eso todavía no puedo hacerlo en Windows.'
+      : 'Eso solo puedo hacerlo desde la app de ANOMANDER en tu Mac.',
   /** T17: a lookup on the internet with no connection that searches; never the computer. */
   webSearchMissing: () =>
     'Para buscar en internet necesito la conexión de búsqueda web. Añádela en Conexiones, en la app de ANOMANDER, y vuelve a pedírmelo.',
@@ -468,6 +483,15 @@ const es = {
   /** S-73. `provider` is the login button label, such as `ChatGPT`, or the pi-ai provider ID. */
   setupProviderUnconnected: (provider: string) =>
     `- Conectar tu cuenta de ${provider} (/login o su API key en el .env).`,
+  // DK-23 AC5: the same gaps as the desktop app's chat says them: about the window, never `.env`.
+  /** S-171. */
+  appSetupModelUnset: () => '- Elegir el modelo: abre Configuración, en la barra de arriba.',
+  /** S-172. */
+  appSetupModelUnknown: (model: string) =>
+    `- Un modelo que exista: ${model} no lo encuentro. Elige otro en Configuración.`,
+  /** S-173. `provider` as in S-73. */
+  appSetupProviderUnconnected: (provider: string) =>
+    `- Conectar tu cuenta de ${provider}: pon su clave en Configuración o conéctala en Suscripciones.`,
   /** S-74 (R-10 AC6); "No" replies S-55. */
   confirmWeeklySummary: () => '¿Te mando cada semana un resumen de tus gastos?',
   /** S-75: the reply to "Sí" to S-74 (R-10 AC6). */
@@ -486,6 +510,8 @@ const es = {
   /** S-81: `/exportar` in the app (R-29 AC4). */
   exportOnlyInTelegram: () =>
     'De momento la exportación solo llega por Telegram: escribe /exportar allí.',
+  /** S-130: a turn the principal stopped from the app (desktop DK-19); what was done stays. */
+  turnCancelled: () => 'Lo he dejado aquí. Lo que ya estaba hecho se queda como está.',
   /**
    * S-90 to S-94 (R-30): S-90 for every expense, S-91 with a filter, S-92 and S-93 when nothing
    * was spent, each followed by S-94 when some expense of the period is pending confirmation.
@@ -587,8 +613,12 @@ const en: typeof es = {
     `I've reached the maximum of ${steps} steps in a row, so I'm stopping here. If you want me to carry on, ask me again.`,
   computerFailed: () =>
     "I couldn't work out what to do on your computer. Can you ask me another way?",
-  connectionCall: (tool, server, args) => `I want to use “${tool}” from “${server}” with:\n${args}`,
+  connectionCall: (tool, server, summary, args) =>
+    summary === null
+      ? `I want to use “${tool}” from “${server}”, with no data.\n${args}`
+      : `I want to use “${tool}” from “${server}” with: ${summary}\n${args}`,
   connectionAllow: () => 'Allow',
+  connectionAllowAlways: () => 'Always allow',
   connectionRefuse: () => 'Stop',
   connectionStopped: () => "Stopped. I haven't done anything else.",
   connectionGone: () => 'That request is no longer pending.',
@@ -596,7 +626,10 @@ const en: typeof es = {
   routedScreen: () => "I'm looking at your screen.",
   routedComputer: () => "I'm on it, on your computer.",
   routedConnect: () => "I'll look it up in your connections.",
-  routeInApp: () => 'I can only do that from the ANOMANDER app on your Mac.',
+  routeInApp: () =>
+    onWindows()
+      ? "I can't do that on Windows yet."
+      : 'I can only do that from the ANOMANDER app on your Mac.',
   webSearchMissing: () =>
     'To search the internet I need the web search connection. Add it in Connections, in the ANOMANDER app, and ask me again.',
   connectionUsage: () => 'Tell me what you want me to do with your connections: /mcp and the task.',
@@ -698,6 +731,11 @@ const en: typeof es = {
     `- A model that exists in ${variable}: I can't find ${model}.`,
   setupProviderUnconnected: (provider) =>
     `- Your ${provider} account connected (/login or its API key in the .env).`,
+  appSetupModelUnset: () => '- The model chosen: open Settings, in the bar at the top.',
+  appSetupModelUnknown: (model) =>
+    `- A model that exists: I can't find ${model}. Pick another one in Settings.`,
+  appSetupProviderUnconnected: (provider) =>
+    `- Your ${provider} account connected: add its key in Settings or connect it in Subscriptions.`,
   confirmWeeklySummary: () => 'Shall I send you a summary of your expenses every week?',
   weeklySummaryOn: () => "Done: I'll send you a summary of your expenses every week.",
   weeklySummaryAlreadyOn: () => 'I already send you a summary of your expenses every week.',
@@ -708,6 +746,7 @@ const en: typeof es = {
   exportFailed: () => "I couldn't export your data. Try again in a while.",
   exportOnlyInTelegram: () =>
     'For now the export only comes through Telegram: send /exportar there.',
+  turnCancelled: () => 'I stopped there. Anything already done stays as it is.',
   expenseQuery: (answer) => {
     const [from, to] = queryDays(answer);
     const period = answer.from === answer.to ? `on ${from}` : `from ${from} to ${to}`;
