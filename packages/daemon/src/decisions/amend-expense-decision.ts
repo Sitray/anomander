@@ -44,6 +44,14 @@ export const createAmendExpenseDecision =
     }
 
     const restore = restoreOf(decision);
+    if (restore === 'unreadable') {
+      // A correction's question whose stored values cannot be read changes nothing (S-19).
+      closeAmendDecisions(db, expenseId);
+      logger.warn('undo of a correction whose restore payload does not parse', {
+        decisionId: decision.id,
+      });
+      return { text: strings.decisionClosed() };
+    }
     if (restore !== null) {
       // R-7 AC9: a correction no longer standing was overtaken; its question is closed (S-19).
       if (!correctionStands(db, restore)) {

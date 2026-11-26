@@ -112,10 +112,22 @@ const restorePayload = z.object({
   }),
 });
 
-/** R-7 AC9: what the decision's "Deshacer" puts back, or `null` for the question under S-1, S-2. */
-export const restoreOf = (decision: OpenDecision): CorrectionRestore | null => {
-  const parsed = restorePayload.safeParse(decision.payload);
-  return parsed.success ? parsed.data.restore : null;
+/**
+ * R-7 AC9: what the decision's "Deshacer" puts back; `null` for the question under S-1, S-2;
+ * `'unreadable'` for a correction's question whose stored values do not parse, which must
+ * never fall back to taking the expense out.
+ */
+export const restoreOf = (decision: OpenDecision): CorrectionRestore | 'unreadable' | null => {
+  const payload: unknown = decision.payload;
+  // Mirrors `json_extract(payload_json, '$.restore') IS NULL` in openAmendDecisionOf.
+  const carriesRestore =
+    typeof payload === 'object' &&
+    payload !== null &&
+    'restore' in payload &&
+    (payload as { restore: unknown }).restore !== null;
+  if (!carriesRestore) return null;
+  const parsed = restorePayload.safeParse(payload);
+  return parsed.success ? parsed.data.restore : 'unreadable';
 };
 
 /** The expense an `amend_expense` decision is about. */

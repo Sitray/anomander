@@ -938,3 +938,97 @@ describe('"Corregir" and "Deshacer" from the window\'s "Gastos" (DK-17 AC6)', ()
     chat.close();
   });
 });
+
+describe('undoing a correction: edges (R-7 AC9)', () => {
+  const S106 = (cents: number) => `Deshecho: vuelve a ser ${formatAmount(cents)} (restaurantes).`;
+  const snapshot = () => ({
+    expenses: query('SELECT * FROM expenses ORDER BY id'),
+    assertions: query('SELECT id, status FROM assertions ORDER BY id'),
+    decisions: query('SELECT id, status FROM pending_decisions ORDER BY id'),
+    proposals: query('SELECT id, status FROM proposals ORDER BY id'),
+    actions: query('SELECT id FROM actions ORDER BY id'),
+  });
+  const write = (sql: string) => {
+    const db = new Database(join(scratch, 'anomander.db'));
+    try {
+      db.exec(sql);
+    } finally {
+      db.close();
+    }
+  };
+  /** A typed expense corrected after "Corregir" (total 23 -> 28,40), its "Deshacer" delivered. */
+  const corrected = async () => {
+    const reply = await registered();
+    expect(await press(reply, 'Corregir')).toBe(S7);
+    const correction = await say('total 28,40');
+    expect(correction.text).toBe(S102(2840));
+    await vi.waitFor(() =>
+      expect(
+        query(`SELECT d.id FROM pending_decisions d JOIN proposals p ON p.id = d.proposal_id
+               WHERE json_extract(p.payload_json, '$.restore') IS NOT NULL AND d.channel_ref IS NOT NULL`),
+      ).toHaveLength(1),
+    );
+    return correction;
+  };
+
+  it('two presses at once: one S-106, one S-19, one action', async () => {
+    const correction = await corrected();
+    const [button] = buttonsOf(correction);
+    if (button === undefined) throw new Error('no button');
+    const before = api.sent.length;
+    api.push(
+      updates.callbackQuery({ chatId: PRINCIPAL }, button.callback_data, correction.messageId),
+    );
+    api.push(
+      updates.callbackQuery({ chatId: PRINCIPAL }, button.callback_data, correction.messageId),
+    );
+    const texts = (await api.waitForSent(before + 2))
+      .slice(before)
+      .map((message) => message.text)
+      .sort();
+    expect(texts).toEqual([S106(2300), S19].sort());
+    expect(gastos()).toEqual([{ total_cents: 2300 }]);
+    expect(
+      query(`SELECT a.id FROM actions a JOIN proposals p ON p.id = a.proposal_id
+             WHERE json_extract(p.payload_json, '$.restore') IS NOT NULL`),
+    ).toHaveLength(1);
+  });
+
+  it('a failure halfway leaves nothing half-restored', async () => {
+    const correction = await corrected();
+    // A column value the store rejects (foreign key) after the assertions were rewritten.
+    write(`UPDATE proposals SET payload_json = json_set(payload_json,
+             '$.restore.columns.category_id', 99999, '$.restore.columns.category_basis', 'declared')
+           WHERE json_extract(payload_json, '$.restore') IS NOT NULL`);
+    const before = snapshot();
+    await press(correction, 'Deshacer');
+    expect(snapshot()).toEqual(before);
+  });
+
+  it('a restore payload it cannot read answers S-19 and does not take the expense out', async () => {
+    const correction = await corrected();
+    write(`UPDATE proposals SET payload_json = json_set(payload_json, '$.restore.columns.bogus', 1)
+           WHERE json_extract(payload_json, '$.restore') IS NOT NULL`);
+    expect(await press(correction, 'Deshacer')).toBe(S19);
+    expect(query('SELECT status, total_cents FROM expenses')).toEqual([
+      { status: 'current', total_cents: 2840 },
+    ]);
+  });
+
+  it('the correction\'s "Deshacer" expires after 7 days: S-19, nothing changes', async () => {
+    const correction = await corrected();
+    await anomander.stop();
+    clock = new Date(NOW.getTime() + 8 * 86_400_000);
+    await start();
+    await vi.waitFor(() =>
+      expect(
+        query(`SELECT d.status FROM pending_decisions d JOIN proposals p ON p.id = d.proposal_id
+               WHERE json_extract(p.payload_json, '$.restore') IS NOT NULL`),
+      ).toEqual([{ status: 'expired' }]),
+    );
+    const before = snapshot();
+    expect(await press(correction, 'Deshacer')).toBe(S19);
+    expect(snapshot()).toEqual(before);
+    expect(gastos()).toEqual([{ total_cents: 2840 }]);
+  });
+});
