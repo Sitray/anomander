@@ -96,7 +96,10 @@ and keep its secrets in the operating system instead of a text file.
     The app has its own place for the same logins, the Suscripciones screen (DK-15); the chat
     does not offer them. While a login started in Telegram waits for a pasted code or address,
     the next text sent in the app's chat goes to it, as in Telegram (R-17 AC7): it is answered
-    `done` and is never stored, logged, a recent turn or sent to the model.
+    `done` and is never stored, logged, a recent turn or sent to the model. As the bot deletes it
+    in Telegram, the chat then shows "Código de acceso (oculto)" in its place and keeps none of
+    its words, in the window or anywhere a reload reads (B55): a text answered `done` is one a
+    login took.
 - DK-5 Secrets in the Keychain.
   - AC1: the Telegram bot token (optional, AC4), the provider API keys and the subscription login are stored
     in the macOS Keychain, entered once in the app's setup screen. The login is made from
@@ -453,7 +456,9 @@ and keep its secrets in the operating system instead of a text file.
     `No`, or replies "No tengo nada en mi historial." when it is empty. `Sí` erases every action
     kept when it was asked, checkpoints the WAL as a forget does (R-23 AC7), empties the recent
     turns and the stored conversation (DK-16 AC5) and replies "Hecho, he borrado mi historial.";
-    `No` erases nothing and replies "Vale, no borro nada.". One action at a time can also be
+    `No` erases nothing and replies "Vale, no borro nada.", or PRD S-201 when a `Sí` that failed
+    had already erased those actions (B55): the actions go first, then the conversation, so a
+    failure between them is seen. One action at a time can also be
     erased from the app's "Memoria" (DK-18 AC5).
   - AC5: the history is local: it lives only in the app's database (DK-8), is never logged (a
     failure to keep an action is logged without its words) and never leaves the machine except
@@ -522,7 +527,8 @@ and keep its secrets in the operating system instead of a text file.
     turns for real (secure delete, then the WAL checkpoint, as a forget, R-23 AC7) and answers
     `done`, and the chat empties. The erase waits for a turn of either door that runs, so
     nothing of that turn is kept after it. When it was not erased the chat keeps its messages and says so;
-    when the connection was lost first it says it cannot know. It cannot be pressed while the
+    when the connection was lost first, or no answer came within 2 minutes (B55), it says it
+    cannot know. It cannot be pressed while the
     connection is not open, while an answer is owed, or while a task runs or waits for
     "Permitir".
   - AC5: a confirmed "olvida" (R-23 AC6) and a confirmed erase of the action history (DK-14 AC4)

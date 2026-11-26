@@ -201,6 +201,9 @@ const Own = ({
           <Highlighted text={message.text} search={search} />
         </p>
       )}
+      {message.hidden === true && (
+        <p className="message-text message-hidden">{strings.chat.loginCodeHidden}</p>
+      )}
     </div>
     <Meta message={message} copied={copied} onCopy={onCopy} />
     {message.door === 'telegram' && <p className="message-note">{strings.chat.viaTelegram}</p>}

@@ -141,3 +141,9 @@
 .composer-model.link:hover {
   color: var(--accent-ink);
 }
+
+/* B55: a text the login took is shown only as what it was, never its words. */
+.message-text.message-hidden {
+  color: var(--text-2);
+  font-style: italic;
+}

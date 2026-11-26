@@ -118,6 +118,10 @@ export const countActions = (db: Database.Database): number =>
   db.prepare<[], { count: number }>('SELECT count(*) AS count FROM action_history').get()?.count ??
   0;
 
+/** B55: whether action `id` is still kept. */
+export const hasAction = (db: Database.Database, id: number): boolean =>
+  db.prepare<[number]>('SELECT 1 FROM action_history WHERE id = ?').get(id) !== undefined;
+
 /**
  * AC4: erases every action up to `upToId`, the latest one when the principal was asked, so one
  * that ended after the question stays. Then the WAL is checkpointed and truncated, as a forgotten

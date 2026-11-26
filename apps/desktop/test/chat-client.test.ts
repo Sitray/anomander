@@ -6,6 +6,7 @@ import {
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   type ChatClient,
+  CLEAR_LIMIT_MS,
   type ConnectionState,
   createChatClient,
   type Outcome,
@@ -368,6 +369,53 @@ describe('the stored conversation (DK-16)', () => {
     expect(await client.clearHistory()).toBe('not_done');
   });
 
+  it('B55: gives up after 2 minutes without an answer: it cannot know, and a late answer changes nothing', async () => {
+    const socket = connected();
+    const cleared = client.clearHistory();
+    const { id } = socket.lastRequest;
+    let outcome: string | undefined;
+    void cleared.then((value) => {
+      outcome = value;
+    });
+
+    await vi.advanceTimersByTimeAsync(CLEAR_LIMIT_MS - 1);
+    expect(outcome).toBeUndefined();
+    await vi.advanceTimersByTimeAsync(1);
+    expect(outcome).toBe('unknown');
+
+    socket.receive({ type: 'done', inReplyTo: id });
+    expect(outcome).toBe('unknown');
+    expect(outcomes).toEqual([]);
+    expect(CLEAR_LIMIT_MS).toBe(120_000);
+  });
+
+  it('an answer in time stops the limit: the next erase gets its own 2 minutes', async () => {
+    const socket = connected();
+    const first = client.clearHistory();
+    socket.receive({ type: 'done', inReplyTo: socket.lastRequest.id });
+    expect(await first).toBe('done');
+    expect(vi.getTimerCount()).toBe(0);
+
+    const second = client.clearHistory();
+    await vi.advanceTimersByTimeAsync(CLEAR_LIMIT_MS - 1);
+    socket.receive({ type: 'rejected', inReplyTo: socket.lastRequest.id });
+    expect(await second).toBe('not_done');
+  });
+
+  it('the other erases still wait for their answer, with no limit', async () => {
+    const socket = connected();
+    let outcome: string | undefined;
+    void client.forgetMemory(3).then((value) => {
+      outcome = value;
+    });
+
+    await vi.advanceTimersByTimeAsync(CLEAR_LIMIT_MS * 2);
+    expect(outcome).toBeUndefined();
+    socket.receive({ type: 'done', inReplyTo: socket.lastRequest.id });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(outcome).toBe('done');
+  });
+
   it("takes the daemon's failure reply as nothing read and nothing erased, never as an outcome", async () => {
     // The daemon answers both with `processingFailed` when its database fails (DK-16).
     const socket = connected();
@@ -379,6 +427,14 @@ describe('the stored conversation (DK-16)', () => {
     expect(await read).toBeNull();
     expect(await erased).toBe('not_done');
     expect(outcomes).toEqual([]);
+  });
+
+  it('B55: dispose with an erase owed says unknown and leaves no timer', async () => {
+    connected();
+    const cleared = client.clearHistory();
+    client.dispose();
+    expect(await cleared).toBe('unknown');
+    expect(vi.getTimerCount()).toBe(0);
   });
 });
 

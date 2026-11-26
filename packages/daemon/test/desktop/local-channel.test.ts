@@ -2873,7 +2873,8 @@ describe('who the principal is and what ANOMANDER did (DK-14)', () => {
       db.exec('ALTER TABLE conversation RENAME TO conversation_moved');
 
       expect(reply(await chat.ask(press)).text).toBe(strings.processingFailed());
-      expect(history()).toHaveLength(1);
+      // B55: the actions go first, then the conversation, whose erase failed.
+      expect(history()).toEqual([]);
 
       db.exec('ALTER TABLE conversation_moved RENAME TO conversation');
       db.close();
