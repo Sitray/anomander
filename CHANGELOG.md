@@ -53,6 +53,7 @@ On `main` since 0.1.0. The interface speaks English or Spanish, and the app runs
 - The processor reads amounts in the configured currency: the text interpreter, the receipt reader and the correction interpreter no longer ask for euro cents when `ANOMANDER_CURRENCY` is another one, and the text interpreter's examples write it as the principal does (`23 US$`, `US$23`) (B73).
 - A pound has pence: with `ANOMANDER_CURRENCY=GBP` the processor prompts ask for an integer number of pence, not cents; EUR and the other currencies read as before. The receipt reader is told today's weekday beside the date, as the text interpreters are (B78).
 - "¿Cuánto gasté en diciembre?" asked in January is about last December: a month named without a year is the latest one that is not in the future, instead of a period in the future answered with S-22 (B78).
+- The weekly summary no longer shows `0,00 US$` for an empty category beside a week of euros after the currency changed: an empty category is zero in the currency of the week's total, or the principal's when the week has none (B78).
 - Several presses of "Añadir búsqueda web" during a daemon restart all wait for the new daemon; before, only one request was kept.
 - The check that a task comes from the message keeps English negations and contractions, and locale tags such as `es@euro` count as Spanish.
 
