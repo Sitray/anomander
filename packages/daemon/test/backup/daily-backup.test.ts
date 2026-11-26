@@ -108,7 +108,7 @@ describe('the daily backup', () => {
     expect(dailyCopies()).toContain('anomander.db.backup-daily-20261129T030000Z');
   });
 
-  it('B52: prunes copies stamped in the future first, so they never pile up', async () => {
+  it('B52: deletes copies stamped in the future with the next copy, so they never pile up', async () => {
     // A week with the clock a year ahead left 7 copies stamped in 2027.
     const ahead = [17, 18, 19, 20, 21, 22, 23].map(
       (day) => `anomander.db.backup-daily-202711${day}T030000Z`,
@@ -122,8 +122,8 @@ describe('the daily backup', () => {
       now = new Date(`2026-11-${day}T03:00:00.000Z`);
       await backup.run();
       real.push(`anomander.db.backup-daily-202611${day}T030000Z`);
-      // Every real copy taken so far is kept; the future ones go first, oldest stamp first.
-      expect(dailyCopies().filter((name) => !ahead.includes(name))).toEqual(real);
+      // The first real copy deletes every future one; every real copy taken so far is kept.
+      expect(dailyCopies()).toEqual(real);
     }
 
     expect(dailyCopies()).toEqual(real);

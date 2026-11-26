@@ -218,7 +218,7 @@ describe('upgrading an existing database', () => {
     for (const file of unrelated) expect(existsSync(join(scratch, file))).toBe(true);
   });
 
-  it('never deletes the backup it has just written, even beside backups stamped in the future', () => {
+  it('deletes backups stamped in the future and never the one it has just written', () => {
     builtAt(4);
     // A clock that was once ahead left these.
     const future = [
@@ -230,9 +230,10 @@ describe('upgrading an existing database', () => {
 
     applyMigrations(open());
 
+    // B52: the backup just written holds newer data than any of them.
     const kept = backups();
-    expect(kept).toHaveLength(3);
-    expect(kept.filter((file) => file.startsWith('anomander.db.backup-v4-'))).toHaveLength(1);
+    expect(kept).toHaveLength(1);
+    expect(kept[0]).toMatch(/^anomander\.db\.backup-v4-/);
   });
 
   it('B52: deletes a backup stamped in the future before a real one', () => {

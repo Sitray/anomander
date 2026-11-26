@@ -850,23 +850,25 @@ resolves them; under the desktop app that variable is the one handed over on std
 **Migrations and backups.** At start `applyMigrations` (`src/store/database.ts`) applies the
 `migrations/*.sql` files not yet recorded in `schema_migrations`, each in its own transaction. A
 database that records a version this build does not know is refused, with both version numbers in
-the error, and left untouched. When migrations are pending on a database that already holds some,
-it is first copied with `VACUUM INTO` beside its file as
-`<db>.backup-v<from>-<yyyymmddThhmmssZ>` (UTC, mode 600; `src/store/backup.ts`); the three newest
-such files are kept and older ones deleted. A copy stamped after the current time, left by a clock
-that was once ahead, is deleted before any real one (B52), daily copies included. A fresh database gets no copy, and a copy that cannot
-be written stops the start with nothing applied. To go back, stop the daemon and put a backup in
-place of the database file, removing its `-wal` and `-shm`.
+the error, and left untouched. When migrations are pending on a database that already holds some, it
+is first copied with `VACUUM INTO` beside its file as `<db>.backup-v<from>-<yyyymmddThhmmssZ>` (UTC,
+mode 600; `src/store/backup.ts`); the three newest such files are kept and older ones deleted. Each
+new copy, daily ones included, also deletes every copy stamped after the current time, left by a
+clock that was once ahead (B52): the new copy holds newer data, and kept, such a copy would one day
+stand for the day of its stamp. A fresh database gets no copy, and a copy that cannot be written
+stops the start with nothing applied. To go back, stop the daemon and put a backup in place of the
+database file, removing its `-wal` and `-shm`.
 
 The daily backup (B5, `src/backup/daily-backup.ts`) runs right after each retention run, so at
 startup and at `ANOMANDER_RETENTION_CRON`: it copies the database the same way as
 `<db>.backup-daily-<yyyymmddThhmmssZ>`, unless a copy stamped on the same UTC day, and not after
-now, is already there, and keeps the seven newest daily copies; the copies taken before migrations are pruned
-apart. It runs in a `finally`, so also when retention failed; after a successful retention the
-copy holds nothing retention erased. What "Borrar conversación" or a confirmed forget erases stays
-in the older daily copies until seven newer ones replace them: seven days when the daemon runs
-every day, longer when it does not (PRD §16). A copy that cannot be written is logged by its error code only, never its path, and is made
-at the next run; the daemon keeps running. The copies sit on the same disk as the database.
+now, is already there, and keeps the seven newest daily copies; the copies taken before migrations
+are pruned apart. It runs in a `finally`, so also when retention failed; after a successful
+retention the copy holds nothing retention erased. What "Borrar conversación" or a confirmed forget
+erases stays in the older daily copies until seven newer ones replace them: seven days when the
+daemon runs every day, longer when it does not (PRD §16). A copy that cannot be written is logged by
+its error code only, never its path, and is made at the next run; the daemon keeps running. The
+copies sit on the same disk as the database.
 
 **Ledger export.** `exportLedger` (B5, `src/store/export.ts`) writes the read views of RA-1
 (`gastos`, `lineas_de_compra`, `pendientes_de_confirmar`) as one CSV file each (RFC 4180, CRLF,
@@ -879,13 +881,14 @@ folder. A CSV text that starts with `=`, `+`, `-`, `@`, a tab or a carriage retu
 `moneda`; `por_moneda` of `pendientes_de_confirmar` is JSON text in its CSV file and an array in
 `ledger.json` (B71). No processor is called.
 
-`/exportar` (PRD R-29 AC3) in Telegram calls it with the folder of `ANOMANDER_DB_PATH` and
-replies S-79 with the four files in `files`; `@anomander/telegram` sends the text, then each file
-with `sendDocument`. A failed export replies S-80 and logs only the error code. An in-memory store
-(`ANOMANDER_DB_PATH=:memory:`) has no data folder: `exportLedger` throws `InMemoryStoreError`,
-writing nothing, so the export never lands in the folder the daemon was started from (B52). It runs in the
-chat's turn and gets the setup guide while setup is incomplete. In the app `/exportar` replies
-S-81 and writes nothing. Exports stay under `exports/` until deleted by hand.
+`/exportar` (PRD R-29 AC3) in Telegram calls it with the folder of `ANOMANDER_DB_PATH` and replies
+S-79 with the four files in `files`; `@anomander/telegram` sends the text, then each file with
+`sendDocument`. A failed export replies S-80 and logs only the error's code, or its name when it has
+none, never its message or a path. An in-memory store (`ANOMANDER_DB_PATH=:memory:`) has no data
+folder: `exportLedger` throws `InMemoryStoreError`, writing nothing, so the export never lands in
+the folder the daemon was started from (B52). It runs in the chat's turn and gets the setup guide
+while setup is incomplete. In the app `/exportar` replies S-81 and writes nothing. Exports stay
+under `exports/` until deleted by hand.
 
 ## Configuration
 

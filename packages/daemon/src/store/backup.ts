@@ -91,9 +91,10 @@ const writeBackup = (
 };
 
 // Only files named exactly as backups of this database are ever deleted, and never `written`, the
-// one just made. Copies stamped after `now`, by a clock that was once ahead, go first (B52): their
-// stamp says nothing of their real age, and sorted by it they would outlive every real copy. Then
-// the oldest. A failure to delete an old backup does not stop the start.
+// one just made. Every copy stamped after `now`, by a clock that was once ahead, is deleted (B52):
+// the copy just written holds newer data, and kept, it would one day stand for the day of its
+// stamp. Of the others, all but the `keep - 1` newest are deleted. A failure to delete an old
+// backup does not stop the start.
 const prune = (
   folder: string,
   pattern: RegExp,
@@ -104,14 +105,16 @@ const prune = (
   const found = readdirSync(folder)
     .map((name) => ({ name, match: pattern.exec(name) }))
     .filter((entry) => entry.match !== null && entry.name !== written)
-    .map(({ name, match }) => {
-      const at = match?.[1] ?? '';
-      return { name, at, ahead: at > now, n: Number(match?.[2] ?? 0) };
-    })
-    .sort((a, b) =>
-      a.ahead !== b.ahead ? (a.ahead ? -1 : 1) : a.at === b.at ? a.n - b.n : a.at < b.at ? -1 : 1,
-    );
-  for (const { name } of found.slice(0, Math.max(0, found.length - (keep - 1)))) {
+    .map(({ name, match }) => ({
+      name,
+      at: match?.[1] ?? '',
+      n: Number(match?.[2] ?? 0),
+    }));
+  const ahead = found.filter((entry) => entry.at > now);
+  const past = found
+    .filter((entry) => entry.at <= now)
+    .sort((a, b) => (a.at === b.at ? a.n - b.n : a.at < b.at ? -1 : 1));
+  for (const { name } of [...ahead, ...past.slice(0, Math.max(0, past.length - (keep - 1)))]) {
     try {
       rmSync(join(folder, name), { force: true });
     } catch {
