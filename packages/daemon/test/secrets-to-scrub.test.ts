@@ -350,14 +350,14 @@ describe('the secrets the daemon gets after its start', () => {
       'client_secret',
     ];
     const visible = new Set(['key', 'OPENAI_API_KEY', 'ANTHROPIC_API_KEY']);
-    const valueOf = (name: string) => `value-of-${name}-0123456789abcdef`;
+    const secretOf = (name: string) => `value-of-${name}-0123456789abcdef`;
     const list = createSecretList();
     const log = logOver(list);
     const store = rememberingLogins(
       createShellCredentialStore('{}', () => {}),
       list.acquire,
     );
-    const fields = Object.fromEntries(formerlyHidden.map((name) => [name, valueOf(name)]));
+    const fields = Object.fromEntries(formerlyHidden.map((name) => [name, secretOf(name)]));
     const cause = Object.assign(new Error('token response rejected'), { response: fields });
 
     await expect(
@@ -367,13 +367,13 @@ describe('the secrets the daemon gets after its start', () => {
     ).rejects.toThrow('OAuth refresh failed');
 
     const shown = Object.fromEntries(
-      formerlyHidden.map((name) => [name, log(`saw ${valueOf(name)}`)]),
+      formerlyHidden.map((name) => [name, log(`saw ${secretOf(name)}`)]),
     );
     expect(shown).toEqual(
       Object.fromEntries(
         formerlyHidden.map((name) => [
           name,
-          visible.has(name) ? `saw ${valueOf(name)}` : 'saw [secret]',
+          visible.has(name) ? `saw ${secretOf(name)}` : 'saw [secret]',
         ]),
       ),
     );
