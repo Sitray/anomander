@@ -183,12 +183,27 @@ export const createTelegramDelete =
   };
 
 /**
- * B82: what a crash halt knows of a bot: whether it is halted, the last update it handled, and
- * the stop that halt began.
+ * B82: the `code` of a handler's error that says the daemon refused the input because its turn
+ * never started (the daemon is stopping), so nothing of it ran. Only a text or a receipt
+ * refused so during a crash halt is left for Telegram to hand over again.
+ */
+export const TURN_NOT_STARTED = 'ANOMANDER_TURN_NOT_STARTED';
+
+const isTurnNotStarted = (error: unknown): boolean =>
+  typeof error === 'object' &&
+  error !== null &&
+  (error as { code?: unknown }).code === TURN_NOT_STARTED;
+
+/**
+ * B82: what a crash halt knows of a bot: whether it is halted, the update it began to handle
+ * last before that, whether the daemon refused that one (`TURN_NOT_STARTED`), the offset it
+ * acknowledged once halted, and the stop the halt began.
  */
 interface HaltState {
   halted: boolean;
-  handled: number | undefined;
+  started: number | undefined;
+  refused: boolean;
+  acknowledged: number | undefined;
   stopped: Promise<void>;
 }
 const haltStates = new WeakMap<Bot, HaltState>();
@@ -197,10 +212,11 @@ const haltStates = new WeakMap<Bot, HaltState>();
 class NotTaken extends Error {}
 
 /**
- * B82: stops polling as a crash does. Unlike `bot.stop()`, it acknowledges only the updates the
- * bot handled: one the daemon did not take (its turn never started) gets no reply and no
- * acknowledgement, so Telegram hands it over again once the daemon is back. One still being
- * handled is acknowledged once it was, if the process lasts that long; otherwise it comes again.
+ * B82: stops polling as a crash does. Like `bot.stop()`, it acknowledges every update the bot
+ * began to handle, the one still running included, so nothing that ran comes again; unlike it,
+ * a text or a receipt the daemon refused with `TURN_NOT_STARTED` gets no reply and is not
+ * acknowledged, nor is an update read after the halt, so Telegram hands them over again once the
+ * daemon is back. A button press keeps `bot.stop()`'s answer: Telegram rejects an old press.
  */
 export const haltTelegramBot = (bot: Bot): Promise<void> => {
   const state = haltStates.get(bot);
@@ -226,18 +242,33 @@ export const createTelegramBot = (options: TelegramBotOptions): Bot => {
     options.apiRoot === undefined ? {} : { client: { apiRoot: options.apiRoot } },
   );
   bot.api.config.use(retryRefusedSends);
-  const halt: HaltState = { halted: false, handled: undefined, stopped: Promise.resolve() };
+  const halt: HaltState = {
+    halted: false,
+    started: undefined,
+    refused: false,
+    acknowledged: undefined,
+    stopped: Promise.resolve(),
+  };
   haltStates.set(bot, halt);
-  // B82: once halted, a `getUpdates` (the one `bot.stop()` sends to acknowledge what it read)
-  // acknowledges only what was handled, never an update read and left.
-  bot.api.config.use((prev, method, payload, signal) =>
-    halt.halted && method === 'getUpdates'
-      ? prev(method, { ...payload, offset: (halt.handled ?? 0) + 1 }, signal)
-      : prev(method, payload, signal),
-  );
-  /** What the daemon failed to do with an update: left for later while halted (B82). */
-  const notTakenWhileHalted = (): void => {
-    if (halt.halted) throw new NotTaken('halted: left for after the restart');
+  // B82: once halted, the `getUpdates` `bot.stop()` sends to acknowledge what it read covers what
+  // began to be handled, never one the daemon refused. It waits for the refusals the halt itself
+  // caused, which settle before any timer or I/O.
+  bot.api.config.use(async (prev, method, payload, signal) => {
+    if (!halt.halted || method !== 'getUpdates') return prev(method, payload, signal);
+    await new Promise((resolve) => setImmediate(resolve));
+    const offset = (halt.started ?? 0) + (halt.refused ? 0 : 1);
+    halt.acknowledged = offset;
+    return prev(method, { ...payload, offset }, signal);
+  });
+  /**
+   * B82: whether the daemon's `error` about update `updateId` leaves it for after the restart:
+   * a refusal of a turn that never started, during a crash halt, before it was acknowledged.
+   */
+  const leftForLater = (updateId: number | undefined, error: unknown): boolean => {
+    if (updateId === undefined || !halt.halted || !isTurnNotStarted(error)) return false;
+    if (halt.acknowledged !== undefined && updateId < halt.acknowledged) return false;
+    if (updateId === halt.started) halt.refused = true;
+    return true;
   };
   const fileRoot = `${options.apiRoot ?? TELEGRAM_API_ROOT}/file/bot${options.token}`;
 
@@ -253,12 +284,13 @@ export const createTelegramBot = (options: TelegramBotOptions): Bot => {
   const deliver = (chatId: number, reply: TelegramReply) =>
     deliverReply(bot.api, chatId, reply, logger);
 
-  const handleReceipt = async (chatId: number, receipt: PrincipalReceipt) => {
+  /** `updateId`: the update it came in; an album's has none, its updates were handled. */
+  const handleReceipt = async (chatId: number, receipt: PrincipalReceipt, updateId?: number) => {
     let reply: Reply | null;
     try {
       reply = await onReceipt(receipt);
     } catch (error) {
-      notTakenWhileHalted();
+      if (leftForLater(updateId, error)) throw new NotTaken('left for after the restart');
       logger.error('The daemon failed to handle a receipt', {
         channelRef: receipt.channelRef,
         error,
@@ -301,30 +333,19 @@ export const createTelegramBot = (options: TelegramBotOptions): Bot => {
     ctx.chat.id === principalChatId &&
     ctx.from?.id === principalChatId;
 
-  // B82: before anything else. While halted an update is not handled at all; one handled is
-  // counted, and acknowledged at once when it ran through the halt.
+  // B82: before anything else. An update read once halted is not handled at all: it is left for
+  // after the restart. One that begins before is counted, so the halt acknowledges it.
   bot.use(async (ctx, next) => {
     if (halt.halted) return;
-    let taken = true;
+    halt.started = ctx.update.update_id;
+    halt.refused = false;
     try {
       await next();
     } catch (error) {
       if (!(error instanceof NotTaken)) throw error;
-      taken = false;
       logger.info('Left a Telegram update for after the restart', {
         updateId: ctx.update.update_id,
       });
-    } finally {
-      if (taken) {
-        halt.handled = ctx.update.update_id;
-        if (halt.halted) {
-          halt.stopped
-            .then(() =>
-              bot.api.getUpdates({ offset: ctx.update.update_id + 1, limit: 1, timeout: 0 }),
-            )
-            .catch(() => {});
-        }
-      }
     }
   });
 
@@ -361,12 +382,16 @@ export const createTelegramBot = (options: TelegramBotOptions): Bot => {
         collectAlbum(ctx.chat.id, message, message.media_group_id, image);
         return;
       }
-      await handleReceipt(ctx.chat.id, {
-        images: [image],
-        caption: message.caption ?? null,
-        channelRef: channelRef(message.message_id),
-        receivedAt: receivedAt(message),
-      });
+      await handleReceipt(
+        ctx.chat.id,
+        {
+          images: [image],
+          caption: message.caption ?? null,
+          channelRef: channelRef(message.message_id),
+          receivedAt: receivedAt(message),
+        },
+        ctx.update.update_id,
+      );
       return;
     }
 
@@ -381,7 +406,8 @@ export const createTelegramBot = (options: TelegramBotOptions): Bot => {
         ...(replyTo === undefined ? {} : { replyTo: channelRef(replyTo) }),
       });
     } catch (error) {
-      notTakenWhileHalted();
+      if (leftForLater(ctx.update.update_id, error))
+        throw new NotTaken('left for after the restart');
       logger.error('The daemon failed to handle a text', {
         channelRef: channelRef(message.message_id),
         error,
@@ -404,7 +430,6 @@ export const createTelegramBot = (options: TelegramBotOptions): Bot => {
     try {
       reply = await onButton({ data, channelRef: ref, pressedAt: new Date().toISOString() });
     } catch (error) {
-      notTakenWhileHalted();
       logger.error('The daemon failed to handle a button press', { channelRef: ref, error });
       reply = failed();
     }

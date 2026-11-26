@@ -10,7 +10,12 @@ import type {
 } from '@anomander/protocol';
 import type { Bot } from 'grammy';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { createTelegramBot, createTelegramNotify, haltTelegramBot } from '../src/index.ts';
+import {
+  createTelegramBot,
+  createTelegramNotify,
+  haltTelegramBot,
+  TURN_NOT_STARTED,
+} from '../src/index.ts';
 import {
   type FakeTelegramApi,
   type IncomingUpdate,
@@ -216,104 +221,170 @@ describe('R-22 failure reply', () => {
   });
 });
 
-// B82: a crash halts the bot while the daemon drains its log. A text whose turn never started is
-// not acknowledged, so Telegram hands it over again once the daemon is back; what was handled is.
+// B82: a crash halts the bot while the daemon drains its log. A text or a receipt the daemon
+// refused because its turn never started (`TURN_NOT_STARTED`) is not acknowledged, so Telegram
+// hands it over again once the daemon is back. Whatever started stays acknowledged, as before.
 describe('halting the bot (B82)', () => {
-  /** A second bot on the same Bot API, as the daemon restarted; the texts it was handed. */
-  const restart = async () => {
+  const S22 =
+    'Algo ha fallado y no he podido procesar tu mensaje. ¿Me lo vuelves a enviar en un rato?';
+  /** The daemon's refusal of a turn that never started. */
+  const notStarted = () =>
+    Object.assign(new Error('ANOMANDER is stopping: this turn did not start'), {
+      code: TURN_NOT_STARTED,
+    });
+
+  /**
+   * A second bot on the same Bot API, as the daemon restarted: what it was handed, up to a mark
+   * pushed last. Updates come in order, so all that was handed over again comes before it.
+   */
+  const restart = async (): Promise<string[]> => {
     const handed: string[] = [];
     const next = createTelegramBot({
       token: api.token,
       apiRoot: api.apiRoot,
       principalChatId: PRINCIPAL,
       onText: async ({ text }) => {
-        handed.push(text);
+        handed.push(`text:${text}`);
         return { text: `visto: ${text}` };
       },
-      onReceipt,
-      onButton,
+      onReceipt: async () => {
+        handed.push('receipt');
+        return { text: 'recibo' };
+      },
+      onButton: async ({ data }) => {
+        handed.push(`button:${data}`);
+        return { text: 'botón' };
+      },
       logger,
     });
     const nextPolling = next.start();
-    return {
-      handed,
-      stop: async () => {
-        await next.stop();
-        await nextPolling;
-      },
-    };
+    api.push(updates.text(principal, 'marca'));
+    await vi.waitFor(() => expect(handed).toContain('text:marca'), { timeout: 4000 });
+    await next.stop();
+    await nextPolling;
+    return handed.filter((entry) => entry !== 'text:marca');
   };
 
-  /** Handles `uno`, then holds `dos` in a turn until it is refused or answered. */
+  /** Handles `uno`, then holds the handler of `dos` until it is refused, failed or answered. */
   const holdSecondText = async () => {
     api.push(updates.text(principal, 'uno'));
     await api.waitForSent(1);
-    let refuse = (_: Error): void => {};
-    let answer = (_: Reply): void => {};
+    const held = { settle: (_: Reply | Error): void => {} };
     onText.mockImplementationOnce(
       () =>
         new Promise((resolve, reject) => {
-          refuse = reject;
-          answer = resolve;
+          held.settle = (outcome) =>
+            outcome instanceof Error ? reject(outcome) : resolve(outcome);
         }),
     );
     api.push(updates.text(principal, 'dos'));
     await vi.waitFor(() => expect(onText).toHaveBeenCalledTimes(2));
-    return Object.assign((error: Error) => refuse(error), {
-      answer: (reply: Reply) => answer(reply),
-    });
+    return held;
   };
 
-  it('a text the daemon did not take while halted is handed over again after the restart', async () => {
-    const refuse = await holdSecondText();
+  it('a text whose turn never started is handed over again after the restart, unanswered', async () => {
+    const held = await holdSecondText();
 
     const halted = haltTelegramBot(bot);
-    refuse(new Error('ANOMANDER is stopping: this turn did not start'));
+    held.settle(notStarted());
     await halted;
     await polling;
 
-    // No failure reply: the text is not lost, only left for later.
     expect(api.sent.map(({ text }) => text)).toEqual(['Apuntado: 23,00 € (sin clasificar).']);
-    const restarted = await restart();
-    await api.waitForSent(2);
-    await restarted.stop();
-    expect(restarted.handed).toEqual(['dos']);
+    expect(await restart()).toEqual(['text:dos']);
   });
 
-  it('a text whose turn ran through the halt is answered and acknowledged, never handed over twice', async () => {
-    const hold = await holdSecondText();
+  it('a turn that ran and then failed through the halt gets S-22 and is never handed over twice', async () => {
+    const held = await holdSecondText();
 
     const halted = haltTelegramBot(bot);
-    hold.answer({ text: 'Apuntado: dos.' });
+    // Not the refusal: the turn started (it may have written an expense), then failed.
+    held.settle(new Error('SQLITE_BUSY: database is locked'));
+    await halted;
+    await polling;
+
+    await api.waitForSent(2);
+    expect(api.sent.at(-1)?.text).toBe(S22);
+    expect(await restart()).toEqual([]);
+  });
+
+  it('a turn still running when the process dies stays acknowledged: it is never handed over twice', async () => {
+    const held = await holdSecondText();
+
+    await haltTelegramBot(bot);
+
+    expect(await restart()).toEqual([]);
+    held.settle({ text: 'tarde' });
+  });
+
+  it('a text whose turn ran through the halt is answered and never handed over twice', async () => {
+    const held = await holdSecondText();
+
+    const halted = haltTelegramBot(bot);
+    held.settle({ text: 'Apuntado: dos.' });
     await halted;
     await polling;
 
     await api.waitForSent(2);
     expect(api.sent.at(-1)?.text).toBe('Apuntado: dos.');
-    const restarted = await restart();
-    api.push(updates.text(principal, 'tres'));
-    await api.waitForSent(3);
-    await restarted.stop();
-    expect(restarted.handed).toEqual(['tres']);
+    expect(await restart()).toEqual([]);
+  });
+
+  it('an album refused during the halt still gets S-22, as it was already acknowledged', async () => {
+    let refuse = (_: Error): void => {};
+    onReceipt.mockImplementationOnce(
+      () =>
+        new Promise((_, reject) => {
+          refuse = reject;
+        }),
+    );
+    api.push(updates.photo(principal, { mediaGroupId: 'g1' }));
+    api.push(updates.text(principal, 'después'));
+    await api.waitForSent(1);
+
+    const halted = haltTelegramBot(bot);
+    await vi.waitFor(() => expect(onReceipt).toHaveBeenCalledTimes(1), { timeout: 4000 });
+    refuse(notStarted());
+    await halted;
+    await polling;
+
+    await api.waitForSent(2);
+    expect(api.sent.at(-1)?.text).toBe(S22);
+    expect(await restart()).toEqual([]);
+  }, 10_000);
+
+  it('a button press refused during the halt gets S-22 and stays acknowledged, as before', async () => {
+    let refuse = (_: Error): void => {};
+    onButton.mockImplementationOnce(
+      () =>
+        new Promise((_, reject) => {
+          refuse = reject;
+        }),
+    );
+    api.push(updates.callbackQuery(principal, 'decision:7:0', 31));
+    await vi.waitFor(() => expect(onButton).toHaveBeenCalledTimes(1));
+
+    const halted = haltTelegramBot(bot);
+    refuse(notStarted());
+    await halted;
+    await polling;
+
+    await api.waitForSent(1);
+    expect(api.sent.at(-1)?.text).toBe(S22);
+    expect(await restart()).toEqual([]);
   });
 
   it('a stop still answers a text the daemon did not take and acknowledges it, as before', async () => {
-    const refuse = await holdSecondText();
+    const held = await holdSecondText();
 
     const stopped = bot.stop();
-    refuse(new Error('ANOMANDER is stopping: this turn did not start'));
+    held.settle(notStarted());
     await stopped;
     await polling;
 
     await api.waitForSent(2);
-    expect(api.sent.at(-1)?.text).toBe(
-      'Algo ha fallado y no he podido procesar tu mensaje. ¿Me lo vuelves a enviar en un rato?',
-    );
-    const restarted = await restart();
-    api.push(updates.text(principal, 'tres'));
-    await api.waitForSent(3);
-    await restarted.stop();
-    expect(restarted.handed).toEqual(['tres']);
+    expect(api.sent.at(-1)?.text).toBe(S22);
+    expect(await restart()).toEqual([]);
   });
 });
 

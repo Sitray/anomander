@@ -28,8 +28,9 @@ export interface TelegramDoor {
   ended: Promise<void>;
   stop(): Promise<void>;
   /**
-   * B82: stops polling as a crash does: a text the daemon did not take is not acknowledged, so
-   * Telegram hands it over again after the restart (`haltTelegramBot`). Without Telegram, `stop`.
+   * B82: stops polling as a crash does: a text or receipt refused with `TurnNotStartedError` is
+   * not acknowledged, so Telegram hands it over again after the restart (`haltTelegramBot`).
+   * Without Telegram, `stop`.
    */
   halt(): Promise<void>;
 }

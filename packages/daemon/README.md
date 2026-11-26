@@ -246,10 +246,14 @@ naming only its kind (`anomander is still waiting for a job before it stops`, `{
 'drainQueue' }`), and keeps waiting (B82). Only then does it close the connections, the read API and the
 store; a step that failed is thrown after everything closed. `Anomander.halt` is that first,
 synchronous part alone: `main.ts` calls it when it fails or crashes, so no new event is handled
-while the last log line drains (B51). It stops the bot with `haltTelegramBot` rather than
-`bot.stop()`: Telegram is told only of the updates the bot handled, so a text, receipt or press
-whose turn never started gets no failure reply and comes again once the daemon is back (B82).
-`stop` keeps `bot.stop()`, which answers such a text with S-22 and acknowledges it.
+while the last log line drains (B51). Once closed, the turns refuse at once every turn that
+waits, with `TurnNotStartedError` (its `code` is `TURN_NOT_STARTED` of `@anomander/telegram`).
+`halt` stops the bot with `haltTelegramBot` rather than `bot.stop()`: every update the bot began
+to handle stays acknowledged, the one still running included, so nothing that ran comes again;
+only a text or a receipt refused with `TURN_NOT_STARTED`, and what was read after the halt, get
+no reply and are not acknowledged, so Telegram hands them over again once the daemon is back
+(B82). A failed turn, an album and a button press are answered with S-22 as before. `stop`
+keeps `bot.stop()`, which answers a refused text with S-22 and acknowledges it.
 
 ## Failures (R-22)
 
