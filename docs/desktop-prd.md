@@ -522,7 +522,8 @@ and keep its secrets in the operating system instead of a text file.
     turns for real (secure delete, then the WAL checkpoint, as a forget, R-23 AC7) and answers
     `done`, and the chat empties. The erase waits for a turn of either door that runs, so
     nothing of that turn is kept after it. When it was not erased the chat keeps its messages and says so;
-    when the connection was lost first it says it cannot know. It cannot be pressed while the
+    when the connection was lost first, or no answer came within 2 minutes (B55), it says it
+    cannot know. It cannot be pressed while the
     connection is not open, while an answer is owed, or while a task runs or waits for
     "Permitir".
   - AC5: a confirmed "olvida" (R-23 AC6) and a confirmed erase of the action history (DK-14 AC4)

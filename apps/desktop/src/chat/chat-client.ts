@@ -85,7 +85,7 @@ export interface ChatClient {
   requestHistory(): Promise<ChatStoredMessage[] | null>;
   /**
    * DK-16: erases the stored conversation. `not_done`: nothing was erased; `unknown`: the
-   * connection was lost first, so it may have been.
+   * connection was lost first, or no answer came within `CLEAR_LIMIT_MS`, so it may have been.
    */
   clearHistory(): Promise<'done' | 'not_done' | 'unknown'>;
   /** DK-18: the current memories, or `null` when they did not come, as `requestHistory`. */
@@ -135,6 +135,13 @@ const erased = async (
 };
 /** A daemon that just started may not listen yet: retry soon, then back off. */
 const RETRY_DELAYS_MS = [250, 500, 1000, 2000, 4000];
+
+/**
+ * B55 (DK-16 AC4): how long "Sí, borrar" waits for the daemon's answer, which waits for a turn of
+ * either door that runs: past it, it cannot know whether it was erased, as when the connection is
+ * lost. A late answer changes nothing.
+ */
+export const CLEAR_LIMIT_MS = 120_000;
 
 /** DK-13 AC2: a look or a task the window starts, with what was asked; anything else is not one. */
 const routeOf = (route: unknown): ChatReply['route'] => {
@@ -390,7 +397,10 @@ export const createChatClient = (options: ChatClientOptions): ChatClient => {
     }
   };
 
-  /** Sends `request` and waits for its answer: `undefined` when nothing was sent. */
+  /**
+   * Sends `request` and waits for its answer: `undefined` when nothing was sent. With `limitMs`,
+   * `null` once that long passed without it, as when the connection is lost.
+   */
   const ask = (
     request:
       | {
@@ -407,10 +417,24 @@ export const createChatClient = (options: ChatClientOptions): ChatClient => {
       | { type: 'forget_memory'; memoryId: number }
       | { type: 'forget_action'; actionId: number }
       | { type: 'undo_expense' | 'correct_expense'; expenseId: number },
+    limitMs?: number,
   ): Promise<ChatEvent | null | undefined> => {
     if (socket === null || socket.readyState !== OPEN) return Promise.resolve(undefined);
     const id = crypto.randomUUID();
-    const answered = new Promise<ChatEvent | null>((resolve) => awaited.set(id, resolve));
+    const answered = new Promise<ChatEvent | null>((resolve) => {
+      if (limitMs === undefined) {
+        awaited.set(id, resolve);
+        return;
+      }
+      const limit = setTimeout(() => {
+        awaited.delete(id);
+        resolve(null);
+      }, limitMs);
+      awaited.set(id, (event) => {
+        clearTimeout(limit);
+        resolve(event);
+      });
+    });
     socket.send(JSON.stringify({ ...request, id }));
     return answered;
   };
@@ -507,7 +531,7 @@ export const createChatClient = (options: ChatClientOptions): ChatClient => {
       const event = await ask({ type: 'history' });
       return event?.type === 'history' ? event.messages : null;
     },
-    clearHistory: () => erased(ask({ type: 'clear_history' })),
+    clearHistory: () => erased(ask({ type: 'clear_history' }, CLEAR_LIMIT_MS)),
     async requestMemories() {
       const event = await ask({ type: 'memories' });
       return event?.type === 'memories' ? event.memories : null;
