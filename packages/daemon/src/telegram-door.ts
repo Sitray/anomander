@@ -30,7 +30,8 @@ export interface TelegramDoor {
   /**
    * B82: stops polling as a crash does: a text or receipt refused with `TurnNotStartedError` is
    * not acknowledged, so Telegram hands it over again after the restart (`haltTelegramBot`).
-   * Without Telegram, `stop`.
+   * B84: a loaded bot is halted in the call itself, so a refusal given in the same tick is read
+   * as one of the halt's. Without Telegram, `stop`.
    */
   halt(): Promise<void>;
 }
@@ -66,6 +67,8 @@ export const openTelegramDoor = (
     };
   }
   const { botToken, principalChatId } = config;
+  /** B84: the bot once loaded, so `halt` reaches it without waiting for a promise. */
+  let haltNow: (() => Promise<void>) | undefined;
   const loaded = import('@anomander/telegram').then((telegram) => {
     const bot = telegram.createTelegramBot({
       token: botToken,
@@ -74,9 +77,9 @@ export const openTelegramDoor = (
       logger,
       ...(apiRoot === undefined ? {} : { apiRoot }),
     });
+    haltNow = () => telegram.haltTelegramBot(bot);
     return {
       bot,
-      halt: () => telegram.haltTelegramBot(bot),
       send: telegram.createTelegramNotify(bot, principalChatId),
       deleteMessage: telegram.createTelegramDelete(bot, principalChatId),
     };
@@ -100,10 +103,13 @@ export const openTelegramDoor = (
         ({ bot }) => bot.stop(),
         () => {},
       ),
+    // A bot not loaded yet has handled nothing: halting it once loaded is enough.
     halt: () =>
-      loaded.then(
-        ({ halt }) => halt(),
-        () => {},
-      ),
+      haltNow !== undefined
+        ? haltNow()
+        : loaded.then(
+            () => haltNow?.(),
+            () => {},
+          ),
   };
 };

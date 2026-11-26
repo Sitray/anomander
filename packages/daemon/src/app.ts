@@ -297,7 +297,8 @@ export const startAnomander = <M>(config: Config, deps: AnomanderDeps<M>): Anoma
   // B51: nothing new starts once this is called: no turn, no job, no input of a door. The doors
   // begin to close; `stop` waits for them. B82: a crash (`crashed`) halts the bot without
   // acknowledging a Telegram text whose turn never started, so it comes again after the restart;
-  // a stop answers it as failed, as before.
+  // a stop answers it as failed, as before. B84: the door halts a loaded bot in this same call,
+  // so the refusals `close` gives, before any of them reaches the bot, are read as the halt's.
   let doorsClosing: Promise<unknown>[] | undefined;
   const halt = ({ crashed = false } = {}): Promise<unknown>[] => {
     if (doorsClosing !== undefined) return doorsClosing;

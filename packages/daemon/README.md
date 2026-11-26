@@ -254,13 +254,18 @@ naming only its kind (`anomander is still waiting for a job before it stops`, `{
 store; a step that failed is thrown after everything closed. `Anomander.halt` is that first,
 synchronous part alone: `main.ts` calls it when it fails or crashes, so no new event is handled
 while the last log line drains (B51). Once closed, the turns refuse at once every turn that
-waits, with `TurnNotStartedError` (its `code` is `TURN_NOT_STARTED` of `@anomander/telegram`).
-`halt` stops the bot with `haltTelegramBot` rather than `bot.stop()`: every update the bot began
+waits, with `TurnNotStartedError` (its `code` is `TURN_NOT_STARTED` of `@anomander/telegram`),
+and so every input still in its setup check (`beforeTurn`, B84), which runs off the turn lock and
+is not run again. `halt` stops the bot with `haltTelegramBot` rather than `bot.stop()`: every update the bot began
 to handle stays acknowledged, the one still running included, so nothing that ran comes again;
 only a text or a receipt refused with `TURN_NOT_STARTED`, and what was read after the halt, get
 no reply and are not acknowledged, so Telegram hands them over again once the daemon is back
-(B82). A failed turn, an album and a button press are answered with S-22 as before. `stop`
-keeps `bot.stop()`, which answers a refused text with S-22 and acknowledges it.
+(B82). The door halts a loaded bot in the same tick `halt` is called, and the bot waits for the
+update it is handling to settle, at most `HALT_REFUSAL_LIMIT_MS` (250 ms), before it
+acknowledges it, so a refusal that crosses timers or I/O is still left for later; one later than
+that gets S-22 and logs once, with only its update ID, that it was already acknowledged (B84). A
+failed turn, an album and a button press are answered with S-22 as before. `stop` keeps
+`bot.stop()`, which answers a refused text with S-22 and acknowledges it.
 
 ## Failures (R-22)
 

@@ -10,6 +10,7 @@ import {
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { type Anomander, startAnomander } from '../../src/app.ts';
 import { loadConfig } from '../../src/config.ts';
+import { type SetupGap, setupGuide } from '../../src/setup/setup-guide.ts';
 
 // B82: a Telegram text that waits for its turn behind the app's turn when the daemon halts. A
 // crash leaves it unacknowledged and unanswered, so Telegram hands it over again after the
@@ -137,5 +138,88 @@ describe('a Telegram text waiting behind the app turn when the daemon halts (B82
     expect(
       logger.error.mock.calls.filter(([, fields]) => /not open/.test(String(fields?.error))),
     ).toEqual([]);
+  });
+});
+
+// B84: a Telegram text still in its setup check (`setupGaps`, up to 5 s) when the daemon halts
+// is not yet waiting for its turn. Closing the turns refuses it at once all the same, so a crash
+// leaves it for after the restart, and the check, shared with the startup's, runs once.
+describe('a Telegram text in its setup check when the daemon halts (B84)', () => {
+  /** Starts the daemon with a setup check that waits until released, then pushes a text. */
+  const telegramTextInSetupCheck = async () => {
+    let answerCheck = (_gaps: readonly SetupGap[]): void => {};
+    const check = vi.fn(
+      () =>
+        new Promise<readonly SetupGap[]>((resolveCheck) => {
+          answerCheck = resolveCheck;
+        }),
+    );
+    releases.push(() => answerCheck([]));
+    const complete = vi.fn(async () => {
+      throw new Error('no model call is expected');
+    });
+    const started = startAnomander(configFor(), {
+      complete,
+      model: 'openai/gpt-4o-mini',
+      telegramApiRoot: api.apiRoot,
+      logger,
+      shutdownDeadlineMs: 50,
+      setupGaps: check,
+    });
+    daemon = started;
+    await started.started;
+    await vi.waitFor(() => expect(check).toHaveBeenCalledTimes(1));
+    api.push(updates.text({ chatId: PRINCIPAL }, 'café 3'));
+    await pause(300);
+    return { started, check, complete };
+  };
+
+  it('a crash leaves it unacknowledged and unanswered, its setup check run once', async () => {
+    const { started, check, complete } = await telegramTextInSetupCheck();
+
+    started.halt();
+    await started.polling.catch(() => {});
+    await pause(200);
+
+    expect(await unacknowledged()).toEqual(['café 3']);
+    expect(api.sent.map(({ text }) => text)).not.toContain(S22);
+    expect(check).toHaveBeenCalledTimes(1);
+    expect(complete).not.toHaveBeenCalled();
+  });
+
+  it('a stop answers it with S-22 at once and acknowledges it, as a stop answers a waiting turn', async () => {
+    const { started, check } = await telegramTextInSetupCheck();
+    daemon = undefined;
+
+    await started.stop();
+
+    await vi.waitFor(() => expect(api.sent.map(({ text }) => text)).toContain(S22));
+    expect(await unacknowledged()).toEqual([]);
+    expect(check).toHaveBeenCalledTimes(1);
+  });
+
+  it('a normal turn still gets the setup guide while a gap is open (R-28 AC4)', async () => {
+    const gaps: SetupGap[] = [{ kind: 'provider_unconnected', providerId: 'openai' }];
+    const complete = vi.fn(async () => {
+      throw new Error('no model call is expected');
+    });
+    const started = startAnomander(configFor(), {
+      complete,
+      model: 'openai/gpt-4o-mini',
+      telegramApiRoot: api.apiRoot,
+      logger,
+      shutdownDeadlineMs: 50,
+      setupGaps: async () => gaps,
+    });
+    daemon = started;
+    await started.started;
+    const guides = () => api.sent.filter(({ text }) => text === setupGuide(gaps)).length;
+    // The startup's announcement first, then the text's own answer.
+    await vi.waitFor(() => expect(guides()).toBe(1));
+    api.push(updates.text({ chatId: PRINCIPAL }, 'café 3'));
+
+    await vi.waitFor(() => expect(guides()).toBe(2));
+    expect(api.sent.map(({ text }) => text)).not.toContain(S22);
+    expect(complete).not.toHaveBeenCalled();
   });
 });
