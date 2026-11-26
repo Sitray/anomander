@@ -115,4 +115,32 @@ describe('watchingPastes (B81)', () => {
 
     expect(waits).toEqual([true, false, true, false]);
   });
+
+  it('stops waiting when a paste prompt is aborted by its signal', async () => {
+    const waits: boolean[] = [];
+    const models = watchingPastes(
+      {
+        login: async (_providerId, _type, interaction) => {
+          const controller = new AbortController();
+          const asked = interaction
+            .prompt({ type: 'manual_code', message: 'Paste', signal: controller.signal })
+            .catch(() => undefined);
+          controller.abort();
+          await asked;
+        },
+        logout: async () => {},
+      },
+      (waiting) => waits.push(waiting),
+    );
+
+    await models.login('openai', 'oauth', {
+      prompt: (prompt) =>
+        new Promise((_resolve, reject) =>
+          prompt.signal?.addEventListener('abort', () => reject(new Error('cancelled'))),
+        ),
+      notify: () => {},
+    });
+
+    expect(waits).toEqual([true, false]);
+  });
 });

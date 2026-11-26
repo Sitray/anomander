@@ -3582,3 +3582,69 @@ describe("today's AI calls in the window (DK-21)", () => {
     expect(reply(await chat.ask({ type: 'ai_usage' })).text).toBe(strings.processingFailed());
   });
 });
+
+// B81 (DK-4 AC7): the login signals in setup-guide mode, and never without a waiting login.
+describe('the login signals of the local channel (B81)', () => {
+  const loginDeps = (got: { value?: string }) => ({
+    login: {
+      models: {
+        login: async (_p: string, _t: 'oauth', interaction: Parameters<ModelLogin['login']>[2]) => {
+          interaction.notify({ type: 'auth_url', url: 'https://auth.openai.com/oauth/authorize' });
+          got.value = await interaction.prompt({
+            type: 'manual_code',
+            message: 'Paste',
+            ...(interaction.signal === undefined ? {} : { signal: interaction.signal }),
+          });
+          return { type: 'oauth', access: 'a', refresh: 'r', expires: 1 } as Credential;
+        },
+        logout: async () => {},
+      } satisfies ModelLogin,
+      credentials: createFileCredentialStore(join(scratch, 'auth.json')),
+      getDeviceId: () => '00000000-0000-4000-8000-000000000000',
+      timeoutMs: 60_000,
+    },
+  });
+
+  it('in setup-guide mode, a pasted text is done taken login, and the windows are told it waits', async () => {
+    const got: { value?: string } = {};
+    const guide = startSetupGuide(
+      { ...config({ ANOMANDER_LOCAL_TOKEN: TOKEN }), localPort: 0 },
+      { gaps: [{ kind: 'model_unset' }], telegramApiRoot: api.apiRoot, logger, ...loginDeps(got) },
+    );
+    anomander = guide;
+    await guide.started;
+    const chat = await client(guide);
+    api.push(updates.text({ chatId: PRINCIPAL }, '/login'));
+    const [choose] = await api.waitForSent(1);
+    api.push(updates.callbackQuery({ chatId: PRINCIPAL }, 'login:openai', choose?.messageId ?? 0));
+    await vi.waitFor(() =>
+      expect(chat.events).toContainEqual({ type: 'login_waiting', inReplyTo: null, waiting: true }),
+    );
+    const answer = await chat.ask({ type: 'text', text: 'secretcode123' });
+    expect(answer).toEqual({ type: 'done', inReplyTo: expect.any(String), taken: 'login' });
+    await vi.waitFor(() => expect(got.value).toBe('secretcode123'));
+    await vi.waitFor(() =>
+      expect(chat.events).toContainEqual({
+        type: 'login_waiting',
+        inReplyTo: null,
+        waiting: false,
+      }),
+    );
+    expect(JSON.stringify(chat.events)).not.toContain('secretcode123');
+  });
+
+  it('no login waiting: a plain text is a reply, never done taken, and no login_waiting is pushed', async () => {
+    const daemon = await start();
+    const chat = await client(daemon);
+    const answer = await chat.ask({ type: 'text', text: 'hola' });
+    expect(answer.type).toBe('reply');
+    expect(chat.events.filter((e: { type: string }) => e.type === 'login_waiting')).toEqual([]);
+  });
+
+  it('the done to clear_history carries no taken', async () => {
+    const daemon = await start();
+    const chat = await client(daemon);
+    const answer = await chat.ask({ type: 'clear_history' });
+    expect(answer).toEqual({ type: 'done', inReplyTo: expect.any(String) });
+  });
+});

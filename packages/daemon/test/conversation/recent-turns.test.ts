@@ -387,3 +387,109 @@ describe('the turn that replaces a memory', () => {
     expect(texts()).toEqual(['vivo en Zorbtown otra vez', 'Tomo nota.']);
   });
 });
+
+// B81 (R-23 AC3): the words of a replaced memory belong to the turn whose handler replaced it.
+describe('replaced memories, one turn at a time (B81)', () => {
+  const remember = (text: string, quote: string, message: string, replaces: number | null) =>
+    saveMemory(db, {
+      text,
+      quote,
+      said: true,
+      confidence: 1,
+      message,
+      source: 'telegram:1',
+      replaces,
+      receivedAt: AT.toISOString(),
+      now: AT.toISOString(),
+    });
+  const conversation = () => stored().map(({ text }) => text);
+  let turns: ReturnType<typeof createRecentTurns>;
+  beforeEach(() => {
+    turns = createRecentTurns({ db, now: () => AT, logger });
+  });
+
+  it('of two interleaved turns, only the replacing one is dropped and the other is stored', async () => {
+    const old = remember('Es vegetariano', 'soy vegetariano', 'soy vegetariano', null);
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const replacing = recordingTurns(
+      turns,
+      (m: string) => m,
+      async (m: string) => {
+        remember('No es vegetariano', 'ya no soy vegetariano', m, old);
+        // The other turn starts and ends while this one waits, after its replacement.
+        await gate;
+        return { text: 'Entendido, ya no eres vegetariano.' };
+      },
+      () => 'telegram',
+    );
+    const other = recordingTurns(
+      turns,
+      (m: string) => m,
+      async (_m: string) => {
+        await Promise.resolve();
+        return { text: 'Antes eras vegetariano, ¿no?' };
+      },
+      () => 'app',
+    );
+
+    const first = replacing('ya no soy vegetariano');
+    await other('me recuerdas lo de soy vegetariano');
+    release();
+    await first;
+
+    expect(conversation()).toEqual([
+      'me recuerdas lo de soy vegetariano',
+      'Antes eras vegetariano, ¿no?',
+    ]);
+  });
+
+  it('a turn whose handler throws after a replacement leaves nothing for the next turn', async () => {
+    const old = remember('Es vegetariano', 'soy vegetariano', 'soy vegetariano', null);
+    const failing = recordingTurns(
+      turns,
+      (m: string) => m,
+      async (m: string) => {
+        remember('No es vegetariano', 'ya no soy vegetariano', m, old);
+        throw new Error('boom');
+      },
+      () => 'telegram',
+    );
+    await expect(failing('ya no soy vegetariano')).rejects.toThrow('boom');
+    const next = recordingTurns(
+      turns,
+      (m: string) => m,
+      async () => ({ text: 'ok' }),
+      () => 'telegram',
+    );
+
+    await next('soy vegetariano otra vez');
+
+    expect(conversation()).toEqual(['soy vegetariano otra vez', 'ok']);
+  });
+
+  it("turns answered in parallel do not see each other's replaced memories", async () => {
+    const old = remember('Vive en Madrid', 'vivo en Madrid', 'vivo en Madrid', null);
+    const turn = (message: string, replace: boolean, reply: string) =>
+      recordingTurns(
+        turns,
+        (m: string) => m,
+        async (m: string) => {
+          await new Promise((resolve) => setTimeout(resolve, replace ? 5 : 1));
+          if (replace) remember('Vive en Sevilla', 'vivo en Sevilla', m, old);
+          await new Promise((resolve) => setTimeout(resolve, replace ? 1 : 10));
+          return { text: reply };
+        },
+        () => 'telegram',
+      )(message);
+
+    await Promise.all([
+      turn('ya no vivo en Madrid', true, 'Vale, Sevilla.'),
+      turn('qué tiempo hace en Madrid', false, 'Sol en Madrid.'),
+    ]);
+
+    expect(conversation()).toContain('qué tiempo hace en Madrid');
+  });
+});
