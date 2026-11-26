@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync, statSync } from 'node:fs';
+import { existsSync, mkdtempSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { isBotInUse } from '@anomander/telegram';
@@ -76,6 +76,20 @@ describe('the daemon lock', () => {
       }
     } finally {
       lock.release();
+    }
+  });
+
+  it('B80: an in-memory store takes no lock file: none lands in the current folder', () => {
+    // Each in-memory store belongs to its process alone, so there is no database to share.
+    const lockFile = join(process.cwd(), ':memory:.lock');
+    expect(existsSync(lockFile)).toBe(false);
+    const first = acquireDaemonLock(':memory:');
+    const second = acquireDaemonLock(':memory:');
+    try {
+      expect(existsSync(lockFile)).toBe(false);
+    } finally {
+      first.release();
+      second.release();
     }
   });
 });

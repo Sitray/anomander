@@ -540,7 +540,10 @@ The desktop app and Docker are two ways to run this daemon, never both at once
 before anything else (`src/store/daemon-lock.ts`): an exclusive SQLite transaction on
 `<ANOMANDER_DB_PATH>.lock`, held until `stop` (SQLite keeps a small `.lock-journal` beside it). A second daemon throws
 `DaemonAlreadyRunningError` before the store is opened, so the ledger is unchanged (AC1). The
-operating system frees the lock when the process ends, so a crash leaves nothing stale.
+operating system frees the lock when the process ends, so a crash leaves nothing stale. An
+in-memory store (`ANOMANDER_DB_PATH=:memory:`) takes no lock: it belongs to its process alone, and
+no `:memory:.lock` lands in the current folder (B80). When the store cannot be opened, `main.ts`
+says why (`could not open the store: EACCES: permission denied`) without its path (B80).
 
 `Anomander.polling` settles when Telegram polling ends: it resolves after `stop` and rejects
 when Telegram ends it, for example with the `409 Conflict` of another process reading the same

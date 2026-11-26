@@ -1,5 +1,5 @@
 import { type ChildProcess, spawn } from 'node:child_process';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -142,5 +142,22 @@ describe('main.ts without Telegram', () => {
     expect(started.output()).toContain(
       "missing configuration: no front door. Set TELEGRAM_BOT_TOKEN (the token @BotFather gives when you create the bot) and ANOMANDER_PRINCIPAL_CHAT_ID (your Telegram user ID, which @userinfobot tells you) for Telegram, or ANOMANDER_LOCAL_TOKEN for the desktop app's chat",
     );
+  }, 20_000);
+
+  it('B80: says why the store did not open, without its path', async () => {
+    // A file where the data folder should be: the store cannot be opened under it.
+    writeFileSync(join(scratch, 'not-a-folder'), '');
+    const started = run({
+      ANOMANDER_LOCAL_TOKEN: TOKEN,
+      ANOMANDER_LOCAL_PORT: String(await freePort()),
+      ANOMANDER_DB_PATH: join(scratch, 'not-a-folder', 'anomander.db'),
+    });
+    expect(await started.exited).toBe(exitCodes.failed);
+    // The system's code and its words (`EEXIST: file already exists` here), not where.
+    expect(started.output()).toMatch(
+      /anomander daemon failed: could not open the store: E[A-Z]+: \w/,
+    );
+    expect(started.output()).not.toContain(scratch);
+    expect(started.output()).not.toContain('not-a-folder');
   }, 20_000);
 });
