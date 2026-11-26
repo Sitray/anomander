@@ -60,6 +60,7 @@ On `main` since 0.1.0. The interface speaks English or Spanish, and the app runs
 - "Sí, olvidar" on a memory or an action in Memoria no longer waits forever: with no answer from the daemon in 2 minutes it says it cannot know whether it was forgotten, as "Sí, borrar" does (DK-18 AC6, B80).
 - A daemon on an in-memory store (`ANOMANDER_DB_PATH=:memory:`) no longer leaves a `:memory:.lock` file in the folder it was started from (B80).
 - A daemon whose store cannot be opened says why without printing the database's path (B80).
+- A model login refresh that fails with an error naming its provider as `key` (`key: 'openai-codex'`) no longer hides that name in every later log line: of a failed refresh only its token fields (`access`, `refresh`, the OAuth tokens) and the tokens it quotes as JSON or a form are hidden (B82).
 - The message that replaces a memory ("ya no vivo en …") is no longer stored when it, or its reply, holds the old fact's words: it goes as the earlier turns that held them do (R-23 AC3, B55).
 - What a task with connections asked in Telegram came to is stored in the conversation only once Telegram delivered it, as it was sent (cut to one message); a send that fails stores nothing, as for a message sent unasked (B55).
 - A "No" pressed after a "Sí" to forget a memory or erase the history that failed halfway no longer says nothing was forgotten: it says part already was and cannot be brought back (S-200, S-201). Erasing the history now erases the actions before the conversation, so such a failure is seen (B55).

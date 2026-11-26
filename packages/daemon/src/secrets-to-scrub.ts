@@ -112,9 +112,17 @@ const unquoted = (escaped: string): string => {
 };
 
 /**
- * B51: the tokens a failure quotes, however deep: in a field named as a login's or an OAuth set's
- * secret, or quoted as JSON in any text of it, its message and its causes included (an `Error`
- * keeps those out of its own fields). A failed refresh's error may quote the tokens it got.
+ * B82: the fields of a failure that hold a token: a login's `access` and `refresh` and an OAuth
+ * set's. A failed refresh has no API key to quote, so `key` and `*_API_KEY` are ordinary text
+ * there (`key: 'openai-codex'` names the provider); a provider key of the environment is already
+ * one of the start's.
+ */
+const FAILURE_FIELDS = new Set(['access', 'refresh', ...OAUTH_FIELDS]);
+
+/**
+ * B51: the tokens a failure quotes, however deep: in a field named as a token (`FAILURE_FIELDS`),
+ * or quoted as JSON or as a form in any text of it, its message and its causes included (an
+ * `Error` keeps those out of its own fields). A failed refresh's error may quote the tokens it got.
  */
 const quotedTokens = (value: unknown, seen = new Set<object>()): string[] => {
   if (typeof value === 'string') return tokensIn(value);
@@ -131,9 +139,7 @@ const quotedTokens = (value: unknown, seen = new Set<object>()): string[] => {
         ]
       : [];
   return [...own, ...Object.entries(value)].flatMap(([name, inner]) =>
-    typeof inner === 'string' && (isLoginSecret(name) || isOAuthSecret(name))
-      ? [inner]
-      : quotedTokens(inner, seen),
+    typeof inner === 'string' && FAILURE_FIELDS.has(name) ? [inner] : quotedTokens(inner, seen),
   );
 };
 
