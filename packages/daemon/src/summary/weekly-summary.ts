@@ -71,12 +71,22 @@ export const createWeeklySummary = ({
         if (currency !== null) entry.amounts.push({ cents, currency });
         byCategory.set(id, entry);
       }
-      const loose = sumByCurrency(uncategorized.all(start, end));
-      const spent = [...byCategory.values()].map(({ name, amounts }) => ({
+      const looseSpent = sumByCurrency(uncategorized.all(start, end));
+      const perName = [...byCategory.values()].map(({ name, amounts }) => ({
         name,
         cents: sumByCurrency(amounts),
       }));
-      const total = sumByCurrency([...spent.flatMap(({ cents }) => cents), ...loose]);
+      const total = sumByCurrency([...perName.flatMap(({ cents }) => cents), ...looseSpent]);
+      // B78: a category with no expense that week is zero in the week's first currency (the
+      // principal's when it is there), so a week of euros never shows `0,00 US$`; a week with
+      // none is zero in the principal's.
+      const [first] = total;
+      const zero = (cents: Money[]): Money[] =>
+        cents.length === 0 && first !== undefined
+          ? [{ cents: 0, currency: first.currency }]
+          : cents;
+      const spent = perName.map(({ name, cents }) => ({ name, cents: zero(cents) }));
+      const loose = zero(looseSpent);
       const order = total.map(({ currency }) => currency);
       const categories = spent.sort(
         (a, b) => compareSums(a.cents, b.cents, order) || a.name.localeCompare(b.name),

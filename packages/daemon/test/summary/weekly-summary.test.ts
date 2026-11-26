@@ -1,7 +1,7 @@
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import type { Reply } from '@anomander/protocol';
+import { type Reply, setCurrency } from '@anomander/protocol';
 import type Database from 'better-sqlite3';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { applyMigrations, openDatabase } from '../../src/store/database.ts';
@@ -28,6 +28,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  setCurrency('EUR');
   db.close();
   rmSync(scratch, { recursive: true, force: true });
 });
@@ -127,6 +128,29 @@ describe('R-10 weekly summary', () => {
 
     expect(reply?.text).toBe(
       'Semana del 26 de octubre al 1 de noviembre: 90,00\u00a0€ y 12,00\u00a0US$. Supermercado 30,00\u00a0€ y 12,00\u00a0US$ · Restaurantes 0,00\u00a0€ · Sin clasificar 60,00\u00a0€. Pendientes de confirmar: 0.',
+    );
+  });
+
+  // B78: the principal changed to US dollars but the week's expenses are all in euros, stored
+  // before; an empty category reads 0,00 € beside them, never 0,00 US$.
+  it('B78: an empty category is zero in the currency of the week, not 0,00 US$ beside euros', async () => {
+    setCurrency('USD');
+    addExpense('2026-10-26', 3000, 'supermercado');
+
+    const reply = await sendSummary();
+
+    expect(reply?.text).toBe(
+      'Semana del 26 de octubre al 1 de noviembre: 30,00\u00a0€. Supermercado 30,00\u00a0€ · Restaurantes 0,00\u00a0€ · Sin clasificar 0,00\u00a0€. Pendientes de confirmar: 0.',
+    );
+  });
+
+  it("B78: a week with no expense is zero in the principal's currency", async () => {
+    setCurrency('USD');
+
+    const reply = await sendSummary();
+
+    expect(reply?.text).toBe(
+      'Semana del 26 de octubre al 1 de noviembre: 0,00\u00a0US$. Restaurantes 0,00\u00a0US$ · Supermercado 0,00\u00a0US$ · Sin clasificar 0,00\u00a0US$. Pendientes de confirmar: 0.',
     );
   });
 });
