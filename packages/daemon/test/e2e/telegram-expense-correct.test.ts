@@ -1639,3 +1639,81 @@ describe("a corrected receipt's mode (R-7 AC6, AC9)", () => {
     chat.close();
   });
 });
+
+describe('a reply to a used "Corregido…" (R-17 AC2, B79)', () => {
+  const S106 = (cents: number) => `Deshecho: vuelve a ser ${formatAmount(cents)} (restaurantes).`;
+  const answerTo = async (message: SentMessage, text: string) => {
+    const before = api.sent.length;
+    api.push(updates.text({ chatId: PRINCIPAL }, text, { replyToMessageId: message.messageId }));
+    const [answer] = (await api.waitForSent(before + 1)).slice(before);
+    if (answer === undefined) throw new Error('no reply');
+    return answer;
+  };
+  const usedCorrection = async () => {
+    const reply = await registered();
+    expect(await press(reply, 'Corregir')).toBe(S7);
+    const corrected = await say('total 28,40');
+    await vi.waitFor(() =>
+      expect(
+        query("SELECT id FROM pending_decisions WHERE status = 'open' AND channel_ref IS NOT NULL"),
+      ).toHaveLength(1),
+    );
+    expect(await press(corrected, 'Deshacer')).toBe(S106(2300));
+    return corrected;
+  };
+
+  it('after a newer typed correction, a reply to the used one corrects the current values; the newer Deshacer closes', async () => {
+    const corrected = await usedCorrection();
+    interpretations.set('no eran 23, eran 32', ({ expenses = [] }) =>
+      correcting(expenses[0]?.id ?? null, 3200, 'eran 32'),
+    );
+    const newer = await say('no eran 23, eran 32');
+    expect(newer.text).toBe(S102(3200));
+    await vi.waitFor(() =>
+      expect(
+        query("SELECT id FROM pending_decisions WHERE status = 'open' AND channel_ref IS NOT NULL"),
+      ).toHaveLength(1),
+    );
+    correctionFixture = 'total-14';
+    const again = await answerTo(corrected, 'es 14');
+    expect(again.text).toBe(S102(1400));
+    expect(gastos()).toEqual([{ total_cents: 1400 }]);
+    expect(await press(newer, 'Deshacer')).toBe(S19);
+    expect(await press(again, 'Deshacer')).toBe(S106(3200));
+    expect(gastos()).toEqual([{ total_cents: 3200 }]);
+  });
+
+  it('8 days later (an unused Deshacer would have expired) a reply to the used one still corrects', async () => {
+    const corrected = await usedCorrection();
+    await anomander.stop();
+    clock = new Date(NOW.getTime() + 8 * 86_400_000);
+    await start();
+    correctionFixture = 'total-14';
+    const again = await answerTo(corrected, 'es 14');
+    // Records the behaviour: corrected, not sent to the processor.
+    expect(again.text).toBe(S102(1400));
+    expect(interpreted.map(({ message }) => message)).not.toContain('es 14');
+  });
+
+  it('a reply to an unused "Corregido…" whose Deshacer expired goes to the processor (baseline)', async () => {
+    const reply = await registered();
+    expect(await press(reply, 'Corregir')).toBe(S7);
+    const corrected = await say('total 28,40');
+    await vi.waitFor(() =>
+      expect(
+        query("SELECT id FROM pending_decisions WHERE status = 'open' AND channel_ref IS NOT NULL"),
+      ).toHaveLength(1),
+    );
+    await anomander.stop();
+    clock = new Date(NOW.getTime() + 8 * 86_400_000);
+    await start();
+    await vi.waitFor(() =>
+      expect(query("SELECT id FROM pending_decisions WHERE status = 'expired'")).not.toHaveLength(
+        0,
+      ),
+    );
+    const answer = await answerTo(corrected, '23 € cena');
+    expect(interpreted.map(({ message }) => message)).toContain('23 € cena');
+    expect(answer.text).toBe(S2);
+  });
+});

@@ -1116,6 +1116,8 @@ describe('the memories and the history in the window (DK-18)', () => {
     routed = undefined;
     await chat.ask({ type: 'text', text: '23 € cena' });
     expect(conversation()).toEqual(['23 € cena', PHRASED]);
+    // B83: the chat runs each turn in its scope, so a replacement never warns that it has none.
+    expect(JSON.stringify(logger.warn.mock.calls)).not.toContain('no turn scope');
   });
 
   it('forget_memory of a memory no longer current erases nothing and answers done', async () => {
