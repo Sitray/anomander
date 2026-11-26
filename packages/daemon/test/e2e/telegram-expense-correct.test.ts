@@ -1359,6 +1359,72 @@ describe("a corrected receipt's mode (R-7 AC6, AC9)", () => {
     chat.close();
   });
 
+  // B83 (from the B63 verifier): a category correction of a corroborated receipt, end to end. The
+  // correction is the principal's word for the category (declared) and the expense (confirmed);
+  // its "Deshacer" gives back the policy's category and the mode corroborated.
+  it('a category correction of a corroborated receipt declares it and confirms it; "Deshacer" puts policy and corroborated back', async () => {
+    const expense = await corroborated();
+    const state = () =>
+      query(
+        `SELECT c.name AS category, e.category_basis, e.mode, e.status FROM expenses e
+         LEFT JOIN categories c ON c.id = e.category_id`,
+      );
+    expect(state()).toEqual([
+      {
+        category: 'supermercado',
+        category_basis: 'policy',
+        mode: 'corroborated',
+        status: 'current',
+      },
+    ]);
+    correctionFixture = 'category-restaurantes';
+    const chat = await appChat();
+    expect((await chat.ask({ type: 'correct_expense', expenseId: expense.id })).text).toBe(S7);
+
+    const corrected = await chat.ask({ type: 'text', text: 'restaurantes' });
+
+    expect(corrected.text).toBe(`Corregido: ${formatAmount(2340)} en Mercadona (restaurantes).`);
+    expect(corrected.buttons.map((button) => button.label)).toEqual(['Deshacer']);
+    expect(state()).toEqual([
+      {
+        category: 'restaurantes',
+        category_basis: 'declared',
+        mode: 'confirmed',
+        status: 'current',
+      },
+    ]);
+    expect(
+      query(`SELECT value_json, mode, status FROM assertions
+             WHERE subject_type = 'expense' AND predicate = 'category' AND mode = 'declared'`),
+    ).toEqual([{ value_json: '"restaurantes"', mode: 'declared', status: 'current' }]);
+    expect(gastos()).toEqual([{ total_cents: 2340 }]);
+
+    const undo = corrected.buttons[0];
+    if (undo === undefined || !('data' in undo)) throw new Error('no Deshacer button');
+    const undone = await chat.ask({
+      type: 'button',
+      data: undo.data,
+      channelRef: corrected.channelRef,
+    });
+
+    expect(undone.text).toBe(
+      `Deshecho: vuelve a ser ${formatAmount(2340)} en Mercadona (supermercado).`,
+    );
+    expect(state()).toEqual([
+      {
+        category: 'supermercado',
+        category_basis: 'policy',
+        mode: 'corroborated',
+        status: 'current',
+      },
+    ]);
+    expect(
+      query(`SELECT value_json, status FROM assertions
+             WHERE subject_type = 'expense' AND predicate = 'category' AND mode = 'declared'`),
+    ).toEqual([{ value_json: '"restaurantes"', status: 'refuted' }]);
+    chat.close();
+  });
+
   it('a "Deshacer" stored before the mode was kept still puts the values back and leaves the mode', async () => {
     const expense = await corroborated();
     const chat = await appChat();
