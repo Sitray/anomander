@@ -159,13 +159,17 @@ export const createTextExpenseHandler = (deps: TextExpenseDeps): TextHandler => 
     const remember = (facts: readonly MemoryFact[]) => {
       for (const fact of facts) {
         try {
-          saveMemory(db, {
-            ...fact,
-            message: message.text,
-            source: message.channelRef,
-            receivedAt: message.receivedAt,
-            now: now().toISOString(),
-          });
+          saveMemory(
+            db,
+            {
+              ...fact,
+              message: message.text,
+              source: message.channelRef,
+              receivedAt: message.receivedAt,
+              now: now().toISOString(),
+            },
+            logger,
+          );
         } catch (error) {
           logger.error('memory not saved', {
             channelRef: message.channelRef,

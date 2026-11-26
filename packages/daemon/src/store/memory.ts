@@ -1,5 +1,6 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 import type Database from 'better-sqlite3';
+import type { Logger } from '../processor/ports.ts';
 import { forgetTurnsHolding } from './conversation.ts';
 import { insertAssertion } from './expenses.ts';
 
@@ -198,9 +199,14 @@ const isCurrentMemory = (db: Database.Database, id: number): boolean =>
  * its text is erased as a forget erases it (AC6, AC7), with the turns of the stored conversation
  * that hold its text or quote, so no outdated text is ever kept; a
  * `replaces` that names no current memory is ignored and the fact is stored as new. Returns the
- * new memory's id.
+ * new memory's id. A replacement made outside any turn's scope (`replacingIn`) is warned to
+ * `logger`, once, by the fact alone (B83).
  */
-export const saveMemory = (db: Database.Database, capture: MemoryCapture): number => {
+export const saveMemory = (
+  db: Database.Database,
+  capture: MemoryCapture,
+  logger?: Pick<Logger, 'warn'>,
+): number => {
   const { id, replaced, holds } = db.transaction(() => {
     const declared = capture.said && quotedFrom(capture.quote, capture.message);
     const replaced =
@@ -238,7 +244,20 @@ export const saveMemory = (db: Database.Database, capture: MemoryCapture): numbe
     return { id, replaced, holds };
   })();
   // B81: only the turn this runs in is matched against the old words (`replacingIn`).
-  if (holds !== null) replacedInTurn.getStore()?.push(holds);
+  // B83: with no turn's scope (a caller outside `recordingTurns`, or a handler that lost its
+  // async context) no turn can be matched, so it is said instead of kept silently. There is no
+  // fallback: the door of the turn to come is not known here, and handing the words to whatever
+  // turn is stored next would let them suppress a turn of another door or outlive a turn that
+  // failed, which B81 rules out. Only the fact and the new memory's id are logged (R-23 AC8).
+  if (holds !== null) {
+    const scope = replacedInTurn.getStore();
+    if (scope !== undefined) scope.push(holds);
+    else {
+      logger?.warn('replaced memory not matched against its turn: no turn scope', {
+        memoryId: id,
+      });
+    }
+  }
   // The checkpoint cannot run inside the transaction (see forgetMemories).
   if (replaced !== null) db.pragma('wal_checkpoint(TRUNCATE)');
   return id;

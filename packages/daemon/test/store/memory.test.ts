@@ -2,7 +2,7 @@ import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type Database from 'better-sqlite3';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { applyMigrations, openDatabase } from '../../src/store/database.ts';
 import {
   forgetMemories,
@@ -10,6 +10,7 @@ import {
   type MemoryCapture,
   memoriesForPrompt,
   memoryNotesFor,
+  replacingIn,
   saveMemory,
 } from '../../src/store/memory.ts';
 
@@ -123,6 +124,43 @@ describe('saveMemory', () => {
     expect(db.prepare('SELECT assertion_id FROM memory_texts').all()).toEqual([
       { assertion_id: replacement },
     ]);
+  });
+
+  const spyLogger = () => ({ info: vi.fn(), warn: vi.fn(), error: vi.fn() });
+
+  // B83 (1): with no turn's scope, the replaced words cannot reach the turn that replaced them;
+  // that is said once, by the fact alone, never by the memory's text or quote (R-23 AC8).
+  it('warns once, with no text, when it replaces a memory outside any turn scope', () => {
+    const logger = spyLogger();
+    const old = saveMemory(db, capture(), logger);
+    expect(logger.warn).not.toHaveBeenCalled();
+    const replacement = saveMemory(
+      db,
+      capture({ text: 'Ya no es vegetariano', quote: 'ya no soy', replaces: old }),
+      logger,
+    );
+
+    expect(logger.warn).toHaveBeenCalledTimes(1);
+    expect(logger.warn).toHaveBeenCalledWith(
+      'replaced memory not matched against its turn: no turn scope',
+      { memoryId: replacement },
+    );
+    expect(JSON.stringify(logger.warn.mock.calls)).not.toMatch(/vegetariano|soy/i);
+    expect(logger.error).not.toHaveBeenCalled();
+    expect(assertion(old)).toMatchObject({ status: 'refuted' });
+  });
+
+  // B81 still holds: inside a turn's scope the words go to that turn, with no warning.
+  it('gives the replaced words to the turn it runs in, with no warning', async () => {
+    const logger = spyLogger();
+    const old = saveMemory(db, capture(), logger);
+    const { replaced } = await replacingIn(async () =>
+      saveMemory(db, capture({ text: 'Ya no es vegetariano', replaces: old }), logger),
+    );
+
+    expect(replaced).toHaveLength(1);
+    expect(replaced[0]?.({ from: 'principal', text: 'soy vegetariano' })).toBe(true);
+    expect(logger.warn).not.toHaveBeenCalled();
   });
 });
 
