@@ -326,10 +326,22 @@ export const startAnomander = <M>(config: Config, deps: AnomanderDeps<M>): Anoma
       // and neither the store nor the lock may go from under it. B69: that holds for a job the
       // app's connection started too; one still queued never starts.
       const jobsEnded = settle(jobs.stop());
+      // B82: still waited for past the deadline, but told once, by its kind: a hung job holds the
+      // stop until whoever started the daemon kills it.
+      const jobsTold = settlesWithin(jobsEnded, deadlineMs).then((inTime) => {
+        if (inTime) return;
+        logger.warn(
+          `anomander is still waiting for a job before it stops: ${deadlineMs} ms passed`,
+          {
+            job: jobs.running() ?? 'unknown',
+          },
+        );
+      });
       const ended = settle(...doors, chatTurns.drained());
       if (!(await settlesWithin(ended, deadlineMs))) {
         logger.warn(`anomander stopped before every turn ended: ${deadlineMs} ms passed`);
       }
+      await jobsTold;
       await jobsEnded;
       await settle(servers?.close(), readApi?.stop());
       db.close();

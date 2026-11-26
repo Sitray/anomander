@@ -7,7 +7,7 @@ import { createMorningDigest } from '../digest/send-digest.ts';
 import type { Logger } from '../processor/ports.ts';
 import { createDueReminders } from '../reminders/send-due.ts';
 import { createRetention } from '../retention/retention-job.ts';
-import { startScheduler } from '../scheduler/scheduler.ts';
+import { type SchedulerJobs, startScheduler } from '../scheduler/scheduler.ts';
 import { createWeeklySummary } from '../summary/weekly-summary.ts';
 
 export interface JobsDeps {
@@ -22,18 +22,31 @@ export interface JobsDeps {
   reachable: () => boolean;
 }
 
+/** What a job is, as the scheduler names it (`SchedulerJobs`). */
+export type JobKind = keyof SchedulerJobs;
+
 /**
  * The one chain every job runs in (DK-22), so two jobs never overlap whoever started them: a
  * receipt is never read while retention may delete its images. Once `halt` is called no job
- * starts, even one already queued (B69); `idle` settles when the one that runs has ended.
+ * starts, even one already queued (B69); `idle` settles when the one that runs has ended, and
+ * `running` says which kind it is (B82).
  */
 const jobChain = () => {
   let tail: Promise<unknown> = Promise.resolve();
   let halted = false;
+  let running: JobKind | undefined;
   const oneAtATime =
-    <T>(job: () => Promise<T>) =>
+    <T>(kind: JobKind, job: () => Promise<T>) =>
     (): Promise<T | undefined> => {
-      const run = tail.then(() => (halted ? undefined : job()));
+      const run = tail.then(async () => {
+        if (halted) return undefined;
+        running = kind;
+        try {
+          return await job();
+        } finally {
+          running = undefined;
+        }
+      });
       tail = run.catch(() => {});
       return run;
     };
@@ -42,9 +55,9 @@ const jobChain = () => {
    * run, so a storm of connections queues each job once; asked once that run started, it queues
    * another, which sees what changed meanwhile.
    */
-  const merged = <T>(job: () => Promise<T>): (() => Promise<T | undefined>) => {
+  const merged = <T>(kind: JobKind, job: () => Promise<T>): (() => Promise<T | undefined>) => {
     let waiting: Promise<T | undefined> | undefined;
-    const queue = oneAtATime(() => {
+    const queue = oneAtATime(kind, () => {
       waiting = undefined;
       return job();
     });
@@ -59,6 +72,7 @@ const jobChain = () => {
     halt: () => {
       halted = true;
     },
+    running: (): JobKind | undefined => running,
     idle: async (): Promise<void> => {
       let last: Promise<unknown>;
       do {
@@ -77,8 +91,8 @@ const jobChain = () => {
 export const startJobs = ({ config, db, now, notify, logger, readQueued, reachable }: JobsDeps) => {
   const chain = jobChain();
   const oneJobAtATime = chain.oneAtATime;
-  const unasked = <T>(job: () => Promise<T>) =>
-    chain.merged(async () => (reachable() ? job() : undefined));
+  const unasked = <T>(kind: JobKind, job: () => Promise<T>) =>
+    chain.merged(kind, async () => (reachable() ? job() : undefined));
   const retention = createRetention({
     db,
     inboxDir: config.inboxDir,
@@ -93,15 +107,15 @@ export const startJobs = ({ config, db, now, notify, logger, readQueued, reachab
   const queue = createReceiptQueue({ db, readQueued, notify, now, logger });
   const dueReminders = createDueReminders({ db, timeZone: config.timeZone, now, notify, logger });
   const digest = createMorningDigest({ db, timeZone: config.timeZone, now, notify, logger });
-  const sendMorningDigest = unasked(digest.send);
-  const sendDueReminders = unasked(dueReminders.send);
-  const drainQueue = unasked(queue.drain);
+  const sendMorningDigest = unasked('sendMorningDigest', digest.send);
+  const sendDueReminders = unasked('sendDueReminders', dueReminders.send);
+  const drainQueue = unasked('drainQueue', queue.drain);
   const scheduler = startScheduler({
     retentionCron: config.retentionCron,
     weeklySummaryCron: config.weeklySummaryCron,
     timeZone: config.timeZone,
     jobs: {
-      retain: oneJobAtATime(async () => {
+      retain: oneJobAtATime('retain', async () => {
         try {
           return await retention.retain();
         } finally {
@@ -112,8 +126,8 @@ export const startJobs = ({ config, db, now, notify, logger, readQueued, reachab
       sendDueReminders,
       // T13 F1: a receipt is read only where its reply can be told; it waits for a door.
       drainQueue,
-      watchReceipts: oneJobAtATime(retention.watchQueuedReceipts),
-      sendWeeklySummary: unasked(summary.send),
+      watchReceipts: oneJobAtATime('watchReceipts', retention.watchQueuedReceipts),
+      sendWeeklySummary: unasked('sendWeeklySummary', summary.send),
     },
     logger,
   });
@@ -122,6 +136,8 @@ export const startJobs = ({ config, db, now, notify, logger, readQueued, reachab
     sendMorningDigest,
     sendDueReminders,
     drainQueue,
+    /** B82: the kind of the job that runs now, if one does; never what it holds. */
+    running: chain.running,
     /** Nothing starts from now on: no scheduled job, no run a connection asked for. */
     halt: () => {
       chain.halt();

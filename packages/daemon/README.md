@@ -241,7 +241,9 @@ still runs), stops the doors and the jobs (a job still queued, scheduled or aske
 app's connection, never starts), and waits for the turns and task steps in progress, up to
 `SHUTDOWN_DEADLINE_MS` (5 s; `shutdownDeadlineMs` in tests), with `Promise.allSettled`. Past the
 deadline it logs a warning. The job in progress is waited for however long it takes, so it never
-runs on a closed store (B69). Only then does it close the connections, the read API and the
+runs on a closed store (B69); when it is still running past the deadline the stop says so once,
+naming only its kind (`anomander is still waiting for a job before it stops`, `{ job:
+'drainQueue' }`), and keeps waiting (B82). Only then does it close the connections, the read API and the
 store; a step that failed is thrown after everything closed. `Anomander.halt` is that first,
 synchronous part alone: `main.ts` calls it when it fails or crashes, so no new event is handled
 while the last log line drains (B51).
