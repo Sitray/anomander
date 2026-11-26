@@ -74,7 +74,8 @@ export const startAnomander = <M>(config: Config, deps: AnomanderDeps<M>): Anoma
       throw error;
     }
   })();
-  logger.info(`anomander store ready at ${config.dbPath} (${applied} migrations applied)`);
+  // B52: the path may name the principal (§16), so the log leaves it out.
+  logger.info(`anomander store ready (${applied} migrations applied)`);
 
   // R-13 AC2: S-12 goes out unasked through `notify`, which needs the bot, while the bot needs the
   // handlers that offer it; it is bound below, before the bot starts polling.

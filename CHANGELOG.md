@@ -50,6 +50,8 @@ On `main` since 0.1.0. The interface speaks English or Spanish, and the app runs
 
 ### Fixed
 
+- **Backups stamped in the future**: a backup stamped after the current time, as a clock that was once ahead leaves them, no longer counts as the copy of its day, so the real day still gets its daily copy, and it is the first deleted when backups are pruned, so such copies never pile up; never more than the usual number of copies is deleted per backup taken, and the copy just taken never is. A copy stamped ahead that is still kept (fewer copies than the kept number, or others stamped ahead before it, for example when a daily run is missed) can still stand for its own day once that day arrives (B52).
+- **`/exportar` with an in-memory store**: with `ANOMANDER_DB_PATH=:memory:` there is no data folder, so `/exportar` writes nothing and replies S-80, instead of writing `exports/` into the folder the daemon was started from; the startup log no longer prints the database path (B52).
 - "El lunes", "la semana pasada" and other weekdays: the text interpreter and the correction interpreter are told today's weekday in `TZ` beside the date, instead of leaving the model to work it out (B59).
 - The processor reads amounts in the configured currency: the text interpreter, the receipt reader and the correction interpreter no longer ask for euro cents when `ANOMANDER_CURRENCY` is another one, and the text interpreter's examples write it as the principal does (`23 US$`, `US$23`) (B73).
 - A pound has pence: with `ANOMANDER_CURRENCY=GBP` the processor prompts ask for an integer number of pence, not cents; EUR and the other currencies read as before. The receipt reader is told today's weekday beside the date, as the text interpreters are (B78).
