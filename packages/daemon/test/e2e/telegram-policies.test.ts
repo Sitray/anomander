@@ -29,6 +29,7 @@ const NOW = new Date('2026-10-30T10:00:05.000Z');
 const S11 = '¿Guardo la regla «Mercadona es supermercado»?';
 const S12 = 'He notado que Mercadona siempre es supermercado. ¿Lo convierto en regla?';
 const S35 = 'Vale, no guardo la regla.';
+const S19 = 'Esa pregunta ya no está abierta.';
 const SAVED = 'Hecho, he guardado la regla «Mercadona es supermercado».';
 const S1 = 'Apuntado: 23,00 € en Mercadona (supermercado).';
 
@@ -440,19 +441,14 @@ describe('patterns noticed by code (R-13 AC2)', () => {
     expect(policies()).toEqual([]);
   });
 
-  // B79, R-7 AC9 with R-13 AC2: a correction that completes a pattern gets its "Deshacer" and,
-  // once its reply is delivered, S-12 as its own message. "Deshacer" works as under any
-  // correction; S-12 is a decision of its own, so it stays open and its "Sí" stores the policy.
-  it('a correction that completes a pattern carries "Deshacer" and is followed by S-12; both work', async () => {
-    await spendTimes(spend('Mercadona', 'declared'), 2);
-    await spendTimes(spend('Mercadona', 'inferred'), 1);
-    expect(query(`SELECT id FROM pending_decisions WHERE ${ASKED}`)).toEqual([]);
-    const correction = 'no, es supermercado';
+  /** "no, es supermercado" as a typed correction (R-7 AC7) of expense `id`: its category declared. */
+  const correctToSupermarket = (id: number) => {
+    const text = 'no, es supermercado';
     interpretations.set(
-      correction,
+      text,
       answering({
         kind: 'expense_correct',
-        expense_id: 3,
+        expense_id: id,
         inferences: [
           {
             subject_type: 'expense',
@@ -466,38 +462,69 @@ describe('patterns noticed by code (R-13 AC2)', () => {
         ],
       }),
     );
-
-    const [corrected, offer] = await say(correction, 2);
-    const offerId = await shownDecision();
-
-    expect(corrected?.text).toBe(S1.replace('Apuntado', 'Corregido'));
+    return text;
+  };
+  /** The "Deshacer" decision under the newest correction's reply (R-7 AC9). */
+  const undoDecision = () => {
     const [undo] = query<{ id: number }>(
       `SELECT d.id FROM pending_decisions d JOIN proposals p ON p.id = d.proposal_id
-       WHERE json_extract(p.payload_json, '$.restore') IS NOT NULL`,
+       WHERE json_extract(p.payload_json, '$.restore') IS NOT NULL ORDER BY d.id DESC LIMIT 1`,
     );
-    if (undo === undefined || corrected === undefined || offer === undefined) {
-      throw new Error('no correction reply or offer');
-    }
+    if (undo === undefined) throw new Error('no Deshacer');
+    return undo.id;
+  };
+  /** Two declared Mercadona expenses and a third whose category is only inferred: no pattern yet. */
+  const twoDeclaredOneInferred = async () => {
+    await spendTimes(spend('Mercadona', 'declared'), 2);
+    await spendTimes(spend('Mercadona', 'inferred'), 1);
+    expect(query(`SELECT id FROM pending_decisions WHERE ${ASKED}`)).toEqual([]);
+  };
+  /** The correction of the third expense, its reply with "Deshacer" alone, then S-12. */
+  const correctedIntoPattern = async () => {
+    const [corrected, offer] = await say(correctToSupermarket(3), 2);
+    const offerId = await shownDecision();
+    if (corrected === undefined || offer === undefined) throw new Error('no reply or offer');
+    const undoId = undoDecision();
+    expect(corrected.text).toBe(S1.replace('Apuntado', 'Corregido'));
     expect(corrected.payload.reply_markup).toEqual({
-      inline_keyboard: [[{ text: 'Deshacer', callback_data: `decision:${undo.id}:0` }]],
+      inline_keyboard: [[{ text: 'Deshacer', callback_data: `decision:${undoId}:0` }]],
     });
     expect(offer.text).toBe(S12);
     expect(offer.payload.reply_markup).toEqual(yesNo(offerId));
     expect(query('SELECT category_basis FROM expenses WHERE id = 3')).toEqual([
       { category_basis: 'declared' },
     ]);
+    return { corrected, offer, offerId, undoId };
+  };
+  const offerState = (offerId: number) =>
+    query(
+      `SELECT d.status AS decision, p.status AS proposal FROM pending_decisions d
+       JOIN proposals p ON p.id = d.proposal_id WHERE d.id = ${offerId}`,
+    );
 
-    const undone = await press(corrected, `decision:${undo.id}:0`);
+  // B79, R-7 AC9 with R-13 AC2 (decided by the principal on 2026-11-26: "Se retira"): the
+  // "Deshacer" of a correction withdraws the S-12 it led to, closed as R-7 AC8 closes a question,
+  // so a late "Sí" gets S-19 and stores no rule.
+  it('a correction that completes a pattern carries "Deshacer"; using it withdraws its S-12', async () => {
+    await twoDeclaredOneInferred();
+    const { corrected, offer, offerId, undoId } = await correctedIntoPattern();
+
+    const undone = await press(corrected, `decision:${undoId}:0`);
 
     expect(undone?.text).toBe(S1.replace('Apuntado:', 'Deshecho: vuelve a ser'));
     expect(query('SELECT category_basis, status FROM expenses WHERE id = 3')).toEqual([
       { category_basis: 'inferred', status: 'current' },
     ]);
-    // S-12 is not closed by the "Deshacer": it never becomes a policy without the "Sí" (AC2).
-    expect(query(`SELECT status FROM pending_decisions WHERE id = ${offerId}`)).toEqual([
-      { status: 'open' },
-    ]);
+    expect(offerState(offerId)).toEqual([{ decision: 'expired', proposal: 'rejected' }]);
+
+    expect((await press(offer, `decision:${offerId}:0`))?.text).toBe(S19);
     expect(policies()).toEqual([]);
+    expect(offerState(offerId)).toEqual([{ decision: 'expired', proposal: 'rejected' }]);
+  });
+
+  it('the S-12 of a correction not undone still stores the rule on "Sí"', async () => {
+    await twoDeclaredOneInferred();
+    const { offer, offerId } = await correctedIntoPattern();
 
     const saved = await press(offer, `decision:${offerId}:0`);
 
@@ -505,6 +532,41 @@ describe('patterns noticed by code (R-13 AC2)', () => {
     expect(policies()).toEqual([
       {
         rule_json: JSON.stringify({ merchant: 'Mercadona', category: 'supermercado' }),
+        active: 1,
+        revoked_at: null,
+      },
+    ]);
+  });
+
+  it('an S-12 the undone correction did not lead to stays open, and its "Sí" stores the rule', async () => {
+    await twoDeclaredOneInferred();
+    const { corrected, offerId, undoId } = await correctedIntoPattern();
+    // Another merchant's pattern, offered after that correction, rests on none of its expenses.
+    const lidl = spend('Lidl', 'declared');
+    await spendTimes(lidl, 2);
+    const [, other] = await say(lidl, 2);
+    let otherId: number | undefined;
+    await vi.waitFor(() => {
+      [{ id: otherId } = { id: undefined }] = query<{ id: number }>(
+        `SELECT d.id FROM pending_decisions d JOIN proposals p ON p.id = d.proposal_id
+         WHERE p.operation = 'create_policy' AND json_extract(p.payload_json, '$.merchant') = 'Lidl'
+           AND d.channel_ref IS NOT NULL`,
+      );
+      expect(otherId).toBeDefined();
+    });
+    if (other === undefined || otherId === undefined) throw new Error('no offer');
+    expect(other.text).toBe(S12.replace('Mercadona', 'Lidl'));
+
+    await press(corrected, `decision:${undoId}:0`);
+
+    expect(offerState(offerId)).toEqual([{ decision: 'expired', proposal: 'rejected' }]);
+    expect(offerState(otherId)).toEqual([{ decision: 'open', proposal: 'asked' }]);
+    expect((await press(other, `decision:${otherId}:0`))?.text).toBe(
+      SAVED.replace('Mercadona', 'Lidl'),
+    );
+    expect(policies()).toEqual([
+      {
+        rule_json: JSON.stringify({ merchant: 'Lidl', category: 'supermercado' }),
         active: 1,
         revoked_at: null,
       },

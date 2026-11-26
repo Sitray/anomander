@@ -175,7 +175,10 @@ with the S-15 buttons first when S-15 is asked with it:
   `undoCorrection` in one transaction: the columns take their old values, the declarations are
   `refuted`, the refuted assertions take back their status, and the proposal is `executed` by the
   principal. The expense stays current; the reply is S-105, or S-106 without a merchant. A newer
-  correction closes the older one's question, so only the newest is undone (S-19 otherwise). A
+  correction closes the older one's question, so only the newest is undone (S-19 otherwise).
+  "Deshacer" also withdraws the S-12 the correction led to (`withdrawPatternOffersAfter`, B79):
+  each open R-13 AC2 offer asked after the correction's question that counts the expense becomes
+  `expired`, its proposal `rejected`. A
   row's "Deshacer" never presses this question (`openAmendDecisionOf` skips it): it takes the
   expense out, as before.
 
