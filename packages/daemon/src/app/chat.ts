@@ -96,7 +96,9 @@ export const createChat = ({
   );
   /**
    * R-28 AC4: the guide while setup is incomplete. The check runs before the turn, so a slow
-   * provider never holds it (T14); inputs that wait for the same check keep their order.
+   * provider never holds it (T14); inputs that wait for the same check keep their order. B84:
+   * closing the turns refuses an input still in its check at once, as one waiting for its turn,
+   * so a crash leaves a Telegram text for after the restart.
    */
   const guided = <I, R>(handler: (input: I) => Promise<R>, door: Door | ((input: I) => Door)) => {
     // DK-23 AC5: each door gets the guide in its own words.
@@ -107,7 +109,7 @@ export const createChat = ({
     const turn = inTurn(async ({ input, gaps }: { input: I; gaps: readonly SetupGap[] }) =>
       gaps.length > 0 ? { text: guideAt(input, gaps) } : handler(input),
     );
-    return async (input: I) => turn({ input, gaps: await setupGaps() });
+    return async (input: I) => turn({ input, gaps: await chatTurns.beforeTurn(setupGaps()) });
   };
   const byChannelRef = ({ channelRef }: { channelRef: string }) => doorOf(channelRef);
 

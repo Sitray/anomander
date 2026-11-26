@@ -253,14 +253,22 @@ naming only its kind (`anomander is still waiting for a job before it stops`, `{
 'drainQueue' }`), and keeps waiting (B82). Only then does it close the connections, the read API and the
 store; a step that failed is thrown after everything closed. `Anomander.halt` is that first,
 synchronous part alone: `main.ts` calls it when it fails or crashes, so no new event is handled
-while the last log line drains (B51). Once closed, the turns refuse at once every turn that
-waits, with `TurnNotStartedError` (its `code` is `TURN_NOT_STARTED` of `@anomander/telegram`).
-`halt` stops the bot with `haltTelegramBot` rather than `bot.stop()`: every update the bot began
+while the last log line drains (B51). It returns a promise that settles once the doors closed:
+`exitOnceWritten` (`src/crash.ts`) waits for it and for the log together, under the same 5 s
+`DRAIN_LIMIT_MS`, so the bot's last `getUpdates` reaches Telegram before the process exits, and
+a halt or a network that hangs still exits on time (B84). Once closed, the turns refuse at once every turn that
+waits, with `TurnNotStartedError` (its `code` is `TURN_NOT_STARTED` of `@anomander/telegram`),
+and so every input still in its setup check (`beforeTurn`, B84), which runs off the turn lock and
+is not run again. `halt` stops the bot with `haltTelegramBot` rather than `bot.stop()`: every update the bot began
 to handle stays acknowledged, the one still running included, so nothing that ran comes again;
 only a text or a receipt refused with `TURN_NOT_STARTED`, and what was read after the halt, get
 no reply and are not acknowledged, so Telegram hands them over again once the daemon is back
-(B82). A failed turn, an album and a button press are answered with S-22 as before. `stop`
-keeps `bot.stop()`, which answers a refused text with S-22 and acknowledges it.
+(B82). The door halts a loaded bot in the same tick `halt` is called, and the bot waits for the
+update it is handling to settle, at most `HALT_REFUSAL_LIMIT_MS` (250 ms), before it
+acknowledges it, so a refusal that crosses timers or I/O is still left for later; one later than
+that gets S-22 and logs once, with only its update ID, that it was already acknowledged (B84). A
+failed turn, an album and a button press are answered with S-22 as before. `stop` keeps
+`bot.stop()`, which answers a refused text with S-22 and acknowledges it.
 
 ## Failures (R-22)
 
@@ -555,7 +563,8 @@ The desktop app and Docker are two ways to run this daemon, never both at once
 (`docs/desktop-prd.md`). `startAnomander` and `startSetupGuide` take the lock of the database
 before anything else (`src/store/daemon-lock.ts`): an exclusive SQLite transaction on
 `<ANOMANDER_DB_PATH>.lock`, held until `stop` (SQLite keeps a small `.lock-journal` beside it). A second daemon throws
-`DaemonAlreadyRunningError` before the store is opened, so the ledger is unchanged (AC1). The
+`DaemonAlreadyRunningError` before the store is opened, so the ledger is unchanged (AC1); `main.ts`
+says so (`another ANOMANDER daemon is already running on the same database`) without its path (B84). The
 operating system frees the lock when the process ends, so a crash leaves nothing stale. An
 in-memory store (`ANOMANDER_DB_PATH=:memory:`) takes no lock: it belongs to its process alone, and
 no `:memory:.lock` lands in the current folder (B80). When the store cannot be opened, `main.ts`
@@ -565,7 +574,7 @@ says why (`could not open the store: EACCES: permission denied`) without its pat
 when Telegram ends it, for example with the `409 Conflict` of another process reading the same
 bot (`isBotInUse`, AC2). `main.ts` then exits instead of staying up deaf. Its exit code tells
 whoever started it why (`exitCodes` in `packages/protocol`). It exits once the line that says
-why is written, up to 5 s (`exitOnceWritten` in `src/crash.ts`), as a crash does, so a pipe on
+why is written and the halt settled, up to 5 s (`exitOnceWritten` in `src/crash.ts`), as a crash does, so a pipe on
 macOS keeps it (B51):
 
 | Code | Meaning |

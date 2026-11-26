@@ -328,6 +328,57 @@ describe('the secrets the daemon gets after its start', () => {
     expect(log('session aws-session-0123456789abcdef')).toBe('session [secret]');
   });
 
+  it('B84: of every field the former login-secret predicate hid in a failure, only `key` and `*_API_KEY` show', async () => {
+    // Every name `isLoginSecret || isOAuthSecret` accepted before B82: a login's fields, the
+    // provider credentials pi-ai reads, a `*_API_KEY`, and an OAuth set's fields.
+    const formerlyHidden = [
+      'key',
+      'access',
+      'refresh',
+      'OPENAI_API_KEY',
+      'ANTHROPIC_API_KEY',
+      'ANTHROPIC_AUTH_TOKEN',
+      'ANTHROPIC_OAUTH_TOKEN',
+      'COPILOT_GITHUB_TOKEN',
+      'HF_TOKEN',
+      'AWS_SECRET_ACCESS_KEY',
+      'AWS_SESSION_TOKEN',
+      'AWS_BEARER_TOKEN_BEDROCK',
+      'access_token',
+      'refresh_token',
+      'id_token',
+      'client_secret',
+    ];
+    const visible = new Set(['key', 'OPENAI_API_KEY', 'ANTHROPIC_API_KEY']);
+    const secretOf = (name: string) => `value-of-${name}-0123456789abcdef`;
+    const list = createSecretList();
+    const log = logOver(list);
+    const store = rememberingLogins(
+      createShellCredentialStore('{}', () => {}),
+      list.acquire,
+    );
+    const fields = Object.fromEntries(formerlyHidden.map((name) => [name, secretOf(name)]));
+    const cause = Object.assign(new Error('token response rejected'), { response: fields });
+
+    await expect(
+      store.modify('anthropic', async () => {
+        throw failedRefresh(cause);
+      }),
+    ).rejects.toThrow('OAuth refresh failed');
+
+    const shown = Object.fromEntries(
+      formerlyHidden.map((name) => [name, log(`saw ${secretOf(name)}`)]),
+    );
+    expect(shown).toEqual(
+      Object.fromEntries(
+        formerlyHidden.map((name) => [
+          name,
+          visible.has(name) ? `saw ${secretOf(name)}` : 'saw [secret]',
+        ]),
+      ),
+    );
+  });
+
   /** What the log shows of `error`, once `store.modify` failed with it. */
   const loggedAfterFailure = async (error: Error): Promise<string> => {
     const list = createSecretList();

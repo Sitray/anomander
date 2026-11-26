@@ -195,18 +195,40 @@ const isTurnNotStarted = (error: unknown): boolean =>
   (error as { code?: unknown }).code === TURN_NOT_STARTED;
 
 /**
+ * B84: how long a crash halt waits for the update it is handling to settle before it acknowledges
+ * it: a refusal the halt caused comes well within it, through I/O included, while a turn that
+ * runs is acknowledged once it passed. A refusal later than that gets S-22, and says so.
+ */
+export const HALT_REFUSAL_LIMIT_MS = 250;
+
+/**
  * B82: what a crash halt knows of a bot: whether it is halted, the update it began to handle
- * last before that, whether the daemon refused that one (`TURN_NOT_STARTED`), the offset it
- * acknowledged once halted, and the stop the halt began.
+ * last before that and its handling (B84), whether the daemon refused that one
+ * (`TURN_NOT_STARTED`), the offset it acknowledged once halted, and the stop the halt began.
  */
 interface HaltState {
   halted: boolean;
   started: number | undefined;
+  handling: Promise<void> | undefined;
   refused: boolean;
   acknowledged: number | undefined;
   stopped: Promise<void>;
 }
 const haltStates = new WeakMap<Bot, HaltState>();
+
+/** Resolves once `work` settles or `limitMs` passed, whichever is first; at once without work. */
+const settledWithin = async (work: Promise<void> | undefined, limitMs: number): Promise<void> => {
+  if (work === undefined) return;
+  let timer: NodeJS.Timeout | undefined;
+  const late = new Promise<void>((resolve) => {
+    timer = setTimeout(resolve, limitMs);
+  });
+  try {
+    await Promise.race([work, late]);
+  } finally {
+    clearTimeout(timer);
+  }
+};
 
 /** Out of a handler while halted: the daemon did not take the update, so it is left for later. */
 class NotTaken extends Error {}
@@ -217,6 +239,8 @@ class NotTaken extends Error {}
  * a text or a receipt the daemon refused with `TURN_NOT_STARTED` gets no reply and is not
  * acknowledged, nor is an update read after the halt, so Telegram hands them over again once the
  * daemon is back. A button press keeps `bot.stop()`'s answer: Telegram rejects an old press.
+ * B84: halted in the call itself, so a refusal given in the same tick is read as the halt's; the
+ * acknowledgement waits for the update being handled at most `HALT_REFUSAL_LIMIT_MS`.
  */
 export const haltTelegramBot = (bot: Bot): Promise<void> => {
   const state = haltStates.get(bot);
@@ -245,17 +269,19 @@ export const createTelegramBot = (options: TelegramBotOptions): Bot => {
   const halt: HaltState = {
     halted: false,
     started: undefined,
+    handling: undefined,
     refused: false,
     acknowledged: undefined,
     stopped: Promise.resolve(),
   };
   haltStates.set(bot, halt);
   // B82: once halted, the `getUpdates` `bot.stop()` sends to acknowledge what it read covers what
-  // began to be handled, never one the daemon refused. It waits for the refusals the halt itself
-  // caused, which settle before any timer or I/O.
+  // began to be handled, never one the daemon refused. B84: it waits for the update being handled
+  // to settle, refused or not, at most `HALT_REFUSAL_LIMIT_MS`, whatever microtasks, timers or I/O
+  // its refusal crosses.
   bot.api.config.use(async (prev, method, payload, signal) => {
     if (!halt.halted || method !== 'getUpdates') return prev(method, payload, signal);
-    await new Promise((resolve) => setImmediate(resolve));
+    await settledWithin(halt.handling, HALT_REFUSAL_LIMIT_MS);
     const offset = (halt.started ?? 0) + (halt.refused ? 0 : 1);
     halt.acknowledged = offset;
     return prev(method, { ...payload, offset }, signal);
@@ -266,7 +292,14 @@ export const createTelegramBot = (options: TelegramBotOptions): Bot => {
    */
   const leftForLater = (updateId: number | undefined, error: unknown): boolean => {
     if (updateId === undefined || !halt.halted || !isTurnNotStarted(error)) return false;
-    if (halt.acknowledged !== undefined && updateId < halt.acknowledged) return false;
+    if (halt.acknowledged !== undefined && updateId < halt.acknowledged) {
+      // B84: refused later than `HALT_REFUSAL_LIMIT_MS`: Telegram will not hand it over again.
+      logger.warn(
+        'A Telegram update the daemon refused was already acknowledged: it gets the failure reply',
+        { updateId },
+      );
+      return false;
+    }
     if (updateId === halt.started) halt.refused = true;
     return true;
   };
@@ -339,14 +372,21 @@ export const createTelegramBot = (options: TelegramBotOptions): Bot => {
     if (halt.halted) return;
     halt.started = ctx.update.update_id;
     halt.refused = false;
-    try {
-      await next();
-    } catch (error) {
-      if (!(error instanceof NotTaken)) throw error;
-      logger.info('Left a Telegram update for after the restart', {
-        updateId: ctx.update.update_id,
-      });
-    }
+    const handling = (async () => {
+      try {
+        await next();
+      } catch (error) {
+        if (!(error instanceof NotTaken)) throw error;
+        logger.info('Left a Telegram update for after the restart', {
+          updateId: ctx.update.update_id,
+        });
+      }
+    })();
+    halt.handling = handling.then(
+      () => {},
+      () => {},
+    );
+    await handling;
   });
 
   // R-1: before anything else, for every update kind.

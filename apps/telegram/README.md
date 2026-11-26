@@ -104,6 +104,23 @@ await polling;
 await api.close();
 ```
 
+`bot.stop()` is the graceful stop: it acknowledges every update the bot read and answers a text
+the daemon refused (`TURN_NOT_STARTED`) with S-22. `haltTelegramBot(bot)` stops as a crash does
+(B82): every update the bot began to handle stays acknowledged, the one still running included,
+but a text or a single receipt the daemon refused with `TURN_NOT_STARTED`, and what was read
+after the halt, get no reply and are not acknowledged, so Telegram hands them over again after the
+restart. An album and a button press still get S-22. The halt waits for the update being
+handled to settle, at most `HALT_REFUSAL_LIMIT_MS` (250 ms), before it acknowledges it; a refusal
+later than that gets S-22 and logs, with only its update ID, that it was already acknowledged
+(B84).
+
+```ts
+import { haltTelegramBot } from '@anomander/telegram';
+
+await haltTelegramBot(bot); // instead of bot.stop(), when the daemon crashes
+await polling;
+```
+
 `updates` builds text, edited, document, photo, voice, video, sticker, location, contact and
 callback query updates. `text(sender, text, { replyToMessageId })` builds a Telegram reply;
 `callbackQuery(sender, data, messageId)` presses a button under the bot message `messageId`,

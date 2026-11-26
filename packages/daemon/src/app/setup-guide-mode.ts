@@ -158,9 +158,7 @@ export const startSetupGuide = (config: Config, deps: SetupGuideDeps): Anomander
     polling: telegram.ended,
     readApi: undefined,
     localChannel: localChannel?.listening,
-    halt: () => {
-      void halt();
-    },
+    halt: () => halt().catch(() => {}),
     stop: async () => {
       await halt();
       lock.release();

@@ -91,7 +91,7 @@ export interface ChatClient {
   /**
    * DK-16: erases the stored conversation. `not_done`: nothing was erased; `unknown`: the
    * connection was lost first, or no answer came within `CLEAR_LIMIT_MS`, so it may have been.
-   * B80: `forgetMemory` and `forgetAction` share that limit.
+   * B80: `forgetMemory` and `forgetAction` share that limit; B84: `revokeConnectionGrant` too.
    */
   clearHistory(): Promise<'done' | 'not_done' | 'unknown'>;
   /** DK-18: the current memories, or `null` when they did not come, as `requestHistory`. */
@@ -145,7 +145,8 @@ const RETRY_DELAYS_MS = [250, 500, 1000, 2000, 4000];
 /**
  * B55 (DK-16 AC4): how long "Sí, borrar" waits for the daemon's answer, which waits for a turn of
  * either door that runs: past it, it cannot know whether it was erased, as when the connection is
- * lost. A late answer changes nothing. B80: forgetting a memory or an action waits as long.
+ * lost. A late answer changes nothing. B80: forgetting a memory or an action waits as long; B84:
+ * so does "Quitar" on a connection grant.
  */
 export const CLEAR_LIMIT_MS = 120_000;
 
@@ -462,14 +463,15 @@ export const createChatClient = (options: ChatClientOptions): ChatClient => {
   };
 
   /**
-   * B55, B80: an erase that waits for the daemon's answer at most `CLEAR_LIMIT_MS`; past it, it
-   * cannot know whether it was erased, as when the connection is lost.
+   * B55, B80, B84: an erase that waits for the daemon's answer at most `CLEAR_LIMIT_MS`; past it,
+   * it cannot know whether it was erased, as when the connection is lost.
    */
   const eraseWithin = (
     request:
       | { type: 'clear_history' }
       | { type: 'forget_memory'; memoryId: number }
-      | { type: 'forget_action'; actionId: number },
+      | { type: 'forget_action'; actionId: number }
+      | { type: 'revoke_connection_grant'; grantId: number },
   ): Promise<'done' | 'not_done' | 'unknown'> => erased(ask(request, CLEAR_LIMIT_MS));
 
   /** Lets go of the current socket without hearing from it again. */
@@ -587,7 +589,7 @@ export const createChatClient = (options: ChatClientOptions): ChatClient => {
       const event = await ask({ type: 'connection_grants' });
       return event?.type === 'connection_grants' ? event.grants : null;
     },
-    revokeConnectionGrant: (grantId) => erased(ask({ type: 'revoke_connection_grant', grantId })),
+    revokeConnectionGrant: (grantId) => eraseWithin({ type: 'revoke_connection_grant', grantId }),
     async requestExpenses(month) {
       const event = await ask({ type: 'expenses', ...(month === undefined ? {} : { month }) });
       if (event === null || event === undefined) return 'lost';
