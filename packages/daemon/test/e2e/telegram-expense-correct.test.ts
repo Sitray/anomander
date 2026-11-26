@@ -849,6 +849,23 @@ describe('"Corregir" and "Deshacer" from the window\'s "Gastos" (DK-17 AC6)', ()
     expect(await press(reply, 'Deshacer')).toBe(S101);
   });
 
+  it('corrects an expense of any age: one older than the 7 days its question under the reply lasts', async () => {
+    const reply = await registered();
+    await anomander.stop();
+    clock = new Date(NOW.getTime() + 8 * 86_400_000);
+    await start();
+    await vi.waitFor(() =>
+      expect(query('SELECT status FROM pending_decisions')).toEqual([{ status: 'expired' }]),
+    );
+    expect(await press(reply, 'Corregir')).toBe(S19);
+    const chat = await appChat();
+
+    expect((await chat.ask({ type: 'correct_expense', expenseId: 1 })).text).toBe(S7);
+    expect((await chat.ask({ type: 'text', text: 'total 28,40' })).text).toBe(S102(2840));
+    expect(gastos()).toEqual([{ total_cents: 2840 }]);
+    chat.close();
+  });
+
   it('a typed expense already corrected, whose question is answered, can be corrected again', async () => {
     const reply = await registered();
     expect(await press(reply, 'Corregir')).toBe(S7);

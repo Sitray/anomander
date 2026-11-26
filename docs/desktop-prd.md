@@ -584,7 +584,9 @@ and keep its secrets in the operating system instead of a text file.
     lost with its connection is asked again once it reopens, since it only reads. The rows are
     never logged, by the daemon or the window.
   - AC6: each row has "Corregir" and "Deshacer", the buttons B20 puts under a typed expense's
-    reply (PRD R-7 AC4 to AC8), for any current expense shown, typed or a registered receipt. The
+    reply (PRD R-7 AC4 to AC8), for any current expense shown, typed or a registered receipt, of
+    any age: one older than the 7 days the question under its reply lasts (R-19 AC2) is corrected
+    or undone from its row as well (backlog B63, an assumption the PRD now states). The
     window sends `correct_expense` or `undo_expense` with the expense's id; the daemon presses that
     expense's own `amend_expense` button as a press in the app's chat: in the chat's turn of either
     door that runs, kept in the stored conversation as `[botón: Corregir]` or `[botón: Deshacer]`
