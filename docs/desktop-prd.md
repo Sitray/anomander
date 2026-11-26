@@ -608,7 +608,10 @@ and keep its secrets in the operating system instead of a text file.
     is closed (`expired`, its proposal `rejected`) instead of going back to `open` (PRD R-17 AC6),
     and the row's next press asks a new one (backlog B63). A
     correction of a registered receipt refutes the `confirmed` assertions of "Apuntar" whose
-    inference it refuted, so only the new declaration is current. The "Deshacer" under a
+    inference it refuted, so only the new declaration is current. A receipt registered without
+    asking, "Deducido y comprobado" (`corroborated`), is "Lo confirmaste" (`confirmed`) once
+    corrected, and "Deducido y comprobado" again when that correction is undone (PRD R-7 AC6,
+    AC9; backlog B63). The "Deshacer" under a
     correction's reply (PRD R-7 AC9) puts values back, so a row never presses it: a row's
     "Deshacer" still takes the expense out, and closes that button too.
   - AC7: it is a table with its headers, read and moved through by keyboard; Escape or "Volver

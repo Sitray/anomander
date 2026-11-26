@@ -163,7 +163,9 @@ with the S-15 buttons first when S-15 is asked with it:
   the expense's open questions and opens a new `amend_expense` question with "Deshacer" alone under
   S-8 or S-102. Its proposal's `payload_json` keeps `restore` beside `expense_id`: the columns the
   correction changed as they were before it, the declarations it wrote, and the assertions it
-  refuted with their status (`amendExpense` returns it; no schema change). "Deshacer" runs
+  refuted with their status (`amendExpense` returns it; no schema change). A `corroborated`
+  expense becomes `confirmed` when corrected, and `restore.columns.mode` keeps `corroborated`
+  for "Deshacer"; a payload stored before B63 has no `mode` and leaves the mode as it is. "Deshacer" runs
   `undoCorrection` in one transaction: the columns take their old values, the declarations are
   `refuted`, the refuted assertions take back their status, and the proposal is `executed` by the
   principal. The expense stays current; the reply is S-105, or S-106 without a merchant. A newer

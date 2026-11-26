@@ -54,6 +54,8 @@ let logs: unknown[];
 let interpretations: Map<string, (input: { expenses?: { id: number }[] }) => unknown>;
 /** What the text interpreter waits for before it answers. */
 let interpreting: Promise<void>;
+/** The recorded receipt reading: one that does not add up unless a test says otherwise. */
+let readerFixture: string;
 
 const answering = (envelope: unknown): AssistantMessage => ({
   ...recorded('text-interpreter/conversation'),
@@ -79,7 +81,7 @@ const correcting = (expenseId: number | null, total: number, quote: string) => (
 
 const complete = async (_model: string, context: Context): Promise<AssistantMessage> => {
   if (context.systemPrompt === receiptReaderPrompt()) {
-    return recorded('receipt-reader/lines-mismatch');
+    return recorded(`receipt-reader/${readerFixture}`);
   }
   if (context.systemPrompt === correctionInterpreterPrompt()) {
     return recorded('correction-interpreter/total-28-40');
@@ -133,6 +135,7 @@ beforeEach(async () => {
   interpreted = [];
   interpretations = new Map();
   interpreting = Promise.resolve();
+  readerFixture = 'lines-mismatch';
   logs = [];
   await start();
 });
@@ -1120,5 +1123,165 @@ describe('undoing a correction: edges (R-7 AC9)', () => {
     expect(await press(correction, 'Deshacer')).toBe(S19);
     expect(snapshot()).toEqual(before);
     expect(gastos()).toEqual([{ total_cents: 2840 }]);
+  });
+});
+
+// B63: a correction is the principal's word, so a `corroborated` receipt (none of it from the
+// principal, PRD §7.2) becomes `confirmed`, as a pending receipt corrected does (R-7 AC2), and the
+// "Deshacer" of that correction (R-7 AC9) puts `corroborated` back.
+describe("a corrected receipt's mode (R-7 AC6, AC9)", () => {
+  /** R-5 AC1, R-8 AC1: "Mercadona es supermercado", so a receipt that adds up is registered. */
+  const addPolicy = () => {
+    const db = new Database(join(scratch, 'anomander.db'));
+    try {
+      const declaration = db
+        .prepare(
+          `INSERT INTO assertions (subject_type, predicate, value_json, mode, actor, source, status,
+             created_at)
+           VALUES ('policy', 'rule', '{}', 'declared', 'principal', 'telegram:1', 'current', ?)`,
+        )
+        .run(NOW.toISOString());
+      db.prepare(
+        'INSERT INTO policies (rule_json, declared_by_assertion_id, created_at) VALUES (?, ?, ?)',
+      ).run(
+        JSON.stringify({ merchant: 'Mercadona', category: 'supermercado' }),
+        declaration.lastInsertRowid,
+        NOW.toISOString(),
+      );
+    } finally {
+      db.close();
+    }
+  };
+
+  /** A receipt that adds up, registered without asking: a `corroborated` expense. */
+  const corroborated = async () => {
+    addPolicy();
+    readerFixture = 'adds-up';
+    api.putFile('receipt', pngBytes(1));
+    api.push(updates.photo({ chatId: PRINCIPAL }, { fileId: 'receipt' }));
+    const [reply] = await api.waitForSent(1);
+    expect(reply?.text).toBe(`Apuntado: ${formatAmount(2340)} en Mercadona (supermercado).`);
+    const [expense] = query<{ id: number; mode: string; occurred_on: string }>(
+      'SELECT id, mode, occurred_on FROM expenses',
+    );
+    if (expense === undefined) throw new Error('no expense');
+    expect(expense.mode).toBe('corroborated');
+    return expense;
+  };
+  const modes = () => query<{ mode: string }>('SELECT mode FROM expenses ORDER BY id');
+
+  /** The row of "Gastos" for the expense's month, as the window reads it (DK-17 AC1, AC3). */
+  const rowOf = async (chat: Awaited<ReturnType<typeof appChat>>, month: string) => {
+    const event = await chat.send({ type: 'expenses', month });
+    if (event.type !== 'expenses') throw new Error(`expected expenses, got ${event.type}`);
+    return event.expenses.map(({ mode, totalCents }) => ({ mode, totalCents }));
+  };
+
+  /** "Corregir" on the row, "total 28,40", and the "Deshacer" under its reply. */
+  const correctFromRow = async (chat: Awaited<ReturnType<typeof appChat>>, expenseId: number) => {
+    expect((await chat.ask({ type: 'correct_expense', expenseId })).text).toBe(S7);
+    const corrected = await chat.ask({ type: 'text', text: 'total 28,40' });
+    const undo = corrected.buttons[0];
+    if (undo === undefined || !('data' in undo)) throw new Error('no Deshacer button');
+    return { corrected, undo: { data: undo.data, channelRef: corrected.channelRef } };
+  };
+
+  it('a corroborated receipt corrected from a row is confirmed, and its row says so', async () => {
+    const expense = await corroborated();
+    const chat = await appChat();
+    const month = expense.occurred_on.slice(0, 7);
+    expect(await rowOf(chat, month)).toEqual([{ mode: 'corroborated', totalCents: 2340 }]);
+
+    await correctFromRow(chat, expense.id);
+
+    expect(modes()).toEqual([{ mode: 'confirmed' }]);
+    expect(query('SELECT modo FROM gastos')).toEqual([{ modo: 'confirmed' }]);
+    expect(await rowOf(chat, month)).toEqual([{ mode: 'confirmed', totalCents: 2840 }]);
+    chat.close();
+  });
+
+  it('a corroborated receipt corrected by a typed correction (R-7 AC7) is confirmed too', async () => {
+    await corroborated();
+    interpretations.set('no eran 23, eran 32', ({ expenses = [] }) =>
+      correcting(expenses[0]?.id ?? null, 3200, 'eran 32'),
+    );
+
+    await say('no eran 23, eran 32');
+
+    expect(gastos()).toEqual([{ total_cents: 3200 }]);
+    expect(modes()).toEqual([{ mode: 'confirmed' }]);
+  });
+
+  it('"Deshacer" under that correction puts corroborated back with the old values', async () => {
+    const expense = await corroborated();
+    const chat = await appChat();
+    const { undo } = await correctFromRow(chat, expense.id);
+
+    const undone = await chat.ask({ type: 'button', ...undo });
+
+    expect(undone.text).toBe(
+      `Deshecho: vuelve a ser ${formatAmount(2340)} en Mercadona (supermercado).`,
+    );
+    expect(modes()).toEqual([{ mode: 'corroborated' }]);
+    expect(gastos()).toEqual([{ total_cents: 2340 }]);
+    chat.close();
+  });
+
+  it('a "Deshacer" stored before the mode was kept still puts the values back and leaves the mode', async () => {
+    const expense = await corroborated();
+    const chat = await appChat();
+    const { undo } = await correctFromRow(chat, expense.id);
+    // A restore payload written before B63: its columns have no `mode`.
+    const db = new Database(join(scratch, 'anomander.db'));
+    try {
+      db.prepare(
+        `UPDATE proposals SET payload_json = json_remove(payload_json, '$.restore.columns.mode')
+         WHERE json_extract(payload_json, '$.restore') IS NOT NULL`,
+      ).run();
+      expect(
+        db
+          .prepare(
+            `SELECT count(*) AS n FROM proposals
+             WHERE json_extract(payload_json, '$.restore.columns.mode') IS NOT NULL`,
+          )
+          .get(),
+      ).toEqual({ n: 0 });
+    } finally {
+      db.close();
+    }
+
+    const undone = await chat.ask({ type: 'button', ...undo });
+
+    expect(undone.text).toBe(
+      `Deshecho: vuelve a ser ${formatAmount(2340)} en Mercadona (supermercado).`,
+    );
+    expect(gastos()).toEqual([{ total_cents: 2340 }]);
+    expect(modes()).toEqual([{ mode: 'confirmed' }]);
+    chat.close();
+  });
+
+  it('a registered receipt the principal confirmed stays confirmed when corrected and undone', async () => {
+    api.putFile('receipt', pngBytes(1));
+    api.push(updates.photo({ chatId: PRINCIPAL }, { fileId: 'receipt' }));
+    const [question] = await api.waitForSent(1);
+    if (question === undefined) throw new Error('no question');
+    await press(question, 'Apuntar');
+    expect(modes()).toEqual([{ mode: 'confirmed' }]);
+    const chat = await appChat();
+    const { undo } = await correctFromRow(chat, 1);
+    expect(modes()).toEqual([{ mode: 'confirmed' }]);
+    await chat.ask({ type: 'button', ...undo });
+    expect(modes()).toEqual([{ mode: 'confirmed' }]);
+    chat.close();
+  });
+
+  it('a typed expense stays declared when corrected and undone', async () => {
+    await registered();
+    const chat = await appChat();
+    const { undo } = await correctFromRow(chat, 1);
+    expect(modes()).toEqual([{ mode: 'declared' }]);
+    await chat.ask({ type: 'button', ...undo });
+    expect(modes()).toEqual([{ mode: 'declared' }]);
+    chat.close();
   });
 });
