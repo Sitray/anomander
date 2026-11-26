@@ -7,36 +7,53 @@ import type { ModelLogin } from '../auth/telegram-login.ts';
 /**
  * `models` as a login uses them, calling `waits(true)` when the login starts waiting for a text
  * the principal pastes (a `manual_code` or `text` prompt) and `waits(false)` once it no longer
- * does, however the prompt ended. Never sees what is pasted.
+ * does: when that prompt ends, however it ended, or when the login itself ends first, so a
+ * prompt left pending never keeps the windows told it waits. Never sees what is pasted.
  */
 export const watchingPastes = (
   models: ModelLogin,
   waits: (waiting: boolean) => void,
 ): ModelLogin => {
-  let prompts = 0;
+  /** The paste prompts pending now, of every login, each counted once. */
+  const pending = new Set<object>();
+  const settle = (prompts: Iterable<object>) => {
+    const before = pending.size;
+    for (const prompt of prompts) pending.delete(prompt);
+    if (before > 0 && pending.size === 0) waits(false);
+  };
   return {
-    login: (providerId, type, interaction, options) =>
-      models.login(
-        providerId,
-        type,
-        {
-          ...interaction,
-          prompt: async (prompt) => {
-            if (prompt.type !== 'manual_code' && prompt.type !== 'text') {
-              return interaction.prompt(prompt);
-            }
-            prompts += 1;
-            if (prompts === 1) waits(true);
-            try {
-              return await interaction.prompt(prompt);
-            } finally {
-              prompts -= 1;
-              if (prompts === 0) waits(false);
-            }
+    login: async (providerId, type, interaction, options) => {
+      /** This login's paste prompts still pending. */
+      const own = new Set<object>();
+      try {
+        return await models.login(
+          providerId,
+          type,
+          {
+            ...interaction,
+            prompt: async (prompt) => {
+              if (prompt.type !== 'manual_code' && prompt.type !== 'text') {
+                return interaction.prompt(prompt);
+              }
+              const asked = {};
+              own.add(asked);
+              pending.add(asked);
+              if (pending.size === 1) waits(true);
+              try {
+                return await interaction.prompt(prompt);
+              } finally {
+                own.delete(asked);
+                settle([asked]);
+              }
+            },
           },
-        },
-        options,
-      ),
+          options,
+        );
+      } finally {
+        settle(own);
+        own.clear();
+      }
+    },
     logout: (providerId) => models.logout(providerId),
   };
 };

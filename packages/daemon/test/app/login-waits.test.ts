@@ -66,4 +66,53 @@ describe('watchingPastes (B81)', () => {
 
     expect(logout).toHaveBeenCalledWith('openai');
   });
+
+  it('stops waiting when the login ends while a paste prompt is still pending', async () => {
+    const waits: boolean[] = [];
+    const models = watchingPastes(
+      {
+        login: async (_providerId, _type, interaction) => {
+          // The provider asks for a code, then gives up without waiting for it.
+          void interaction.prompt({ type: 'manual_code', message: 'Paste' }).catch(() => {});
+          throw new Error('provider failed');
+        },
+        logout: async () => {},
+      },
+      (waiting) => waits.push(waiting),
+    );
+    const never = new Promise<string>(() => {});
+
+    await expect(
+      models.login('openai', 'oauth', { prompt: () => never, notify: () => {} }),
+    ).rejects.toThrow('provider failed');
+
+    expect(waits).toEqual([true, false]);
+  });
+
+  it('a login that ends with its prompt pending leaves the next one counted from zero', async () => {
+    const waits: boolean[] = [];
+    let settle: (code: string) => void = () => {};
+    const models = watchingPastes(
+      {
+        login: async (_providerId, _type, interaction) => {
+          void interaction.prompt({ type: 'manual_code', message: 'Paste' });
+        },
+        logout: async () => {},
+      },
+      (waiting) => waits.push(waiting),
+    );
+    const pending = () =>
+      new Promise<string>((resolve) => {
+        settle = resolve;
+      });
+
+    await models.login('openai', 'oauth', { prompt: pending, notify: () => {} });
+    const stale = settle;
+    await models.login('openai', 'oauth', { prompt: pending, notify: () => {} });
+    // The first login's prompt settling late changes nothing.
+    stale('late');
+    await new Promise((resolve) => setImmediate(resolve));
+
+    expect(waits).toEqual([true, false, true, false]);
+  });
 });
