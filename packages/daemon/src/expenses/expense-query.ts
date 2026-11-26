@@ -45,7 +45,7 @@ type ExpenseQueryCall = z.infer<typeof callSchema>;
 
 const PROMPT = `If the user asks how much they spent or how many expenses they have in a period ("¿cuánto llevo gastado este mes?", "¿cuánto gasté la semana pasada?", "¿cuánto llevo en supermercado en octubre?", "¿cuánto gasté ayer en Mercadona?"), reply:
 {"kind":"expense_query","from":"YYYY-MM-DD"|null,"to":"YYYY-MM-DD","category":"<name>"|null,"merchant":"<merchant>"|null}
-Resolve the period from the "today" and "weekday" fields: "este mes" is from the first day of this month to today, "este año" is from 1 January of this year to today, "la semana pasada" is last Monday to Sunday, "en octubre" is the whole month, "ayer" and "hoy" are one day (from equals to), and "en total", "desde siempre" or no period at all is "from": null with "to" today. A period never ends after today. "category" is one of "categories" when the user names it, also after "en" or with a short form: "en el super" or "en el súper" is "supermercado" and "en restaurantes" is "restaurantes" when those are in "categories"; then "merchant" is null. "merchant" is the merchant exactly as the user wrote it, only when they name one that is not a category ("en Mercadona", "en la Cafetería Luna"). Never compute or include any amount or count: the assistant computes every figure.`;
+Resolve the period from the "today" and "weekday" fields: "este mes" is from the first day of this month to today, "este año" is from 1 January of this year to today, "la semana pasada" is last Monday to Sunday, "en octubre" is the whole month, "ayer" and "hoy" are one day (from equals to), and "en total", "desde siempre" or no period at all is "from": null with "to" today. A month named without a year is the latest one that is not after today: "en diciembre" asked in January is December of last year. A period never ends after today. "category" is one of "categories" when the user names it, also after "en" or with a short form: "en el super" or "en el súper" is "supermercado" and "en restaurantes" is "restaurantes" when those are in "categories"; then "merchant" is null. "merchant" is the merchant exactly as the user wrote it, only when they name one that is not a category ("en Mercadona", "en la Cafetería Luna"). Never compute or include any amount or count: the assistant computes every figure.`;
 
 /** AC3: how many merchants a category's answer lists (assumption). */
 const TOP_MERCHANTS = 3;
@@ -189,6 +189,26 @@ const compute = (
   };
 };
 
+/** The last day of month `month` (1 to 12) of `year`, `YYYY-MM-DD`. */
+const lastDayOf = (year: number, month: number): string =>
+  new Date(Date.UTC(year, month, 0)).toISOString().slice(0, 10);
+
+/**
+ * B78 (assumption): a month named without a year is the latest one that is not in the future,
+ * so "en diciembre" asked in January is last December. When the processor answers a whole
+ * calendar month that starts after today and the principal did not write its year, it is moved
+ * to that latest one; any other period is left as the processor gave it.
+ */
+const latestMonth = (call: ExpenseQueryCall, text: string, today: string): ExpenseQueryCall => {
+  const { from, to } = call;
+  if (from === null || from <= today || !from.endsWith('-01')) return call;
+  const [year, month] = from.split('-').map(Number) as [number, number];
+  if (to !== lastDayOf(year, month) || text.includes(String(year))) return call;
+  const [thisYear, thisMonth] = today.split('-').map(Number) as [number, number];
+  const latest = month <= thisMonth ? thisYear : thisYear - 1;
+  return { ...call, from: `${latest}-${from.slice(5, 7)}-01`, to: lastDayOf(latest, month) };
+};
+
 /** AC7: a call code cannot answer is handled as R-22 AC1; the log names only the reason. */
 const unusable = (reason: string, channelRef: string, env: CapabilityEnv): Reply => {
   env.logger.warn('expense query not answered', { channelRef, reason });
@@ -196,11 +216,12 @@ const unusable = (reason: string, channelRef: string, env: CapabilityEnv): Reply
 };
 
 const answer = (
-  call: ExpenseQueryCall,
+  asked: ExpenseQueryCall,
   message: { text: string; channelRef: string },
   env: CapabilityEnv,
 ): Reply => {
   const today = todayIn(env.timeZone, env.now());
+  const call = latestMonth(asked, message.text, today);
   // AC7: a period that starts after today is not a query on what was spent.
   const from = call.from ?? firstExpenseDay(env.db, today);
   if (from > today) return unusable('period in the future', message.channelRef, env);

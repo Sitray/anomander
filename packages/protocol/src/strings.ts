@@ -297,6 +297,12 @@ const es = {
     `Deshecho: he quitado ${formatAmount(total)} en ${merchant} de tus gastos.`,
   /** S-101: S-100 when the expense has no merchant. */
   undoneNoMerchant: (total: Amount) => `Deshecho: he quitado ${formatAmount(total)} de tus gastos.`,
+  /** S-105: "Deshacer" under a correction put the expense back as it was before it (R-7 AC9). */
+  restored: (total: Amount, merchant: string, categoryName: string | null) =>
+    `Deshecho: vuelve a ser ${formatAmount(total)} en ${merchant} (${category(categoryName)}).`,
+  /** S-106: S-105 when the expense has no merchant. */
+  restoredNoMerchant: (total: Amount, categoryName: string | null) =>
+    `Deshecho: vuelve a ser ${formatAmount(total)} (${category(categoryName)}).`,
   /** S-102: S-8 when the expense, a receipt's or a text's, has no merchant (R-7 AC2). */
   correctedNoMerchant: (total: Amount, categoryName: string | null) =>
     `Corregido: ${formatAmount(total)} (${category(categoryName)}).`,
@@ -601,6 +607,10 @@ const en: typeof es = {
   undone: (total, merchant) =>
     `Undone: I removed ${formatAmount(total)} at ${merchant} from your expenses.`,
   undoneNoMerchant: (total) => `Undone: I removed ${formatAmount(total)} from your expenses.`,
+  restored: (total, merchant, categoryName) =>
+    `Undone: it is ${formatAmount(total)} at ${merchant} (${category(categoryName)}) again.`,
+  restoredNoMerchant: (total, categoryName) =>
+    `Undone: it is ${formatAmount(total)} (${category(categoryName)}) again.`,
   correctedNoMerchant: (total, categoryName) =>
     `Corrected: ${formatAmount(total)} (${category(categoryName)}).`,
   whichExpense: () =>

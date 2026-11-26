@@ -53,7 +53,23 @@ describe('the currency the processor reads amounts in', () => {
 
   it.each(Object.entries(PROMPTS))('the %s never says euros with GBP', (_name, prompt) => {
     setCurrency('GBP');
-    expect(prompt()).toContain('British Pound cents (GBP)');
+    expect(prompt()).toContain('British Pound pence (GBP)');
     expect(prompt()).not.toMatch(/euro|€/iu);
+  });
+
+  // B78: a pound has pence, not cents; only the field name `amount_cents` keeps the word.
+  it.each(Object.entries(PROMPTS))('the %s names pence, never cents, with GBP', (_name, prompt) => {
+    setCurrency('GBP');
+    expect(prompt()).not.toMatch(/(?<!amount_)cents/u);
+  });
+
+  it('keeps the receipt line in euro cents with EUR and says pence with GBP', () => {
+    expect(receiptReaderPrompt()).toContain(
+      '{"name":"<as printed>","quantity":<number>,"amount_cents":<integer cents of the whole line>}',
+    );
+    setCurrency('GBP');
+    expect(receiptReaderPrompt()).toContain(
+      '{"name":"<as printed>","quantity":<number>,"amount_cents":<integer pence of the whole line>}',
+    );
   });
 });

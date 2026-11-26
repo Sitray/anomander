@@ -2,16 +2,17 @@
 // measurement, not a pass/fail test, so it always exits 0 once it has run. It calls the real
 // models named on the command line and costs one processor call per receipt and model.
 //
-//   pnpm eval:receipts [--model provider/id ...] [--dir evals/receipts/cases]
+//   pnpm eval:receipts [--model provider/id ...] [--dir evals/receipts/cases] [--currency EUR]
 //
 // Without `--model`, it reads with `ANOMANDER_VISION_MODEL`. See `evals/receipts/README.md`.
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { extname, join, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
 import { todayIn } from '@anomander/core';
+import { setCurrency } from '@anomander/protocol';
 import { builtinModels } from '@earendil-works/pi-ai/providers/all';
 import { z } from 'zod';
-import { parseModelId } from '../src/config.ts';
+import { loadCurrency, parseModelId } from '../src/config.ts';
 import { createPiAiReceiptReader, type ReceiptReading } from '../src/processor/receipt-reader.ts';
 
 const MIME_TYPES: Record<string, string> = {
@@ -108,10 +109,21 @@ const percent = (scores: Score[], field: Field) => {
 const { values } = parseArgs({
   options: {
     model: { type: 'string', multiple: true },
+    currency: { type: 'string' },
     dir: { type: 'string', default: resolve(import.meta.dirname, '../../../evals/receipts/cases') },
   },
 });
 const modelIds = values.model ?? [process.env.ANOMANDER_VISION_MODEL ?? ''];
+// B78: the principal's currency, as the daemon reads it (`ANOMANDER_CURRENCY`, euros by default),
+// or `--currency`; the prompts ask for amounts in it. A currency the daemon refuses stops here.
+try {
+  setCurrency(
+    loadCurrency({ ANOMANDER_CURRENCY: values.currency ?? process.env.ANOMANDER_CURRENCY }),
+  );
+} catch (error) {
+  console.error((error as Error).message);
+  process.exit(1);
+}
 // pnpm runs the script in this package; a relative `--dir` means where the command was typed.
 const dir = resolve(process.env.INIT_CWD ?? process.cwd(), values.dir);
 const cases = existsSync(dir) ? loadCases(dir) : [];

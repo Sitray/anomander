@@ -1,4 +1,5 @@
 import Database from 'better-sqlite3';
+import { type PendientesEnMoneda, parsePorMoneda } from '../store/money.ts';
 
 // RA-2 AC6: every query readers run, in one place, so the read API and the later MCP server
 // serve the same rows. They read only the views of RA-1, never the tables (read access §4).
@@ -33,12 +34,7 @@ export interface LineaDeCompra {
   moneda: string;
 }
 
-/** The pending expenses of one currency. */
-export interface PendientesEnMoneda {
-  moneda: string;
-  cantidad: number;
-  total_cents: number;
-}
+export type { PendientesEnMoneda } from '../store/money.ts';
 
 /**
  * The one row of `pendientes_de_confirmar` (B71): `total_cents` and `moneda` while every pending
@@ -113,5 +109,5 @@ export const readPendientes = (db: Database.Database): Pendientes => {
   const row = db
     .prepare<[], Omit<Pendientes, 'por_moneda'> & { por_moneda: string }>(sql)
     .get() ?? { cantidad: 0, total_cents: 0, moneda: null, por_moneda: '[]' };
-  return { ...row, por_moneda: JSON.parse(row.por_moneda) as PendientesEnMoneda[] };
+  return { ...row, por_moneda: parsePorMoneda(row.por_moneda) };
 };
