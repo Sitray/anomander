@@ -48,7 +48,7 @@ export const createRegisterExpenseDecision =
     if (option === buttons.correct) {
       // R-7 AC1, R-17 AC3: S-7, verbatim, and the decision waits for the principal's text.
       awaitText(db, decision.id, at);
-      return { text: strings.askCorrection() };
+      return { text: strings.askCorrection(), awaitsText: true };
     }
 
     if (option === buttons.discard) {
