@@ -329,8 +329,11 @@ describe('undoing and correcting a typed expense', () => {
       query(`SELECT o.mode FROM assertions n JOIN assertions o ON o.id = n.supersedes_id
              WHERE n.predicate = 'total'`),
     ).toEqual([{ mode: 'declared' }]);
-    expect(query('SELECT status FROM pending_decisions')).toEqual([{ status: 'answered' }]);
-    // The question is answered: its buttons are closed.
+    // The question is answered: its buttons are closed. The reply's "Deshacer" is open (R-7 AC9).
+    expect(query('SELECT status FROM pending_decisions')).toEqual([
+      { status: 'answered' },
+      { status: 'open' },
+    ]);
     expect(await press(reply, 'Deshacer')).toBe(S19);
     expect(gastos()).toEqual([{ total_cents: 2840 }]);
   });
@@ -375,6 +378,8 @@ describe('undoing and correcting a typed expense', () => {
     ).toEqual([
       { operation: 'create_category', status: 'open' },
       { operation: 'amend_expense', status: 'answered' },
+      // R-7 AC9: the "Deshacer" under the correction's reply.
+      { operation: 'amend_expense', status: 'open' },
     ]);
   });
 
@@ -467,6 +472,213 @@ describe('undoing and correcting a typed expense', () => {
       'Corregir',
       'Descartar',
     ]);
+  });
+});
+
+// R-7 AC9 (backlog B60): the reply to a correction carries "Deshacer", which puts the expense back
+// as it was right before that correction and keeps it recorded.
+describe('undoing a correction (R-7 AC9)', () => {
+  const S105 = (cents: number, merchant: string, categoryName: string) =>
+    `Deshecho: vuelve a ser ${formatAmount(cents)} en ${merchant} (${categoryName}).`;
+  const S106 = (cents: number) => `Deshecho: vuelve a ser ${formatAmount(cents)} (restaurantes).`;
+
+  /** The expense as the ledger's view shows it. */
+  const row = () => query('SELECT fecha, comercio, categoria, total_cents FROM gastos ORDER BY id');
+  /** The expense's current assertions, by id. */
+  const standing = () =>
+    query(
+      `SELECT id, predicate, value_json, mode, status FROM assertions
+       WHERE subject_type = 'expense' AND status IN ('current', 'confirmed') ORDER BY id`,
+    );
+
+  it('the reply to a correction carries "Deshacer", in Telegram and in the app', async () => {
+    const reply = await registered();
+    expect(await press(reply, 'Corregir')).toBe(S7);
+    const corrected = await say('total 28,40');
+    expect(corrected.text).toBe(S102(2840));
+    expect(buttonsOf(corrected).map(({ text }) => text)).toEqual(['Deshacer']);
+
+    interpretations.set('no eran 28,40, eran 32', ({ expenses = [] }) =>
+      correcting(expenses[0]?.id ?? null, 3200, 'eran 32'),
+    );
+    const chat = await appChat();
+    const answer = await chat.ask({ type: 'text', text: 'no eran 28,40, eran 32' });
+    expect(answer.text).toBe(S102(3200));
+    expect(answer.buttons.map((button) => button.label)).toEqual(['Deshacer']);
+
+    // Pressed in the app, it puts back the 28,40 of before that correction.
+    const undo = answer.buttons[0];
+    if (undo === undefined || !('data' in undo)) throw new Error('no Deshacer button');
+    const undone = await chat.ask({
+      type: 'button',
+      data: undo.data,
+      channelRef: answer.channelRef,
+    });
+    expect(undone.text).toBe(S106(2840));
+    expect(gastos()).toEqual([{ total_cents: 2840 }]);
+    chat.close();
+  });
+
+  it('"Deshacer" puts back every value the correction changed, keeps the expense, and pressed again answers S-19', async () => {
+    const reply = await registered();
+    const before = row();
+    const beforeBasis = query('SELECT category_basis FROM expenses');
+    const beforeStanding = standing();
+    const text = 'no eran 23, eran 32 en Mercadona, supermercado, el 28';
+    const inferred = (predicate: string, value: unknown, quote: string) => ({
+      subject_type: 'expense',
+      subject_id: null,
+      predicate,
+      value_json: value,
+      mode: 'inferred',
+      basis_json: { quote },
+      confidence: 0.9,
+    });
+    interpretations.set(text, ({ expenses = [] }) => ({
+      kind: 'expense_correct',
+      expense_id: expenses[0]?.id ?? null,
+      inferences: [
+        inferred('total', 3200, 'eran 32'),
+        inferred('merchant', 'Mercadona', 'Mercadona'),
+        inferred('category', 'supermercado', 'supermercado'),
+        inferred('occurred_on', '2026-10-28', 'el 28'),
+      ],
+    }));
+    const corrected = await say(text);
+    expect(corrected.text).toBe(`Corregido: ${formatAmount(3200)} en Mercadona (supermercado).`);
+    expect(row()).toEqual([
+      { fecha: '2026-10-28', comercio: 'Mercadona', categoria: 'supermercado', total_cents: 3200 },
+    ]);
+    const ledger = () =>
+      query<{ n: number }>("SELECT count(*) AS n FROM assertions WHERE subject_type = 'expense'");
+    const written = ledger();
+
+    expect(await press(corrected, 'Deshacer')).toBe(S106(2300));
+    // The expense is recorded, as it was right before the correction.
+    expect(row()).toEqual(before);
+    expect(query('SELECT status FROM expenses')).toEqual([{ status: 'current' }]);
+    expect(query('SELECT category_basis FROM expenses')).toEqual(beforeBasis);
+    // R-7 AC3: the ledger keeps everything; the values standing before the correction stand again,
+    // and the correction's declarations are refuted.
+    expect(standing()).toEqual(beforeStanding);
+    expect(ledger()).toEqual(written);
+    expect(
+      query(`SELECT value_json, status FROM assertions WHERE mode = 'declared' AND actor = 'principal'
+             AND source <> (SELECT source FROM assertions ORDER BY id LIMIT 1) ORDER BY id`),
+    ).toEqual([
+      { value_json: '3200', status: 'refuted' },
+      { value_json: '"Mercadona"', status: 'refuted' },
+      { value_json: '"supermercado"', status: 'refuted' },
+      { value_json: '"2026-10-28"', status: 'refuted' },
+    ]);
+    // R-7 AC5: an action the principal authorized, verified by the reply's delivery (R-9 AC2).
+    await vi.waitFor(() =>
+      expect(
+        query(`SELECT p.status AS proposal, d.status AS decision, a.authorized_by, a.status
+               FROM pending_decisions d JOIN proposals p ON p.id = d.proposal_id
+               JOIN actions a ON a.proposal_id = p.id
+               WHERE json_extract(p.payload_json, '$.restore') IS NOT NULL`),
+      ).toEqual([
+        {
+          proposal: 'executed',
+          decision: 'answered',
+          authorized_by: 'principal',
+          status: 'verified',
+        },
+      ]),
+    );
+
+    // Used, its button answers S-19 and changes nothing; so does the expense's first "Deshacer".
+    expect(await press(corrected, 'Deshacer')).toBe(S19);
+    expect(await press(reply, 'Deshacer')).toBe(S19);
+    expect(row()).toEqual(before);
+  });
+
+  it('after a newer correction, an older correction\'s "Deshacer" answers S-19; the newer one goes back to before it', async () => {
+    const reply = await registered();
+    expect(await press(reply, 'Corregir')).toBe(S7);
+    const first = await say('total 28,40');
+    interpretations.set('no eran 28,40, eran 32', ({ expenses = [] }) =>
+      correcting(expenses[0]?.id ?? null, 3200, 'eran 32'),
+    );
+    const second = await say('no eran 28,40, eran 32');
+    expect(second.text).toBe(S102(3200));
+
+    expect(await press(first, 'Deshacer')).toBe(S19);
+    expect(gastos()).toEqual([{ total_cents: 3200 }]);
+
+    expect(await press(second, 'Deshacer')).toBe(S106(2840));
+    expect(gastos()).toEqual([{ total_cents: 2840 }]);
+    expect(totals()).toEqual([
+      { value_json: '2300', mode: 'declared', status: 'refuted', supersedes: 0 },
+      { value_json: '2300', mode: 'inferred', status: 'refuted', supersedes: 0 },
+      { value_json: '2840', mode: 'declared', status: 'current', supersedes: 1 },
+      { value_json: '3200', mode: 'declared', status: 'refuted', supersedes: 1 },
+    ]);
+    // Undoing the newer one does not reopen the older one.
+    expect(await press(first, 'Deshacer')).toBe(S19);
+    expect(await press(reply, 'Deshacer')).toBe(S19);
+    expect(gastos()).toEqual([{ total_cents: 2840 }]);
+  });
+
+  it('R-17 AC2: a Telegram reply to "Corregido…" corrects the expense again, with its own "Deshacer"', async () => {
+    await registered();
+    interpretations.set('no eran 23, eran 32', ({ expenses = [] }) =>
+      correcting(expenses[0]?.id ?? null, 3200, 'eran 32'),
+    );
+    const first = await say('no eran 23, eran 32');
+    await vi.waitFor(() =>
+      expect(
+        query("SELECT id FROM pending_decisions WHERE status = 'open' AND channel_ref IS NOT NULL"),
+      ).toHaveLength(1),
+    );
+
+    const before = api.sent.length;
+    api.push(
+      updates.text({ chatId: PRINCIPAL }, 'total 28,40', { replyToMessageId: first.messageId }),
+    );
+    const [second] = (await api.waitForSent(before + 1)).slice(before);
+    if (second === undefined) throw new Error('no reply');
+    expect(second.text).toBe(S102(2840));
+    expect(buttonsOf(second).map(({ text }) => text)).toEqual(['Deshacer']);
+
+    expect(await press(first, 'Deshacer')).toBe(S19);
+    expect(await press(second, 'Deshacer')).toBe(S106(3200));
+    expect(gastos()).toEqual([{ total_cents: 3200 }]);
+  });
+
+  it('a correction of a registered receipt is undone too, with S-105', async () => {
+    api.putFile('receipt', pngBytes(1));
+    api.push(updates.photo({ chatId: PRINCIPAL }, { fileId: 'receipt' }));
+    const [question] = await api.waitForSent(1);
+    if (question === undefined) throw new Error('no question');
+    await press(question, 'Apuntar');
+    const before = row();
+    const beforeStanding = standing();
+    const chat = await appChat();
+    expect((await chat.ask({ type: 'correct_expense', expenseId: 1 })).text).toBe(S7);
+    const corrected = await chat.ask({ type: 'text', text: 'total 28,40' });
+    expect(corrected.buttons.map((button) => button.label)).toEqual(['Deshacer']);
+    const undo = corrected.buttons[0];
+    if (undo === undefined || !('data' in undo)) throw new Error('no Deshacer button');
+
+    const undone = await chat.ask({
+      type: 'button',
+      data: undo.data,
+      channelRef: corrected.channelRef,
+    });
+    chat.close();
+    const [stored] = before as {
+      comercio: string;
+      categoria: string | null;
+      total_cents: number;
+    }[];
+    if (stored === undefined) throw new Error('no expense');
+    expect(undone.text).toBe(
+      S105(stored.total_cents, stored.comercio, stored.categoria ?? 'sin clasificar'),
+    );
+    expect(row()).toEqual(before);
+    expect(standing()).toEqual(beforeStanding);
   });
 });
 
@@ -573,6 +785,21 @@ describe('"Corregir" and "Deshacer" from the window\'s "Gastos" (DK-17 AC6)', ()
     expect((await chat.ask({ type: 'undo_expense', expenseId: 1 })).text).toBe(
       `Deshecho: he quitado ${formatAmount(2840)} de tus gastos.`,
     );
+    expect(gastos()).toEqual([]);
+    chat.close();
+  });
+
+  it('"Deshacer" on the row of a corrected expense still takes it out, and the correction\'s "Deshacer" then gets S-19', async () => {
+    const reply = await registered();
+    expect(await press(reply, 'Corregir')).toBe(S7);
+    const corrected = await say('total 28,40');
+    const chat = await appChat();
+
+    expect((await chat.ask({ type: 'undo_expense', expenseId: 1 })).text).toBe(
+      `Deshecho: he quitado ${formatAmount(2840)} de tus gastos.`,
+    );
+    expect(gastos()).toEqual([]);
+    expect(await press(corrected, 'Deshacer')).toBe(S19);
     expect(gastos()).toEqual([]);
     chat.close();
   });
@@ -709,5 +936,99 @@ describe('"Corregir" and "Deshacer" from the window\'s "Gastos" (DK-17 AC6)', ()
     }
     expect(gastos()).toEqual([{ total_cents: 2300 }]);
     chat.close();
+  });
+});
+
+describe('undoing a correction: edges (R-7 AC9)', () => {
+  const S106 = (cents: number) => `Deshecho: vuelve a ser ${formatAmount(cents)} (restaurantes).`;
+  const snapshot = () => ({
+    expenses: query('SELECT * FROM expenses ORDER BY id'),
+    assertions: query('SELECT id, status FROM assertions ORDER BY id'),
+    decisions: query('SELECT id, status FROM pending_decisions ORDER BY id'),
+    proposals: query('SELECT id, status FROM proposals ORDER BY id'),
+    actions: query('SELECT id FROM actions ORDER BY id'),
+  });
+  const write = (sql: string) => {
+    const db = new Database(join(scratch, 'anomander.db'));
+    try {
+      db.exec(sql);
+    } finally {
+      db.close();
+    }
+  };
+  /** A typed expense corrected after "Corregir" (total 23 -> 28,40), its "Deshacer" delivered. */
+  const corrected = async () => {
+    const reply = await registered();
+    expect(await press(reply, 'Corregir')).toBe(S7);
+    const correction = await say('total 28,40');
+    expect(correction.text).toBe(S102(2840));
+    await vi.waitFor(() =>
+      expect(
+        query(`SELECT d.id FROM pending_decisions d JOIN proposals p ON p.id = d.proposal_id
+               WHERE json_extract(p.payload_json, '$.restore') IS NOT NULL AND d.channel_ref IS NOT NULL`),
+      ).toHaveLength(1),
+    );
+    return correction;
+  };
+
+  it('two presses at once: one S-106, one S-19, one action', async () => {
+    const correction = await corrected();
+    const [button] = buttonsOf(correction);
+    if (button === undefined) throw new Error('no button');
+    const before = api.sent.length;
+    api.push(
+      updates.callbackQuery({ chatId: PRINCIPAL }, button.callback_data, correction.messageId),
+    );
+    api.push(
+      updates.callbackQuery({ chatId: PRINCIPAL }, button.callback_data, correction.messageId),
+    );
+    const texts = (await api.waitForSent(before + 2))
+      .slice(before)
+      .map((message) => message.text)
+      .sort();
+    expect(texts).toEqual([S106(2300), S19].sort());
+    expect(gastos()).toEqual([{ total_cents: 2300 }]);
+    expect(
+      query(`SELECT a.id FROM actions a JOIN proposals p ON p.id = a.proposal_id
+             WHERE json_extract(p.payload_json, '$.restore') IS NOT NULL`),
+    ).toHaveLength(1);
+  });
+
+  it('a failure halfway leaves nothing half-restored', async () => {
+    const correction = await corrected();
+    // A column value the store rejects (foreign key) after the assertions were rewritten.
+    write(`UPDATE proposals SET payload_json = json_set(payload_json,
+             '$.restore.columns.category_id', 99999, '$.restore.columns.category_basis', 'declared')
+           WHERE json_extract(payload_json, '$.restore') IS NOT NULL`);
+    const before = snapshot();
+    await press(correction, 'Deshacer');
+    expect(snapshot()).toEqual(before);
+  });
+
+  it('a restore payload it cannot read answers S-19 and does not take the expense out', async () => {
+    const correction = await corrected();
+    write(`UPDATE proposals SET payload_json = json_set(payload_json, '$.restore.columns.bogus', 1)
+           WHERE json_extract(payload_json, '$.restore') IS NOT NULL`);
+    expect(await press(correction, 'Deshacer')).toBe(S19);
+    expect(query('SELECT status, total_cents FROM expenses')).toEqual([
+      { status: 'current', total_cents: 2840 },
+    ]);
+  });
+
+  it('the correction\'s "Deshacer" expires after 7 days: S-19, nothing changes', async () => {
+    const correction = await corrected();
+    await anomander.stop();
+    clock = new Date(NOW.getTime() + 8 * 86_400_000);
+    await start();
+    await vi.waitFor(() =>
+      expect(
+        query(`SELECT d.status FROM pending_decisions d JOIN proposals p ON p.id = d.proposal_id
+               WHERE json_extract(p.payload_json, '$.restore') IS NOT NULL`),
+      ).toEqual([{ status: 'expired' }]),
+    );
+    const before = snapshot();
+    expect(await press(correction, 'Deshacer')).toBe(S19);
+    expect(snapshot()).toEqual(before);
+    expect(gastos()).toEqual([{ total_cents: 2840 }]);
   });
 });
