@@ -88,6 +88,12 @@ export interface Reply {
    */
   offer?: Offer;
   /**
+   * R-7 AC1, AC6: `true` on the answer to a press that left a decision waiting for the
+   * principal's text (S-7 after "Corregir"), so their next text is its answer. The desktop app goes
+   * back to its chat on it (desktop PRD DK-17 AC6); Telegram sends `text` alone.
+   */
+  awaitsText?: boolean;
+  /**
    * R-29 AC3: files sent after `text`, as documents, such as the ledger export. Only Telegram
    * sends them; the daemon never gives them to the app.
    */

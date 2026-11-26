@@ -592,6 +592,7 @@ and keep its secrets in the operating system instead of a text file.
     asks first in the window, "¿Lo deshago? Lo quito de tus gastos.", with "Sí, deshacer" and "No
     deshacer" ("No deshacer" sends nothing); then the expense is `refuted` as R-7 AC5 says and the
     reply is S-100 or S-101. "Corregir" replies S-7 and the decision waits for text (R-7 AC6): the
+    reply says so with `awaitsText` (backlog B63; the window never compares its words), the
     window goes back to the chat, which shows the question, and the next text is the correction,
     a `declared` assertion that supersedes the old one. An expense no longer current gets S-19
     and nothing changes; when the daemon fails, S-22. After either press the window says the

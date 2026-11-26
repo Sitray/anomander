@@ -1,13 +1,7 @@
 // DK-17: the expenses of a month, over the `gastos` and `pendientes_de_confirmar` views. The
 // container asks the daemon; `ExpensesTable` only shows what it answered. AC6: each row's
 // "Corregir" and "Deshacer" press the expense's own buttons of the chat (R-7 AC4 to AC8).
-import {
-  type ChatExpense,
-  type ChatExpenses,
-  formatAmount,
-  formatDate,
-  strings as replies,
-} from '@anomander/protocol';
+import { type ChatExpense, type ChatExpenses, formatAmount, formatDate } from '@anomander/protocol';
 import { type ReactNode, useEffect, useId, useRef, useState } from 'react';
 import type { LocalChannel } from '../shell.ts';
 import { strings } from '../strings.ts';
@@ -60,8 +54,8 @@ export function ExpensesScreen({ channel, onClose, onAmended, onCorrecting }: Ex
     }
     setNote(outcome.text);
     onAmended?.();
-    // R-7 AC6: the next text is the correction, written in the chat.
-    if (action === 'correct' && outcome.text === replies.askCorrection()) onCorrecting?.();
+    // R-7 AC6: the decision waits for text, so the next text is the correction, written in the chat.
+    if (action === 'correct' && outcome.awaitsText === true) onCorrecting?.();
   };
 
   /** A row's "Corregir" and "Deshacer", or the question "Deshacer" opened. */

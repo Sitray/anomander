@@ -499,6 +499,8 @@ export const startLocalChannel = (deps: LocalChannelDeps): LocalChannel => {
         : { route: { to: reply.route.to, task: reply.route.task } }),
       // DK-11 AC13: what the app can add in one press.
       ...(reply.offer === undefined ? {} : { offer: reply.offer }),
+      // R-7 AC6, DK-17 AC6: the next text answers the decision; the app goes back to its chat.
+      ...(reply.awaitsText === true ? { awaitsText: true as const } : {}),
     });
     // R-9 AC2: only a reply that left through the socket was delivered.
     reply.onDelivered?.({ channelRef, deliveredAt: sentAt });

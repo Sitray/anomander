@@ -776,6 +776,21 @@ describe('"Corregir" and "Deshacer" from the window\'s "Gastos" (DK-17 AC6)', ()
     chat.close();
   });
 
+  it('correct_expense says in the reply that the decision waits for text; S-19 and undo do not', async () => {
+    await registered();
+    const chat = await appChat();
+
+    const asked = await chat.ask({ type: 'correct_expense', expenseId: 1 });
+    expect(asked).toMatchObject({ text: S7, awaitsText: true });
+    const undone = await chat.ask({ type: 'undo_expense', expenseId: 1 });
+    expect(undone.text).toBe(S101);
+    expect(undone).not.toHaveProperty('awaitsText');
+    const closed = await chat.ask({ type: 'correct_expense', expenseId: 1 });
+    expect(closed.text).toBe(S19);
+    expect(closed).not.toHaveProperty('awaitsText');
+    chat.close();
+  });
+
   it('a typed expense already corrected, whose question is answered, can be corrected again', async () => {
     const reply = await registered();
     expect(await press(reply, 'Corregir')).toBe(S7);

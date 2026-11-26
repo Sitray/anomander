@@ -70,6 +70,7 @@ On `main` since 0.1.0. The interface speaks English or Spanish, and the app runs
 - Gastos no longer drops an expense, or a whole month, whose currency the window's `Intl` does not know: the amount is shown with its ISO code (`12,30 XYZ`) (B78).
 - Several presses of "Añadir búsqueda web" during a daemon restart all wait for the new daemon; before, only one request was kept.
 - The check that a task comes from the message keeps English negations and contractions, and locale tags such as `es@euro` count as Spanish.
+- "Corregir" on a row of Gastos goes back to the chat because the daemon's reply says the next text is awaited (`awaitsText` on the local channel's reply), no longer because its words match S-7 (B63).
 
 ### Security
 
