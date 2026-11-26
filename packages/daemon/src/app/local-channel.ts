@@ -4,7 +4,7 @@ import type { Config } from '../config.ts';
 import type { RecentTurns } from '../conversation/recent-turns.ts';
 import type { RowOption } from '../decisions/window-amend.ts';
 import {
-  type ChatHandlers,
+  type ChannelHandlers,
   type ConnectionGrants,
   type ExpensesLedger,
   type LocalChannel,
@@ -23,7 +23,7 @@ import type { oneTurnAtATime } from './turns.ts';
 /** DK-3: the desktop app's front door, only while `ANOMANDER_LOCAL_TOKEN` is set. */
 export const startChannel = (
   config: Config,
-  handlers: ChatHandlers,
+  handlers: ChannelHandlers,
   conversation: StoredConversation,
   memory: StoredMemory,
   expenses: ExpensesLedger,

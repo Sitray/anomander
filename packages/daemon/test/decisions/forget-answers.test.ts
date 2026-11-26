@@ -13,8 +13,8 @@ import {
   openForgetHistoryDecision,
   openForgetMemoryDecision,
 } from '../../src/store/decisions.ts';
-import { countActions, lastActionId, recordAction } from '../../src/store/history.ts';
-import { listMemories, saveMemory } from '../../src/store/memory.ts';
+import { countActions, forgetAction, lastActionId, recordAction } from '../../src/store/history.ts';
+import { forgetMemoryAndItsTurns, listMemories, saveMemory } from '../../src/store/memory.ts';
 
 // B55 (R-23 AC6, DK-14 AC4): when an erase fails the question stays open, so "Sí" can be pressed
 // again. A "No" pressed after a "Sí" that erased part of it says so: never that nothing was.
@@ -36,6 +36,14 @@ afterEach(() => {
 });
 
 const now = () => AT;
+/** The rows of `actions` (PRD §13) of the proposal decision `id` asked. */
+const actionsOf = (id: number) =>
+  db
+    .prepare<[number], { status: string; authorized_by: string; executed_at: string }>(
+      `SELECT a.status, a.authorized_by, a.executed_at FROM actions a
+       JOIN pending_decisions d ON d.proposal_id = a.proposal_id WHERE d.id = ? ORDER BY a.id`,
+    )
+    .all(id);
 const conversation = () => storedConversation(db, HISTORY_LIMIT).map(({ text }) => text);
 const decisionOf = (id: number): OpenDecision => {
   const decision = asOpenDecision(loadDecision(db, id));
@@ -143,7 +151,8 @@ describe('forget_memory answer (R-23 AC6)', () => {
   it('B55: "Sí" failing when its answer is recorded, then "No": S-200', async () => {
     const decisionId = askToForget();
     db.exec(
-      "CREATE TRIGGER t BEFORE INSERT ON actions BEGIN SELECT RAISE(ABORT, 'disk full'); END",
+      // B81: the answer is recorded by making the "Sí" started as an action executed.
+      "CREATE TRIGGER t BEFORE UPDATE ON actions BEGIN SELECT RAISE(ABORT, 'disk full'); END",
     );
     const answer = createForgetMemoryAnswerHandler({ clearRecentTurns: () => turns.clear() });
     await expect(
@@ -154,6 +163,90 @@ describe('forget_memory answer (R-23 AC6)', () => {
     expect(reply.text).toBe(
       'Vale, no olvido nada más, pero parte ya estaba olvidado y no puedo recuperarlo.',
     );
+  });
+});
+
+describe('forget_memory answer after "Olvidar" in Memoria (B81)', () => {
+  const ask = () => {
+    const id = saveMemory(db, {
+      text: 'Es vegetariano',
+      quote: 'soy vegetariano',
+      said: true,
+      confidence: 1,
+      message: 'soy vegetariano',
+      source: 'telegram:1',
+      replaces: null,
+      receivedAt: AT.toISOString(),
+      now: AT.toISOString(),
+    });
+    const decisionId = openForgetMemoryDecision(db, {
+      memoryIds: [id],
+      question: strings.confirmForget([]),
+      options: [buttons.yes, buttons.no],
+      now: AT.toISOString(),
+    });
+    return { id, decisionId };
+  };
+
+  it('B81: "No" after the memory was forgotten in Memoria, with no "Sí" pressed, is S-31', async () => {
+    const { id, decisionId } = ask();
+    expect(forgetMemoryAndItsTurns(db, id)).toBe(true);
+    const answer = createForgetMemoryAnswerHandler({ clearRecentTurns: () => turns.clear() });
+
+    const reply = await answer({ db, decision: decisionOf(decisionId), option: buttons.no, now });
+
+    expect(reply.text).toBe('Vale, no olvido nada.');
+    expect(loadDecision(db, decisionId)?.status).toBe('answered');
+    expect(actionsOf(decisionId)).toEqual([]);
+  });
+
+  it('"Sí" that works records one executed action, by the principal', async () => {
+    const { decisionId } = ask();
+    const answer = createForgetMemoryAnswerHandler({ clearRecentTurns: () => turns.clear() });
+
+    const reply = await answer({ db, decision: decisionOf(decisionId), option: buttons.yes, now });
+
+    expect(reply.text).toBe('Hecho, lo he olvidado.');
+    expect(actionsOf(decisionId)).toEqual([
+      { status: 'executed', authorized_by: 'principal', executed_at: AT.toISOString() },
+    ]);
+  });
+});
+
+describe('a "Sí" that cannot be recorded (B81)', () => {
+  it('B81: erases nothing, so a "No" after it is S-31 and the memory is kept', async () => {
+    const id = saveMemory(db, {
+      text: 'Es vegetariano',
+      quote: 'soy vegetariano',
+      said: true,
+      confidence: 1,
+      message: 'soy vegetariano',
+      source: 'telegram:1',
+      replaces: null,
+      receivedAt: AT.toISOString(),
+      now: AT.toISOString(),
+    });
+    turns.add('olvida que soy vegetariano', { text: '¿Olvido esto?' }, 'app');
+    const decisionId = openForgetMemoryDecision(db, {
+      memoryIds: [id],
+      question: strings.confirmForget([]),
+      options: [buttons.yes, buttons.no],
+      now: AT.toISOString(),
+    });
+    db.exec(
+      "CREATE TRIGGER t BEFORE INSERT ON actions BEGIN SELECT RAISE(ABORT, 'disk full'); END",
+    );
+    const answer = createForgetMemoryAnswerHandler({ clearRecentTurns: () => turns.clear() });
+
+    await expect(
+      answer({ db, decision: decisionOf(decisionId), option: buttons.yes, now }),
+    ).rejects.toThrow('disk full');
+    db.exec('DROP TRIGGER t');
+
+    expect(listMemories(db)).toHaveLength(1);
+    expect(conversation()).toEqual(['olvida que soy vegetariano', '¿Olvido esto?']);
+    const reply = await answer({ db, decision: decisionOf(decisionId), option: buttons.no, now });
+    expect(reply.text).toBe('Vale, no olvido nada.');
   });
 });
 
@@ -225,7 +318,8 @@ describe('forget_history answer (DK-14 AC4)', () => {
   it('B55: "Sí" failing when its answer is recorded, after both erases, then "No": S-201', async () => {
     const decisionId = askToErase();
     db.exec(
-      "CREATE TRIGGER t BEFORE INSERT ON actions BEGIN SELECT RAISE(ABORT, 'disk full'); END",
+      // B81: the answer is recorded by making the "Sí" started as an action executed.
+      "CREATE TRIGGER t BEFORE UPDATE ON actions BEGIN SELECT RAISE(ABORT, 'disk full'); END",
     );
     const answer = createForgetHistoryAnswerHandler({ clearRecentTurns: () => turns.clear() });
     await expect(
@@ -237,5 +331,121 @@ describe('forget_history answer (DK-14 AC4)', () => {
     expect(reply.text).toBe(
       'Vale, no borro nada más, pero parte ya estaba borrado y no puedo recuperarlo.',
     );
+  });
+});
+
+describe('forget_history answer after "Olvidar" in Memoria (B81)', () => {
+  it('B81: "No" after the actions were erased in Memoria, with no "Sí" pressed, is "Vale, no borro nada."', async () => {
+    recordAction(db, {
+      kind: 'connect',
+      door: 'app',
+      task: 'qué tengo mañana',
+      outcome: 'answer',
+      steps: null,
+      calls: [],
+      endedAt: AT.toISOString(),
+    });
+    const upToId = lastActionId(db);
+    if (upToId === null) throw new Error('no action');
+    const decisionId = openForgetHistoryDecision(db, {
+      upToId,
+      question: strings.confirmForgetHistory(1),
+      options: [buttons.yes, buttons.no],
+      now: AT.toISOString(),
+    });
+    expect(forgetAction(db, upToId)).toBe(true);
+    const answer = createForgetHistoryAnswerHandler({ clearRecentTurns: () => turns.clear() });
+
+    const reply = await answer({ db, decision: decisionOf(decisionId), option: buttons.no, now });
+
+    expect(reply.text).toBe('Vale, no borro nada.');
+    expect(actionsOf(decisionId)).toEqual([]);
+  });
+});
+
+// B81 (R-23 AC6): each "Sí" is one action of its proposal: `failed` until it completes.
+describe('the action a forget answer leaves (B81)', () => {
+  const allActions = () =>
+    db
+      .prepare<[], { proposal_id: number; status: string }>(
+        'SELECT proposal_id, status FROM actions ORDER BY id',
+      )
+      .all();
+  const ask = () => {
+    const id = saveMemory(db, {
+      text: 'Es vegetariano',
+      quote: 'soy vegetariano',
+      said: true,
+      confidence: 1,
+      message: 'soy vegetariano',
+      source: 'telegram:1',
+      replaces: null,
+      receivedAt: AT.toISOString(),
+      now: AT.toISOString(),
+    });
+    return {
+      id,
+      decision: openForgetMemoryDecision(db, {
+        memoryIds: [id],
+        question: strings.confirmForget([]),
+        options: [buttons.yes, buttons.no],
+        now: AT.toISOString(),
+      }),
+    };
+  };
+
+  it('a "Sí" that fails, then a "Sí" that works, leaves exactly one action, executed', async () => {
+    const { decision } = ask();
+    const answer = createForgetMemoryAnswerHandler({ clearRecentTurns: failingOnce() });
+    await expect(
+      answer({ db, decision: decisionOf(decision), option: buttons.yes, now }),
+    ).rejects.toThrow('database is locked');
+    expect(allActions().map(({ status }) => status)).toEqual(['failed']);
+
+    await answer({ db, decision: decisionOf(decision), option: buttons.yes, now });
+
+    expect(allActions().map(({ status }) => status)).toEqual(['executed']);
+  });
+
+  it('a "Sí" that fails, then "No", leaves one failed action and says part is gone', async () => {
+    const { decision } = ask();
+    const answer = createForgetMemoryAnswerHandler({
+      clearRecentTurns: () => {
+        throw new Error('locked');
+      },
+    });
+    await expect(
+      answer({ db, decision: decisionOf(decision), option: buttons.yes, now }),
+    ).rejects.toThrow();
+
+    const reply = await answer({ db, decision: decisionOf(decision), option: buttons.no, now });
+
+    expect(reply.text).toBe(strings.notForgottenAfterPart());
+    expect(allActions().map(({ status }) => status)).toEqual(['failed']);
+  });
+
+  it('a plain "No" leaves no action', async () => {
+    const { decision } = ask();
+    const answer = createForgetMemoryAnswerHandler({ clearRecentTurns: () => turns.clear() });
+
+    await answer({ db, decision: decisionOf(decision), option: buttons.no, now });
+
+    expect(allActions()).toEqual([]);
+  });
+
+  it('a "Sí" that failed before erasing, then "Olvidar" in Memoria, then "No": S-200', async () => {
+    const { id, decision } = ask();
+    db.exec("CREATE TRIGGER t BEFORE DELETE ON memory_texts BEGIN SELECT RAISE(ABORT, 'io'); END");
+    const answer = createForgetMemoryAnswerHandler({ clearRecentTurns: () => turns.clear() });
+    await expect(
+      answer({ db, decision: decisionOf(decision), option: buttons.yes, now }),
+    ).rejects.toThrow('io');
+    db.exec('DROP TRIGGER t');
+    forgetMemoryAndItsTurns(db, id);
+
+    const reply = await answer({ db, decision: decisionOf(decision), option: buttons.no, now });
+
+    // A "Sí" to this question ran and the memory is forgotten: part is gone, as S-200 says.
+    expect(reply.text).toBe(strings.notForgottenAfterPart());
   });
 });

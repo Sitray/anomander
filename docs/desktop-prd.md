@@ -96,10 +96,19 @@ and keep its secrets in the operating system instead of a text file.
     The app has its own place for the same logins, the Suscripciones screen (DK-15); the chat
     does not offer them. While a login started in Telegram waits for a pasted code or address,
     the next text sent in the app's chat goes to it, as in Telegram (R-17 AC7): it is answered
-    `done` and is never stored, logged, a recent turn or sent to the model. As the bot deletes it
-    in Telegram, the chat then shows "Código de acceso (oculto)" in its place and keeps none of
-    its words, in the window or anywhere a reload reads (B55): a text answered `done` is one a
-    login took.
+    `done` with `taken: 'login'` and is never stored, logged, a recent turn or sent to the model.
+    As the bot deletes it in Telegram, the chat then shows "Código de acceso (oculto)" in its
+    place and keeps none of its words, in the window or anywhere a reload reads (B55). Only that
+    signal, set by the daemon when a login took the text, masks it; any other `done` leaves the
+    text as typed (B81).
+    While a login waits, the daemon also tells the app's open windows (`login_waiting`), and one
+    that connects meanwhile; it says so again when the login stops waiting. A text the chat sent
+    while a login waited, whose answer never came (the connection was lost first, so it cannot
+    know whether the login took it), is masked the same way, still marked as not known to have
+    arrived and with no resend; a text sent while no login waited stays as typed (B81, decided
+    in the unit as the safest reading: the window cannot know the login took it, and a text
+    sent then is the one a waiting login takes). What the window knew of a waiting login ends
+    with its connection.
 - DK-5 Secrets in the Keychain.
   - AC1: the Telegram bot token (optional, AC4), the provider API keys and the subscription login are stored
     in the macOS Keychain, entered once in the app's setup screen. The login is made from
@@ -456,9 +465,10 @@ and keep its secrets in the operating system instead of a text file.
     `No`, or replies "No tengo nada en mi historial." when it is empty. `Sí` erases every action
     kept when it was asked, checkpoints the WAL as a forget does (R-23 AC7), empties the recent
     turns and the stored conversation (DK-16 AC5) and replies "Hecho, he borrado mi historial.";
-    `No` erases nothing and replies "Vale, no borro nada.", or PRD S-201 when a `Sí` that failed
-    had already erased those actions (B55): the actions go first, then the conversation, so a
-    failure between them is seen. One action at a time can also be
+    `No` erases nothing and replies "Vale, no borro nada.", or PRD S-201 when a `Sí` to that
+    same question failed after it had erased those actions (B55): the actions go first, then the
+    conversation, so a failure between them is seen. An action erased from "Memoria" (DK-18 AC5)
+    between the question and `No`, with no `Sí` pressed, gets "Vale, no borro nada." (B81). One action at a time can also be
     erased from the app's "Memoria" (DK-18 AC5).
   - AC5: the history is local: it lives only in the app's database (DK-8), is never logged (a
     failure to keep an action is logged without its words) and never leaves the machine except
@@ -526,7 +536,10 @@ and keep its secrets in the operating system instead of a text file.
     "Sí, borrar" sends `clear_history`: the daemon erases the stored conversation and the recent
     turns for real (secure delete, then the WAL checkpoint, as a forget, R-23 AC7) and answers
     `done`, and the chat empties. The erase waits for a turn of either door that runs, so
-    nothing of that turn is kept after it. When it was not erased the chat keeps its messages and says so;
+    nothing of that turn is kept after it; nor is the answer of a task with connections asked in
+    Telegram, kept once delivered after its turn, when an erase of the conversation came between
+    its turn and its delivery (B81): "Borrar conversación" or a confirmed forget, or a replaced or
+    forgotten memory that took a turn with it. When it was not erased the chat keeps its messages and says so;
     when the connection was lost first, or no answer came within 2 minutes (B55), it says it
     cannot know. It cannot be pressed while the
     connection is not open, while an answer is owed, or while a task runs or waits for
@@ -651,6 +664,8 @@ and keep its secrets in the operating system instead of a text file.
     case, accents and punctuation (verifier finding F1, 2026-11-24, within that decision: the
     turns that mention it, never unrelated ones). A memory replaced by a new fact (R-23 AC3) keeps
     its whole-word rule. A memory no longer current is left alone and nothing else is erased.
+    A chat question to forget that memory still open then gets S-31 on `No`, never S-200: no `Sí`
+    to it ran (B81).
   - AC5: "Sí, olvidar" on an action sends `forget_action` with its id: the daemon erases that
     one row of `action_history` for real and, by the same decision, its own turn: the line it was
     stored as (`[captura de pantalla] …`, `[control del ordenador] …` or `[conexiones] …`) and its

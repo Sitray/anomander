@@ -10,6 +10,7 @@ import type { ConnectionTasks } from '../../src/connections/task.ts';
 import { createRecentTurns } from '../../src/conversation/recent-turns.ts';
 import { storedConversation } from '../../src/store/conversation.ts';
 import { applyMigrations, openDatabase } from '../../src/store/database.ts';
+import { forgetMemoryAndItsTurns, saveMemory } from '../../src/store/memory.ts';
 
 // B55 (DK-11, DK-16 AC1): what a task with connections asked in Telegram came to is sent there by
 // itself, after the chat's turn. It is stored once it was delivered, with its reference, as a
@@ -169,5 +170,152 @@ describe('connection session (DK-11)', () => {
         channelRef: null,
       },
     ]);
+  });
+});
+
+// B81 (DK-16 AC5): the Telegram answer is stored after its turn, once delivered; an erase of the
+// conversation between that turn and the delivery leaves it erased.
+describe('connection session after an erase (B81)', () => {
+  const session = (
+    turns: ReturnType<typeof createRecentTurns>,
+    send: (m: DoorReply) => Promise<void>,
+  ) => {
+    const turnLock = lock();
+    return {
+      turnLock,
+      session: createConnectionSession({
+        tasks: answering('Mañana tienes dentista a las 10.'),
+        turnLock,
+        turns,
+        keep: () => {},
+        send,
+        logger,
+      }),
+    };
+  };
+
+  it('B81: in Telegram, an answer delivered after "Borrar conversación" is not stored', async () => {
+    const turns = createRecentTurns({ db, now: () => AT, logger });
+    turns.add('23 € cena', { text: 'Apuntado.' }, 'telegram');
+    const send = vi.fn(async (message: DoorReply) => {
+      // Erased while the answer is on its way.
+      turns.clear();
+      message.onDelivered?.({ channelRef: 'telegram:44', deliveredAt: AT.toISOString() });
+    });
+    const { session: running, turnLock } = session(turns, send);
+
+    running.run('qué tengo mañana', 'telegram');
+    await turnLock.settled();
+    await vi.waitFor(() => expect(send).toHaveBeenCalledTimes(1));
+    await new Promise((resolve) => setImmediate(resolve));
+
+    expect(stored()).toEqual([]);
+    expect(turns.recent()).toEqual([]);
+  });
+
+  it('in Telegram, an answer is still stored when the erase came before its turn', async () => {
+    const turns = createRecentTurns({ db, now: () => AT, logger });
+    turns.add('23 € cena', { text: 'Apuntado.' }, 'telegram');
+    turns.clear();
+    const send = vi.fn(async (message: DoorReply) => {
+      message.onDelivered?.({ channelRef: 'telegram:45', deliveredAt: AT.toISOString() });
+    });
+    const { session: running, turnLock } = session(turns, send);
+
+    running.run('qué tengo mañana', 'telegram');
+    await turnLock.settled();
+    await vi.waitFor(() => expect(stored()).toHaveLength(2));
+
+    expect(stored()).toEqual([
+      {
+        from: 'principal',
+        door: 'telegram',
+        text: '[conexiones] qué tengo mañana',
+        channelRef: null,
+      },
+      {
+        from: 'anomander',
+        door: 'telegram',
+        text: 'Mañana tienes dentista a las 10.',
+        channelRef: 'telegram:45',
+      },
+    ]);
+  });
+  /** A memory said in no stored turn. */
+  const remember = (text: string, replaces: number | null) =>
+    saveMemory(db, {
+      text,
+      quote: text,
+      said: true,
+      confidence: 1,
+      message: text,
+      source: 'telegram:1',
+      replaces,
+      receivedAt: AT.toISOString(),
+      now: AT.toISOString(),
+    });
+
+  it('in Telegram, an answer is stored when a memory replaced meanwhile took no turn', async () => {
+    const turns = createRecentTurns({ db, now: () => AT, logger });
+    const old = remember('vivo en Zorbtown', null);
+    const send = vi.fn(async (message: DoorReply) => {
+      // Replaced while the answer is on its way: no stored turn holds its words.
+      remember('vivo en Lisboa', old);
+      message.onDelivered?.({ channelRef: 'telegram:46', deliveredAt: AT.toISOString() });
+    });
+    const { session: running, turnLock } = session(turns, send);
+
+    running.run('qué tengo mañana', 'telegram');
+    await turnLock.settled();
+    await vi.waitFor(() => expect(send).toHaveBeenCalledTimes(1));
+    await new Promise((resolve) => setImmediate(resolve));
+
+    expect(stored().map(({ text }) => text)).toEqual([
+      '[conexiones] qué tengo mañana',
+      'Mañana tienes dentista a las 10.',
+    ]);
+  });
+
+  it('in Telegram, an answer is stored when "Olvidar" in Memoria meanwhile erased no turn', async () => {
+    const turns = createRecentTurns({ db, now: () => AT, logger });
+    const forgotten = remember('Es vegetariano', null);
+    const send = vi.fn(async (message: DoorReply) => {
+      expect(forgetMemoryAndItsTurns(db, forgotten)).toBe(true);
+      message.onDelivered?.({ channelRef: 'telegram:47', deliveredAt: AT.toISOString() });
+    });
+    const { session: running, turnLock } = session(turns, send);
+
+    running.run('qué tengo mañana', 'telegram');
+    await turnLock.settled();
+    await vi.waitFor(() => expect(stored()).toHaveLength(2));
+
+    expect(stored().map(({ channelRef }) => channelRef)).toEqual([null, 'telegram:47']);
+  });
+
+  it('in Telegram, an answer is not stored when a replaced memory took a turn meanwhile', async () => {
+    const turns = createRecentTurns({ db, now: () => AT, logger });
+    const old = remember('vivo en Zorbtown', null);
+    turns.add('vivo en Zorbtown', { text: 'Tomo nota.' }, 'telegram');
+    const send = vi.fn(async (message: DoorReply) => {
+      remember('vivo en Lisboa', old);
+      message.onDelivered?.({ channelRef: 'telegram:48', deliveredAt: AT.toISOString() });
+    });
+    const { session: running, turnLock } = session(turns, send);
+
+    running.run('qué tengo mañana', 'telegram');
+    await turnLock.settled();
+    await vi.waitFor(() => expect(send).toHaveBeenCalledTimes(1));
+    await new Promise((resolve) => setImmediate(resolve));
+
+    expect(stored()).toEqual([]);
+  });
+
+  it('"Borrar conversación" counts as an erase even when the conversation is empty', () => {
+    const turns = createRecentTurns({ db, now: () => AT, logger });
+    const before = turns.erasures();
+
+    turns.clear();
+
+    expect(turns.erasures()).toBe(before + 1);
   });
 });

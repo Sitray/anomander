@@ -1089,6 +1089,35 @@ describe('the memories and the history in the window (DK-18)', () => {
     expect(logged()).not.toContain('zorbmem');
   });
 
+  it('B81: a text that replaces a memory in its old words is not stored, through the chat', async () => {
+    const chat = await client(await start());
+    const old = remember('Vive en Zorbtown', 'vivo en Zorbtown', true);
+    routed = JSON.stringify({
+      kind: 'conversation',
+      reply: 'Tomo nota de que vives en Lisboa.',
+      memories: [
+        {
+          text: 'Vive en Lisboa',
+          quote: 'ahora vivo en Lisboa',
+          said: true,
+          confidence: 1,
+          replaces: old,
+        },
+      ],
+    });
+
+    const answer = reply(
+      await chat.ask({ type: 'text', text: 'ya no vivo en Zorbtown, ahora vivo en Lisboa' }),
+    );
+
+    expect(answer.text).toBe('Tomo nota de que vives en Lisboa.');
+    expect(conversation()).toEqual([]);
+    expect(onDisk('Zorbtown')).toEqual([]);
+    routed = undefined;
+    await chat.ask({ type: 'text', text: '23 € cena' });
+    expect(conversation()).toEqual(['23 € cena', PHRASED]);
+  });
+
   it('forget_memory of a memory no longer current erases nothing and answers done', async () => {
     const chat = await client(await start());
     await chat.ask({ type: 'text', text: '23 € cena' });
@@ -1262,7 +1291,8 @@ describe('a text pasted in the app while a Telegram login waits (R-17 AC7, R-27 
 
     const answer = await chat.ask({ type: 'text', text: pasted });
 
-    expect(answer.type).toBe('done');
+    // B81 (DK-4 AC7): the daemon says the login took it, so the window masks it.
+    expect(answer).toEqual({ type: 'done', inReplyTo: expect.any(String), taken: 'login' });
     await vi.waitFor(() => expect(received).toBe(pasted));
     expect(interpreted).toEqual([]);
     expect(query('SELECT id FROM conversation')).toEqual([]);
@@ -1283,6 +1313,49 @@ describe('a text pasted in the app while a Telegram login waits (R-17 AC7, R-27 
     expect(interpreted.map(({ message, recent }) => ({ message, recent }))).toEqual([
       { message: '23 € cena', recent: [] },
     ]);
+  });
+
+  it('B81: tells every open window while a login waits for a pasted text, and when it stops', async () => {
+    const pasted = 'http://127.0.0.1:1455/auth/callback?code=zorbwaits&state=s';
+    const models: ModelLogin = {
+      login: async (_providerId, _type, interaction) => {
+        interaction.notify({ type: 'auth_url', url: 'https://auth.openai.com/oauth/authorize' });
+        await interaction.prompt({
+          type: 'manual_code',
+          message: 'Paste the redirect URL',
+          ...(interaction.signal === undefined ? {} : { signal: interaction.signal }),
+        });
+        return { type: 'oauth', access: 'a', refresh: 'r', expires: 1 };
+      },
+      logout: async () => {},
+    };
+    const daemon = await start(undefined, {
+      login: {
+        models,
+        credentials: createFileCredentialStore(join(scratch, 'auth.json')),
+        getDeviceId: () => '00000000-0000-4000-8000-000000000000',
+        timeoutMs: 60_000,
+      },
+    });
+    const first = await client(daemon);
+    expect(first.events).toEqual([]);
+    api.push(updates.text({ chatId: PRINCIPAL }, '/login'));
+    const [choose] = await api.waitForSent(1);
+    api.push(updates.callbackQuery({ chatId: PRINCIPAL }, 'login:openai', choose?.messageId ?? 0));
+    await api.waitForSent(2);
+
+    const waits = { type: 'login_waiting', inReplyTo: null, waiting: true };
+    await vi.waitFor(() => expect(first.events).toEqual([waits]));
+    // A window that opens while it waits is told at once.
+    const second = await client(daemon);
+    await vi.waitFor(() => expect(second.events).toEqual([waits]));
+
+    await first.ask({ type: 'text', text: pasted });
+
+    const stopped = { type: 'login_waiting', inReplyTo: null, waiting: false };
+    await vi.waitFor(() => expect(second.events).toEqual([waits, stopped]));
+    expect(first.events).toContainEqual(stopped);
+    expect(JSON.stringify([...first.events, ...second.events])).not.toContain('zorbwaits');
   });
 
   it('never starts a login from the app: /login there is not a login route (DK-4 AC7)', async () => {
@@ -3507,5 +3580,71 @@ describe("today's AI calls in the window (DK-21)", () => {
     const chat = await client(guide);
 
     expect(reply(await chat.ask({ type: 'ai_usage' })).text).toBe(strings.processingFailed());
+  });
+});
+
+// B81 (DK-4 AC7): the login signals in setup-guide mode, and never without a waiting login.
+describe('the login signals of the local channel (B81)', () => {
+  const loginDeps = (got: { value?: string }) => ({
+    login: {
+      models: {
+        login: async (_p: string, _t: 'oauth', interaction: Parameters<ModelLogin['login']>[2]) => {
+          interaction.notify({ type: 'auth_url', url: 'https://auth.openai.com/oauth/authorize' });
+          got.value = await interaction.prompt({
+            type: 'manual_code',
+            message: 'Paste',
+            ...(interaction.signal === undefined ? {} : { signal: interaction.signal }),
+          });
+          return { type: 'oauth', access: 'a', refresh: 'r', expires: 1 } as Credential;
+        },
+        logout: async () => {},
+      } satisfies ModelLogin,
+      credentials: createFileCredentialStore(join(scratch, 'auth.json')),
+      getDeviceId: () => '00000000-0000-4000-8000-000000000000',
+      timeoutMs: 60_000,
+    },
+  });
+
+  it('in setup-guide mode, a pasted text is done taken login, and the windows are told it waits', async () => {
+    const got: { value?: string } = {};
+    const guide = startSetupGuide(
+      { ...config({ ANOMANDER_LOCAL_TOKEN: TOKEN }), localPort: 0 },
+      { gaps: [{ kind: 'model_unset' }], telegramApiRoot: api.apiRoot, logger, ...loginDeps(got) },
+    );
+    anomander = guide;
+    await guide.started;
+    const chat = await client(guide);
+    api.push(updates.text({ chatId: PRINCIPAL }, '/login'));
+    const [choose] = await api.waitForSent(1);
+    api.push(updates.callbackQuery({ chatId: PRINCIPAL }, 'login:openai', choose?.messageId ?? 0));
+    await vi.waitFor(() =>
+      expect(chat.events).toContainEqual({ type: 'login_waiting', inReplyTo: null, waiting: true }),
+    );
+    const answer = await chat.ask({ type: 'text', text: 'secretcode123' });
+    expect(answer).toEqual({ type: 'done', inReplyTo: expect.any(String), taken: 'login' });
+    await vi.waitFor(() => expect(got.value).toBe('secretcode123'));
+    await vi.waitFor(() =>
+      expect(chat.events).toContainEqual({
+        type: 'login_waiting',
+        inReplyTo: null,
+        waiting: false,
+      }),
+    );
+    expect(JSON.stringify(chat.events)).not.toContain('secretcode123');
+  });
+
+  it('no login waiting: a plain text is a reply, never done taken, and no login_waiting is pushed', async () => {
+    const daemon = await start();
+    const chat = await client(daemon);
+    const answer = await chat.ask({ type: 'text', text: 'hola' });
+    expect(answer.type).toBe('reply');
+    expect(chat.events.filter((e: { type: string }) => e.type === 'login_waiting')).toEqual([]);
+  });
+
+  it('the done to clear_history carries no taken', async () => {
+    const daemon = await start();
+    const chat = await client(daemon);
+    const answer = await chat.ask({ type: 'clear_history' });
+    expect(answer).toEqual({ type: 'done', inReplyTo: expect.any(String) });
   });
 });

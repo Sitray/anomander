@@ -158,6 +158,50 @@ export const settleProposal = (
   if (changed !== 1) throw new Error(`proposal ${proposalId} was not asked`);
 };
 
+/**
+ * B81 (R-23 AC6, DK-14 AC4): a "Sí" that erases is recorded before it erases anything, as an
+ * action of its proposal that `failed`: if the erase stops halfway the row stays, so a later "No"
+ * knows that a "Sí" to that same question ran (`answerFailed`). A "Sí" pressed again reuses it.
+ * Returns the action, which `answerCompleted` makes `executed` once the decision is answered.
+ */
+export const answerStarted = (
+  db: Database.Database,
+  proposalId: number,
+  authorizedBy: string,
+  now: string,
+): number => {
+  const failed = db
+    .prepare<[number], { id: number }>(
+      "SELECT id FROM actions WHERE proposal_id = ? AND status = 'failed' ORDER BY id LIMIT 1",
+    )
+    .get(proposalId);
+  if (failed !== undefined) return failed.id;
+  return Number(
+    db
+      .prepare(
+        `INSERT INTO actions (proposal_id, authorized_by, executed_at, status)
+         VALUES (?, ?, ?, 'failed')`,
+      )
+      .run(proposalId, authorizedBy, now).lastInsertRowid,
+  );
+};
+
+/** B81: the "Sí" of `answerStarted` erased all it had to; in the transaction that answers it. */
+export const answerCompleted = (db: Database.Database, actionId: number, now: string): void => {
+  const changed = db
+    .prepare(
+      "UPDATE actions SET status = 'executed', executed_at = ? WHERE id = ? AND status = 'failed'",
+    )
+    .run(now, actionId).changes;
+  if (changed !== 1) throw new Error(`action ${actionId} was not started`);
+};
+
+/** B81: whether a "Sí" to the question of `proposalId` ran and did not complete. */
+export const answerFailed = (db: Database.Database, proposalId: number): boolean =>
+  db
+    .prepare<[number]>("SELECT 1 FROM actions WHERE proposal_id = ? AND status = 'failed'")
+    .get(proposalId) !== undefined;
+
 const registerExpensePayload = z.object({ document_id: z.int().positive() });
 
 /** The pending expense a `register_expense` decision asks about (one per receipt document). */

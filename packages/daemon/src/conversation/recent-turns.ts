@@ -3,12 +3,13 @@ import type Database from 'better-sqlite3';
 import type { Logger } from '../processor/ports.ts';
 import {
   type ConversationMessage,
+  conversationErasures,
   conversationSince,
   deliveredAs,
   forgetConversation,
   recordMessages,
 } from '../store/conversation.ts';
-import { turnSaysReplacedMemory } from '../store/memory.ts';
+import { replacingIn, turnSaysReplacedMemory } from '../store/memory.ts';
 
 // PRD R-16 AC3: the recent turns of the conversation, so the interpreter understands "ese" or
 // "lo de antes". DK-16: every turn is kept in the local database as the stored conversation, so
@@ -61,6 +62,13 @@ export interface RecentTurns {
    * to erase throws: the caller says it failed.
    */
   clear(): void;
+  /**
+   * B81: how many times the stored conversation was erased, whole ("Borrar conversación", a
+   * confirmed forget) or in part (a replaced or forgotten memory that took a turn). A turn stored once its reply
+   * was delivered, after its own turn, reads it in that turn and is stored only if it did not
+   * change meanwhile.
+   */
+  erasures(): number;
 }
 
 export interface RecentTurnsDeps {
@@ -71,9 +79,6 @@ export interface RecentTurnsDeps {
 
 export const createRecentTurns = ({ db, now, logger }: RecentTurnsDeps): RecentTurns => ({
   add: (principal, reply, door, channelRef) => {
-    // B55 (R-23 AC3): the turn that replaced a memory and holds its old words goes as the older
-    // turns that held them went: it is never stored.
-    if (principal !== null && turnSaysReplacedMemory(db, principal, reply.text)) return reply;
     const at = now().toISOString();
     const said: ConversationMessage = {
       from: 'anomander',
@@ -133,11 +138,13 @@ export const createRecentTurns = ({ db, now, logger }: RecentTurnsDeps): RecentT
   clear: () => {
     forgetConversation(db);
   },
+  erasures: () => conversationErasures(db),
 });
 
 /**
  * Records each answered input as a turn, described by `describe`, at the door `doorOf` names; no
- * reply records nothing.
+ * reply records nothing. The memories `handler` replaced are matched against this turn only
+ * (`replacingIn`).
  */
 export const recordingTurns =
   <I, R extends TurnReply | null>(
@@ -147,8 +154,13 @@ export const recordingTurns =
     doorOf: (input: I) => TurnDoor,
   ) =>
   async (input: I): Promise<R> => {
-    const reply = await handler(input);
-    return reply === null ? reply : turns.add(describe(input), reply, doorOf(input));
+    const { result: reply, replaced } = await replacingIn(() => handler(input));
+    if (reply === null) return reply;
+    const principal = describe(input);
+    // B55, B81 (R-23 AC3): a turn whose handler replaced a memory, and that holds its old words,
+    // goes as the older turns that held them went: it is never stored.
+    if (turnSaysReplacedMemory(replaced, principal, reply.text)) return reply;
+    return turns.add(principal, reply, doorOf(input));
   };
 
 /** DK-22: the desktop app as a door for what is sent unasked, while it is connected. */

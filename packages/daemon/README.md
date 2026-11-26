@@ -597,7 +597,7 @@ Each message is one JSON text frame, typed in `packages/protocol/src/local-chann
 
 | The app sends | The daemon answers |
 | --- | --- |
-| `text` | `reply` with the same string Telegram would get (DK-4 AC1) |
+| `text` | `reply` with the same string Telegram would get (DK-4 AC1); `done` with `taken: 'login'` when a login waiting for a pasted code or address took it (DK-4 AC7, B81) |
 | `receipt`: one or several images in base64 | `reply`; a PDF, another file type or an image over 20 MB gets R-20's reply, as in Telegram |
 | `button`: the `data` of a reply's button | `reply`; S-19 when the decision is no longer open, whichever door closed it (DK-4 AC3) |
 | `screen`: a question and one capture of the screen in base64 (DK-9) | `reply` with what the vision processor sees (`src/processor/screen-reader.ts`): no tools, nothing stored but its question in the history (DK-14), one call against the daily AI limit; an image over 20 MB gets R-20's reply |
@@ -613,6 +613,12 @@ Each message is one JSON text frame, typed in `packages/protocol/src/local-chann
 While a task with connections calls a tool for a request still owed, the daemon may send
 `progress` (`of`: that request's id; `phase`: `web_search` or `connection`), never an answer
 itself (DK-19).
+
+While a login started in Telegram waits for a pasted code or address, the daemon tells every
+open connection, and one that opens meanwhile, with `login_waiting` (`waiting: true`), and again
+with `waiting: false` once it no longer waits (`src/app/login-waits.ts` watches the login's
+prompts, never what is pasted). The window masks a text it sent meanwhile whose answer never came
+(B81, desktop PRD DK-4 AC7).
 
 A `reply` carries its own `channelRef`, `desktop:<uuid>`, which is recorded as the delivery
 (R-9 AC2) once the frame left through the socket. The channel only answers: what ANOMANDER
@@ -800,7 +806,8 @@ key (R-15 AC3).
   and `logout:<provider>`, apart from `decision:` data) and the awaited text are handled in
   `app.ts` before every other route, so they work when no model is reachable (R-17 AC7). While a
   login waits, a text sent in the desktop app's chat goes to it too (`takePasted`), answered
-  `done`; the app never takes `/login` or `/logout` (desktop PRD DK-4 AC7).
+  `done` with `taken: 'login'`, the only answer that carries it, so the window masks it (B81);
+  the app never takes `/login` or `/logout` (desktop PRD DK-4 AC7).
 - **From a terminal on the server.** `pnpm run login [provider]` and `pnpm run logout <provider>`
   (`scripts/login.ts`, `scripts/logout.ts`) do the same and print the link or device code. Plain
   `pnpm login` is pnpm's own npm-registry login, so `run` is needed. Run them from the directory

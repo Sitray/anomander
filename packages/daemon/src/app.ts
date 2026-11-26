@@ -6,13 +6,14 @@ import { setUpConnections } from './app/connections.ts';
 import { createHandlers } from './app/handlers.ts';
 import { startJobs } from './app/jobs.ts';
 import { channelViews, startChannel } from './app/local-channel.ts';
+import { watchingPastes } from './app/login-waits.ts';
 import { announceGaps } from './app/setup-guide-mode.ts';
 import { oneTurnAtATime } from './app/turns.ts';
 import type { Anomander, AnomanderDeps } from './app/types.ts';
 import { createTelegramLogin } from './auth/telegram-login.ts';
 import type { Config } from './config.ts';
 import { type AppNotices, recordingNotices } from './conversation/recent-turns.ts';
-import { NO_APP } from './local-channel/server.ts';
+import { NO_APP, TAKEN_BY_LOGIN } from './local-channel/server.ts';
 import type { ConnectedTool } from './processor/ports.ts';
 import { startReadApi } from './read-api/server.ts';
 import { cachedSetupGaps, type SetupGap } from './setup/setup-guide.ts';
@@ -111,11 +112,15 @@ export const startAnomander = <M>(config: Config, deps: AnomanderDeps<M>): Anoma
   let deleteMessage = async (_: string): Promise<void> => {
     throw new Error('deleteMessage used before the bot was created');
   };
+  // B81: bound below, once the local channel exists.
+  let loginWaiting = (_: boolean): void => {};
   const login =
     deps.login === undefined || config.telegram === undefined
       ? undefined
       : createTelegramLogin({
           ...deps.login,
+          // B81 (DK-4 AC7): the app's windows are told while it waits for a pasted text.
+          models: watchingPastes(deps.login.models, (waiting) => loginWaiting(waiting)),
           send: (message) => send(message),
           deleteMessage: (channelRef) => deleteMessage(channelRef),
           logger,
@@ -250,7 +255,7 @@ export const startAnomander = <M>(config: Config, deps: AnomanderDeps<M>): Anoma
       // route: it is never stored, logged, a recent turn or sent to the model. `/login` and
       // `/logout` are not taken here: they stay in Telegram (DK-4 AC7).
       onText: async (message) =>
-        login?.takePasted(message.text) === true ? null : chat.onText(message),
+        login?.takePasted(message.text) === true ? TAKEN_BY_LOGIN : chat.onText(message),
       onButton: onButtonAt('app'),
     },
     views.conversation,
@@ -277,6 +282,7 @@ export const startAnomander = <M>(config: Config, deps: AnomanderDeps<M>): Anoma
     },
   );
   if (localChannel !== undefined) app = localChannel;
+  loginWaiting = (waiting) => localChannel?.loginWaiting(waiting);
 
   telegram.started.then(
     () =>

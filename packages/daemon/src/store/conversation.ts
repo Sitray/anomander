@@ -82,12 +82,29 @@ export const conversationSince = (db: Database.Database, since: string): ChatSto
     .all(since)
     .map(fromRow);
 
+/** B81: per database, how many times its conversation was erased, whole or in part. */
+const erasures = new WeakMap<Database.Database, number>();
+const erasedOnce = (db: Database.Database): void => {
+  erasures.set(db, (erasures.get(db) ?? 0) + 1);
+};
+
+/**
+ * B81 (DK-16 AC5): how many times the conversation of `db` was erased since the daemon started:
+ * every `forgetConversation`, even of an empty one, and every `forgetTurnsHolding` that took a
+ * turn. A turn stored after its own turn ended, once its
+ * reply was delivered, compares it with the count when its turn ran: an erase in between is a
+ * wish to keep nothing said before it, so the turn is not stored. It lives only in this process;
+ * an erase that rolls back still counts, which only ever keeps less.
+ */
+export const conversationErasures = (db: Database.Database): number => erasures.get(db) ?? 0;
+
 /**
  * S5, S6: erases every message. Then the WAL is checkpointed and truncated, as a forgotten
  * memory's is (R-23 AC7): with `secure_delete` on, the freed pages hold zeros. Returns how many
  * were erased.
  */
 export const forgetConversation = (db: Database.Database): number => {
+  erasedOnce(db);
   const { changes } = db.prepare('DELETE FROM conversation').run();
   if (changes > 0) db.pragma('wal_checkpoint(TRUNCATE)');
   return changes;
@@ -123,6 +140,8 @@ export const forgetTurnsHolding = (
     }
   });
   const erase = db.prepare('DELETE FROM conversation WHERE id = ?');
+  // B81: only an erase that took a turn counts; one that matched nothing leaves all as it was.
+  if (erased.size > 0) erasedOnce(db);
   for (const id of erased) erase.run(id);
   return erased.size;
 };
