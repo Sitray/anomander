@@ -196,10 +196,31 @@ export const answerCompleted = (db: Database.Database, actionId: number, now: st
   if (changed !== 1) throw new Error(`action ${actionId} was not started`);
 };
 
-/** B81: whether a "Sí" to the question of `proposalId` ran and did not complete. */
-export const answerFailed = (db: Database.Database, proposalId: number): boolean =>
+/**
+ * B83: the "Sí" to the question of `proposalId` erased part of what it asked about; called in
+ * the transaction of that erase, so the mark and the erase are kept or lost together. It is set
+ * in the proposal's payload, as `erased: true`: `actions` has no column for it.
+ */
+export const answerErased = (db: Database.Database, proposalId: number): void => {
+  const changed = db
+    .prepare(
+      "UPDATE proposals SET payload_json = json_set(payload_json, '$.erased', json('true')) WHERE id = ?",
+    )
+    .run(proposalId).changes;
+  if (changed !== 1) throw new Error(`proposal ${proposalId} does not exist`);
+};
+
+/**
+ * B81, B83: whether a "Sí" to the question of `proposalId` ran, erased part of it
+ * (`answerErased`) and did not complete. A "Sí" that failed before erasing anything is not one.
+ */
+export const answerFailedAfterErasing = (db: Database.Database, proposalId: number): boolean =>
   db
-    .prepare<[number]>("SELECT 1 FROM actions WHERE proposal_id = ? AND status = 'failed'")
+    .prepare<[number]>(
+      `SELECT 1 FROM actions a JOIN proposals p ON p.id = a.proposal_id
+       WHERE a.proposal_id = ? AND a.status = 'failed'
+         AND json_extract(p.payload_json, '$.erased') = 1`,
+    )
     .get(proposalId) !== undefined;
 
 const registerExpensePayload = z.object({ document_id: z.int().positive() });

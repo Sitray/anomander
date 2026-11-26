@@ -51,6 +51,7 @@ On `main` since 0.1.0. The interface speaks English or Spanish, and the app runs
 
 ### Fixed
 
+- A "No" after a "Sí" to forget a memory or erase the history that failed before it erased anything, with that memory or action then erased from "Memoria", says nothing was erased again (S-31, "Vale, no borro nada.") instead of S-200 or S-201: the "Sí" that erases marks its proposal `erased` in the same transaction. A "Sí" that failed halfway under an earlier build has no mark, so a "No" after the upgrade replies S-31 (B83).
 - A memory replaced outside any turn's scope, so its old words cannot be matched against the turn that replaced it, is now logged as a warning with the new memory's id only, never its text (B83).
 - A text sent in the app's chat while a login started in Telegram waited for a pasted code, whose answer never came because the connection was lost, no longer stays visible: the daemon tells the windows while a login waits (`login_waiting`), and the chat masks such a text as "Código de acceso (oculto)" (DK-4 AC7, B81).
 - The app's chat masks a pasted login code only when the daemon says a login took it: the local channel's `done` carries `taken: 'login'` for that text alone, instead of the window reading any `done` with no reply as a login code (DK-4 AC7, B81).

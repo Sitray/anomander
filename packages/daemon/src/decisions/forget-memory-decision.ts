@@ -3,19 +3,21 @@ import { z } from 'zod';
 import {
   answerCompleted,
   answerDecision,
-  answerFailed,
+  answerErased,
+  answerFailedAfterErasing,
   answerStarted,
   settleProposal,
 } from '../store/decisions.ts';
-import { forgetMemories, isForgottenMemory } from '../store/memory.ts';
+import { forgetMemories } from '../store/memory.ts';
 import type { DecisionAnswerHandler } from './types.ts';
 
 // R-23 AC6: the answer to S-29. "Sí" erases the memories it named and replies S-30; "No" erases
 // nothing and replies S-31. A memory forgotten or replaced since it was asked has no text left
 // to erase: a replacement erases the old text (R-23 AC3), so S-30 is always true. B55: a "Sí"
 // that failed once its memories were forgotten leaves the question open; a "No" after it cannot
-// bring them back, so it replies S-200 instead of saying nothing was forgotten. B81: only then: a
-// memory forgotten in "Memoria" between the question and "No" gets S-31.
+// bring them back, so it replies S-200 instead of saying nothing was forgotten. B81, B83: only
+// then: a memory forgotten in "Memoria" between the question and "No", with no "Sí" or a "Sí"
+// that failed before it forgot one, gets S-31.
 
 export interface ForgetMemoryDecisionDeps {
   /**
@@ -43,7 +45,8 @@ export const createForgetMemoryAnswerHandler =
     const started =
       option === buttons.yes ? answerStarted(db, decision.proposal_id, 'principal', at) : null;
     if (option === buttons.yes) {
-      forgetMemories(db, memoryIds);
+      // B83: the "Sí" that forgets one of them marks so in the same transaction.
+      forgetMemories(db, memoryIds, () => answerErased(db, decision.proposal_id));
       clearRecentTurns();
     }
     db.transaction(() => {
@@ -52,9 +55,8 @@ export const createForgetMemoryAnswerHandler =
       if (started !== null) answerCompleted(db, started, at);
     })();
     if (option === buttons.yes) return { text: strings.forgotten() };
-    // B81: only a "Sí" to this question that ran forgot part of it; one forgotten in "Memoria"
-    // meanwhile was not, so S-31 stays true.
-    const partForgotten =
-      answerFailed(db, decision.proposal_id) && memoryIds.some((id) => isForgottenMemory(db, id));
+    // B81, B83: only a "Sí" to this question that forgot one of them and failed forgot part of
+    // it; one forgotten in "Memoria" meanwhile was not, so S-31 stays true.
+    const partForgotten = answerFailedAfterErasing(db, decision.proposal_id);
     return { text: partForgotten ? strings.notForgottenAfterPart() : strings.notForgotten() };
   };

@@ -350,33 +350,29 @@ export const forgetMemoryAndItsTurns = (db: Database.Database, id: number): bool
 };
 
 /**
- * B55: whether memory `id` was forgotten (`expired`), by a "Sí" that then failed halfway or by
- * "Olvidar" in the app; a replaced one (`refuted`) was not.
- */
-export const isForgottenMemory = (db: Database.Database, id: number): boolean =>
-  db
-    .prepare<[number]>(
-      "SELECT 1 FROM assertions WHERE id = ? AND predicate = 'memory' AND status = 'expired'",
-    )
-    .get(id) !== undefined;
-
-/**
  * R-23 AC6, AC7: forgets the given current memories. In one transaction each one's text and
  * quote are deleted from `memory_texts` (the triggers remove them from `memory_search`) and its
  * assertion becomes `expired`, the mark that something was remembered and forgotten. Then the
  * WAL is checkpointed and truncated so the erased text survives in no file; with
  * `secure_delete` and FTS5 `secure-delete` on, the freed pages hold zeros. Ids that are not
- * current memories are left alone. Returns the ids forgotten.
+ * current memories are left alone. `onForgotten` runs in that transaction when one was forgotten
+ * (B83: a "Sí" marks there that it erased). Returns the ids forgotten.
  */
-export const forgetMemories = (db: Database.Database, ids: readonly number[]): number[] => {
-  const forgotten = db.transaction(() =>
-    ids.filter((id) => {
+export const forgetMemories = (
+  db: Database.Database,
+  ids: readonly number[],
+  onForgotten?: () => void,
+): number[] => {
+  const forgotten = db.transaction(() => {
+    const erased = ids.filter((id) => {
       if (!isCurrentMemory(db, id)) return false;
       db.prepare('DELETE FROM memory_texts WHERE assertion_id = ?').run(id);
       db.prepare("UPDATE assertions SET status = 'expired' WHERE id = ?").run(id);
       return true;
-    }),
-  )();
+    });
+    if (erased.length > 0) onForgotten?.();
+    return erased;
+  })();
   if (forgotten.length > 0) db.pragma('wal_checkpoint(TRUNCATE)');
   return forgotten;
 };

@@ -118,18 +118,23 @@ export const countActions = (db: Database.Database): number =>
   db.prepare<[], { count: number }>('SELECT count(*) AS count FROM action_history').get()?.count ??
   0;
 
-/** B55: whether action `id` is still kept. */
-export const hasAction = (db: Database.Database, id: number): boolean =>
-  db.prepare<[number]>('SELECT 1 FROM action_history WHERE id = ?').get(id) !== undefined;
-
 /**
  * AC4: erases every action up to `upToId`, the latest one when the principal was asked, so one
  * that ended after the question stays. Then the WAL is checkpointed and truncated, as a forgotten
- * memory's is (R-23 AC7): with `secure_delete` on, the freed pages hold zeros. Returns how many
- * were erased.
+ * memory's is (R-23 AC7): with `secure_delete` on, the freed pages hold zeros. `onErased` runs
+ * in the erase's transaction when one was erased (B83: a "Sí" marks there that it erased).
+ * Returns how many were erased.
  */
-export const forgetHistory = (db: Database.Database, upToId: number): number => {
-  const { changes } = db.prepare('DELETE FROM action_history WHERE id <= ?').run(upToId);
+export const forgetHistory = (
+  db: Database.Database,
+  upToId: number,
+  onErased?: () => void,
+): number => {
+  const changes = db.transaction(() => {
+    const erased = db.prepare('DELETE FROM action_history WHERE id <= ?').run(upToId).changes;
+    if (erased > 0) onErased?.();
+    return erased;
+  })();
   if (changes > 0) db.pragma('wal_checkpoint(TRUNCATE)');
   return changes;
 };
