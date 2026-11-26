@@ -39,6 +39,8 @@ export interface SchedulerDeps {
 export interface Scheduler {
   /** Resolves when the startup run has finished. */
   started: Promise<void>;
+  /** Stops the schedule: no job starts after it, even one already queued. */
+  halt(): void;
   /** Stops the schedule and waits for the job in progress. */
   stop(): Promise<void>;
 }
@@ -99,11 +101,15 @@ export const startScheduler = ({
   );
   for (const cron of crons) cron.resume();
 
+  const halt = (): void => {
+    for (const cron of crons) cron.stop();
+    stopped = true;
+  };
   return {
     started,
+    halt,
     stop: async () => {
-      for (const cron of crons) cron.stop();
-      stopped = true;
+      halt();
       await tail;
     },
   };

@@ -215,7 +215,7 @@ export const startAnomander = <M>(config: Config, deps: AnomanderDeps<M>): Anoma
   const reachable = () => config.telegram !== undefined || app.connected();
   // DK-22: every scheduled job, and their runs when the app connects (below), go through one
   // chain inside `startJobs`, so two jobs never overlap.
-  const { scheduler, sendMorningDigest, sendDueReminders, drainQueue } = startJobs({
+  const jobs = startJobs({
     config,
     db,
     now,
@@ -227,6 +227,8 @@ export const startAnomander = <M>(config: Config, deps: AnomanderDeps<M>): Anoma
 
   // RA-2: the read API, only while `ANOMANDER_API_TOKEN` is set (AC1). It opens its own
   // read-only connection, after the migrations created the views it reads.
+  const { sendMorningDigest, sendDueReminders, drainQueue } = jobs;
+
   const readApi =
     config.apiToken === undefined
       ? undefined
@@ -269,9 +271,8 @@ export const startAnomander = <M>(config: Config, deps: AnomanderDeps<M>): Anoma
         ['sendDueReminders', sendDueReminders],
         ['drainQueue', drainQueue],
       ] as const) {
-        chatTurns
-          .track<unknown>(job())
-          .catch((error: unknown) => logger.error('scheduled job failed', { job: name, error }));
+        // Not a turn: `jobs.stop` waits for it, never the turns' deadline.
+        job().catch((error: unknown) => logger.error('scheduled job failed', { job: name, error }));
       }
     },
   );
@@ -287,17 +288,33 @@ export const startAnomander = <M>(config: Config, deps: AnomanderDeps<M>): Anoma
     () => {},
   );
 
+  // B51: nothing new starts once this is called: no turn, no job, no input of a door. The doors
+  // begin to close; `stop` waits for them.
+  let doorsClosing: Promise<unknown>[] | undefined;
+  const halt = (): Promise<unknown>[] => {
+    if (doorsClosing !== undefined) return doorsClosing;
+    stopping = true;
+    chatTurns.close();
+    login?.stop();
+    jobs.halt();
+    doorsClosing = [localChannel?.stop() ?? Promise.resolve(), telegram.stop()];
+    for (const closing of doorsClosing) closing.catch(() => {});
+    return doorsClosing;
+  };
+
   return {
     started: telegram.started,
     polling: telegram.ended,
     readApi: readApi?.listening,
     localChannel: localChannel?.listening,
-    // T14: nothing new starts once this begins; the turns and jobs that run end, up to a
-    // deadline, before the store closes. A step that fails is reported after the rest closed.
+    halt: () => {
+      halt();
+    },
+    // T14: nothing new starts once this begins; the turns that run end, up to a deadline, and
+    // the jobs however long they take (B69), before the store closes. A step that fails is
+    // reported after the rest closed.
     stop: async () => {
-      stopping = true;
-      chatTurns.close();
-      login?.stop();
+      const doors = halt();
       const failures: unknown[] = [];
       const settle = async (...steps: (Promise<unknown> | undefined)[]): Promise<void> => {
         for (const step of await Promise.allSettled(steps)) {
@@ -305,14 +322,15 @@ export const startAnomander = <M>(config: Config, deps: AnomanderDeps<M>): Anoma
         }
       };
       const deadlineMs = deps.shutdownDeadlineMs ?? SHUTDOWN_DEADLINE_MS;
-      // A scheduled job is waited for however long it takes, as before T14: it may be reading a
-      // receipt, and neither the store nor the lock may go from under it.
-      const jobs = settle(scheduler.stop());
-      const ended = settle(localChannel?.stop(), telegram.stop(), chatTurns.drained());
+      // A job is waited for however long it takes, as before T14: it may be reading a receipt,
+      // and neither the store nor the lock may go from under it. B69: that holds for a job the
+      // app's connection started too; one still queued never starts.
+      const jobsEnded = settle(jobs.stop());
+      const ended = settle(...doors, chatTurns.drained());
       if (!(await settlesWithin(ended, deadlineMs))) {
         logger.warn(`anomander stopped before every turn ended: ${deadlineMs} ms passed`);
       }
-      await jobs;
+      await jobsEnded;
       await settle(servers?.close(), readApi?.stop());
       db.close();
       lock.release();

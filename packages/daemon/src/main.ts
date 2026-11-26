@@ -6,10 +6,11 @@
 // The desktop app hands every secret over on stdin instead of the environment (DK-5 AC2).
 import { type ExitCode, exitCodes } from '@anomander/protocol';
 import { builtinModels } from '@earendil-works/pi-ai/providers/all';
+import type { Anomander } from './app.ts';
 import { startAnomander, startSetupGuide } from './app.ts';
 import { createDeviceId } from './auth/device-id.ts';
 import { loadConfig } from './config.ts';
-import { exitOnceWritten, reportCrashes } from './crash.ts';
+import { DRAIN_LIMIT_MS, exitOnceWritten, reportCrashes } from './crash.ts';
 import { createScrubbingLogger } from './scrubbing-logger.ts';
 import {
   createSecretList,
@@ -32,18 +33,42 @@ import {
 const secrets = createSecretList();
 secrets.setFromStart(secretsBeforeConfig(process.env));
 const log = createScrubbingLogger(console, secrets.current);
+/** The daemon once started: until then a crash has nothing to halt. */
+let daemon: Anomander | undefined;
+// B45, B51: the daemon exits once its last line is out, and takes no new event meanwhile.
+const exit = exitOnceWritten(
+  [process.stdout, process.stderr],
+  (code) => process.exit(code),
+  DRAIN_LIMIT_MS,
+  () => daemon?.halt(),
+);
 // A crash is written through the same log, so its message and stack are scrubbed too, and the
 // daemon exits once that line is out.
-reportCrashes(
-  process,
-  log,
-  exitOnceWritten([process.stdout, process.stderr], (code) => process.exit(code)),
-);
+reportCrashes(process, log, exit);
 
-// The exit code tells whoever started the daemon why it stopped (`exitCodes`).
-const fail = (message: string, code: ExitCode = exitCodes.failed): never => {
+/** What never settles: whatever waits for it waits for the exit. */
+const leaving = new Promise<never>(() => {});
+
+/**
+ * Says why the daemon fails and exits with `code`, which tells whoever started it why
+ * (`exitCodes`), once that line is out (B51). Nothing after it runs: await what it returns.
+ */
+const fail = (message: string, code: ExitCode = exitCodes.failed): Promise<never> => {
   log.error(`anomander daemon failed: ${message}`);
-  process.exit(code);
+  exit(code);
+  return leaving;
+};
+
+/** What `make` returns, or, when it throws, `fail` with what `failure` says of the error. */
+const orFail = async <T>(
+  make: () => T,
+  failure: (error: unknown) => Parameters<typeof fail> = (error) => [reason(error)],
+): Promise<T> => {
+  try {
+    return make();
+  } catch (error) {
+    return fail(...failure(error));
+  }
 };
 
 const reason = (error: unknown) => (error instanceof Error ? error.message : String(error));
@@ -58,24 +83,12 @@ const handed = secretsOnStdin(process.env)
 
 const env = { ...process.env, ...handed };
 secrets.setFromStart(secretsBeforeConfig(env, handed));
-const config = (() => {
-  try {
-    return loadConfig(env);
-  } catch (error) {
-    return fail(reason(error));
-  }
-})();
+const config = await orFail(() => loadConfig(env));
 secrets.setFromStart(secretsToScrub(config, env));
 
 // DK-5 AC1: the login the desktop app keeps in the Keychain, or the file of a Docker install. B42:
 // a login or an OAuth token got later is scrubbed from the log too.
-const { credentials, printOAuth } = (() => {
-  try {
-    return secretTellingStores(secrets, config);
-  } catch (error) {
-    return fail(reason(error));
-  }
-})();
+const { credentials, printOAuth } = await orFail(() => secretTellingStores(secrets, config));
 const models = builtinModels({ credentials, authContext: handedAuthContext(handed, process.env) });
 const resolved = resolveModels(config, (provider, id) => models.getModel(provider, id));
 const login = {
@@ -87,8 +100,8 @@ const login = {
   getDeviceId: createDeviceId(config.authPath),
 };
 
-const anomander = (() => {
-  try {
+const anomander = await orFail(
+  () => {
     if (!resolved.ready) {
       return startSetupGuide(config, { gaps: resolved.gaps, login, logger: log });
     }
@@ -106,14 +119,14 @@ const anomander = (() => {
         logger: log,
       }),
     });
-  } catch (error) {
-    // DK-2 AC1: a second daemon on the same database refuses to start and says so.
-    if (error instanceof DaemonAlreadyRunningError) {
-      return fail(error.message, exitCodes.alreadyRunning);
-    }
-    return fail(`could not open the store at ${config.dbPath}: ${reason(error)}`);
-  }
-})();
+  },
+  // DK-2 AC1: a second daemon on the same database refuses to start and says so.
+  (error) =>
+    error instanceof DaemonAlreadyRunningError
+      ? [error.message, exitCodes.alreadyRunning]
+      : [`could not open the store at ${config.dbPath}: ${reason(error)}`],
+);
+daemon = anomander;
 
 anomander.started.then(
   () => {

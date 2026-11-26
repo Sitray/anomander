@@ -133,15 +133,28 @@ export const startSetupGuide = (config: Config, deps: SetupGuideDeps): Anomander
     () => announceGaps(gaps, config.telegram === undefined ? undefined : send, logger),
     () => {},
   );
+  // B51: what `halt` began, `stop` waits for.
+  let doorsClosing: Promise<void> | undefined;
+  const halt = (): Promise<void> => {
+    if (doorsClosing !== undefined) return doorsClosing;
+    login?.stop();
+    doorsClosing = (async () => {
+      await localChannel?.stop();
+      await telegram.stop();
+    })();
+    doorsClosing.catch(() => {});
+    return doorsClosing;
+  };
   return {
     started: telegram.started,
     polling: telegram.ended,
     readApi: undefined,
     localChannel: localChannel?.listening,
+    halt: () => {
+      void halt();
+    },
     stop: async () => {
-      login?.stop();
-      await localChannel?.stop();
-      await telegram.stop();
+      await halt();
       lock.release();
     },
   };

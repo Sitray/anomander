@@ -230,14 +230,21 @@ and the receipt watch once at startup. After that, it runs retention at `ANOMAND
 followed by the daily backup (see "Migrations and backups" below), and the weekly summary at `ANOMANDER_WEEKLY_SUMMARY_CRON`, both in `TZ`, and the queue and the
 receipt watch every minute, so S-13's "lo borro en una hora" holds. The weekly summary never runs
 at startup. The jobs share one serial queue and never overlap. `stop()` waits for the job in
-progress.
+progress; `halt()` only keeps every queued job from starting. When the desktop app connects, the
+morning digest, the due reminders and the queue also run, through the same chain
+(`src/app/jobs.ts`); a job that already waits for its turn is not queued again, so a burst of
+reconnections queues each one once (B69).
 
 **Stopping.** `Anomander.stop` first refuses every new turn (a turn that waited gets the error
 `ANOMANDER is stopping`; only the turn that tells how a running task with connections ended
-still runs), stops the doors and the scheduler, and waits for the turns, task steps and job in
-progress, up to `SHUTDOWN_DEADLINE_MS` (5 s; `shutdownDeadlineMs` in tests), with
-`Promise.allSettled`. Past the deadline it logs a warning. Only then does it close the
-connections, the read API and the store; a step that failed is thrown after everything closed.
+still runs), stops the doors and the jobs (a job still queued, scheduled or asked for by the
+app's connection, never starts), and waits for the turns and task steps in progress, up to
+`SHUTDOWN_DEADLINE_MS` (5 s; `shutdownDeadlineMs` in tests), with `Promise.allSettled`. Past the
+deadline it logs a warning. The job in progress is waited for however long it takes, so it never
+runs on a closed store (B69). Only then does it close the connections, the read API and the
+store; a step that failed is thrown after everything closed. `Anomander.halt` is that first,
+synchronous part alone: `main.ts` calls it when it fails or crashes, so no new event is handled
+while the last log line drains (B51).
 
 ## Failures (R-22)
 
@@ -538,7 +545,9 @@ operating system frees the lock when the process ends, so a crash leaves nothing
 `Anomander.polling` settles when Telegram polling ends: it resolves after `stop` and rejects
 when Telegram ends it, for example with the `409 Conflict` of another process reading the same
 bot (`isBotInUse`, AC2). `main.ts` then exits instead of staying up deaf. Its exit code tells
-whoever started it why (`exitCodes` in `packages/protocol`):
+whoever started it why (`exitCodes` in `packages/protocol`). It exits once the line that says
+why is written, up to 5 s (`exitOnceWritten` in `src/crash.ts`), as a crash does, so a pipe on
+macOS keeps it (B51):
 
 | Code | Meaning |
 | --- | --- |

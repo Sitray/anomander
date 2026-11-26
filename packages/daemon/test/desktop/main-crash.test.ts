@@ -40,7 +40,7 @@ const freePort = (): Promise<number> =>
  * `env` is laid over the child's environment; `handover: false` never writes the secrets.
  */
 const crash = async (
-  how: 'exception' | 'rejection',
+  how: 'exception' | 'rejection' | 'flood',
   { env = {}, handover = true }: { env?: Record<string, string>; handover?: boolean } = {},
 ) => {
   const port = await freePort();
@@ -125,6 +125,21 @@ describe('main.ts when an error is not caught', () => {
     expect(code).toBe(exitCodes.failed);
     expect(output).toContain('anomander daemon crashed: uncaught exception');
     expect(output).toContain('the model refused [secret] and the server [secret]');
+  }, 20_000);
+
+  it('B51: writes the whole failure line before it exits, even behind a full pipe', async () => {
+    // No front door: the configuration fails at once, behind 4 MiB the log still holds.
+    const { code, output } = await crash('flood', {
+      env: {
+        ANOMANDER_SECRETS_ON_STDIN: '',
+        ANOMANDER_TEST_CRASH_AFTER: 'anomander daemon starting',
+        ANOMANDER_TEST_CRASH_FLOOD: String(4 * 1024 * 1024),
+      },
+      handover: false,
+    });
+
+    expect(code).toBe(exitCodes.failed);
+    expect(output).toContain('anomander daemon failed: missing configuration: no front door');
   }, 20_000);
 
   it('scrubs a crash before the configuration is read of the keys it already has', async () => {
