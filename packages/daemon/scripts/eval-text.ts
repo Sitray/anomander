@@ -4,17 +4,18 @@
 // not a pass/fail test, so it exits 0 once it has run. It calls the real models named on the
 // command line and costs one processor call per case, run and model.
 //
-//   pnpm eval:text [--model provider/id ...] [--runs 3] [--file evals/text/cases.json]
+//   pnpm eval:text [--model provider/id ...] [--runs 3] [--file evals/text/cases.json] [--currency EUR]
 //
 // Without `--model`, it interprets with `ANOMANDER_MODEL`. See `evals/text/README.md`.
 import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { parseArgs } from 'node:util';
 import { weekdayOf } from '@anomander/core';
+import { setCurrency } from '@anomander/protocol';
 import type { AssistantMessage } from '@earendil-works/pi-ai';
 import { builtinModels } from '@earendil-works/pi-ai/providers/all';
 import { z } from 'zod';
-import { parseModelId } from '../src/config.ts';
+import { loadCurrency, parseModelId } from '../src/config.ts';
 import { createPiAiTextInterpreter } from '../src/processor/text-interpreter.ts';
 
 /** What the envelope must hold: `kind`, plus any field to compare; others are not compared. */
@@ -121,6 +122,7 @@ const envelopeOf = (text: string): Record<string, unknown> | null => {
 const { values } = parseArgs({
   options: {
     model: { type: 'string', multiple: true },
+    currency: { type: 'string' },
     runs: { type: 'string', default: '3' },
     file: {
       type: 'string',
@@ -129,6 +131,16 @@ const { values } = parseArgs({
   },
 });
 const modelIds = values.model ?? [process.env.ANOMANDER_MODEL ?? ''];
+// B78: the principal's currency, as the daemon reads it (`ANOMANDER_CURRENCY`, euros by default),
+// or `--currency`; the prompts ask for amounts in it. A currency the daemon refuses stops here.
+try {
+  setCurrency(
+    loadCurrency({ ANOMANDER_CURRENCY: values.currency ?? process.env.ANOMANDER_CURRENCY }),
+  );
+} catch (error) {
+  console.error((error as Error).message);
+  process.exit(1);
+}
 const runs = Number.parseInt(values.runs, 10);
 // pnpm runs the script in this package; a relative `--file` means where the command was typed.
 const file = resolve(process.env.INIT_CWD ?? process.cwd(), values.file);

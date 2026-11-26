@@ -10,7 +10,12 @@ or the model changes, and compare the result with the previous run.
 pnpm eval:text                                       # ANOMANDER_MODEL from .env, 3 runs per case
 pnpm eval:text --model openai/gpt-4o-mini --model ollama/qwen3
 pnpm eval:text --runs 1 --file ~/my-cases.json       # another cases file
+pnpm eval:text --currency GBP                        # amounts in pounds, as with ANOMANDER_CURRENCY=GBP
 ```
+
+The prompt asks for amounts in the principal's currency, as the daemon's does: `ANOMANDER_CURRENCY`
+from `.env`, or `--currency`, euros when neither is set. A currency the daemon refuses stops the
+run before any call. The cases' amounts are written for euros.
 
 Each case runs `--runs` times (default 3), with the real provider, so a run costs one processor
 call per case, run and model. A case passes only if every run passes, so an unstable answer

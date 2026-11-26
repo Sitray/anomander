@@ -3,7 +3,10 @@ import { resolve } from 'node:path';
 import { pngBytes } from '@anomander/telegram/fake-telegram-api';
 import type { AssistantMessage, Context } from '@earendil-works/pi-ai';
 import { describe, expect, it, vi } from 'vitest';
-import { createPiAiReceiptReader } from '../../src/processor/receipt-reader.ts';
+import {
+  createPiAiReceiptReader,
+  receiptReaderPrompt,
+} from '../../src/processor/receipt-reader.ts';
 
 // Contract test (PRD §15) on a hand-authored recorded response: fixtures/receipt-reader/*.json.
 const FIXTURES = resolve(import.meta.dirname, '../fixtures/receipt-reader');
@@ -40,8 +43,10 @@ describe('pi-ai receipt reader', () => {
     expect(turn?.role).toBe('user');
     const [text, ...blocks] =
       turn?.role === 'user' && Array.isArray(turn.content) ? turn.content : [];
+    // B78: the weekday of "today" beside it, as the text interpreters get it (B59).
     expect(text?.type === 'text' && JSON.parse(text.text)).toEqual({
       today: '2026-10-30',
+      weekday: 'Friday',
       categories: ['restaurantes', 'supermercado'],
       caption: 'compra',
     });
@@ -51,6 +56,10 @@ describe('pi-ai receipt reader', () => {
         mimeType,
         data: Buffer.from(data).toString('base64'),
       })),
+    );
+
+    expect(receiptReaderPrompt()).toContain(
+      'The user turn is a JSON object with the fields "today", "weekday" (the day of the week of "today"), "categories" and "caption", followed by the images.',
     );
 
     expect(reading.kind).toBe('read');

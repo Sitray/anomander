@@ -2,6 +2,7 @@ import { closeSync, fchmodSync, mkdirSync, openSync, rmSync, writeSync } from 'n
 import { join } from 'node:path';
 import type Database from 'better-sqlite3';
 import { stamp } from './backup.ts';
+import { parsePorMoneda } from './money.ts';
 
 // B5: the principal's ledger as files they can keep or open in a spreadsheet: the read views of
 // RA-1 (`docs/read-access-prd.md`), one CSV file each and all of them in `ledger.json`, in
@@ -41,7 +42,7 @@ const toCsv = (columns: string[], rows: Row[]): string =>
 
 /** The one row of `pendientes_de_confirmar` with its `por_moneda` read as the array it holds. */
 const pendientes = (row: Row | undefined): Row | undefined =>
-  row === undefined ? row : { ...row, por_moneda: JSON.parse(String(row.por_moneda)) };
+  row === undefined ? row : { ...row, por_moneda: parsePorMoneda(row.por_moneda) };
 
 /** Creates `path` empty with mode 600, then writes `text`; never overwrites a file. */
 const writePrivate = (path: string, text: string): void => {

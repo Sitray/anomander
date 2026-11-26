@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { loadConfig, parseModelId } from '../src/config.ts';
+import { loadConfig, loadCurrency, parseModelId } from '../src/config.ts';
 
 // PRD §14.4 and R-15 AC1.
 describe('parseModelId', () => {
@@ -232,5 +232,18 @@ describe('loadConfig', () => {
         `invalid configuration: ANOMANDER_CURRENCY must have two decimals, as EUR or USD do: ${code} has not`,
       );
     }
+  });
+
+  // B78: the evaluations read amounts in the currency the app would, checked the same way.
+  it('loadCurrency reads ANOMANDER_CURRENCY alone, as loadConfig does', () => {
+    expect(loadCurrency({})).toBe('EUR');
+    expect(loadCurrency({ ANOMANDER_CURRENCY: '' })).toBe('EUR');
+    expect(loadCurrency({ ANOMANDER_CURRENCY: 'gbp' })).toBe('GBP');
+    expect(() => loadCurrency({ ANOMANDER_CURRENCY: 'XYZ' })).toThrow(
+      'invalid configuration: ANOMANDER_CURRENCY must be an ISO 4217 currency, such as EUR',
+    );
+    expect(() => loadCurrency({ ANOMANDER_CURRENCY: 'JPY' })).toThrow(
+      'invalid configuration: ANOMANDER_CURRENCY must have two decimals, as EUR or USD do: JPY has not',
+    );
   });
 });

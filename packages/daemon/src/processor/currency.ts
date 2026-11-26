@@ -9,13 +9,22 @@ const AMOUNT_TAGS: Record<Locale, string> = { es: 'es-ES', en: 'en-GB' };
 
 const currencyNames = new Intl.DisplayNames('en', { type: 'currency' });
 
+/** B78: the hundredth of a currency whose English name is not `cents`: a pound has pence. */
+const MINOR_UNITS: Readonly<Record<string, string>> = { GBP: 'pence' };
+
+/** What a hundredth of the principal's currency is called in English: `cents`, or `pence`. */
+export const minorUnit = (): string => MINOR_UNITS[getCurrency()] ?? 'cents';
+
 /**
  * `euro cents` with EUR, the words every evaluation so far was measured with; otherwise the
- * currency's English name and code, such as `US Dollar cents (USD)`.
+ * currency's English name, its hundredth and its code, such as `US Dollar cents (USD)` or
+ * `British Pound pence (GBP)`.
  */
 export const centsName = (): string => {
   const currency = getCurrency();
-  return currency === 'EUR' ? 'euro cents' : `${currencyNames.of(currency)} cents (${currency})`;
+  return currency === 'EUR'
+    ? 'euro cents'
+    : `${currencyNames.of(currency)} ${minorUnit()} (${currency})`;
 };
 
 /** `units` whole units of the principal's currency as the principal writes them: `23 €`, `US$23`. */

@@ -977,7 +977,8 @@ models: it measures how well each one reads the receipts in `evals/receipts/case
 out of git. See `evals/receipts/README.md`. The text evaluation (`scripts/eval-text.ts`,
 `pnpm eval:text`) does the same for messages: it measures whether each model returns the
 expected kind and fields for the cases in `evals/text/cases.json`, also out of git. See
-`evals/text/README.md`.
+`evals/text/README.md`. Both read amounts in `ANOMANDER_CURRENCY` (euros by default) or
+`--currency`, checked as `loadConfig` checks it.
 
 ## Invariants
 

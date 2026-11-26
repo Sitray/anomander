@@ -262,18 +262,20 @@ pub fn apply_setup(
 }
 
 /// The setup a Docker install's `.env` holds, for a one-time import (`ANOMANDER_IMPORT_ENV`): the
-/// bot token, the principal's chat ID, both models and every provider key. Paths, schedules and
-/// everything else are left out: the app owns its data folder. Lines are `NAME=value`, a value
-/// optionally in single or double quotes; comments and anything else are skipped.
-pub fn setup_from_env_file(text: &str) -> SetupInput {
+/// bot token, the principal's chat ID, both models, every provider key, `TZ` and
+/// `ANOMANDER_CURRENCY` (DK-25). A file without the zone or the currency keeps the ones of
+/// `current` (B78), since an empty one would clear them. Paths, schedules and everything else are
+/// left out: the app owns its data folder. Lines are `NAME=value`, a value optionally in single
+/// or double quotes; comments and anything else are skipped.
+pub fn setup_from_env_file(text: &str, current: &SetupState) -> SetupInput {
     let mut input = SetupInput {
         telegram_bot_token: None,
         principal_chat_id: String::new(),
         model: String::new(),
         vision_model: String::new(),
         provider_keys: BTreeMap::new(),
-        time_zone: String::new(),
-        currency: String::new(),
+        time_zone: current.time_zone.clone().unwrap_or_default(),
+        currency: current.currency.clone().unwrap_or_default(),
         daily_ai_call_limit: None,
     };
     for line in text.lines() {
@@ -295,6 +297,8 @@ pub fn setup_from_env_file(text: &str) -> SetupInput {
             "ANOMANDER_PRINCIPAL_CHAT_ID" => input.principal_chat_id = value.to_owned(),
             "ANOMANDER_MODEL" => input.model = value.to_owned(),
             "ANOMANDER_VISION_MODEL" => input.vision_model = value.to_owned(),
+            "TZ" => input.time_zone = value.to_owned(),
+            "ANOMANDER_CURRENCY" => input.currency = value.to_owned(),
             name if is_provider_key_name(name) => {
                 input
                     .provider_keys
@@ -345,6 +349,7 @@ mod tests {
              ANOMANDER_DB_PATH=/app/data/anomander.db\nANOMANDER_MODEL=\"google/gemini-x\"\n\
              export ANOMANDER_VISION_MODEL='google/gemini-y'\nGEMINI_API_KEY=g-key\n\
              OPENAI_API_KEY=\nTZ=Europe/Madrid\nnot a line\n",
+            &SetupState::default(),
         );
         assert_eq!(input.telegram_bot_token.as_deref(), Some("123:abc"));
         assert_eq!(input.principal_chat_id, "4242");
@@ -354,6 +359,44 @@ mod tests {
             input.provider_keys.into_iter().collect::<Vec<_>>(),
             vec![("GEMINI_API_KEY".to_owned(), Some("g-key".to_owned()))]
         );
+    }
+
+    /// B78: the time zone and the currency of the `.env` come with it (DK-25); a file without
+    /// them keeps the ones chosen in Configuración instead of clearing them.
+    #[test]
+    fn an_env_file_brings_its_time_zone_and_currency_and_keeps_the_stored_ones_without_them(
+    ) -> Result<(), String> {
+        let chosen = SetupState {
+            time_zone: Some("Europe/Lisbon".to_owned()),
+            currency: Some("GBP".to_owned()),
+            ..SetupState::default()
+        };
+        let with = setup_from_env_file(
+            "ANOMANDER_MODEL=google/gemini-x\nTZ=America/New_York\nANOMANDER_CURRENCY=usd\n",
+            &chosen,
+        );
+        assert_eq!(with.time_zone, "America/New_York");
+        assert_eq!(with.currency, "usd");
+        let store = crate::secure_store::MemoryStore::default();
+        let stored = Settings {
+            time_zone: Some("Europe/Lisbon".to_owned()),
+            currency: Some("GBP".to_owned()),
+            ..Settings::default()
+        };
+        let imported = apply_setup(&with, &stored, &store)?;
+        assert_eq!(imported.time_zone.as_deref(), Some("America/New_York"));
+        assert_eq!(imported.currency.as_deref(), Some("USD"));
+
+        let without = setup_from_env_file("ANOMANDER_MODEL=google/gemini-x\n", &chosen);
+        let kept = apply_setup(&without, &stored, &store)?;
+        assert_eq!(kept.time_zone.as_deref(), Some("Europe/Lisbon"));
+        assert_eq!(kept.currency.as_deref(), Some("GBP"));
+
+        // An install that never chose either still has neither.
+        let none = setup_from_env_file("ANOMANDER_MODEL=google/gemini-x\n", &SetupState::default());
+        let unset = apply_setup(&none, &Settings::default(), &store)?;
+        assert_eq!((unset.time_zone, unset.currency), (None, None));
+        Ok(())
     }
     use crate::secure_store::MemoryStore;
     use serde_json::json;

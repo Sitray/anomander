@@ -153,6 +153,45 @@ describe('the expenses screen (DK-17)', () => {
     expect(document.body.textContent).toContain(text.pending(1, '5,00\u00a0US$'));
   });
 
+  // B78: the window's Intl may know fewer currencies than the daemon's; a well-formed code it
+  // does not know is still shown, with the code, never dropped.
+  it('B78: shows a row and a total in a currency its Intl does not know, with the code', async () => {
+    await answer(show() as FakeWebSocket, {
+      ...NOVEMBER,
+      expenses: [
+        { ...(NOVEMBER.expenses[0] as ChatExpense), totalCents: 4520 },
+        { ...(NOVEMBER.expenses[1] as ChatExpense), totalCents: 1230, currency: 'XYZ' },
+      ],
+      totals: [
+        { cents: 4520, currency: 'EUR' },
+        { cents: 1230, currency: 'XYZ' },
+      ],
+      pending: { count: 1, totals: [{ cents: 500, currency: 'XYZ' }] },
+    });
+
+    const [, cena, other, total] = rows();
+    expect(cena?.textContent).toContain('45,20\u00a0€');
+    expect(other?.textContent).toContain('12,30\u00a0XYZ');
+    expect(total?.textContent).toContain('45,20\u00a0€ y 12,30\u00a0XYZ');
+    expect(document.body.textContent).toContain(text.pending(1, '5,00\u00a0XYZ'));
+  });
+
+  it('B78: still drops a row whose currency is not three capital letters', async () => {
+    await answer(show() as FakeWebSocket, {
+      ...NOVEMBER,
+      expenses: [
+        { ...(NOVEMBER.expenses[0] as ChatExpense), totalCents: 4520 },
+        { ...(NOVEMBER.expenses[1] as ChatExpense), id: 98, currency: 'usd' },
+        { ...(NOVEMBER.expenses[1] as ChatExpense), id: 99, currency: 'EURO' },
+      ],
+      totals: [{ cents: 4520, currency: 'EUR' }],
+    });
+
+    // The header, the one row left and the total.
+    expect(rows()).toHaveLength(3);
+    expect(screen.getByRole('table').textContent).not.toMatch(/usd|EURO/u);
+  });
+
   it('shows how ANOMANDER knows each expense: "deducido" on an inferred one', async () => {
     await answer(show() as FakeWebSocket, NOVEMBER);
 
