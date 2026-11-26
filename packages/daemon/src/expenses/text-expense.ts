@@ -329,7 +329,7 @@ export const createTextExpenseHandler = (deps: TextExpenseDeps): TextHandler => 
       });
       if (Object.keys(correction).length === 0) return { text: strings.askCorrection() };
       const at = now().toISOString();
-      const { actionId, text, undoId } = db.transaction(() => {
+      const { actionId, text, undoId, undoProposalId } = db.transaction(() => {
         const amended = amendExpense(db, {
           expenseId,
           proposalId: null,
@@ -347,12 +347,19 @@ export const createTextExpenseHandler = (deps: TextExpenseDeps): TextHandler => 
           source: message.channelRef,
           now: at,
         });
-        return { actionId: amended.actionId, text: asked.text, undoId: asked.decisionId };
+        return {
+          actionId: amended.actionId,
+          text: asked.text,
+          undoId: asked.decisionId,
+          undoProposalId: asked.proposalId,
+        };
       })();
+      // B79: an S-12 this correction leads to names its "Deshacer", which withdraws it.
       return thenOfferPattern(
         withUndoButton(db, verifiedReply(db, actionId, text, now, logger), undoId, logger),
         expenseId,
         deps.patterns,
+        undoProposalId,
       );
     }
     // R-12 AC4: the daily AI budget is spent; nothing was stored.

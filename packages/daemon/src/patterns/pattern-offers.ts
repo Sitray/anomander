@@ -24,8 +24,12 @@ export interface PatternOffersDeps {
 }
 
 export interface PatternOffers {
-  /** Opens and sends S-12 if the expense completes a pattern. Never throws. */
-  offerAfter(expenseId: number): void;
+  /**
+   * Opens and sends S-12 if the expense completes a pattern. Never throws. `ledBy` is the
+   * proposal of the "Deshacer" under the correction that led to it (R-7 AC9), kept in the offer's
+   * basis as `led_by_proposal_id` so that "Deshacer" withdraws it (B79).
+   */
+  offerAfter(expenseId: number, ledBy?: number): void;
 }
 
 export const createPatternOffers = ({
@@ -34,7 +38,7 @@ export const createPatternOffers = ({
   notify,
   logger,
 }: PatternOffersDeps): PatternOffers => ({
-  offerAfter: (expenseId) => {
+  offerAfter: (expenseId, ledBy) => {
     let decisionId: number;
     let question: string;
     const options = [buttons.yes, buttons.no];
@@ -48,7 +52,11 @@ export const createPatternOffers = ({
           merchant: found.merchant,
           category: found.category,
           source: null,
-          basis: { rule: 'R-13 AC2', expense_ids: found.expenseIds },
+          basis: {
+            rule: 'R-13 AC2',
+            expense_ids: found.expenseIds,
+            ...(ledBy === undefined ? {} : { led_by_proposal_id: ledBy }),
+          },
           question: text,
           options,
           now: now().toISOString(),
@@ -77,11 +85,15 @@ export const createPatternOffers = ({
   },
 });
 
-/** The reply, followed by S-12 once it is delivered, if the expense completes a pattern. */
+/**
+ * The reply, followed by S-12 once it is delivered, if the expense completes a pattern; `ledBy`
+ * names the correction's "Deshacer" proposal when the reply is a correction's (B79).
+ */
 export const thenOfferPattern = (
   reply: Reply,
   expenseId: number,
   patterns: PatternOffers | undefined,
+  ledBy?: number,
 ): Reply =>
   patterns === undefined
     ? reply
@@ -89,6 +101,6 @@ export const thenOfferPattern = (
         ...reply,
         onDelivered: (delivery) => {
           reply.onDelivered?.(delivery);
-          patterns.offerAfter(expenseId);
+          patterns.offerAfter(expenseId, ledBy);
         },
       };

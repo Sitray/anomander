@@ -502,6 +502,47 @@ describe('patterns noticed by code (R-13 AC2)', () => {
        JOIN proposals p ON p.id = d.proposal_id WHERE d.id = ${offerId}`,
     );
 
+  it('undoing a total-only correction leaves an S-12 a later expense led to open', async () => {
+    const declared = spend('Mercadona', 'declared');
+    await spendTimes(declared, 2);
+    const text = 'no eran 23, eran 32';
+    interpretations.set(
+      text,
+      answering({
+        kind: 'expense_correct',
+        expense_id: 2,
+        inferences: [
+          {
+            subject_type: 'expense',
+            subject_id: null,
+            predicate: 'total',
+            value_json: 3200,
+            mode: 'inferred',
+            basis_json: { quote: 'eran 32' },
+            confidence: 0.9,
+          },
+        ],
+      }),
+    );
+    const [corrected] = await say(text);
+    if (corrected === undefined) throw new Error('no reply');
+    const openUndo = () =>
+      query<{ id: number }>(
+        `SELECT d.id FROM pending_decisions d JOIN proposals p ON p.id = d.proposal_id
+     WHERE json_extract(p.payload_json, '$.restore') IS NOT NULL AND d.channel_ref IS NOT NULL
+       AND d.status = 'open'`,
+      ).map(({ id }) => id);
+    await vi.waitFor(() => expect(openUndo()).toHaveLength(1));
+    const [undoId] = openUndo();
+    expect(query(`SELECT id FROM pending_decisions WHERE ${ASKED}`)).toEqual([]);
+    const [, offer] = await say(declared, 2);
+    const offerId = await shownDecision();
+    expect(offer?.text).toBe(S12);
+    await press(corrected, `decision:${undoId}:0`);
+    expect(query('SELECT total_cents FROM expenses WHERE id = 2')).toEqual([{ total_cents: 2300 }]);
+    expect(offerState(offerId)).toEqual([{ decision: 'open', proposal: 'asked' }]);
+  });
+
   // B79, R-7 AC9 with R-13 AC2 (decided by the principal on 2026-11-26: "Se retira"): the
   // "Deshacer" of a correction withdraws the S-12 it led to, closed as R-7 AC8 closes a question,
   // so a late "Sí" gets S-19 and stores no rule.
@@ -520,6 +561,60 @@ describe('patterns noticed by code (R-13 AC2)', () => {
     expect((await press(offer, `decision:${offerId}:0`))?.text).toBe(S19);
     expect(policies()).toEqual([]);
     expect(offerState(offerId)).toEqual([{ decision: 'expired', proposal: 'rejected' }]);
+  });
+
+  it("undoing a correction leaves open the S-12 another expense's later correction led to", async () => {
+    // Two declared Mercadona expenses and a third whose category is only inferred.
+    await twoDeclaredOneInferred();
+    // A total-only correction of expense 2: still declared, so no pattern is completed yet.
+    const total = 'no eran 23, eran 32';
+    interpretations.set(
+      total,
+      answering({
+        kind: 'expense_correct',
+        expense_id: 2,
+        inferences: [
+          {
+            subject_type: 'expense',
+            subject_id: null,
+            predicate: 'total',
+            value_json: 3200,
+            mode: 'inferred',
+            basis_json: { quote: 'eran 32' },
+            confidence: 0.9,
+          },
+        ],
+      }),
+    );
+    const [first] = await say(total);
+    const undoOf = (expenseId: number) => {
+      const [row] = query<{ id: number; proposal_id: number }>(
+        `SELECT d.id, d.proposal_id FROM pending_decisions d JOIN proposals p ON p.id = d.proposal_id
+         WHERE json_extract(p.payload_json, '$.restore') IS NOT NULL
+           AND json_extract(p.payload_json, '$.expense_id') = ${expenseId} AND d.status = 'open'`,
+      );
+      return row;
+    };
+    await vi.waitFor(() => expect(undoOf(2)).toBeDefined());
+    expect(query(`SELECT id FROM pending_decisions WHERE ${ASKED}`)).toEqual([]);
+    // Expense 3's category correction completes the pattern, which counts expense 2 too.
+    const { offerId } = await correctedIntoPattern();
+    const third = undoOf(3);
+    expect(
+      query<{ basis_json: string }>(
+        `SELECT p.basis_json FROM proposals p JOIN pending_decisions d ON d.proposal_id = p.id
+         WHERE d.id = ${offerId}`,
+      ).map(({ basis_json }) => JSON.parse(basis_json)),
+    ).toEqual([
+      { rule: 'R-13 AC2', expense_ids: [1, 2, 3], led_by_proposal_id: third?.proposal_id },
+    ]);
+    const second = undoOf(2);
+    if (first === undefined || second === undefined) throw new Error('no correction of 2');
+
+    await press(first, `decision:${second.id}:0`);
+
+    expect(query('SELECT total_cents FROM expenses WHERE id = 2')).toEqual([{ total_cents: 2300 }]);
+    expect(offerState(offerId)).toEqual([{ decision: 'open', proposal: 'asked' }]);
   });
 
   it('the S-12 of a correction not undone still stores the rule on "Sí"', async () => {

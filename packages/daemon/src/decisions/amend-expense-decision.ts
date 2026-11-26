@@ -11,7 +11,7 @@ import {
 } from '../store/amend-expense.ts';
 import { answerDecision, awaitText } from '../store/decisions.ts';
 import { readExpense } from '../store/expenses.ts';
-import { withdrawPatternOffersAfter } from '../store/policies.ts';
+import { withdrawPatternOffersLedBy } from '../store/policies.ts';
 import { verifiedReply } from './register-expense-decision.ts';
 import type { DecisionAnswerHandler } from './types.ts';
 
@@ -73,7 +73,7 @@ export const createAmendExpenseDecision =
         answerDecision(db, decision.id, null);
         closeAmendDecisions(db, expenseId);
         // B79: the S-12 this correction led to is withdrawn with it (S-19 from now on).
-        withdrawPatternOffersAfter(db, expenseId, decision.proposal_id);
+        withdrawPatternOffersLedBy(db, decision.proposal_id);
         return undone;
       })();
       const stored = readExpense(db, expenseId);

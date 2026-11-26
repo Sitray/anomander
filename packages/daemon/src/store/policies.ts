@@ -146,28 +146,25 @@ export const openCreatePolicyDecision = (
   })();
 
 /**
- * B79, R-7 AC9 with R-13 AC2 (decided by the principal on 2026-11-26: "Se retira"): the S-12
- * offers a correction led to, once its "Deshacer" is used. They are the open pattern offers
- * opened after the correction's own question (`proposalId`) that count the expense: the pattern
- * rested on the values that correction gave it. Each is closed as R-7 AC8 closes a question,
- * `expired` with its proposal `rejected`, so a late answer gets S-19 and no rule is stored; being
- * no rejection by the principal, the pattern may be offered again. Returns how many.
+ * B79, R-7 AC9 with R-13 AC2 (decided by the principal on 2026-11-26: "Se retira"): the S-12 a
+ * correction led to, once its "Deshacer" is used. It is the open pattern offer whose basis names
+ * that "Deshacer" proposal (`led_by_proposal_id`, set when the correction's reply led to it); an
+ * offer without it, stored before this or led by no correction, is never withdrawn. It is closed
+ * as R-7 AC8 closes a question, `expired` with its proposal `rejected`, so a late answer gets S-19
+ * and no rule is stored; being no rejection by the principal, the pattern may be offered again.
+ * Returns how many.
  */
-export const withdrawPatternOffersAfter = (
-  db: Database.Database,
-  expenseId: number,
-  proposalId: number,
-): number =>
+export const withdrawPatternOffersLedBy = (db: Database.Database, proposalId: number): number =>
   db.transaction(() => {
     const offers = db
-      .prepare<[number, number], { id: number }>(
+      .prepare<[number], { id: number }>(
         `SELECT p.id FROM proposals p JOIN pending_decisions d ON d.proposal_id = p.id
-         WHERE p.operation = 'create_policy' AND p.id > ?
+         WHERE p.operation = 'create_policy'
            AND json_extract(p.basis_json, '$.rule') = 'R-13 AC2'
-           AND d.status IN ('open', 'awaiting_text')
-           AND EXISTS (SELECT 1 FROM json_each(p.basis_json, '$.expense_ids') WHERE value = ?)`,
+           AND json_extract(p.basis_json, '$.led_by_proposal_id') = ?
+           AND d.status IN ('open', 'awaiting_text')`,
       )
-      .all(proposalId, expenseId);
+      .all(proposalId);
     for (const { id } of offers) {
       db.prepare(
         `UPDATE pending_decisions SET status = 'expired', awaiting_since = NULL
