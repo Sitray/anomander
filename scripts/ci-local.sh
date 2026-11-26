@@ -35,6 +35,10 @@ docker_smoke() {
 }
 
 wanted="$(cat .node-version)"
+# Run on the Node major CI uses when Homebrew has it (`brew install node@<major>`), ahead of the default one.
+for dir in "/opt/homebrew/opt/node@$wanted/bin" "/usr/local/opt/node@$wanted/bin"; do
+  if [[ -x "$dir/node" ]]; then export PATH="$dir:$PATH"; break; fi
+done
 have="$(node -p 'process.versions.node.split(".")[0]')"
 [[ "$have" == "$wanted" ]] || echo "warning: node $have here, CI uses $wanted (.node-version)"
 
