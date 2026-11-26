@@ -32,6 +32,14 @@ export interface PatternOffers {
   offerAfter(expenseId: number, ledBy?: number): void;
 }
 
+/** Whether the question of a proposal was answered, as a used "Deshacer" is. */
+const wasUsed = (db: Database.Database, proposalId: number): boolean =>
+  db
+    .prepare<[number], { used: number }>(
+      `SELECT EXISTS (SELECT 1 FROM pending_decisions WHERE proposal_id = ? AND status = 'answered') AS used`,
+    )
+    .get(proposalId)?.used === 1;
+
 export const createPatternOffers = ({
   db,
   now,
@@ -45,6 +53,9 @@ export const createPatternOffers = ({
     try {
       // Found and opened at once (better-sqlite3 is synchronous), so a pattern is never open twice.
       const pattern = db.transaction(() => {
+        // B79: a correction whose "Deshacer" was already used leads to no offer, even when its
+        // reply's delivery is handled after that "Deshacer" (which withdraws only offers open then).
+        if (ledBy !== undefined && wasUsed(db, ledBy)) return null;
         const found = findPattern(db, expenseId);
         if (found === null) return null;
         const text = strings.proposePattern(strings.pattern(found.merchant, found.category));

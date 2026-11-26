@@ -13,6 +13,7 @@ import Database from 'better-sqlite3';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { type Anomander, startAnomander } from '../../src/app.ts';
 import { loadConfig } from '../../src/config.ts';
+import { createPatternOffers } from '../../src/patterns/pattern-offers.ts';
 import { receiptReaderPrompt } from '../../src/processor/receipt-reader.ts';
 import { textInterpreterPrompt } from '../../src/processor/text-interpreter.ts';
 
@@ -615,6 +616,52 @@ describe('patterns noticed by code (R-13 AC2)', () => {
 
     expect(query('SELECT total_cents FROM expenses WHERE id = 2')).toEqual([{ total_cents: 2300 }]);
     expect(offerState(offerId)).toEqual([{ decision: 'open', proposal: 'asked' }]);
+  });
+
+  // B79, from its review: S-12 opens once the correction's reply is delivered. A delivery handled
+  // after the "Deshacer" was used would open an offer nothing withdraws, so it opens none.
+  describe("an offer opened after its correction's reply was delivered (B79)", () => {
+    const lateOffer = async (used: boolean) => {
+      await twoDeclaredOneInferred();
+      const { offerId, undoId } = await correctedIntoPattern();
+      const [undo] = query<{ proposal_id: number }>(
+        `SELECT proposal_id FROM pending_decisions WHERE id = ${undoId}`,
+      );
+      if (undo === undefined) throw new Error('no "Deshacer"');
+      // The offer the delivery opened is not there yet; the "Deshacer" was used, or not, first.
+      withDb((db) => {
+        db.prepare(`UPDATE pending_decisions SET status = 'expired' WHERE id = ?`).run(offerId);
+        if (used) {
+          db.prepare(`UPDATE pending_decisions SET status = 'answered' WHERE id = ?`).run(undoId);
+        }
+      });
+      const notify = vi.fn(async () => {});
+      const logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn() };
+      withDb((db) =>
+        createPatternOffers({ db, now: () => new Date(), notify, logger }).offerAfter(
+          3,
+          undo.proposal_id,
+        ),
+      );
+      const open = query(
+        `SELECT d.id FROM pending_decisions d JOIN proposals p ON p.id = d.proposal_id
+         WHERE p.operation = 'create_policy' AND d.status = 'open'`,
+      );
+      return { notify, open, logger };
+    };
+
+    it('opens no S-12 when that "Deshacer" was already used', async () => {
+      const { notify, open, logger } = await lateOffer(true);
+      expect(notify).not.toHaveBeenCalled();
+      expect(open).toEqual([]);
+      expect(logger.error).not.toHaveBeenCalled();
+    });
+
+    it('still opens it while that "Deshacer" was not used', async () => {
+      const { notify, open } = await lateOffer(false);
+      expect(notify).toHaveBeenCalledTimes(1);
+      expect(open).toHaveLength(1);
+    });
   });
 
   it('the S-12 of a correction not undone still stores the rule on "Sí"', async () => {
