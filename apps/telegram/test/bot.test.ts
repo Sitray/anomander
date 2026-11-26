@@ -225,6 +225,21 @@ describe('R-22 failure reply', () => {
 // refused because its turn never started (`TURN_NOT_STARTED`) is not acknowledged, so Telegram
 // hands it over again once the daemon is back. Whatever started stays acknowledged, as before.
 describe('halting the bot (B82)', () => {
+  /** What settles every handler a test left waiting, so the stop at teardown never hangs. */
+  let releases: (() => void)[] = [];
+  afterEach(() => {
+    for (const release of releases) release();
+    releases = [];
+  });
+  /** A handler's answer held until the test settles it, or the teardown answers it. */
+  const heldAnswer = () => {
+    const held = { settle: (_: Reply | Error): void => {} };
+    const answer = new Promise<Reply>((resolve, reject) => {
+      held.settle = (outcome) => (outcome instanceof Error ? reject(outcome) : resolve(outcome));
+    });
+    releases.push(() => held.settle({ text: 'tarde' }));
+    return { answer, held };
+  };
   const S22 =
     'Algo ha fallado y no he podido procesar tu mensaje. ¿Me lo vuelves a enviar en un rato?';
   /** The daemon's refusal of a turn that never started. */
@@ -269,14 +284,8 @@ describe('halting the bot (B82)', () => {
   const holdSecondText = async () => {
     api.push(updates.text(principal, 'uno'));
     await api.waitForSent(1);
-    const held = { settle: (_: Reply | Error): void => {} };
-    onText.mockImplementationOnce(
-      () =>
-        new Promise((resolve, reject) => {
-          held.settle = (outcome) =>
-            outcome instanceof Error ? reject(outcome) : resolve(outcome);
-        }),
-    );
+    const { answer, held } = heldAnswer();
+    onText.mockImplementationOnce(() => answer);
     api.push(updates.text(principal, 'dos'));
     await vi.waitFor(() => expect(onText).toHaveBeenCalledTimes(2));
     return held;
@@ -309,12 +318,12 @@ describe('halting the bot (B82)', () => {
   });
 
   it('a turn still running when the process dies stays acknowledged: it is never handed over twice', async () => {
-    const held = await holdSecondText();
+    // Never answered: the teardown settles it, as the process would have died first.
+    await holdSecondText();
 
     await haltTelegramBot(bot);
 
     expect(await restart()).toEqual([]);
-    held.settle({ text: 'tarde' });
   });
 
   it('a text whose turn ran through the halt is answered and never handed over twice', async () => {
@@ -331,13 +340,9 @@ describe('halting the bot (B82)', () => {
   });
 
   it('an album refused during the halt still gets S-22, as it was already acknowledged', async () => {
-    let refuse = (_: Error): void => {};
-    onReceipt.mockImplementationOnce(
-      () =>
-        new Promise((_, reject) => {
-          refuse = reject;
-        }),
-    );
+    const { answer, held } = heldAnswer();
+    const refuse = (error: Error) => held.settle(error);
+    onReceipt.mockImplementationOnce(() => answer);
     api.push(updates.photo(principal, { mediaGroupId: 'g1' }));
     api.push(updates.text(principal, 'después'));
     await api.waitForSent(1);
@@ -354,13 +359,9 @@ describe('halting the bot (B82)', () => {
   }, 10_000);
 
   it('a button press refused during the halt gets S-22 and stays acknowledged, as before', async () => {
-    let refuse = (_: Error): void => {};
-    onButton.mockImplementationOnce(
-      () =>
-        new Promise((_, reject) => {
-          refuse = reject;
-        }),
-    );
+    const { answer, held } = heldAnswer();
+    const refuse = (error: Error) => held.settle(error);
+    onButton.mockImplementationOnce(() => answer);
     api.push(updates.callbackQuery(principal, 'decision:7:0', 31));
     await vi.waitFor(() => expect(onButton).toHaveBeenCalledTimes(1));
 
@@ -372,6 +373,60 @@ describe('halting the bot (B82)', () => {
     await api.waitForSent(1);
     expect(api.sent.at(-1)?.text).toBe(S22);
     expect(await restart()).toEqual([]);
+  });
+
+  it('a refused text with more texts queued behind it: all are handed over again, in order, unanswered', async () => {
+    const { answer, held } = heldAnswer();
+    onText.mockImplementationOnce(() => answer);
+    api.push(updates.text(principal, 'A'));
+    api.push(updates.text(principal, 'B'));
+    api.push(updates.text(principal, 'C'));
+    await vi.waitFor(() => expect(onText).toHaveBeenCalledTimes(1));
+
+    // The daemon's turns refuse the waiting turn in the same tick as the halt begins.
+    held.settle(notStarted());
+    const halted = haltTelegramBot(bot);
+    await halted;
+    await polling;
+
+    expect(onText).toHaveBeenCalledTimes(1);
+    expect(api.sent.map(({ text }) => text)).not.toContain(S22);
+    expect(await restart()).toEqual(['text:A', 'text:B', 'text:C']);
+  });
+
+  it('once a text is refused through the halt, no later update is handled before the restart', async () => {
+    const { answer, held } = heldAnswer();
+    onText.mockImplementationOnce(() => answer);
+    api.push(updates.text(principal, 'A'));
+    api.push(updates.text(principal, 'B'));
+    await vi.waitFor(() => expect(onText).toHaveBeenCalledTimes(1));
+
+    const halted = haltTelegramBot(bot);
+    held.settle(notStarted());
+    await halted;
+    await polling;
+
+    expect(onText).toHaveBeenCalledTimes(1);
+    expect(await restart()).toEqual(['text:A', 'text:B']);
+  });
+
+  it('a turn that ends after the halt stays acknowledged; the text read after it comes again', async () => {
+    const { answer, held } = heldAnswer();
+    onText.mockImplementationOnce(() => answer);
+    api.push(updates.text(principal, 'A'));
+    api.push(updates.text(principal, 'B'));
+    await vi.waitFor(() => expect(onText).toHaveBeenCalledTimes(1));
+
+    const halted = haltTelegramBot(bot);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    held.settle({ text: 'hecho A' });
+    await halted;
+    await polling;
+
+    expect(onText).toHaveBeenCalledTimes(1);
+    await api.waitForSent(1);
+    expect(api.sent.map(({ text }) => text)).toContain('hecho A');
+    expect(await restart()).toEqual(['text:B']);
   });
 
   it('a stop still answers a text the daemon did not take and acknowledges it, as before', async () => {
