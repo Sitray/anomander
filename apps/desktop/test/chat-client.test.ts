@@ -423,6 +423,35 @@ describe('the stored conversation (DK-16)', () => {
     expect(results).toEqual({ memory: 'unknown', action: 'unknown' });
   });
 
+  it('B84: "Quitar" on a connection grant gives up after the same 2 minutes: it cannot know', async () => {
+    const socket = connected();
+    let outcome: string | undefined;
+    void client.revokeConnectionGrant(5).then((value) => {
+      outcome = value;
+    });
+    const { id } = socket.lastRequest;
+
+    await vi.advanceTimersByTimeAsync(CLEAR_LIMIT_MS - 1);
+    expect(outcome).toBeUndefined();
+    await vi.advanceTimersByTimeAsync(1);
+    expect(outcome).toBe('unknown');
+
+    socket.receive({ type: 'done', inReplyTo: id });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(outcome).toBe('unknown');
+  });
+
+  it('B84: a "Quitar" answered in time is still done or not done, and stops its limit', async () => {
+    const socket = connected();
+    const done = client.revokeConnectionGrant(5);
+    socket.receive({ type: 'done', inReplyTo: socket.lastRequest.id });
+    expect(await done).toBe('done');
+    const refused = client.revokeConnectionGrant(6);
+    socket.receive({ type: 'rejected', inReplyTo: socket.lastRequest.id });
+    expect(await refused).toBe('not_done');
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
   it("takes the daemon's failure reply as nothing read and nothing erased, never as an outcome", async () => {
     // The daemon answers both with `processingFailed` when its database fails (DK-16).
     const socket = connected();
