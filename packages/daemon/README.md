@@ -868,9 +868,9 @@ mode 600; `src/store/backup.ts`); the three newest such files are kept and older
 Copies stamped after the current time, by a clock that was once ahead or one that is now behind, are
 the first deleted, oldest-stamped first, but no new copy deletes more than the usual number, daily
 ones included (B52): a clock that stays behind loses one copy of the history per copy taken, as a
-right clock would. Limitation: while fewer than the kept number of copies exist, a copy stamped
-ahead stays and, once its day arrives, can stand for that day's daily copy although it holds older
-data. A fresh database gets no copy, and a copy that cannot be written stops the start with nothing
+right clock would. Limitation: a copy stamped ahead stays while the kept number is not exceeded or
+while it waits behind other copies stamped ahead, and, once its day arrives, can stand for that
+day's daily copy although it holds older data (for example when a daily run is missed). A fresh database gets no copy, and a copy that cannot be written stops the start with nothing
 applied. To go back, stop the daemon and put a backup in place of the database file, removing its
 `-wal` and `-shm`.
 
