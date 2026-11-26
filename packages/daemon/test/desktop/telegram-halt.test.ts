@@ -190,6 +190,32 @@ describe('a Telegram text in its setup check when the daemon halts (B84)', () =>
     expect(complete).not.toHaveBeenCalled();
   });
 
+  it('a crash exit leaves it unacknowledged and exits only once the halt settled', async () => {
+    const { started, check } = await telegramTextInSetupCheck();
+    const order: string[] = [];
+    const exited = new Promise<number>((resolveExit) => {
+      const exit = exitOnceWritten(
+        [],
+        (code) => {
+          order.push(`exit ${code}`);
+          resolveExit(code);
+        },
+        5_000,
+        () =>
+          started.halt().then(() => {
+            order.push('halted');
+          }),
+      );
+      exit(exitCodes.failed);
+    });
+
+    expect(await exited).toBe(exitCodes.failed);
+    expect(order).toEqual(['halted', `exit ${exitCodes.failed}`]);
+    expect(await unacknowledged()).toEqual(['café 3']);
+    expect(api.sent.map(({ text }) => text)).not.toContain(S22);
+    expect(check).toHaveBeenCalledTimes(1);
+  });
+
   it('a stop answers it with S-22 at once and acknowledges it, as a stop answers a waiting turn', async () => {
     const { started, check } = await telegramTextInSetupCheck();
     daemon = undefined;
@@ -314,5 +340,62 @@ describe('a crash exit and the halt of the bot (B84)', () => {
       `exit ${exitCodes.failed}`,
     ]);
     expect(await unacknowledged()).toEqual([]);
+  });
+});
+
+// B84: what the daemon's halt settles on: the bot's acknowledgement, not the turns that run.
+describe('what the daemon halt waits for (B84)', () => {
+  it('with a Telegram turn running it settles after the acknowledgement, not the turn; a text read meanwhile comes again', async () => {
+    let release = (): void => {};
+    const answered = new Promise<never>((_, reject) => {
+      release = () => reject(new Error('the model call is over'));
+    });
+    answered.catch(() => {});
+    releases.push(release);
+    const complete = vi.fn(async (): Promise<never> => answered);
+    const started = startAnomander(configFor(), {
+      complete,
+      model: 'openai/gpt-4o-mini',
+      telegramApiRoot: api.apiRoot,
+      logger,
+      shutdownDeadlineMs: 50,
+    });
+    daemon = started;
+    await started.started;
+    api.push(updates.text({ chatId: PRINCIPAL }, 'café 3'));
+    await vi.waitFor(() => expect(complete).toHaveBeenCalledTimes(1));
+    api.push(updates.text({ chatId: PRINCIPAL }, 'té 2'));
+    await pause(100);
+    const began = Date.now();
+
+    const result = await started.halt();
+    const took = Date.now() - began;
+
+    expect(result).toBeUndefined();
+    expect(took).toBeGreaterThanOrEqual(240);
+    expect(took).toBeLessThan(2000);
+    expect(await unacknowledged()).toEqual(['té 2']);
+    expect(complete).toHaveBeenCalledTimes(1);
+    // A second halt settles at once with the same outcome.
+    await expect(started.halt()).resolves.toBeUndefined();
+  });
+
+  it('before any update it settles without waiting the limit', async () => {
+    const started = startAnomander(configFor(), {
+      complete: vi.fn(async () => {
+        throw new Error('no model call is expected');
+      }),
+      model: 'openai/gpt-4o-mini',
+      telegramApiRoot: api.apiRoot,
+      logger,
+      shutdownDeadlineMs: 50,
+    });
+    daemon = started;
+    await started.started;
+    const began = Date.now();
+
+    await started.halt();
+
+    expect(Date.now() - began).toBeLessThan(240);
   });
 });

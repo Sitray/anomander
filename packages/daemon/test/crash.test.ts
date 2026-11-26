@@ -113,6 +113,68 @@ describe('exitOnceWritten', () => {
     }
   });
 
+  it('B84: the log and a halt that settles after the limit share it: the exit comes at the limit, once', () => {
+    vi.useFakeTimers();
+    try {
+      const exited = vi.fn();
+      let settle = (): void => {};
+      const stream = {
+        write: (_chunk: string, done: () => void) => {
+          setTimeout(done, 4_000);
+          return true;
+        },
+      };
+      const exit = exitOnceWritten(
+        [stream],
+        exited,
+        5_000,
+        () =>
+          new Promise<void>((resolveHalt) => {
+            settle = resolveHalt;
+          }),
+      );
+      exit(exitCodes.alreadyRunning);
+      vi.advanceTimersByTime(4_999);
+      expect(exited).not.toHaveBeenCalled();
+      vi.advanceTimersByTime(1);
+      expect(exited.mock.calls).toEqual([[exitCodes.alreadyRunning]]);
+      settle();
+      exit(exitCodes.failed);
+      expect(exited).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('B84: a halt that rejects late holds the exit until then, exits once and raises no unhandled rejection', async () => {
+    const unhandled = vi.fn();
+    process.on('unhandledRejection', unhandled);
+    try {
+      const exited = vi.fn();
+      const exit = exitOnceWritten(
+        [],
+        exited,
+        1_000,
+        () => new Promise<void>((_, reject) => setTimeout(() => reject(new Error('late')), 30)),
+      );
+      exit(exitCodes.failed);
+      await new Promise((resolveWait) => setTimeout(resolveWait, 10));
+      expect(exited).not.toHaveBeenCalled();
+      await vi.waitFor(() => expect(exited.mock.calls).toEqual([[exitCodes.failed]]));
+      await new Promise((resolveWait) => setTimeout(resolveWait, 20));
+      expect(unhandled).not.toHaveBeenCalled();
+    } finally {
+      process.off('unhandledRejection', unhandled);
+    }
+  });
+
+  it('B84: with no daemon to halt yet, it exits as soon as the log is out', () => {
+    const exited = vi.fn();
+    const exit = exitOnceWritten([], exited, 5_000, () => undefined);
+    exit(exitCodes.failed);
+    expect(exited.mock.calls).toEqual([[exitCodes.failed]]);
+  });
+
   it('without a halt, still exits once a stream that never drains has waited its limit', () => {
     vi.useFakeTimers();
     try {
