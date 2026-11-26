@@ -657,7 +657,8 @@ and keep its secrets in the operating system instead of a text file.
     does (DK-16 AC4), and are answered `done`; the window then reads both lists again and the
     chat asks for the stored conversation again, as after a forget confirmed in the chat. When it
     was not forgotten (the reply S-22) the item stays and the screen says so; when the connection
-    was lost first, that it cannot know.
+    was lost first, or no answer came within 2 minutes, as `clear_history` (B80), that it cannot
+    know.
 - DK-20 Shortcuts and Windows wording (backlog B27, B28, 2026-11-25).
   - AC1 (B28): the shell tells every webview its platform before any script runs
     (`window.__ANOMANDER_PLATFORM__`, `macos` or `windows`, a fixed literal, as the language is).
