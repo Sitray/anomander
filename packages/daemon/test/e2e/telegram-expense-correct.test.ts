@@ -56,6 +56,8 @@ let interpretations: Map<string, (input: { expenses?: { id: number }[] }) => unk
 let interpreting: Promise<void>;
 /** The recorded receipt reading: one that does not add up unless a test says otherwise. */
 let readerFixture: string;
+/** The recorded correction reading: `total 28,40` unless a test says otherwise. */
+let correctionFixture: string;
 
 const answering = (envelope: unknown): AssistantMessage => ({
   ...recorded('text-interpreter/conversation'),
@@ -84,7 +86,7 @@ const complete = async (_model: string, context: Context): Promise<AssistantMess
     return recorded(`receipt-reader/${readerFixture}`);
   }
   if (context.systemPrompt === correctionInterpreterPrompt()) {
-    return recorded('correction-interpreter/total-28-40');
+    return recorded(`correction-interpreter/${correctionFixture}`);
   }
   // R-21 AC2: a wording without the facts is not sent, so the replies are the §12 strings.
   if (context.systemPrompt === replyPhraserPrompt()) return answering('vale');
@@ -136,6 +138,7 @@ beforeEach(async () => {
   interpretations = new Map();
   interpreting = Promise.resolve();
   readerFixture = 'lines-mismatch';
+  correctionFixture = 'total-28-40';
   logs = [];
   await start();
 });
@@ -648,6 +651,98 @@ describe('undoing a correction (R-7 AC9)', () => {
     expect(await press(first, 'Deshacer')).toBe(S19);
     expect(await press(second, 'Deshacer')).toBe(S106(3200));
     expect(gastos()).toEqual([{ total_cents: 3200 }]);
+  });
+
+  /** A Telegram reply to `message` (R-17 AC2); resolves with ANOMANDER's answer. */
+  const answerTo = async (message: SentMessage, text: string) => {
+    const before = api.sent.length;
+    api.push(updates.text({ chatId: PRINCIPAL }, text, { replyToMessageId: message.messageId }));
+    const [answer] = (await api.waitForSent(before + 1)).slice(before);
+    if (answer === undefined) throw new Error('no reply');
+    return answer;
+  };
+
+  // B79, R-17 AC2 (decided by the principal on 2026-11-26: "Corrige el gasto"): the expense of a
+  // "Corregido…" whose "Deshacer" was used is still recorded, so a reply to it corrects it again.
+  it('R-17 AC2: a Telegram reply to a "Corregido…" whose "Deshacer" was used corrects the expense again', async () => {
+    const reply = await registered();
+    expect(await press(reply, 'Corregir')).toBe(S7);
+    const corrected = await say('total 28,40');
+    await vi.waitFor(() =>
+      expect(
+        query("SELECT id FROM pending_decisions WHERE status = 'open' AND channel_ref IS NOT NULL"),
+      ).toHaveLength(1),
+    );
+    expect(await press(corrected, 'Deshacer')).toBe(S106(2300));
+    correctionFixture = 'total-14';
+
+    const again = await answerTo(corrected, 'es 14');
+
+    expect(again.text).toBe(S102(1400));
+    expect(buttonsOf(again).map(({ text }) => text)).toEqual(['Deshacer']);
+    expect(gastos()).toEqual([{ total_cents: 1400 }]);
+    expect(totals().filter(({ status }) => status === 'current')).toEqual([
+      { value_json: '1400', mode: 'declared', status: 'current', supersedes: 1 },
+    ]);
+    // It never reached the processor as a new message.
+    expect(interpreted.map(({ message }) => message)).not.toContain('es 14');
+    // Its own "Deshacer" puts back the 23 of before it; the used one stays S-19.
+    expect(await press(corrected, 'Deshacer')).toBe(S19);
+    expect(await press(again, 'Deshacer')).toBe(S106(2300));
+    expect(gastos()).toEqual([{ total_cents: 2300 }]);
+  });
+
+  it('a reply to a used "Corregido…" whose expense was then taken out goes to the processor, as before', async () => {
+    const reply = await registered();
+    expect(await press(reply, 'Corregir')).toBe(S7);
+    const corrected = await say('total 28,40');
+    await vi.waitFor(() =>
+      expect(
+        query("SELECT id FROM pending_decisions WHERE status = 'open' AND channel_ref IS NOT NULL"),
+      ).toHaveLength(1),
+    );
+    expect(await press(corrected, 'Deshacer')).toBe(S106(2300));
+    const chat = await appChat();
+    await chat.ask({ type: 'undo_expense', expenseId: 1 });
+    chat.close();
+    expect(gastos()).toEqual([]);
+
+    const answer = await answerTo(corrected, '23 € cena');
+
+    expect(answer.text).toBe(S2);
+    expect(interpreted.map(({ message }) => message)).toContain('23 € cena');
+  });
+
+  // R-17 AC2, AC5 as at baseline: a reply to an "Apuntado…" whose expense was taken out, by its
+  // "Deshacer" or by a row's, is a new message for the processor.
+  it('a reply to an "Apuntado…" whose expense was taken out by its "Deshacer" goes to the processor', async () => {
+    const reply = await registered();
+    expect(await press(reply, 'Deshacer')).toBe(S101);
+
+    const answer = await answerTo(reply, '23 € cena');
+
+    expect(answer.text).toBe(S2);
+    expect(interpreted.map(({ message }) => message)).toEqual(['23 € cena', '23 € cena']);
+    expect(query('SELECT status FROM expenses ORDER BY id')).toEqual([
+      { status: 'refuted' },
+      { status: 'current' },
+    ]);
+  });
+
+  it('a reply to an "Apuntado…" whose expense was taken out from its row goes to the processor', async () => {
+    const reply = await registered();
+    const chat = await appChat();
+    await chat.ask({ type: 'undo_expense', expenseId: 1 });
+    chat.close();
+
+    const answer = await answerTo(reply, '23 € cena');
+
+    expect(answer.text).toBe(S2);
+    expect(interpreted.map(({ message }) => message)).toEqual(['23 € cena', '23 € cena']);
+    expect(query('SELECT status FROM expenses ORDER BY id')).toEqual([
+      { status: 'refuted' },
+      { status: 'current' },
+    ]);
   });
 
   it('a correction of a registered receipt is undone too, with S-105', async () => {

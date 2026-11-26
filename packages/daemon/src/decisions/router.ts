@@ -3,6 +3,7 @@ import type Database from 'better-sqlite3';
 import {
   findAwaitingDecision,
   findDecisionsShownIn,
+  findUsedCorrectionUndoShownIn,
   reopenStaleAwaiting,
 } from '../store/decisions.ts';
 import type { CorrectionHandler } from './correction.ts';
@@ -34,6 +35,11 @@ export const createTextRouter =
         const correct = takesText(decision);
         if (correct !== undefined) return correct({ decision, message });
       }
+      // B79 (decided by the principal on 2026-11-26: "Corrige el gasto"): a "Corregido…" whose
+      // "Deshacer" was used still shows a recorded expense, so a reply to it corrects it again.
+      const used = findUsedCorrectionUndoShownIn(db, message.replyTo);
+      const correct = takesText(used);
+      if (used !== null && correct !== undefined) return correct({ decision: used, message });
     }
     // AC3: otherwise the decision awaiting text takes it.
     const awaiting = findAwaitingDecision(db);

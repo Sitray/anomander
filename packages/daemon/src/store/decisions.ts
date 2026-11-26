@@ -69,6 +69,30 @@ export const findDecisionsShownIn = (db: Database.Database, channelRef: string):
     .all(channelRef)
     .flatMap((row) => toOpen(toDecision(row)) ?? []);
 
+/**
+ * B79, R-17 AC2: the "Deshacer" under a correction's reply (R-7 AC9) shown in that message, once
+ * used (`answered`), while its expense is still current; `null` otherwise. A reply to that message
+ * corrects the expense again, as one to the reply of an open "Deshacer" does: the question is
+ * given as the `open` one it was, since a correction applied through it never answers it (it is
+ * closed with the expense's other questions, R-7 AC8, and only open ones are).
+ */
+export const findUsedCorrectionUndoShownIn = (
+  db: Database.Database,
+  channelRef: string,
+): OpenDecision | null => {
+  const row = db
+    .prepare<[string], DecisionRow>(
+      `${SELECT_DECISION} WHERE d.channel_ref = ? AND d.status = 'answered'
+         AND p.operation = 'amend_expense' AND json_extract(p.payload_json, '$.restore') IS NOT NULL
+         AND EXISTS (SELECT 1 FROM expenses e
+                     WHERE e.id = json_extract(p.payload_json, '$.expense_id')
+                       AND e.status = 'current')
+       ORDER BY d.id DESC LIMIT 1`,
+    )
+    .get(channelRef);
+  return row === undefined ? null : { ...toDecision(row), status: 'open' };
+};
+
 /** R-17 AC3: the one decision waiting for text, if any (index `one_awaiting_text`). */
 export const findAwaitingDecision = (db: Database.Database): OpenDecision | null => {
   const row = db

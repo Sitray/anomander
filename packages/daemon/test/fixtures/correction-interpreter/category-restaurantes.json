@@ -1,0 +1,29 @@
+{
+  "role": "assistant",
+  "content": [
+    {
+      "type": "text",
+      "text": "{\"kind\":\"correction\",\"inferences\":[{\"subject_type\":\"expense\",\"subject_id\":null,\"predicate\":\"category\",\"value_json\":\"restaurantes\",\"mode\":\"inferred\",\"basis_json\":{\"quote\":\"restaurantes\"},\"confidence\":0.95}]}"
+    }
+  ],
+  "api": "openai-completions",
+  "provider": "openai",
+  "model": "gpt-4o-mini",
+  "responseId": "chatcmpl-recorded",
+  "usage": {
+    "input": 412,
+    "output": 96,
+    "cacheRead": 0,
+    "cacheWrite": 0,
+    "totalTokens": 508,
+    "cost": {
+      "input": 6.18e-05,
+      "output": 5.76e-05,
+      "cacheRead": 0,
+      "cacheWrite": 0,
+      "total": 0.0001194
+    }
+  },
+  "stopReason": "stop",
+  "timestamp": 1793380800000
+}

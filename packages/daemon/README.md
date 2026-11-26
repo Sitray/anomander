@@ -159,7 +159,9 @@ with the S-15 buttons first when S-15 is asked with it:
   S-19 and closes it. An answered decision, or one expired by retention (R-19 AC2), gets S-19 as
   any other.
 - **Deshacer under a correction (R-7 AC9).** Every correction of a registered expense (after
-  "Corregir", typed, from a row of "Gastos", or a Telegram reply to an earlier "Corregido…") closes
+  "Corregir", typed, from a row of "Gastos", or a Telegram reply to an earlier "Corregido…", also
+  one whose "Deshacer" was used while its expense is current: `findUsedCorrectionUndoShownIn`,
+  B79) closes
   the expense's open questions and opens a new `amend_expense` question with "Deshacer" alone under
   S-8 or S-102. Its proposal's `payload_json` keeps `restore` beside `expense_id`: the columns the
   correction changed as they were before it, the declarations it wrote, and the assertions it
