@@ -62,6 +62,24 @@ describe('B52 prune probes', () => {
     expect(left).toEqual([...real.slice(1), written.split('/').pop()].sort());
   });
 
+  it('clock behind for 3 runs in a row: each run deletes exactly one copy, the history stays', () => {
+    // A week of real copies stamped after `now`, and the clock stays behind for three daily runs.
+    // They are stamped at noon, the runs at 03:00, so no run writes a name already taken.
+    const real = [1, 2, 3, 4, 5, 6, 7].map((d) => daily(day(d, '120000')));
+    put(...real);
+    const written: string[] = [];
+    for (let run = 0; run < 3; run += 1) {
+      const at = new Date(NOW.getTime() + run * 86_400_000);
+      written.push(backupDatabaseDaily(db, at).split('/').pop() ?? '');
+      const left = files().filter((n) => n.includes('backup-daily'));
+      // 7 copies before the run and 7 after it: the new one in, exactly one out.
+      expect(left).toHaveLength(7);
+      for (const name of written) expect(left).toContain(name);
+      // The one out is the oldest-stamped of the copies ahead; the other real ones stay.
+      expect(left.filter((n) => real.includes(n))).toEqual(real.slice(run + 1));
+    }
+  });
+
   it('clock behind: the 3 pre-migration copies all stamped after now keep 2 beside the new one', () => {
     const real = [mig(1, day(1)), mig(2, day(2)), mig(3, day(3))];
     put(...real);
@@ -174,8 +192,11 @@ describe('B52 hasDailyBackupOn probes', () => {
     ]);
   });
 
-  it('a future copy never outlives its stamp to stand for that day', async () => {
-    put(daily(day(3, '010000'))); // clock was 3 days ahead once
+  it('known limit: a copy stamped ahead, kept within the usual number, stands for its own day', async () => {
+    // B52, documented: copies stamped after `now` are deleted first but never beyond the usual
+    // number, so with fewer than 7 copies one stamped day +3 at 01:00Z survives until day +3, and
+    // then counts as that day's copy although its contents are older.
+    put(daily(day(3, '010000')));
     let at = NOW;
     const backup = createDailyBackup({
       db,
@@ -186,10 +207,8 @@ describe('B52 hasDailyBackupOn probes', () => {
       at = new Date(NOW.getTime() + d * 86_400_000); // 03:00Z each day
       await backup.run();
     }
-    // Day +3 at 03:00Z holds the copy written then, not the stale one stamped 01:00Z that day
-    // (really written before day 0).
     const day3 = files().filter((n) => n.includes(`backup-daily-${day(3).slice(0, 8)}`));
-    expect(day3).toEqual([daily(day(3))]);
+    expect(day3).toEqual([daily(day(3, '010000'))]);
   });
 });
 
