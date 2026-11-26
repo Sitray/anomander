@@ -106,7 +106,11 @@ Every incoming message has exactly one destination, decided by code (R-17):
 
 A decision `awaiting_text` for 15 minutes is `open` again (AC6). The button handler and the
 router move stale decisions back to `open` before routing, and the retention job does too, so a
-forgotten decision can still expire (R-19 AC2).
+forgotten decision can still expire (R-19 AC2). A row of "Gastos" applies it before choosing the
+question it presses (`rowButton`). The `amend_expense` question a row asks of its own
+(`basis_json.rule` `DK-17 AC6`, no `channel_ref`) is shown in no message, so instead of going back
+to `open` it is closed, `expired` with its proposal `rejected`, and the row's next press asks a new
+one (`reopenStaleAwaiting`, backlog B63).
 
 `register_expense` (`src/decisions/register-expense-decision.ts`) answers S-3, S-4, S-6 and S-33:
 
@@ -119,9 +123,10 @@ forgotten decision can still expire (R-19 AC2).
 - **Descartar (R-6 AC4).** The proposal is `rejected`, the pending expense `refuted` (so no
   current expense remains) and the decision `answered`. The reply is S-23, verbatim, from the
   stored row.
-- **Corregir (R-7 AC1).** The reply is S-7, verbatim, and the decision becomes `awaiting_text`
-  with `awaiting_since`; any other decision awaiting text goes back to `open` first, so the
-  unique index `one_awaiting_text` holds (R-17 AC3).
+- **Corregir (R-7 AC1).** The reply is S-7, verbatim, with `awaitsText` (the desktop app goes
+  back to its chat on it), and the decision becomes `awaiting_text` with `awaiting_since`; any
+  other decision awaiting text goes back to `open` first, so the unique index `one_awaiting_text`
+  holds (R-17 AC3).
 
 A correction (`createExpenseCorrection`, `src/decisions/correction.ts`, R-7 AC2) sends the text
 and the stored expense to the `CorrectionInterpreter`. A new total is accepted only if it is
@@ -145,7 +150,7 @@ with the S-15 buttons first when S-15 is asked with it:
   `authorized_by 'principal'`, the expense `refuted` (it leaves `gastos`; nothing is deleted) and
   the decision `answered`. The reply is S-100, or S-101 without a merchant, verbatim, and its
   delivery verifies the action.
-- **Corregir (R-7 AC6).** S-7 and `awaiting_text`, as for a receipt. The text goes to
+- **Corregir (R-7 AC6).** S-7 with `awaitsText` and `awaiting_text`, as for a receipt. The text goes to
   `createAmendExpenseCorrection`, which shares the checks of `createExpenseCorrection`
   (`acceptCorrection`) and writes them with `amendExpense`: the principal's `declared` assertion
   is the one superseded and the inference it stood with is refuted too. The reply is S-8, or

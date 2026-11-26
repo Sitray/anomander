@@ -791,6 +791,64 @@ describe('"Corregir" and "Deshacer" from the window\'s "Gastos" (DK-17 AC6)', ()
     chat.close();
   });
 
+  it("a row's own question left 15 minutes without text is closed, and the next press asks a new one", async () => {
+    const expenseId = await receiptRegistered();
+    const chat = await appChat();
+    expect((await chat.ask({ type: 'correct_expense', expenseId })).text).toBe(S7);
+    chat.close();
+    await anomander.stop();
+    clock = new Date(NOW.getTime() + 15 * 60 * 1000 + 1000);
+    await start();
+
+    // R-17 AC6 would make it `open` again, shown in no message, for 7 days: it is closed instead.
+    const rowQuestions = () =>
+      query(`SELECT d.status AS decision, p.status AS proposal
+             FROM pending_decisions d JOIN proposals p ON p.id = d.proposal_id
+             WHERE json_extract(p.basis_json, '$.rule') = 'DK-17 AC6' ORDER BY d.id`);
+    await vi.waitFor(() =>
+      expect(rowQuestions()).toEqual([{ decision: 'expired', proposal: 'rejected' }]),
+    );
+    const again = await appChat();
+    expect((await again.ask({ type: 'correct_expense', expenseId })).text).toBe(S7);
+    expect(rowQuestions()).toEqual([
+      { decision: 'expired', proposal: 'rejected' },
+      { decision: 'awaiting_text', proposal: 'asked' },
+    ]);
+    await again.ask({ type: 'text', text: 'total 28,40' });
+    expect(gastos()).toEqual([{ total_cents: 2840 }]);
+    again.close();
+  });
+
+  it('a row press left 15 minutes stale is closed before the next press, which asks anew', async () => {
+    const expenseId = await receiptRegistered();
+    const chat = await appChat();
+    expect((await chat.ask({ type: 'correct_expense', expenseId })).text).toBe(S7);
+    clock = new Date(NOW.getTime() + 15 * 60 * 1000 + 1000);
+
+    const asked = await chat.ask({ type: 'correct_expense', expenseId });
+    expect(asked).toMatchObject({ text: S7, awaitsText: true });
+    expect(
+      query(`SELECT d.status FROM pending_decisions d JOIN proposals p ON p.id = d.proposal_id
+             WHERE json_extract(p.basis_json, '$.rule') = 'DK-17 AC6' ORDER BY d.id`),
+    ).toEqual([{ status: 'expired' }, { status: 'awaiting_text' }]);
+    chat.close();
+  });
+
+  it('R-17 AC6 still holds for the question under the reply: a row "Corregir" left 15 minutes is open again', async () => {
+    const reply = await registered();
+    const chat = await appChat();
+    expect((await chat.ask({ type: 'correct_expense', expenseId: 1 })).text).toBe(S7);
+    chat.close();
+    await anomander.stop();
+    clock = new Date(NOW.getTime() + 15 * 60 * 1000 + 1000);
+    await start();
+
+    await vi.waitFor(() =>
+      expect(query('SELECT status FROM pending_decisions')).toEqual([{ status: 'open' }]),
+    );
+    expect(await press(reply, 'Deshacer')).toBe(S101);
+  });
+
   it('a typed expense already corrected, whose question is answered, can be corrected again', async () => {
     const reply = await registered();
     expect(await press(reply, 'Corregir')).toBe(S7);

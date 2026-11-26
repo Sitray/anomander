@@ -601,7 +601,10 @@ and keep its secrets in the operating system instead of a text file.
     expense's reply is open its button is the one pressed, so its buttons in the chat close too;
     a registered receipt, or a typed expense whose question was answered or expired, gets an
     `amend_expense` question of its own (`basis_json.rule` `DK-17 AC6`) answered at once, since a
-    receipt's own "Corregir" and "Descartar" (R-6) belong to it only while it is pending. A
+    receipt's own "Corregir" and "Descartar" (R-6) belong to it only while it is pending. That
+    question is shown in no message, so when "Corregir" left it waiting 15 minutes without text it
+    is closed (`expired`, its proposal `rejected`) instead of going back to `open` (PRD R-17 AC6),
+    and the row's next press asks a new one (backlog B63). A
     correction of a registered receipt refutes the `confirmed` assertions of "Apuntar" whose
     inference it refuted, so only the new declaration is current. The "Deshacer" under a
     correction's reply (PRD R-7 AC9) puts values back, so a row never presses it: a row's

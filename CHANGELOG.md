@@ -71,6 +71,7 @@ On `main` since 0.1.0. The interface speaks English or Spanish, and the app runs
 - Several presses of "Añadir búsqueda web" during a daemon restart all wait for the new daemon; before, only one request was kept.
 - The check that a task comes from the message keeps English negations and contractions, and locale tags such as `es@euro` count as Spanish.
 - "Corregir" on a row of Gastos goes back to the chat because the daemon's reply says the next text is awaited (`awaitsText` on the local channel's reply), no longer because its words match S-7 (B63).
+- A row's "Corregir" in Gastos left 15 minutes without text no longer leaves its question open, unseen, for 7 days: it is closed, and the row's next press asks again. The question under a reply in the chat still opens again after 15 minutes, its buttons working (B63, PRD R-17 AC6).
 
 ### Security
 

@@ -346,7 +346,7 @@ Every incoming message has exactly one destination, decided by code in this orde
 - AC3: Otherwise, if a decision is `awaiting_text`, the text is a correction for it. At most one decision is `awaiting_text` at a time: pressing "Corregir" on another decision moves it back to `open`.
 - AC4: Photos and image files always start a new receipt (R-3) and never answer a decision, even while one is `awaiting_text`.
 - AC5: Any other text goes to the processor, which classifies it as an expense (R-2), a correction of a recent expense (R-7 AC7), a policy (R-13), a new category (R-18), a capability call (R-24) or conversation (R-16).
-- AC6: A decision `awaiting_text` for 15 minutes without receiving text returns to `open`; its buttons still work.
+- AC6: A decision `awaiting_text` for 15 minutes without receiving text returns to `open`; its buttons still work. The `amend_expense` question a row of the desktop app's "Gastos" asks of its own (desktop PRD DK-17 AC6) is shown in no message and has no buttons left, so it is closed instead, `expired` with its proposal `rejected` as R-7 AC8 closes one, and the row's next press asks a new one (backlog B63).
 - AC7: The commands `/login` and `/logout`, their buttons, and the text a running login waits for (R-27) are handled by code before AC1 to AC5 and never reach the processor.
 - AC7b: Right after AC7, `/mcp <tarea>` is a task with connections (`docs/desktop-prd.md` DK-11 AC2) and `/mcp` alone answers how to ask one; neither is classified by AC5. While setup is incomplete it gets the setup guide (R-28), as every other message.
 - AC8: After AC7 and before AC1 to AC5, `/start` and, while setup is incomplete, every message are handled by code (R-28) and never reach the processor.
