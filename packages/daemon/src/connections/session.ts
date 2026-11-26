@@ -98,13 +98,20 @@ export const createConnectionSession = (deps: ConnectionSessionDeps): Connection
 
   const connectionReply = (outcome: TaskOutcome, current: Asked): DoorReply => {
     switch (outcome.kind) {
-      case 'answer':
+      case 'answer': {
         // R-16 AC3: how the task ended is a recent turn; what the tools answered is not.
-        return turns.add(
-          current.routed ? null : connectionTurn(current.task),
-          { text: outcome.text },
-          current.door,
-        );
+        const principal = current.routed ? null : connectionTurn(current.task);
+        if (current.door === 'app') return turns.add(principal, { text: outcome.text }, 'app');
+        // B55 (DK-16 AC1): in Telegram it is sent by itself after the turn, so it is stored as a
+        // message sent unasked is: once delivered, as it was sent; a failed send stores nothing.
+        const text = outcome.text.slice(0, TELEGRAM_MAX_TEXT);
+        return {
+          text,
+          onDelivered: (delivery) => {
+            turns.add(principal, { text }, 'telegram', delivery.channelRef);
+          },
+        };
+      }
       case 'ask': {
         const button = (label: string, answer: string) => ({
           label,
