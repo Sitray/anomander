@@ -3,7 +3,9 @@
 // `ANOMANDER_TEST_CRASH` says: `exception` throws, `rejection` leaves a promise rejected. The
 // error's message is `ANOMANDER_TEST_CRASH_MESSAGE`. `ANOMANDER_TEST_CRASH_AFTER` names another
 // line to crash after instead, and `ANOMANDER_TEST_CRASH_FLOOD` a number of bytes written to stderr
-// just before, so the crash line waits behind them in a full pipe.
+// just before, so the crash line waits behind them in a full pipe. `ANOMANDER_TEST_CRASH=flood`
+// never crashes: it writes the flood at once, as that line is logged, so whatever the daemon logs
+// next, such as why it fails (B51), waits behind it.
 const how = process.env.ANOMANDER_TEST_CRASH;
 const message = process.env.ANOMANDER_TEST_CRASH_MESSAGE ?? 'crash';
 const after = process.env.ANOMANDER_TEST_CRASH_AFTER ?? 'local channel listening';
@@ -18,5 +20,7 @@ const crash = (): void => {
 const info = console.info.bind(console);
 console.info = (...args: unknown[]): void => {
   info(...args);
-  if (String(args[0]).includes(after)) setImmediate(crash);
+  if (!String(args[0]).includes(after)) return;
+  if (how === 'flood') process.stderr.write(`${'.'.repeat(flood)}\n`);
+  else setImmediate(crash);
 };

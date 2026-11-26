@@ -49,7 +49,9 @@ On `main` since 0.1.0. The interface speaks English or Spanish, and the app runs
 
 ### Fixed
 
+- The daemon writes why it stops before it exits: a configuration error, a second daemon (`3`) or the `409 Conflict` of another bot reader (`4`) could lose its line on a macOS pipe. While it waits for that line, or for a crash's, it handles no new message, job or connection (B51).
 - A model login refresh that fails with an error quoting the new tokens no longer writes them to the log (B51).
+- A shutdown never runs a job on the closed store: a job the app's connection queued no longer starts once the shutdown began, and one it started is waited for like a scheduled job. Reconnecting the app many times queues each job once, not three per connection (B69).
 - "El lunes", "la semana pasada" and other weekdays: the text interpreter and the correction interpreter are told today's weekday in `TZ` beside the date, instead of leaving the model to work it out (B59).
 - The processor reads amounts in the configured currency: the text interpreter, the receipt reader and the correction interpreter no longer ask for euro cents when `ANOMANDER_CURRENCY` is another one, and the text interpreter's examples write it as the principal does (`23 US$`, `US$23`) (B73).
 - Several presses of "Añadir búsqueda web" during a daemon restart all wait for the new daemon; before, only one request was kept.

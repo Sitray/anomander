@@ -43,6 +43,35 @@ describe('startScheduler', () => {
     ]);
   });
 
+  it('B51: once halted, starts none of the jobs queued behind the one that runs', async () => {
+    const order: string[] = [];
+    let release = (): void => {};
+    const scheduler = startScheduler({
+      ...crons,
+      timeZone: 'Europe/Madrid',
+      jobs: {
+        retain: () =>
+          new Promise<void>((resolveRetain) => {
+            order.push('retain');
+            release = resolveRetain;
+          }),
+        sendMorningDigest: async () => void order.push('sendMorningDigest'),
+        sendDueReminders: async () => void order.push('sendDueReminders'),
+        drainQueue: async () => void order.push('drainQueue'),
+        watchReceipts: async () => void order.push('watchReceipts'),
+        sendWeeklySummary: async () => void order.push('sendWeeklySummary'),
+      },
+      logger: logger(),
+    });
+    await vi.waitFor(() => expect(order).toEqual(['retain']));
+
+    scheduler.halt();
+    release();
+    await scheduler.started;
+
+    expect(order).toEqual(['retain']);
+  });
+
   it('logs a failing job and still runs the next one', async () => {
     const log = logger();
     const watched = vi.fn(async () => {});
