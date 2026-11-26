@@ -124,6 +124,37 @@ describe('forget_memory answer (R-23 AC6)', () => {
     expect(reply.text).toBe('Hecho, lo he olvidado.');
     expect(conversation()).toEqual([]);
   });
+
+  it('B55: "Sí" failing before the memory is erased, then "No": S-31 and it is kept', async () => {
+    const decisionId = askToForget();
+    db.exec(
+      "CREATE TRIGGER t BEFORE DELETE ON memory_texts BEGIN SELECT RAISE(ABORT, 'disk I/O error'); END",
+    );
+    const answer = createForgetMemoryAnswerHandler({ clearRecentTurns: () => turns.clear() });
+    await expect(
+      answer({ db, decision: decisionOf(decisionId), option: buttons.yes, now }),
+    ).rejects.toThrow('disk I/O error');
+    db.exec('DROP TRIGGER t');
+    const reply = await answer({ db, decision: decisionOf(decisionId), option: buttons.no, now });
+    expect(reply.text).toBe('Vale, no olvido nada.');
+    expect(listMemories(db)).toHaveLength(1);
+  });
+
+  it('B55: "Sí" failing when its answer is recorded, then "No": S-200', async () => {
+    const decisionId = askToForget();
+    db.exec(
+      "CREATE TRIGGER t BEFORE INSERT ON actions BEGIN SELECT RAISE(ABORT, 'disk full'); END",
+    );
+    const answer = createForgetMemoryAnswerHandler({ clearRecentTurns: () => turns.clear() });
+    await expect(
+      answer({ db, decision: decisionOf(decisionId), option: buttons.yes, now }),
+    ).rejects.toThrow('disk full');
+    db.exec('DROP TRIGGER t');
+    const reply = await answer({ db, decision: decisionOf(decisionId), option: buttons.no, now });
+    expect(reply.text).toBe(
+      'Vale, no olvido nada más, pero parte ya estaba olvidado y no puedo recuperarlo.',
+    );
+  });
 });
 
 describe('forget_history answer (DK-14 AC4)', () => {
@@ -189,5 +220,22 @@ describe('forget_history answer (DK-14 AC4)', () => {
 
     expect(reply.text).toBe('Vale, no borro nada.');
     expect(countActions(db)).toBe(1);
+  });
+
+  it('B55: "Sí" failing when its answer is recorded, after both erases, then "No": S-201', async () => {
+    const decisionId = askToErase();
+    db.exec(
+      "CREATE TRIGGER t BEFORE INSERT ON actions BEGIN SELECT RAISE(ABORT, 'disk full'); END",
+    );
+    const answer = createForgetHistoryAnswerHandler({ clearRecentTurns: () => turns.clear() });
+    await expect(
+      answer({ db, decision: decisionOf(decisionId), option: buttons.yes, now }),
+    ).rejects.toThrow('disk full');
+    db.exec('DROP TRIGGER t');
+    expect(conversation()).toEqual([]);
+    const reply = await answer({ db, decision: decisionOf(decisionId), option: buttons.no, now });
+    expect(reply.text).toBe(
+      'Vale, no borro nada más, pero parte ya estaba borrado y no puedo recuperarlo.',
+    );
   });
 });

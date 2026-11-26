@@ -428,6 +428,14 @@ describe('the stored conversation (DK-16)', () => {
     expect(await erased).toBe('not_done');
     expect(outcomes).toEqual([]);
   });
+
+  it('B55: dispose with an erase owed says unknown and leaves no timer', async () => {
+    connected();
+    const cleared = client.clearHistory();
+    client.dispose();
+    expect(await cleared).toBe('unknown');
+    expect(vi.getTimerCount()).toBe(0);
+  });
 });
 
 describe('the memories and the history (DK-18)', () => {
