@@ -1315,6 +1315,49 @@ describe('a text pasted in the app while a Telegram login waits (R-17 AC7, R-27 
     ]);
   });
 
+  it('B81: tells every open window while a login waits for a pasted text, and when it stops', async () => {
+    const pasted = 'http://127.0.0.1:1455/auth/callback?code=zorbwaits&state=s';
+    const models: ModelLogin = {
+      login: async (_providerId, _type, interaction) => {
+        interaction.notify({ type: 'auth_url', url: 'https://auth.openai.com/oauth/authorize' });
+        await interaction.prompt({
+          type: 'manual_code',
+          message: 'Paste the redirect URL',
+          ...(interaction.signal === undefined ? {} : { signal: interaction.signal }),
+        });
+        return { type: 'oauth', access: 'a', refresh: 'r', expires: 1 };
+      },
+      logout: async () => {},
+    };
+    const daemon = await start(undefined, {
+      login: {
+        models,
+        credentials: createFileCredentialStore(join(scratch, 'auth.json')),
+        getDeviceId: () => '00000000-0000-4000-8000-000000000000',
+        timeoutMs: 60_000,
+      },
+    });
+    const first = await client(daemon);
+    expect(first.events).toEqual([]);
+    api.push(updates.text({ chatId: PRINCIPAL }, '/login'));
+    const [choose] = await api.waitForSent(1);
+    api.push(updates.callbackQuery({ chatId: PRINCIPAL }, 'login:openai', choose?.messageId ?? 0));
+    await api.waitForSent(2);
+
+    const waits = { type: 'login_waiting', inReplyTo: null, waiting: true };
+    await vi.waitFor(() => expect(first.events).toEqual([waits]));
+    // A window that opens while it waits is told at once.
+    const second = await client(daemon);
+    await vi.waitFor(() => expect(second.events).toEqual([waits]));
+
+    await first.ask({ type: 'text', text: pasted });
+
+    const stopped = { type: 'login_waiting', inReplyTo: null, waiting: false };
+    await vi.waitFor(() => expect(second.events).toEqual([waits, stopped]));
+    expect(first.events).toContainEqual(stopped);
+    expect(JSON.stringify([...first.events, ...second.events])).not.toContain('zorbwaits');
+  });
+
   it('never starts a login from the app: /login there is not a login route (DK-4 AC7)', async () => {
     const daemon = await start(undefined, {
       login: {

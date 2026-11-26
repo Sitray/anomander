@@ -443,6 +443,20 @@ export interface ChatNotice {
   sentAt: string;
 }
 
+/**
+ * B81 (DK-4 AC7, PRD R-27 AC3): pushed to every open connection when a login started in
+ * Telegram starts or stops waiting for a pasted code or address, and to a connection that opens
+ * while one waits. A text the window sends while `waiting` goes to that login: if its answer
+ * never comes (the connection is lost first), the window keeps none of its words. Optional: a
+ * window that ignores it masks such a text only once the daemon says the login took it.
+ */
+export interface ChatLoginWaiting {
+  type: 'login_waiting';
+  /** It answers no request. */
+  inReplyTo: null;
+  waiting: boolean;
+}
+
 /** DK-21: the answer to an `ai_usage` request. */
 export interface ChatAiUsage {
   type: 'ai_usage';
@@ -506,6 +520,7 @@ export type ChatEvent =
   | ChatAiUsage
   | ChatReply
   | ChatNotice
+  | ChatLoginWaiting
   | ChatDone
   | ChatRejected
   | ChatHistory

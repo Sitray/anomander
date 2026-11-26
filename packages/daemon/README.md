@@ -607,6 +607,12 @@ While a task with connections calls a tool for a request still owed, the daemon 
 `progress` (`of`: that request's id; `phase`: `web_search` or `connection`), never an answer
 itself (DK-19).
 
+While a login started in Telegram waits for a pasted code or address, the daemon tells every
+open connection, and one that opens meanwhile, with `login_waiting` (`waiting: true`), and again
+with `waiting: false` once it no longer waits (`src/app/login-waits.ts` watches the login's
+prompts, never what is pasted). The window masks a text it sent meanwhile whose answer never came
+(B81, desktop PRD DK-4 AC7).
+
 A `reply` carries its own `channelRef`, `desktop:<uuid>`, which is recorded as the delivery
 (R-9 AC2) once the frame left through the socket. The channel only answers: what ANOMANDER
 sends unasked goes to Telegram (DK-4 AC5), and the app sees it in the stored conversation. `/login`, `/logout` and `/exportar` are Telegram's alone (`/exportar` replies S-81 in the app).

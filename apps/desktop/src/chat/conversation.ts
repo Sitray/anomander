@@ -36,6 +36,11 @@ export interface OwnMessage {
    * (`text` is empty) and the window says only that it was one, as Telegram deletes it.
    */
   hidden?: true;
+  /**
+   * B81 (DK-4 AC7): it left while a login started in Telegram waited for a pasted text, so the
+   * login takes it if it arrives. If its answer never comes (`unknown`), it is masked as `hidden`.
+   */
+  toLogin?: true;
 }
 
 /** DK-13: the look at the screen or the task on the computer a plain text was routed to. */
@@ -123,7 +128,7 @@ export type ConversationAction =
   /** The principal asked to send a message that was not sent again. */
   | { type: 'retried'; id: string }
   /** A message left through the socket as `requestId`, or could not leave at all (`null`). */
-  | { type: 'left'; id: string; requestId: string | null }
+  | { type: 'left'; id: string; requestId: string | null; toLogin?: boolean }
   /** A press on a button of the reply `id` left as `requestId`, or could not leave (`null`). */
   | { type: 'pressed'; id: string; data: string; requestId: string | null }
   /**
@@ -306,7 +311,11 @@ export const reduceConversation = (
     case 'left':
       return mapped((message) =>
         message.kind === 'own' && message.id === action.id
-          ? { ...message, ...leftAs(action.requestId) }
+          ? {
+              ...message,
+              ...leftAs(action.requestId),
+              ...(action.toLogin === true && action.requestId !== null ? { toLogin: true } : {}),
+            }
           : message,
       );
     case 'pressed':
@@ -320,14 +329,18 @@ export const reduceConversation = (
         settle(message, action.requestId, deliveryOf(action.outcome)),
       );
       // B55, B81 (PRD R-27 AC3): a text the daemon says a waiting login took is stored nowhere,
-      // so the window keeps none of its words either. Any other `done` keeps them.
-      if (action.outcome.type === 'done' && action.outcome.taken === 'login') {
+      // so the window keeps none of its words either. Any other `done` keeps them. One that left
+      // while a login waited and whose answer never came may have been taken: it goes the same way.
+      const taken = action.outcome.type === 'done' && action.outcome.taken === 'login';
+      const lost = action.outcome.type === 'unknown';
+      if (taken || lost) {
         return {
           ...settled,
           messages: settled.messages.map((message) =>
             message.kind === 'own' &&
             message.requestId === action.requestId &&
-            message.attachments.length === 0
+            message.attachments.length === 0 &&
+            (taken || message.toLogin === true)
               ? { ...message, text: '', hidden: true }
               : message,
           ),

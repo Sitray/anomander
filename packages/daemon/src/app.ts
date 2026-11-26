@@ -6,6 +6,7 @@ import { setUpConnections } from './app/connections.ts';
 import { createHandlers } from './app/handlers.ts';
 import { startJobs } from './app/jobs.ts';
 import { channelViews, startChannel } from './app/local-channel.ts';
+import { watchingPastes } from './app/login-waits.ts';
 import { announceGaps } from './app/setup-guide-mode.ts';
 import { oneTurnAtATime } from './app/turns.ts';
 import type { Anomander, AnomanderDeps } from './app/types.ts';
@@ -111,11 +112,15 @@ export const startAnomander = <M>(config: Config, deps: AnomanderDeps<M>): Anoma
   let deleteMessage = async (_: string): Promise<void> => {
     throw new Error('deleteMessage used before the bot was created');
   };
+  // B81: bound below, once the local channel exists.
+  let loginWaiting = (_: boolean): void => {};
   const login =
     deps.login === undefined || config.telegram === undefined
       ? undefined
       : createTelegramLogin({
           ...deps.login,
+          // B81 (DK-4 AC7): the app's windows are told while it waits for a pasted text.
+          models: watchingPastes(deps.login.models, (waiting) => loginWaiting(waiting)),
           send: (message) => send(message),
           deleteMessage: (channelRef) => deleteMessage(channelRef),
           logger,
@@ -277,6 +282,7 @@ export const startAnomander = <M>(config: Config, deps: AnomanderDeps<M>): Anoma
     },
   );
   if (localChannel !== undefined) app = localChannel;
+  loginWaiting = (waiting) => localChannel?.loginWaiting(waiting);
 
   telegram.started.then(
     () =>

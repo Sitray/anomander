@@ -164,6 +164,11 @@ export interface LocalChannel {
    * text is never logged.
    */
   notify(message: DoorReply): Promise<void>;
+  /**
+   * B81 (DK-4 AC7): a login started in Telegram starts or stops waiting for a pasted text. Every
+   * open connection is told with a `login_waiting`, and one that opens while it waits too.
+   */
+  loginWaiting(waiting: boolean): void;
   stop(): Promise<void>;
 }
 
@@ -535,9 +540,18 @@ export const startLocalChannel = (deps: LocalChannelDeps): LocalChannel => {
   const open = (): WebSocket[] =>
     [...sockets.clients].filter((socket) => socket.readyState === socket.OPEN);
 
+  /** B81: whether a login waits for a pasted text now (`loginWaiting`). */
+  let loginWaits = false;
+  const loginWaitingEvent = (): ChatEvent => ({
+    type: 'login_waiting',
+    inReplyTo: null,
+    waiting: loginWaits,
+  });
+
   sockets.on('connection', (socket: WebSocket) => {
     const stoppable: Stoppable = new Map();
     socket.on('error', (error) => logger.warn('local channel connection error', { error }));
+    if (loginWaits) send(socket, loginWaitingEvent()).catch(() => {});
     onConnected?.();
     socket.on('message', (data, isBinary) => {
       handle(socket, isBinary ? null : data.toString(), stoppable).catch((error: unknown) => {
@@ -592,6 +606,12 @@ export const startLocalChannel = (deps: LocalChannelDeps): LocalChannel => {
       if (!sent.some((outcome) => outcome.status === 'fulfilled')) throw new Error(NO_APP);
       // R-9 AC2: only a message that left through a socket was delivered.
       message.onDelivered?.({ channelRef, deliveredAt: sentAt });
+    },
+    loginWaiting: (waiting) => {
+      if (waiting === loginWaits) return;
+      loginWaits = waiting;
+      // A window that closed meanwhile is told when it opens again.
+      for (const socket of open()) send(socket, loginWaitingEvent()).catch(() => {});
     },
     stop: async () => {
       for (const socket of sockets.clients) socket.terminate();

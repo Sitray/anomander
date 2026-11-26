@@ -101,6 +101,14 @@ and keep its secrets in the operating system instead of a text file.
     place and keeps none of its words, in the window or anywhere a reload reads (B55). Only that
     signal, set by the daemon when a login took the text, masks it; any other `done` leaves the
     text as typed (B81).
+    While a login waits, the daemon also tells the app's open windows (`login_waiting`), and one
+    that connects meanwhile; it says so again when the login stops waiting. A text the chat sent
+    while a login waited, whose answer never came (the connection was lost first, so it cannot
+    know whether the login took it), is masked the same way, still marked as not known to have
+    arrived and with no resend; a text sent while no login waited stays as typed (B81, decided
+    in the unit as the safest reading: the window cannot know the login took it, and a text
+    sent then is the one a waiting login takes). What the window knew of a waiting login ends
+    with its connection.
 - DK-5 Secrets in the Keychain.
   - AC1: the Telegram bot token (optional, AC4), the provider API keys and the subscription login are stored
     in the macOS Keychain, entered once in the app's setup screen. The login is made from

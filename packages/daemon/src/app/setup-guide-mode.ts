@@ -8,6 +8,7 @@ import { appSetupGuide, describeGap, type SetupGap, setupGuide } from '../setup/
 import { acquireDaemonLock } from '../store/daemon-lock.ts';
 import { openTelegramDoor } from '../telegram-door.ts';
 import { startChannel } from './local-channel.ts';
+import { watchingPastes } from './login-waits.ts';
 import type { Anomander, LoginDeps } from './types.ts';
 
 /**
@@ -54,12 +55,16 @@ export const startSetupGuide = (config: Config, deps: SetupGuideDeps): Anomander
   let deleteMessage = async (_: string): Promise<void> => {
     throw new Error('deleteMessage used before the bot was created');
   };
+  // B81: bound below, once the local channel exists.
+  let loginWaiting = (_: boolean): void => {};
   // R-27: a login is made in Telegram only; the app has its Suscripciones screen (DK-15).
   const login =
     deps.login === undefined || config.telegram === undefined
       ? undefined
       : createTelegramLogin({
           ...deps.login,
+          // B81 (DK-4 AC7): the app's windows are told while it waits for a pasted text.
+          models: watchingPastes(deps.login.models, (waiting) => loginWaiting(waiting)),
           send: (message) => send(message),
           deleteMessage: (channelRef) => deleteMessage(channelRef),
           logger,
@@ -129,6 +134,7 @@ export const startSetupGuide = (config: Config, deps: SetupGuideDeps): Anomander
     // DK-23 AC4: no model can be called; the probe says why.
     async () => probeWithoutModel(gaps, config),
   );
+  loginWaiting = (waiting) => localChannel?.loginWaiting(waiting);
 
   // A failed start is the caller's to report, through `started`.
   telegram.started.then(

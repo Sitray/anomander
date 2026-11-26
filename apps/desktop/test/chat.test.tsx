@@ -165,6 +165,64 @@ describe('typing', () => {
     expect(strings.chat.loginCodeHidden).toBe('Código de acceso (oculto)');
   });
 
+  it('B81: a text sent while a login waits for a code, whose answer never comes, is masked', async () => {
+    const socket = openChat();
+    act(() => socket.receive({ type: 'login_waiting', inReplyTo: null, waiting: true }));
+    say('ac_9f8e7d6c5b4a#state-123');
+    await sentRequest(socket);
+
+    act(() => socket.drop());
+
+    expect(document.body.textContent).not.toContain('ac_9f8e7d6c5b4a');
+    const item = screen.getByText(strings.chat.loginCodeHidden).closest('li');
+    expect(item?.className).toContain('own');
+    expect(within(item as HTMLElement).queryByLabelText(strings.chat.copy)).toBeNull();
+    // Still said: the daemon may have handled it, so no resend.
+    expect(screen.getByText(strings.chat.unknown)).toBeTruthy();
+    expect(screen.queryByRole('button', { name: strings.chat.sendAgain })).toBeNull();
+  });
+
+  it('B81: a text lost after the login stopped waiting is still shown as typed', async () => {
+    const socket = openChat();
+    act(() => socket.receive({ type: 'login_waiting', inReplyTo: null, waiting: true }));
+    act(() => socket.receive({ type: 'login_waiting', inReplyTo: null, waiting: false }));
+    say('23 € cena');
+    await sentRequest(socket);
+
+    act(() => socket.drop());
+
+    expect(screen.getByText('23 € cena')).toBeTruthy();
+    expect(screen.queryByText(strings.chat.loginCodeHidden)).toBeNull();
+    expect(screen.getByText(strings.chat.unknown)).toBeTruthy();
+  });
+
+  it('B81: what was said of a waiting login does not outlive its connection', async () => {
+    const socket = openChat();
+    act(() => socket.receive({ type: 'login_waiting', inReplyTo: null, waiting: true }));
+    act(() => socket.drop());
+    await waitFor(() => expect(FakeWebSocket.last).not.toBe(socket), { timeout: 3000 });
+    const again = FakeWebSocket.last;
+    act(() => again.open());
+    say('23 € cena');
+    await sentRequest(again);
+
+    act(() => again.drop());
+
+    expect(screen.getByText('23 € cena')).toBeTruthy();
+    expect(screen.queryByText(strings.chat.loginCodeHidden)).toBeNull();
+  });
+
+  it('a text lost while no login waits is still shown as typed', async () => {
+    const socket = openChat();
+    say('23 € cena');
+    await sentRequest(socket);
+
+    act(() => socket.drop());
+
+    expect(screen.getByText('23 € cena')).toBeTruthy();
+    expect(screen.queryByText(strings.chat.loginCodeHidden)).toBeNull();
+  });
+
   it('B81: a text answered done without the login signal is still shown as typed', async () => {
     const socket = openChat();
     say('23 € cena');
@@ -181,7 +239,9 @@ describe('typing', () => {
     say('23 € cena');
     const request = await sentRequest(socket);
 
-    act(() => socket.receive({ type: 'done', inReplyTo: request.id, taken: 'other' }));
+    act(() =>
+      socket.receiveRaw(JSON.stringify({ type: 'done', inReplyTo: request.id, taken: 'other' })),
+    );
 
     expect(screen.getByText('23 € cena')).toBeTruthy();
     expect(screen.queryByText(strings.chat.loginCodeHidden)).toBeNull();
