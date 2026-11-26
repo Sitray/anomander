@@ -147,6 +147,33 @@ describe('typing', () => {
     expect(screen.queryByText(strings.chat.thinking)).toBeNull();
     expect(screen.queryByText(strings.chat.notSent)).toBeNull();
   });
+
+  it('B55: a text the login took (answered with no reply) is masked, as Telegram deletes it', async () => {
+    const socket = openChat();
+    say('ac_9f8e7d6c5b4a#state-123');
+    const request = await sentRequest(socket);
+    expect(request).toMatchObject({ type: 'text', text: 'ac_9f8e7d6c5b4a#state-123' });
+
+    act(() => socket.receive({ type: 'done', inReplyTo: request.id }));
+
+    expect(document.body.textContent).not.toContain('ac_9f8e7d6c5b4a');
+    const item = screen.getByText(strings.chat.loginCodeHidden).closest('li');
+    expect(item?.className).toContain('own');
+    // Nothing to copy: the code is not in the window any more.
+    expect(within(item as HTMLElement).queryByLabelText(strings.chat.copy)).toBeNull();
+    expect(composer().value).toBe('');
+    expect(strings.chat.loginCodeHidden).toBe('Código de acceso (oculto)');
+  });
+
+  it('a text that got a reply is still shown as typed', async () => {
+    const socket = openChat();
+    say('23 € cena');
+    const request = await sentRequest(socket);
+    act(() => socket.receive(replyTo(request.id)));
+
+    expect(screen.getByText('23 € cena')).toBeTruthy();
+    expect(screen.queryByText(strings.chat.loginCodeHidden)).toBeNull();
+  });
 });
 
 describe('a reply', () => {

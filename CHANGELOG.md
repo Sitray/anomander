@@ -49,6 +49,7 @@ On `main` since 0.1.0. The interface speaks English or Spanish, and the app runs
 
 ### Fixed
 
+- A login code pasted in the app's chat no longer stays visible: once the login takes it, the chat shows "Código de acceso (oculto)" in its place and keeps none of its words, as the bot deletes it in Telegram (DK-4 AC7, B55).
 - "Sí, borrar" in the app's chat no longer waits forever: with no answer from the daemon in 2 minutes it says it cannot know whether the conversation was erased, as when the connection is lost (DK-16 AC4, B55).
 - The message that replaces a memory ("ya no vivo en …") is no longer stored when it, or its reply, holds the old fact's words: it goes as the earlier turns that held them do (R-23 AC3, B55).
 - What a task with connections asked in Telegram came to is stored in the conversation only once Telegram delivered it, as it was sent (cut to one message); a send that fails stores nothing, as for a message sent unasked (B55).

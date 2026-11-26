@@ -31,6 +31,11 @@ export interface OwnMessage {
   door?: 'telegram';
   /** DK-21: when it was written, ISO 8601; absent when not known. */
   at?: string;
+  /**
+   * B55 (PRD R-27 AC3): a text the login took, such as a pasted code: its words are dropped
+   * (`text` is empty) and the window says only that it was one, as Telegram deletes it.
+   */
+  hidden?: true;
 }
 
 /** DK-13: the look at the screen or the task on the computer a plain text was routed to. */
@@ -314,6 +319,20 @@ export const reduceConversation = (
       const settled = mapped((message) =>
         settle(message, action.requestId, deliveryOf(action.outcome)),
       );
+      // B55 (PRD R-27 AC3): a text the daemon handled with no reply is one a login that waited
+      // took; it is stored nowhere, so the window keeps none of its words either.
+      if (action.outcome.type === 'done') {
+        return {
+          ...settled,
+          messages: settled.messages.map((message) =>
+            message.kind === 'own' &&
+            message.requestId === action.requestId &&
+            message.attachments.length === 0
+              ? { ...message, text: '', hidden: true }
+              : message,
+          ),
+        };
+      }
       if (action.outcome.type !== 'reply') return settled;
       const { channelRef, text, buttons, sentAt } = action.outcome.reply;
       return {

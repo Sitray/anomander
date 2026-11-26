@@ -253,6 +253,8 @@ const es = {
 
     /** DK-16: a stored message that came through Telegram. */
     viaTelegram: 'Por Telegram',
+    /** B55 (PRD R-27 AC3): a text the login took, such as a pasted code, in place of its words. */
+    loginCodeHidden: 'Código de acceso (oculto)',
     /** DK-16: erasing the stored conversation, asked first. */
     clearConversation: 'Borrar conversación',
     get confirmClear() {
@@ -936,6 +938,7 @@ const en: Strings = {
     linkOnlyInTelegram: (label: string) => `“${label}” can only be opened from Telegram.`,
 
     viaTelegram: 'Via Telegram',
+    loginCodeHidden: 'Access code (hidden)',
     clearConversation: 'Erase conversation',
     get confirmClear() {
       return `Erase the conversation? ANOMANDER erases it from ${enPlace()} and stops taking it into account. What is in Telegram stays in Telegram.`;
