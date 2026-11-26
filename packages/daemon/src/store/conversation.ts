@@ -89,8 +89,9 @@ const erasedOnce = (db: Database.Database): void => {
 };
 
 /**
- * B81 (DK-16 AC5): how many times the conversation of `db` was erased by `forgetConversation` or
- * `forgetTurnsHolding` since the daemon started. A turn stored after its own turn ended, once its
+ * B81 (DK-16 AC5): how many times the conversation of `db` was erased since the daemon started:
+ * every `forgetConversation`, even of an empty one, and every `forgetTurnsHolding` that took a
+ * turn. A turn stored after its own turn ended, once its
  * reply was delivered, compares it with the count when its turn ran: an erase in between is a
  * wish to keep nothing said before it, so the turn is not stored. It lives only in this process;
  * an erase that rolls back still counts, which only ever keeps less.
@@ -139,7 +140,8 @@ export const forgetTurnsHolding = (
     }
   });
   const erase = db.prepare('DELETE FROM conversation WHERE id = ?');
-  erasedOnce(db);
+  // B81: only an erase that took a turn counts; one that matched nothing leaves all as it was.
+  if (erased.size > 0) erasedOnce(db);
   for (const id of erased) erase.run(id);
   return erased.size;
 };

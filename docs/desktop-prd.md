@@ -537,8 +537,9 @@ and keep its secrets in the operating system instead of a text file.
     turns for real (secure delete, then the WAL checkpoint, as a forget, R-23 AC7) and answers
     `done`, and the chat empties. The erase waits for a turn of either door that runs, so
     nothing of that turn is kept after it; nor is the answer of a task with connections asked in
-    Telegram, kept once delivered after its turn, when any erase of the conversation came between
-    its turn and its delivery (B81). When it was not erased the chat keeps its messages and says so;
+    Telegram, kept once delivered after its turn, when an erase of the conversation came between
+    its turn and its delivery (B81): "Borrar conversación" or a confirmed forget, or a replaced or
+    forgotten memory that took a turn with it. When it was not erased the chat keeps its messages and says so;
     when the connection was lost first, or no answer came within 2 minutes (B55), it says it
     cannot know. It cannot be pressed while the
     connection is not open, while an answer is owed, or while a task runs or waits for

@@ -64,7 +64,7 @@ export interface RecentTurns {
   clear(): void;
   /**
    * B81: how many times the stored conversation was erased, whole ("Borrar conversación", a
-   * confirmed forget) or in part (a replaced or forgotten memory). A turn stored once its reply
+   * confirmed forget) or in part (a replaced or forgotten memory that took a turn). A turn stored once its reply
    * was delivered, after its own turn, reads it in that turn and is stored only if it did not
    * change meanwhile.
    */
