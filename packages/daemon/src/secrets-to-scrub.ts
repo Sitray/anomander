@@ -112,15 +112,16 @@ const unquoted = (escaped: string): string => {
 };
 
 /**
- * B82: the fields of a failure that hold a token: a login's `access` and `refresh` and an OAuth
- * set's. A failed refresh has no API key to quote, so `key` and `*_API_KEY` are ordinary text
+ * B82: the fields of a failure that hold a secret: those of a login and of an OAuth set, but for
+ * `key` and `*_API_KEY`. A failed refresh has no API key to quote, so those are ordinary text
  * there (`key: 'openai-codex'` names the provider); a provider key of the environment is already
- * one of the start's.
+ * one of the start's. The other provider credentials, such as `AWS_SESSION_TOKEN`, stay secret.
  */
-const FAILURE_FIELDS = new Set(['access', 'refresh', ...OAUTH_FIELDS]);
+const isFailureSecret = (name: string): boolean =>
+  name === 'access' || name === 'refresh' || PROVIDER_CREDENTIALS.has(name) || isOAuthSecret(name);
 
 /**
- * B51: the tokens a failure quotes, however deep: in a field named as a token (`FAILURE_FIELDS`),
+ * B51: the tokens a failure quotes, however deep: in a field named as a secret (`isFailureSecret`),
  * or quoted as JSON or as a form in any text of it, its message and its causes included (an
  * `Error` keeps those out of its own fields). A failed refresh's error may quote the tokens it got.
  */
@@ -139,7 +140,7 @@ const quotedTokens = (value: unknown, seen = new Set<object>()): string[] => {
         ]
       : [];
   return [...own, ...Object.entries(value)].flatMap(([name, inner]) =>
-    typeof inner === 'string' && FAILURE_FIELDS.has(name) ? [inner] : quotedTokens(inner, seen),
+    typeof inner === 'string' && isFailureSecret(name) ? [inner] : quotedTokens(inner, seen),
   );
 };
 
