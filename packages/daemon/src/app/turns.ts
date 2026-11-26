@@ -21,8 +21,8 @@ export class TurnNotStartedError extends Error {
  * Runs the inputs of every front door one at a time, in the order they arrived: Telegram and the
  * desktop app are one conversation (DK-4 AC4), and two turns never interleave. Once `close` is
  * called no turn starts, except one that ends work already running (`ends`): one that waits is
- * refused at once with `TurnNotStartedError` (B82). `drained` settles when every turn and every
- * piece of work given to `track` has.
+ * refused at once with `TurnNotStartedError` (B82), and so is an input still in `beforeTurn`
+ * (B84). `drained` settles when every turn and every piece of work given to `track` has.
  */
 export const oneTurnAtATime = () => {
   let last: Promise<unknown> = Promise.resolve();
@@ -54,8 +54,29 @@ export const oneTurnAtATime = () => {
       track(turn).catch(() => {});
       return ends ? turn : Promise.race([turn, refused]);
     };
+  /**
+   * B84: what an input waits for before it takes its turn, such as its setup check, which runs off
+   * the turn lock (T14). Once `close` is called, the input is refused at once with
+   * `TurnNotStartedError`, as a turn that waits, however long `work` still takes; `work` itself
+   * is neither stopped nor run again.
+   */
+  const beforeTurn = <T>(work: Promise<T>): Promise<T> => {
+    if (closed) {
+      work.catch(() => {});
+      return Promise.reject(new TurnNotStartedError());
+    }
+    let refuse = (): void => {};
+    const refused = new Promise<never>((_, reject) => {
+      refuse = () => reject(new TurnNotStartedError());
+    });
+    waiting.add(refuse);
+    const done = () => waiting.delete(refuse);
+    work.then(done, done);
+    return Promise.race([work, refused]);
+  };
   return {
     inTurn,
+    beforeTurn,
     track,
     close: () => {
       closed = true;

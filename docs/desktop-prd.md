@@ -777,7 +777,8 @@ and keep its secrets in the operating system instead of a text file.
     (S-183), each with "Quitar" (S-184), which revokes it at once (`revoked_at`); the window asks on
     the local channel with `connection_grants` and `revoke_connection_grant`, on a connection of its
     own, as "Memoria" does (DK-18 AC2). A list that cannot be read says S-185; a "Quitar" not done
-    says S-186, and one whose connection was lost first, S-187. At its start the daemon revokes
+    says S-186, and one whose connection was lost first, or with no answer within 2 minutes as "Sí,
+    borrar" (B84), S-187. At its start the daemon revokes
     every grant of a server that is no longer in `mcp.json`, was renamed, or whose command or URL
     changed, so removing a server removes its grants and adding it again does not bring them back;
     a file it cannot read revokes none.

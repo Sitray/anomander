@@ -13,6 +13,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   createTelegramBot,
   createTelegramNotify,
+  HALT_REFUSAL_LIMIT_MS,
   haltTelegramBot,
   TURN_NOT_STARTED,
 } from '../src/index.ts';
@@ -440,6 +441,152 @@ describe('halting the bot (B82)', () => {
     await api.waitForSent(2);
     expect(api.sent.at(-1)?.text).toBe(S22);
     expect(await restart()).toEqual([]);
+  });
+
+  it('B84: a refused single photo is handed over again after the restart, unanswered', async () => {
+    const { answer, held } = heldAnswer();
+    onReceipt.mockImplementationOnce(() => answer);
+    api.push(updates.photo(principal));
+    await vi.waitFor(() => expect(onReceipt).toHaveBeenCalledTimes(1));
+
+    const halted = haltTelegramBot(bot);
+    held.settle(notStarted());
+    await halted;
+    await polling;
+
+    expect(api.sent.map(({ text }) => text)).not.toContain(S22);
+    expect(api.sent).toEqual([]);
+    expect(await restart()).toEqual(['receipt']);
+  });
+
+  it('B84: a refusal that crosses a timer after the halt still leaves the text for after the restart', async () => {
+    const held = await holdSecondText();
+
+    const halted = haltTelegramBot(bot);
+    // Not settled within the halt's own microtasks, nor after one `setImmediate`.
+    setTimeout(() => held.settle(notStarted()), 20);
+    await halted;
+    await polling;
+
+    expect(api.sent.map(({ text }) => text)).toEqual(['Apuntado: 23,00 € (sin clasificar).']);
+    expect(await restart()).toEqual(['text:dos']);
+  });
+
+  it('B84: a refusal after the halt acknowledged its update gets S-22, and says so once without its text', async () => {
+    const held = await holdSecondText();
+
+    const halted = haltTelegramBot(bot);
+    await halted;
+    held.settle(notStarted());
+    await polling;
+
+    await api.waitForSent(2);
+    expect(api.sent.at(-1)?.text).toBe(S22);
+    const fallbacks = logger.warn.mock.calls.filter(([message]) =>
+      /already acknowledged/.test(String(message)),
+    );
+    expect(fallbacks).toEqual([
+      [
+        'A Telegram update the daemon refused was already acknowledged: it gets the failure reply',
+        { updateId: expect.any(Number) },
+      ],
+    ]);
+    expect(JSON.stringify(fallbacks)).not.toContain('dos');
+    expect(await restart()).toEqual([]);
+  });
+
+  it('B84: the halt waits for a running turn at most HALT_REFUSAL_LIMIT_MS before it acknowledges it', async () => {
+    await holdSecondText();
+    const began = Date.now();
+
+    await haltTelegramBot(bot);
+
+    expect(Date.now() - began).toBeLessThan(HALT_REFUSAL_LIMIT_MS + 1000);
+    expect(HALT_REFUSAL_LIMIT_MS).toBe(250);
+    expect(await restart()).toEqual([]);
+  });
+
+  const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+  it('B84: a turn still running past the limit is acknowledged, a text read meanwhile comes again, nothing runs twice', async () => {
+    const held = await holdSecondText();
+    api.push(updates.text(principal, 'tres'));
+    await wait(50);
+    const began = Date.now();
+
+    await haltTelegramBot(bot);
+    const took = Date.now() - began;
+    held.settle({ text: 'hecho dos' });
+    await polling;
+
+    expect(took).toBeGreaterThanOrEqual(HALT_REFUSAL_LIMIT_MS - 5);
+    expect(onText).toHaveBeenCalledTimes(2);
+    expect(await restart()).toEqual(['text:tres']);
+  });
+
+  it('B84: a refusal 150 ms after the halt, within the limit, is left for after the restart without a warning', async () => {
+    const held = await holdSecondText();
+
+    const halted = haltTelegramBot(bot);
+    setTimeout(() => held.settle(notStarted()), 150);
+    await halted;
+    await polling;
+
+    expect(api.sent.map(({ text }) => text)).not.toContain(S22);
+    expect(logger.warn).not.toHaveBeenCalled();
+    expect(await restart()).toEqual(['text:dos']);
+  });
+
+  it('B84: a started turn that fails past the limit gets S-22, with no fallback warning, and never comes again', async () => {
+    const held = await holdSecondText();
+
+    const halted = haltTelegramBot(bot);
+    setTimeout(() => held.settle(new Error('boom')), 400);
+    await halted;
+    await wait(450);
+    await polling;
+
+    await api.waitForSent(2);
+    expect(api.sent.at(-1)?.text).toBe(S22);
+    expect(logger.warn).not.toHaveBeenCalled();
+    expect(await restart()).toEqual([]);
+  });
+
+  it('B84: a halt with nothing being handled does not wait the limit', async () => {
+    api.push(updates.text(principal, 'uno'));
+    await api.waitForSent(1);
+    const began = Date.now();
+
+    await haltTelegramBot(bot);
+
+    expect(Date.now() - began).toBeLessThan(HALT_REFUSAL_LIMIT_MS);
+    expect(await restart()).toEqual([]);
+  });
+
+  it('B84: a single photo refused 100 ms after the halt is left for after the restart, unanswered', async () => {
+    const { answer, held } = heldAnswer();
+    onReceipt.mockImplementationOnce(() => answer);
+    api.push(updates.photo(principal));
+    await vi.waitFor(() => expect(onReceipt).toHaveBeenCalledTimes(1));
+
+    const halted = haltTelegramBot(bot);
+    setTimeout(() => held.settle(notStarted()), 100);
+    await halted;
+    await polling;
+
+    expect(api.sent).toEqual([]);
+    expect(await restart()).toEqual(['receipt']);
+  });
+
+  it('B84: halting twice returns the same stop and leaves the refused text once for after the restart', async () => {
+    const held = await holdSecondText();
+    const first = haltTelegramBot(bot);
+    const second = haltTelegramBot(bot);
+    expect(first).toBe(second);
+    held.settle(notStarted());
+    await first;
+    await polling;
+    expect(await restart()).toEqual(['text:dos']);
   });
 });
 

@@ -17,8 +17,11 @@ export interface Drainable {
   write(chunk: string, done: (error?: Error | null) => void): boolean;
 }
 
-/** How long `exitOnceWritten` waits for its streams before it exits anyway. */
+/** How long `exitOnceWritten` waits for its streams and its halt before it exits anyway. */
 export const DRAIN_LIMIT_MS = 5_000;
+
+const isThenable = (value: unknown): value is PromiseLike<unknown> =>
+  typeof (value as { then?: unknown } | null)?.then === 'function';
 
 /**
  * `exit`, called once whatever was written to `streams` is out (B45): a pipe on macOS or Windows
@@ -26,24 +29,29 @@ export const DRAIN_LIMIT_MS = 5_000;
  * that never drains holds the exit `limitMs` at most. Only the first code counts.
  *
  * B51: `halt` is called at once, before the wait, so the daemon takes no new event while its log
- * drains. One that throws does not hold the exit.
+ * drains. One that throws does not hold the exit. B84: when `halt` returns a promise, the exit
+ * also waits for it to settle, fulfilled or not, under the same `limitMs`: the Telegram bot's
+ * last `getUpdates`, which tells Telegram what was handled, reaches it before the process is
+ * gone, and a halt that hangs, or a network that does, still exits on time.
  */
 export const exitOnceWritten = (
   streams: readonly Drainable[],
   exit: (code: ExitCode) => void,
   limitMs: number = DRAIN_LIMIT_MS,
-  halt: () => void = () => {},
+  halt: () => unknown = () => {},
 ): ((code: ExitCode) => void) => {
   let leaving = false;
   return (code) => {
     if (leaving) return;
     leaving = true;
+    let halting: unknown;
     try {
-      halt();
+      halting = halt();
     } catch {
       // The exit matters more: the daemon is leaving anyway.
     }
-    let pending = streams.length;
+    const waitsForHalt = isThenable(halting);
+    let pending = streams.length + (waitsForHalt ? 1 : 0);
     let gone = false;
     const leave = (): void => {
       if (gone) return;
@@ -57,6 +65,7 @@ export const exitOnceWritten = (
     };
     const timer = setTimeout(leave, limitMs);
     if (pending === 0) leave();
+    if (waitsForHalt) (halting as PromiseLike<unknown>).then(done, done);
     // An empty write is done once every write queued before it is.
     for (const stream of streams) stream.write('', done);
   };

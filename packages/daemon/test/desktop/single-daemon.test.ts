@@ -53,13 +53,14 @@ afterEach(async () => {
 });
 
 describe('the daemon lock', () => {
-  it('DK-2 AC1: refuses a second holder and names the database', () => {
+  it('DK-2 AC1: refuses a second holder, saying why without the path (B84)', () => {
     const lock = acquireDaemonLock(dbPath());
     try {
       expect(() => acquireDaemonLock(dbPath())).toThrow(DaemonAlreadyRunningError);
       expect(() => acquireDaemonLock(dbPath())).toThrow(
-        `another ANOMANDER daemon is already running on ${dbPath()}`,
+        'another ANOMANDER daemon is already running on the same database',
       );
+      expect(() => acquireDaemonLock(dbPath())).not.toThrow(dbPath());
     } finally {
       lock.release();
     }
