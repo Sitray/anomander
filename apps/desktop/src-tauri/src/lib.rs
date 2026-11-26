@@ -720,7 +720,7 @@ fn import_env_file(core: &Core) {
     };
     let imported = std::fs::read_to_string(&path)
         .map_err(|error| error.to_string())
-        .and_then(|text| core.save_setup(&setup::setup_from_env_file(&text)));
+        .and_then(|text| core.save_setup(&setup::setup_from_env_file(&text, &core.setup_state())));
     match imported {
         Ok(()) => eprintln!("imported the setup from {}", path.to_string_lossy()),
         Err(error) => eprintln!("could not import the setup: {error}"),

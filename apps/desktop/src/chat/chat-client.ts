@@ -18,7 +18,6 @@ import {
   type ChatStoredMessage,
   type ChatText,
   EXPENSE_MODES,
-  isCurrency,
   LOCAL_CHANNEL_PROTOCOL,
   type Money,
   PROGRESS_PHASES,
@@ -218,6 +217,14 @@ const isGrant = (value: unknown): value is ChatConnectionGrant => {
 
 const isCount = (value: unknown): value is number => Number.isInteger(value);
 
+/**
+ * DK-25: an ISO 4217 code as the daemon writes it, three capital letters. B78: the window's
+ * `Intl` may know fewer currencies than the daemon's, and formats any such code with the code
+ * itself (`12,30 XYZ`), so a code it does not know is never a reason to drop a row.
+ */
+const isCurrency = (code: unknown): code is string =>
+  typeof code === 'string' && /^[A-Z]{3}$/.test(code);
+
 /** DK-17: an expense only as the window can show it. */
 const isExpense = (value: unknown): value is ChatExpense => {
   if (typeof value !== 'object' || value === null) return false;
@@ -229,7 +236,6 @@ const isExpense = (value: unknown): value is ChatExpense => {
     (merchant === null || typeof merchant === 'string') &&
     (category === null || typeof category === 'string') &&
     isCount(totalCents) &&
-    typeof currency === 'string' &&
     isCurrency(currency) &&
     EXPENSE_MODES.some((known) => known === mode) &&
     (categoryMode === null || CATEGORY_MODES.some((known) => known === categoryMode)) &&
@@ -238,13 +244,13 @@ const isExpense = (value: unknown): value is ChatExpense => {
   );
 };
 
-/** DK-25: a sum per currency, each entry cents in a currency the window can format. */
+/** DK-25: a sum per currency, each entry cents in a currency code. */
 const isSums = (value: unknown): value is Money[] =>
   Array.isArray(value) &&
   value.every((entry) => {
     if (typeof entry !== 'object' || entry === null) return false;
     const { cents, currency } = entry as Record<string, unknown>;
-    return isCount(cents) && typeof currency === 'string' && isCurrency(currency);
+    return isCount(cents) && isCurrency(currency);
   });
 
 /** DK-17: the expenses of a month, keeping only the rows the window can show. */

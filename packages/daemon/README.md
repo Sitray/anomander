@@ -153,6 +153,18 @@ with the S-15 buttons first when S-15 is asked with it:
 - **Closed (R-7 AC8).** A press or a text for a decision whose expense is no longer current gets
   S-19 and closes it. An answered decision, or one expired by retention (R-19 AC2), gets S-19 as
   any other.
+- **Deshacer under a correction (R-7 AC9).** Every correction of a registered expense (after
+  "Corregir", typed, from a row of "Gastos", or a Telegram reply to an earlier "Corregido…") closes
+  the expense's open questions and opens a new `amend_expense` question with "Deshacer" alone under
+  S-8 or S-102. Its proposal's `payload_json` keeps `restore` beside `expense_id`: the columns the
+  correction changed as they were before it, the declarations it wrote, and the assertions it
+  refuted with their status (`amendExpense` returns it; no schema change). "Deshacer" runs
+  `undoCorrection` in one transaction: the columns take their old values, the declarations are
+  `refuted`, the refuted assertions take back their status, and the proposal is `executed` by the
+  principal. The expense stays current; the reply is S-105, or S-106 without a merchant. A newer
+  correction closes the older one's question, so only the newest is undone (S-19 otherwise). A
+  row's "Deshacer" never presses this question (`openAmendDecisionOf` skips it): it takes the
+  expense out, as before.
 
 A correction typed without the button (R-7 AC7) is the interpreter's `expense_correct` kind. The
 text expense cycle gives the interpreter `expenses`: the current expenses registered in the last
@@ -965,7 +977,8 @@ models: it measures how well each one reads the receipts in `evals/receipts/case
 out of git. See `evals/receipts/README.md`. The text evaluation (`scripts/eval-text.ts`,
 `pnpm eval:text`) does the same for messages: it measures whether each model returns the
 expected kind and fields for the cases in `evals/text/cases.json`, also out of git. See
-`evals/text/README.md`.
+`evals/text/README.md`. Both read amounts in `ANOMANDER_CURRENCY` (euros by default) or
+`--currency`, checked as `loadConfig` checks it.
 
 ## Invariants
 

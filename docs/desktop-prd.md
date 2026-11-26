@@ -114,7 +114,9 @@ and keep its secrets in the operating system instead of a text file.
     environment (AC3).
   - AC3: `.env` keeps working for Docker installs; the app does not read it, except once, when
     the principal asks: launched with `ANOMANDER_IMPORT_ENV=<path>`, it stores that file's bot
-    token and provider keys in the Keychain and its chat ID and models in its settings.
+    token and provider keys in the Keychain and its chat ID, models, `TZ` and
+    `ANOMANDER_CURRENCY` in its settings (DK-25); a file without `TZ` or `ANOMANDER_CURRENCY`
+    keeps the zone and currency chosen before (B78).
   - AC4: Telegram is optional (asked for launch, engineering audit Medium 9). The setup screen
     shows it as "Telegram (opcional)"; saving with both of its fields empty starts ANOMANDER with
     the app's chat as its only front door (no bot token or chat ID reaches the daemon), and half
@@ -594,7 +596,9 @@ and keep its secrets in the operating system instead of a text file.
     `amend_expense` question of its own (`basis_json.rule` `DK-17 AC6`) answered at once, since a
     receipt's own "Corregir" and "Descartar" (R-6) belong to it only while it is pending. A
     correction of a registered receipt refutes the `confirmed` assertions of "Apuntar" whose
-    inference it refuted, so only the new declaration is current.
+    inference it refuted, so only the new declaration is current. The "Deshacer" under a
+    correction's reply (PRD R-7 AC9) puts values back, so a row never presses it: a row's
+    "Deshacer" still takes the expense out, and closes that button too.
   - AC7: it is a table with its headers, read and moved through by keyboard; Escape or "Volver
     al chat" goes back to the chat.
 - DK-18 Memories and history in the window (backlog B32, 2026-11-24: "Memories and history
@@ -878,7 +882,8 @@ and keep its secrets in the operating system instead of a text file.
     converted.
   - AC3: every amount said about an expense (S-1 to S-8, S-100 to S-102, the receipt questions,
     the Gastos screen) is in its own currency, in the language's format: `12,30 €`, `12,30 US$`;
-    `€12.30`, `US$12.30` in English. One formatter in `packages/protocol` says them all.
+    `€12.30`, `US$12.30` in English. One formatter in `packages/protocol` says them all. A code
+    the window's `Intl` does not know is still shown, with the code (`12,30 XYZ`) (B78).
   - AC4: a sum never adds two currencies. When the expenses of a total or of a `{desglose}` line
     (S-9, S-90, S-91, the Gastos screen's total and pending) hold more than one currency, it is
     said per currency, the principal's first and then by code: `45,20 € y 12,00 US$`. With one
@@ -888,10 +893,10 @@ and keep its secrets in the operating system instead of a text file.
     both, the zone from the IANA list and the currency from a short list or any ISO 4217 code.
     An install set up before proposes nothing: while neither is chosen it shows the machine's
     clock and `EUR`, and saving for another reason leaves both unset. They take effect when
-    ANOMANDER starts again, which saving the setup does, and the screen says so.
+    ANOMANDER starts again, which saving the setup does, and the screen says so (S-190 to S-193).
   - AC6: amounts are kept in hundredths (`total_cents`), so the currency must have two decimals:
-    one with none (`JPY`) or three (`BHD`) is refused by the setup, the shell and the daemon,
-    with the reason, and is not offered in the list.
+    one with none (`JPY`) or three (`BHD`) is refused by the setup (S-194), the shell and the
+    daemon, with the reason, and is not offered in the list.
 
 ## 6. Decisions
 

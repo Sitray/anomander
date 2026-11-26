@@ -8,7 +8,12 @@ well as the current one. Run it when the receipt reader or its prompt changes.
 pnpm eval:receipts                                   # ANOMANDER_VISION_MODEL from .env
 pnpm eval:receipts --model openai/gpt-4o --model ollama/llava
 pnpm eval:receipts --dir ~/receipts                  # another cases folder
+pnpm eval:receipts --currency GBP                    # amounts in pounds, as with ANOMANDER_CURRENCY=GBP
 ```
+
+The prompt asks for amounts in the principal's currency, as the daemon's does: `ANOMANDER_CURRENCY`
+from `.env`, or `--currency`, euros when neither is set. A currency the daemon refuses stops the
+run before any call.
 
 Each model reads each receipt once, with the real provider, so a run costs one processor call
 per receipt and model. Provider credentials come from the environment, as for the daemon.
