@@ -49,6 +49,7 @@ On `main` since 0.1.0. The interface speaks English or Spanish, and the app runs
 
 ### Fixed
 
+- A "No" pressed after a "Sí" to forget a memory or erase the history that failed halfway no longer says nothing was forgotten: it says part already was and cannot be brought back (S-200, S-201). Erasing the history now erases the actions before the conversation, so such a failure is seen (B55).
 - "El lunes", "la semana pasada" and other weekdays: the text interpreter and the correction interpreter are told today's weekday in `TZ` beside the date, instead of leaving the model to work it out (B59).
 - The processor reads amounts in the configured currency: the text interpreter, the receipt reader and the correction interpreter no longer ask for euro cents when `ANOMANDER_CURRENCY` is another one, and the text interpreter's examples write it as the principal does (`23 US$`, `US$23`) (B73).
 - Several presses of "Añadir búsqueda web" during a daemon restart all wait for the new daemon; before, only one request was kept.

@@ -286,6 +286,17 @@ export const forgetMemoryAndItsTurns = (db: Database.Database, id: number): bool
 };
 
 /**
+ * B55: whether memory `id` was forgotten (`expired`), by a "Sí" that then failed halfway or by
+ * "Olvidar" in the app; a replaced one (`refuted`) was not.
+ */
+export const isForgottenMemory = (db: Database.Database, id: number): boolean =>
+  db
+    .prepare<[number]>(
+      "SELECT 1 FROM assertions WHERE id = ? AND predicate = 'memory' AND status = 'expired'",
+    )
+    .get(id) !== undefined;
+
+/**
  * R-23 AC6, AC7: forgets the given current memories. In one transaction each one's text and
  * quote are deleted from `memory_texts` (the triggers remove them from `memory_search`) and its
  * assertion becomes `expired`, the mark that something was remembered and forgotten. Then the

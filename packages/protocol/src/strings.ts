@@ -389,12 +389,18 @@ const es = {
     ),
   forgotten: () => 'Hecho, lo he olvidado.',
   notForgotten: () => 'Vale, no olvido nada.',
+  /** S-200 (B55): "No" after a "Sí" that failed once it had forgotten part of it. */
+  notForgottenAfterPart: () =>
+    'Vale, no olvido nada más, pero parte ya estaba olvidado y no puedo recuperarlo.',
   nothingToForget: () => 'No encuentro nada así en lo que recuerdo.',
   // DK-14 AC4: erasing the history of what ANOMANDER did, after "Sí".
   confirmForgetHistory: (count: number) =>
     `¿Borro el historial de lo que he hecho por ti? ${count === 1 ? 'Es 1 acción' : `Son ${count} acciones`} y no podré recuperarlas.`,
   historyForgotten: () => 'Hecho, he borrado mi historial.',
   historyNotForgotten: () => 'Vale, no borro nada.',
+  /** S-201 (B55): "No" after a "Sí" that failed once it had erased part of the history. */
+  historyNotForgottenAfterPart: () =>
+    'Vale, no borro nada más, pero parte ya estaba borrado y no puedo recuperarlo.',
   noHistory: () => 'No tengo nada en mi historial.',
   futureReceipt: (total: Amount, merchant: string, date: string) =>
     `${formatAmount(total)} en ${merchant}, con fecha ${formatDate(date)}, que aún no ha llegado. ¿Lo apunto así o corrijo la fecha?`,
@@ -667,11 +673,15 @@ const en: typeof es = {
     ),
   forgotten: () => "Done, I've forgotten it.",
   notForgotten: () => "OK, I won't forget anything.",
+  notForgottenAfterPart: () =>
+    "OK, I won't forget anything else, but part of it was already forgotten and I can't get it back.",
   nothingToForget: () => "I can't find anything like that in what I remember.",
   confirmForgetHistory: (count) =>
     `Shall I erase the history of what I've done for you? ${count === 1 ? "That's 1 action" : `That's ${count} actions`} and I won't be able to get them back.`,
   historyForgotten: () => "Done, I've erased my history.",
   historyNotForgotten: () => "OK, I won't erase anything.",
+  historyNotForgottenAfterPart: () =>
+    "OK, I won't erase anything else, but part of it was already erased and I can't get it back.",
   noHistory: () => "I don't have anything in my history.",
   futureReceipt: (total, merchant, date) =>
     `${formatAmount(total)} at ${merchant}, dated ${formatDate(date)}, which hasn't come yet. Shall I log it like that or correct the date?`,
