@@ -122,8 +122,11 @@ describe('the daily backup', () => {
       now = new Date(`2026-11-${day}T03:00:00.000Z`);
       await backup.run();
       real.push(`anomander.db.backup-daily-202611${day}T030000Z`);
-      // The first real copy deletes every future one; every real copy taken so far is kept.
-      expect(dailyCopies()).toEqual(real);
+      // Every real copy taken so far is kept. The first one sees only copies stamped ahead, so only
+      // the usual one of them goes; the second, beside a real copy, deletes all of them.
+      expect(dailyCopies().filter((name) => !ahead.includes(name))).toEqual(real);
+      if (day === 24) expect(dailyCopies()).toEqual([...real, ...ahead.slice(1)]);
+      else expect(dailyCopies()).toEqual(real);
     }
 
     expect(dailyCopies()).toEqual(real);

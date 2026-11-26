@@ -91,10 +91,13 @@ const writeBackup = (
 };
 
 // Only files named exactly as backups of this database are ever deleted, and never `written`, the
-// one just made. Every copy stamped after `now`, by a clock that was once ahead, is deleted (B52):
-// the copy just written holds newer data, and kept, it would one day stand for the day of its
-// stamp. Of the others, all but the `keep - 1` newest are deleted. A failure to delete an old
-// backup does not stop the start.
+// one just made. B52: a copy stamped after `now` was left by a clock that was once ahead, unless
+// the clock is now behind. While another copy is stamped at or before `now`, the clock agrees with
+// that history: every copy stamped ahead is deleted, since the copy just written holds newer data
+// and, kept, it would one day stand for the day of its stamp; of the others, all but the
+// `keep - 1` newest go. When every other copy is ahead, the clock may be the one that is wrong:
+// only the usual number goes, the oldest-stamped first, so a clock behind never wipes the history.
+// A failure to delete an old backup does not stop the start.
 const prune = (
   folder: string,
   pattern: RegExp,
@@ -102,6 +105,8 @@ const prune = (
   written: string,
   now: string,
 ): void => {
+  const byStamp = (a: Stamped, b: Stamped): number =>
+    a.at === b.at ? a.n - b.n : a.at < b.at ? -1 : 1;
   const found = readdirSync(folder)
     .map((name) => ({ name, match: pattern.exec(name) }))
     .filter((entry) => entry.match !== null && entry.name !== written)
@@ -110,11 +115,13 @@ const prune = (
       at: match?.[1] ?? '',
       n: Number(match?.[2] ?? 0),
     }));
-  const ahead = found.filter((entry) => entry.at > now);
-  const past = found
-    .filter((entry) => entry.at <= now)
-    .sort((a, b) => (a.at === b.at ? a.n - b.n : a.at < b.at ? -1 : 1));
-  for (const { name } of [...ahead, ...past.slice(0, Math.max(0, past.length - (keep - 1)))]) {
+  const ahead = found.filter((entry) => entry.at > now).sort(byStamp);
+  const past = found.filter((entry) => entry.at <= now).sort(byStamp);
+  const doomed =
+    past.length > 0
+      ? [...ahead, ...past.slice(0, Math.max(0, past.length - (keep - 1)))]
+      : ahead.slice(0, Math.max(0, ahead.length - (keep - 1)));
+  for (const { name } of doomed) {
     try {
       rmSync(join(folder, name), { force: true });
     } catch {
@@ -122,3 +129,8 @@ const prune = (
     }
   }
 };
+
+interface Stamped {
+  at: string;
+  n: number;
+}

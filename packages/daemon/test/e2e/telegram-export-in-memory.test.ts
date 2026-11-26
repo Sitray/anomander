@@ -24,7 +24,10 @@ let logger: { info: Mock<Log>; warn: Mock<Log>; error: Mock<Log> };
 
 beforeEach(async () => {
   scratch = mkdtempSync(join(tmpdir(), 'anomander-e2e-export-memory-'));
-  // The daemon is started from `scratch`: whatever lands in "the current folder" lands there.
+  // The daemon is started from `scratch`: whatever lands in "the current folder" lands there. The
+  // change of folder stays: the daemon lock of an in-memory store is `:memory:.lock` in the current
+  // folder (a known follow-up), which would otherwise land in the repository. Vitest runs test files
+  // in child processes (`forks`), where `process.chdir` works and is undone in `afterEach`.
   startedIn = process.cwd();
   process.chdir(scratch);
   api = await startFakeTelegramApi();

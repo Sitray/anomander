@@ -43,12 +43,32 @@ afterEach(() => {
 });
 
 describe('B52 prune probes', () => {
-  it('all copies in the future: deletes every one of them and keeps the one just written', () => {
+  it('all copies in the future: keeps the one just written and 6 others, deletes the oldest-stamped', () => {
+    // With no copy at or before `now`, the clock may be the one that is wrong: only the usual
+    // number of copies goes.
     const future = [1, 2, 3, 4, 5, 6, 7, 8].map((d) => daily(day(d)));
     put(...future);
     const written = backupDatabaseDaily(db, NOW);
     const left = files().filter((n) => n.includes('backup-daily'));
-    expect(left).toEqual([written.split('/').pop()]);
+    expect(left).toEqual([...future.slice(2), written.split('/').pop()].sort());
+  });
+
+  it('clock behind: 7 real daily copies all stamped after now keep 6 of them beside the new one', () => {
+    // The host booted to an old date: a week of real copies looks ahead of `now`.
+    const real = [1, 2, 3, 4, 5, 6, 7].map((d) => daily(day(d)));
+    put(...real);
+    const written = backupDatabaseDaily(db, NOW);
+    const left = files().filter((n) => n.includes('backup-daily'));
+    expect(left).toEqual([...real.slice(1), written.split('/').pop()].sort());
+  });
+
+  it('clock behind: the 3 pre-migration copies all stamped after now keep 2 beside the new one', () => {
+    const real = [mig(1, day(1)), mig(2, day(2)), mig(3, day(3))];
+    put(...real);
+    const written = backupDatabase(db, 4, NOW);
+    expect(files().filter((n) => /backup-v\d/.test(n))).toEqual(
+      [...real.slice(1), written.split('/').pop()].sort(),
+    );
   });
 
   it('never deletes a real copy while a future one remains', () => {
@@ -138,11 +158,20 @@ describe('B52 hasDailyBackupOn probes', () => {
     const today = files().filter((n) =>
       n.startsWith(`anomander.db.backup-daily-${day(0).slice(0, 8)}`),
     );
-    // The real copy replaces the one stamped ahead.
-    expect(today).toEqual([daily(day(0))]);
+    // The copy stamped ahead was the only other one, so nothing showed the clock was right: kept.
+    expect(today).toEqual([daily(day(0)), daily(day(0, '120000'))]);
     at = new Date(NOW.getTime() + 3_600_000);
     await backup.run();
-    expect(files().filter((n) => n.includes('backup-daily'))).toEqual([daily(day(0))]);
+    expect(files().filter((n) => n.includes('backup-daily'))).toHaveLength(2);
+    // By the next day its stamp has passed: it is an ordinary older copy of a day that already
+    // has its real one, kept by the usual rule.
+    at = new Date(NOW.getTime() + 86_400_000);
+    await backup.run();
+    expect(files().filter((n) => n.includes('backup-daily'))).toEqual([
+      daily(day(0)),
+      daily(day(0, '120000')),
+      daily(day(1)),
+    ]);
   });
 
   it('a future copy never outlives its stamp to stand for that day', async () => {
@@ -165,18 +194,17 @@ describe('B52 hasDailyBackupOn probes', () => {
 });
 
 describe('B52 export probes', () => {
-  it('refuses an in-memory store and writes nothing in cwd', () => {
-    const cwd = process.cwd();
-    process.chdir(scratch);
+  it('refuses an in-memory store and writes nothing in the folder it is given', () => {
+    // `/exportar` passes `dirname(':memory:')`, the current folder; the refusal comes before the
+    // folder is used, so any folder proves it, without changing the process's current folder.
+    const mem = openDatabase(':memory:');
+    applyMigrations(mem);
     try {
-      const mem = openDatabase(':memory:');
-      applyMigrations(mem);
       const before = files();
-      expect(() => exportLedger(mem, '.', NOW)).toThrow(InMemoryStoreError);
+      expect(() => exportLedger(mem, scratch, NOW)).toThrow(InMemoryStoreError);
       expect(files()).toEqual(before);
-      mem.close();
     } finally {
-      process.chdir(cwd);
+      mem.close();
     }
   });
 

@@ -865,11 +865,13 @@ database that records a version this build does not know is refused, with both v
 the error, and left untouched. When migrations are pending on a database that already holds some, it
 is first copied with `VACUUM INTO` beside its file as `<db>.backup-v<from>-<yyyymmddThhmmssZ>` (UTC,
 mode 600; `src/store/backup.ts`); the three newest such files are kept and older ones deleted. Each
-new copy, daily ones included, also deletes every copy stamped after the current time, left by a
-clock that was once ahead (B52): the new copy holds newer data, and kept, such a copy would one day
-stand for the day of its stamp. A fresh database gets no copy, and a copy that cannot be written
-stops the start with nothing applied. To go back, stop the daemon and put a backup in place of the
-database file, removing its `-wal` and `-shm`.
+new copy, daily ones included, also deletes every copy of its kind stamped after the current time,
+left by a clock that was once ahead, as long as another copy of that kind is stamped at or before it
+(B52): the new copy holds newer data, and kept, such a copy would one day stand for the day of its
+stamp. When every other copy is stamped ahead, the clock may be the one that is behind, so only the
+usual number goes, the oldest-stamped first, and the history survives. A fresh database gets no
+copy, and a copy that cannot be written stops the start with nothing applied. To go back, stop the
+daemon and put a backup in place of the database file, removing its `-wal` and `-shm`.
 
 The daily backup (B5, `src/backup/daily-backup.ts`) runs right after each retention run, so at
 startup and at `ANOMANDER_RETENTION_CRON`: it copies the database the same way as
