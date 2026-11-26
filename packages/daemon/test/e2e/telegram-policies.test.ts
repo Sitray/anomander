@@ -440,6 +440,77 @@ describe('patterns noticed by code (R-13 AC2)', () => {
     expect(policies()).toEqual([]);
   });
 
+  // B79, R-7 AC9 with R-13 AC2: a correction that completes a pattern gets its "Deshacer" and,
+  // once its reply is delivered, S-12 as its own message. "Deshacer" works as under any
+  // correction; S-12 is a decision of its own, so it stays open and its "Sí" stores the policy.
+  it('a correction that completes a pattern carries "Deshacer" and is followed by S-12; both work', async () => {
+    await spendTimes(spend('Mercadona', 'declared'), 2);
+    await spendTimes(spend('Mercadona', 'inferred'), 1);
+    expect(query(`SELECT id FROM pending_decisions WHERE ${ASKED}`)).toEqual([]);
+    const correction = 'no, es supermercado';
+    interpretations.set(
+      correction,
+      answering({
+        kind: 'expense_correct',
+        expense_id: 3,
+        inferences: [
+          {
+            subject_type: 'expense',
+            subject_id: null,
+            predicate: 'category',
+            value_json: 'supermercado',
+            mode: 'inferred',
+            basis_json: { quote: 'supermercado' },
+            confidence: 0.9,
+          },
+        ],
+      }),
+    );
+
+    const [corrected, offer] = await say(correction, 2);
+    const offerId = await shownDecision();
+
+    expect(corrected?.text).toBe(S1.replace('Apuntado', 'Corregido'));
+    const [undo] = query<{ id: number }>(
+      `SELECT d.id FROM pending_decisions d JOIN proposals p ON p.id = d.proposal_id
+       WHERE json_extract(p.payload_json, '$.restore') IS NOT NULL`,
+    );
+    if (undo === undefined || corrected === undefined || offer === undefined) {
+      throw new Error('no correction reply or offer');
+    }
+    expect(corrected.payload.reply_markup).toEqual({
+      inline_keyboard: [[{ text: 'Deshacer', callback_data: `decision:${undo.id}:0` }]],
+    });
+    expect(offer.text).toBe(S12);
+    expect(offer.payload.reply_markup).toEqual(yesNo(offerId));
+    expect(query('SELECT category_basis FROM expenses WHERE id = 3')).toEqual([
+      { category_basis: 'declared' },
+    ]);
+
+    const undone = await press(corrected, `decision:${undo.id}:0`);
+
+    expect(undone?.text).toBe(S1.replace('Apuntado:', 'Deshecho: vuelve a ser'));
+    expect(query('SELECT category_basis, status FROM expenses WHERE id = 3')).toEqual([
+      { category_basis: 'inferred', status: 'current' },
+    ]);
+    // S-12 is not closed by the "Deshacer": it never becomes a policy without the "Sí" (AC2).
+    expect(query(`SELECT status FROM pending_decisions WHERE id = ${offerId}`)).toEqual([
+      { status: 'open' },
+    ]);
+    expect(policies()).toEqual([]);
+
+    const saved = await press(offer, `decision:${offerId}:0`);
+
+    expect(saved?.text).toBe(SAVED);
+    expect(policies()).toEqual([
+      {
+        rule_json: JSON.stringify({ merchant: 'Mercadona', category: 'supermercado' }),
+        active: 1,
+        revoked_at: null,
+      },
+    ]);
+  });
+
   it('a merchant with a policy, or a category only inferred, is not offered', async () => {
     addPolicy('Lidl', 'supermercado');
 
