@@ -1,7 +1,7 @@
-import { isCalendarDate, validateProcessorOutput } from '@anomander/core';
+import { isCalendarDate, validateProcessorOutput, weekdayOf } from '@anomander/core';
 import type { AssistantMessage, Context, ImageContent } from '@earendil-works/pi-ai';
 import { z } from 'zod';
-import { centsName } from './currency.ts';
+import { centsName, minorUnit } from './currency.ts';
 import type {
   Complete,
   Inferred,
@@ -39,7 +39,7 @@ Predicates:
 - "merchant": the business name printed on the receipt. Exactly one.
 - "occurred_on": the purchase date as YYYY-MM-DD. Exactly one.
 - "total": the total paid, as an integer number of ${centsName()} ("23,40" is 2340). Exactly one.
-- "line": one per product line, in printed order, with value {"name":"<as printed>","quantity":<number>,"amount_cents":<integer cents of the whole line>}.
+- "line": one per product line, in printed order, with value {"name":"<as printed>","quantity":<number>,"amount_cents":<integer ${minorUnit()} of the whole line>}.
 - "category": one of the names in the "categories" field that fits the expense, only if one fits.
 - "declared_category": a category the user named in the "caption" field, written as the user wrote it.
 - "declared_merchant": a merchant the user named in the "caption" field, written as the user wrote it.
@@ -48,7 +48,7 @@ Copy the numbers as printed; never correct them so that the lines add up.
 If the images are not a receipt, or you cannot read its merchant, date, total and lines, reply:
 {"kind":"unreadable"}
 
-The user turn is a JSON object with the fields "today", "categories" and "caption", followed by the images.`;
+The user turn is a JSON object with the fields "today", "weekday" (the day of the week of "today"), "categories" and "caption", followed by the images.`;
 
 const nonEmpty = z.string().trim().min(1);
 const valueSchemas = {
@@ -176,7 +176,10 @@ export const createPiAiReceiptReader =
         {
           role: 'user',
           content: [
-            { type: 'text', text: JSON.stringify({ today, categories, caption }) },
+            {
+              type: 'text',
+              text: JSON.stringify({ today, weekday: weekdayOf(today), categories, caption }),
+            },
             ...imageBlocks,
           ],
           timestamp: Date.now(),
