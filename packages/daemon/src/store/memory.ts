@@ -120,27 +120,58 @@ export const isExactly = (phrase: string): ((text: string) => boolean) => {
  * accents; a matched message takes its turn with it. The rest of the conversation stays. With
  * `mentioned` (DK-18 AC4), a text or quote of fewer than `MENTION_MIN_WORDS` words takes only a
  * principal's own message that is exactly it. In the caller's transaction; the caller
- * checkpoints the WAL after it.
+ * checkpoints the WAL after it. Returns how to tell a message that holds those words.
  */
-const eraseReplacedText = (db: Database.Database, id: number, mentioned = false): void => {
+const eraseReplacedText = (db: Database.Database, id: number, mentioned = false): TurnHolds => {
   const row = db
     .prepare<[number], { text: string; quote: string }>(
       'SELECT text, quote FROM memory_texts WHERE assertion_id = ?',
     )
     .get(id);
+  let holds: TurnHolds = () => false;
   if (row !== undefined) {
     const saysText = mentioned ? saysPhrase(row.text) : saysWords(row.text);
     const saysQuote = mentioned ? saysPhrase(row.quote) : saysWords(row.quote);
     const isText = isExactly(row.text);
     const isQuote = isExactly(row.quote);
-    forgetTurnsHolding(db, ({ from, text }) => {
+    holds = ({ from, text }) => {
       const own = from === 'principal' && !isMarkerLine(text);
       const byText = saysText === null ? own && isText(text) : saysText(text);
       const byQuote = own && (saysQuote === null ? isQuote(text) : saysQuote(text));
       return byText || byQuote;
-    });
+    };
+    forgetTurnsHolding(db, holds);
   }
   db.prepare('DELETE FROM memory_texts WHERE assertion_id = ?').run(id);
+  return holds;
+};
+
+/** Whether a message of the stored conversation holds a replaced memory's words. */
+type TurnHolds = (message: { from: 'principal' | 'anomander'; text: string }) => boolean;
+
+/**
+ * B55 (R-23 AC3): per database, how to tell the turns of the memories replaced since the last
+ * principal's turn was stored. The message that replaces a memory is stored after it, with the
+ * reply it got (`recentTurns.add`), so the erase above cannot find it; that turn asks here. It
+ * lives only in this process, until that turn is stored.
+ */
+const replacedSinceLastTurn = new WeakMap<Database.Database, TurnHolds[]>();
+
+/**
+ * B55: whether the turn about to be stored, the principal's `message` and its `reply`, says a
+ * memory replaced while it was answered, so it is not stored. It forgets those memories' words.
+ */
+export const turnSaysReplacedMemory = (
+  db: Database.Database,
+  message: string,
+  reply: string,
+): boolean => {
+  const replaced = replacedSinceLastTurn.get(db) ?? [];
+  replacedSinceLastTurn.delete(db);
+  return replaced.some(
+    (holds) =>
+      holds({ from: 'principal', text: message }) || holds({ from: 'anomander', text: reply }),
+  );
 };
 
 const isCurrentMemory = (db: Database.Database, id: number): boolean =>
@@ -159,7 +190,7 @@ const isCurrentMemory = (db: Database.Database, id: number): boolean =>
  * new memory's id.
  */
 export const saveMemory = (db: Database.Database, capture: MemoryCapture): number => {
-  const { id, replaced } = db.transaction(() => {
+  const { id, replaced, holds } = db.transaction(() => {
     const declared = capture.said && quotedFrom(capture.quote, capture.message);
     const replaced =
       capture.replaces !== null && isCurrentMemory(db, capture.replaces) ? capture.replaces : null;
@@ -188,12 +219,16 @@ export const saveMemory = (db: Database.Database, capture: MemoryCapture): numbe
       capture.text,
       capture.quote,
     );
+    let holds: TurnHolds | null = null;
     if (replaced !== null) {
       db.prepare("UPDATE assertions SET status = 'refuted' WHERE id = ?").run(replaced);
-      eraseReplacedText(db, replaced);
+      holds = eraseReplacedText(db, replaced);
     }
-    return { id, replaced };
+    return { id, replaced, holds };
   })();
+  if (holds !== null) {
+    replacedSinceLastTurn.set(db, [...(replacedSinceLastTurn.get(db) ?? []), holds]);
+  }
   // The checkpoint cannot run inside the transaction (see forgetMemories).
   if (replaced !== null) db.pragma('wal_checkpoint(TRUNCATE)');
   return id;

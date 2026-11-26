@@ -8,13 +8,14 @@ import {
   forgetConversation,
   recordMessages,
 } from '../store/conversation.ts';
+import { turnSaysReplacedMemory } from '../store/memory.ts';
 
 // PRD R-16 AC3: the recent turns of the conversation, so the interpreter understands "ese" or
 // "lo de antes". DK-16: every turn is kept in the local database as the stored conversation, so
 // the app shows it again and the turns survive a restart; the interpreter still gets only the
 // latest ones. They are never logged, and are erased on "Borrar conversación", on a confirmed
 // forget and after 90 days; a replaced memory takes the turns that hold its words with it
-// (R-23 AC3).
+// (R-23 AC3), the turn that replaced it included (B55).
 
 export const RECENT_TURN_LIMIT = 10;
 export const RECENT_TURN_MAX_AGE_MS = 30 * 60 * 1000;
@@ -70,6 +71,9 @@ export interface RecentTurnsDeps {
 
 export const createRecentTurns = ({ db, now, logger }: RecentTurnsDeps): RecentTurns => ({
   add: (principal, reply, door, channelRef) => {
+    // B55 (R-23 AC3): the turn that replaced a memory and holds its old words goes as the older
+    // turns that held them went: it is never stored.
+    if (principal !== null && turnSaysReplacedMemory(db, principal, reply.text)) return reply;
     const at = now().toISOString();
     const said: ConversationMessage = {
       from: 'anomander',

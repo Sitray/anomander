@@ -49,6 +49,7 @@ On `main` since 0.1.0. The interface speaks English or Spanish, and the app runs
 
 ### Fixed
 
+- The message that replaces a memory ("ya no vivo en …") is no longer stored when it, or its reply, holds the old fact's words: it goes as the earlier turns that held them do (R-23 AC3, B55).
 - What a task with connections asked in Telegram came to is stored in the conversation only once Telegram delivered it, as it was sent (cut to one message); a send that fails stores nothing, as for a message sent unasked (B55).
 - A "No" pressed after a "Sí" to forget a memory or erase the history that failed halfway no longer says nothing was forgotten: it says part already was and cannot be brought back (S-200, S-201). Erasing the history now erases the actions before the conversation, so such a failure is seen (B55).
 - "El lunes", "la semana pasada" and other weekdays: the text interpreter and the correction interpreter are told today's weekday in `TZ` beside the date, instead of leaving the model to work it out (B59).

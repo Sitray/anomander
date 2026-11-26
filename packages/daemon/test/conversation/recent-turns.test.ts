@@ -8,6 +8,7 @@ import {
 } from '../../src/conversation/recent-turns.ts';
 import { storedConversation } from '../../src/store/conversation.ts';
 import { applyMigrations, openDatabase } from '../../src/store/database.ts';
+import { saveMemory } from '../../src/store/memory.ts';
 
 // PRD R-16 AC3: the interpreter sees the last 10 turns, none older than 30 minutes. DK-16: they
 // are read from the conversation kept in the local database, so they survive a restart.
@@ -274,5 +275,60 @@ describe('recent turns', () => {
     expect(turns.recent()).toEqual([]);
     expect(JSON.stringify(logger.error.mock.calls)).not.toContain('secreto');
     expect(logger.error).toHaveBeenCalled();
+  });
+});
+
+// B55 (R-23 AC3): the message that replaces a memory is answered, and so stored, after the
+// memory is saved; when it holds the old fact's words, its turn goes as the older ones do.
+describe('the turn that replaces a memory', () => {
+  const remember = (text: string, quote: string, message: string, replaces: number | null) =>
+    saveMemory(db, {
+      text,
+      quote,
+      said: true,
+      confidence: 1,
+      message,
+      source: 'app:1',
+      replaces,
+      receivedAt: AT.toISOString(),
+      now: AT.toISOString(),
+    });
+  const texts = () => stored().map(({ text }) => text);
+
+  it('B55: is not stored when it holds the old quote', () => {
+    const turns = createRecentTurns({ db, now: () => AT, logger });
+    const old = remember('Vive en Zorbtown', 'vivo en Zorbtown', 'vivo en Zorbtown', null);
+    turns.add('vivo en Zorbtown', { text: 'Tomo nota.' }, 'app');
+    const saying = 'ya no vivo en Zorbtown, ahora vivo en Lisboa';
+    remember('Vive en Lisboa', 'ahora vivo en Lisboa', saying, old);
+
+    const reply = turns.add(saying, { text: 'Tomo nota de que vives en Lisboa.' }, 'app');
+
+    expect(reply).toEqual({ text: 'Tomo nota de que vives en Lisboa.' });
+    expect(texts()).toEqual([]);
+    expect(turns.recent()).toEqual([]);
+    // The next turn is stored as ever.
+    turns.add('23 € cena', { text: 'Apuntado.' }, 'app');
+    expect(texts()).toEqual(['23 € cena', 'Apuntado.']);
+  });
+
+  it('B55: is not stored when its reply holds the old text', () => {
+    const turns = createRecentTurns({ db, now: () => AT, logger });
+    const old = remember('Vive en Zorbtown', 'vivo en Zorbtown', 'vivo en Zorbtown', null);
+    remember('Vive en Lisboa', 'me mudé a Lisboa', 'me mudé a Lisboa', old);
+
+    turns.add('me mudé a Lisboa', { text: 'Ya no vive en Zorbtown: anotado.' }, 'app');
+
+    expect(texts()).toEqual([]);
+  });
+
+  it('is stored when it does not hold the old words', () => {
+    const turns = createRecentTurns({ db, now: () => AT, logger });
+    const old = remember('Vive en Zorbtown', 'vivo en Zorbtown', 'vivo en Zorbtown', null);
+    remember('Vive en Lisboa', 'me mudé a Lisboa', 'me mudé a Lisboa', old);
+
+    turns.add('me mudé a Lisboa', { text: 'Tomo nota.' }, 'app');
+
+    expect(texts()).toEqual(['me mudé a Lisboa', 'Tomo nota.']);
   });
 });
