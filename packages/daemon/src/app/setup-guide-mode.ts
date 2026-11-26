@@ -1,6 +1,7 @@
 import { type DoorReply, setLocale } from '@anomander/protocol';
 import { createTelegramLogin } from '../auth/telegram-login.ts';
 import type { Config } from '../config.ts';
+import { TAKEN_BY_LOGIN } from '../local-channel/server.ts';
 import type { Logger } from '../processor/ports.ts';
 import { probeWithoutModel } from '../setup/model-probe.ts';
 import { appSetupGuide, describeGap, type SetupGap, setupGuide } from '../setup/setup-guide.ts';
@@ -84,7 +85,8 @@ export const startSetupGuide = (config: Config, deps: SetupGuideDeps): Anomander
     config,
     {
       // R-17 AC7: a code pasted in the app's chat while a login waits goes to it, never stored.
-      onText: async (message) => (login?.takePasted(message.text) === true ? null : appGuide),
+      onText: async (message) =>
+        login?.takePasted(message.text) === true ? TAKEN_BY_LOGIN : appGuide,
       onReceipt: async () => appGuide,
       onButton: async () => appGuide,
       onScreen: async () => appGuide,

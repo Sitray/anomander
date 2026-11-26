@@ -306,6 +306,11 @@ export interface ChatReply {
 export interface ChatDone {
   type: 'done';
   inReplyTo: string;
+  /**
+   * B81 (DK-4 AC7, PRD R-27 AC3): only on a `text` a login waiting for a pasted code or address
+   * took. It is stored nowhere, so the window keeps none of its words either. Absent otherwise.
+   */
+  taken?: 'login';
 }
 
 /** A frame that is not a `ChatRequest`. Nothing was done with it. */

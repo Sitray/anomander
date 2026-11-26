@@ -319,9 +319,9 @@ export const reduceConversation = (
       const settled = mapped((message) =>
         settle(message, action.requestId, deliveryOf(action.outcome)),
       );
-      // B55 (PRD R-27 AC3): a text the daemon handled with no reply is one a login that waited
-      // took; it is stored nowhere, so the window keeps none of its words either.
-      if (action.outcome.type === 'done') {
+      // B55, B81 (PRD R-27 AC3): a text the daemon says a waiting login took is stored nowhere,
+      // so the window keeps none of its words either. Any other `done` keeps them.
+      if (action.outcome.type === 'done' && action.outcome.taken === 'login') {
         return {
           ...settled,
           messages: settled.messages.map((message) =>

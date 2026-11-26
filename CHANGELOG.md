@@ -50,6 +50,7 @@ On `main` since 0.1.0. The interface speaks English or Spanish, and the app runs
 
 ### Fixed
 
+- The app's chat masks a pasted login code only when the daemon says a login took it: the local channel's `done` carries `taken: 'login'` for that text alone, instead of the window reading any `done` with no reply as a login code (DK-4 AC7, B81).
 - A "No" to forget a memory or erase the history says part was already erased (S-200, S-201) only when a "Sí" to that same question ran and failed halfway; a memory or action erased from "Memoria" in between gets the plain reply again. Each "Sí" is recorded as a failed action of its proposal before it erases, and becomes executed once answered (B81).
 - The old words of a replaced memory are matched only against the turn that replaced it: a turn of the other door stored meanwhile no longer takes them, leaving the replacing turn stored with them, and a turn that failed after the replacement no longer leaves them to drop a later, unrelated turn (R-23 AC3, B81).
 - What a task with connections asked in Telegram came to is no longer stored when "Borrar conversación", a confirmed forget or any other erase of the conversation came after its turn and before Telegram delivered it (B81).

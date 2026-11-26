@@ -96,10 +96,11 @@ and keep its secrets in the operating system instead of a text file.
     The app has its own place for the same logins, the Suscripciones screen (DK-15); the chat
     does not offer them. While a login started in Telegram waits for a pasted code or address,
     the next text sent in the app's chat goes to it, as in Telegram (R-17 AC7): it is answered
-    `done` and is never stored, logged, a recent turn or sent to the model. As the bot deletes it
-    in Telegram, the chat then shows "Código de acceso (oculto)" in its place and keeps none of
-    its words, in the window or anywhere a reload reads (B55): a text answered `done` is one a
-    login took.
+    `done` with `taken: 'login'` and is never stored, logged, a recent turn or sent to the model.
+    As the bot deletes it in Telegram, the chat then shows "Código de acceso (oculto)" in its
+    place and keeps none of its words, in the window or anywhere a reload reads (B55). Only that
+    signal, set by the daemon when a login took the text, masks it; any other `done` leaves the
+    text as typed (B81).
 - DK-5 Secrets in the Keychain.
   - AC1: the Telegram bot token (optional, AC4), the provider API keys and the subscription login are stored
     in the macOS Keychain, entered once in the app's setup screen. The login is made from

@@ -12,7 +12,7 @@ import type { Anomander, AnomanderDeps } from './app/types.ts';
 import { createTelegramLogin } from './auth/telegram-login.ts';
 import type { Config } from './config.ts';
 import { type AppNotices, recordingNotices } from './conversation/recent-turns.ts';
-import { NO_APP } from './local-channel/server.ts';
+import { NO_APP, TAKEN_BY_LOGIN } from './local-channel/server.ts';
 import type { ConnectedTool } from './processor/ports.ts';
 import { startReadApi } from './read-api/server.ts';
 import { cachedSetupGaps, type SetupGap } from './setup/setup-guide.ts';
@@ -250,7 +250,7 @@ export const startAnomander = <M>(config: Config, deps: AnomanderDeps<M>): Anoma
       // route: it is never stored, logged, a recent turn or sent to the model. `/login` and
       // `/logout` are not taken here: they stay in Telegram (DK-4 AC7).
       onText: async (message) =>
-        login?.takePasted(message.text) === true ? null : chat.onText(message),
+        login?.takePasted(message.text) === true ? TAKEN_BY_LOGIN : chat.onText(message),
       onButton: onButtonAt('app'),
     },
     views.conversation,

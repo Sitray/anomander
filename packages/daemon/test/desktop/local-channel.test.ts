@@ -1291,7 +1291,8 @@ describe('a text pasted in the app while a Telegram login waits (R-17 AC7, R-27 
 
     const answer = await chat.ask({ type: 'text', text: pasted });
 
-    expect(answer.type).toBe('done');
+    // B81 (DK-4 AC7): the daemon says the login took it, so the window masks it.
+    expect(answer).toEqual({ type: 'done', inReplyTo: expect.any(String), taken: 'login' });
     await vi.waitFor(() => expect(received).toBe(pasted));
     expect(interpreted).toEqual([]);
     expect(query('SELECT id FROM conversation')).toEqual([]);

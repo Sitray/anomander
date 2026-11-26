@@ -37,7 +37,8 @@ export type ConnectionState = 'offline' | 'connecting' | 'open';
  */
 export type Outcome =
   | { type: 'reply'; reply: ChatReply }
-  | { type: 'done' }
+  /** `taken`: B81 (DK-4 AC7), a text a waiting login took; absent for any other `done`. */
+  | { type: 'done'; taken?: 'login' }
   | { type: 'rejected' }
   | { type: 'unknown' };
 
@@ -497,7 +498,11 @@ export const createChatClient = (options: ChatClientOptions): ChatClient => {
       }
       settle(
         event.inReplyTo,
-        event.type === 'reply' ? { type: 'reply', reply: event } : { type: event.type },
+        event.type === 'reply'
+          ? { type: 'reply', reply: event }
+          : event.type === 'done' && event.taken === 'login'
+            ? { type: 'done', taken: 'login' }
+            : { type: event.type },
       );
     };
     opened.onclose = () => {

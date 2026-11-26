@@ -39,6 +39,14 @@ import { type ExpensesMonth, isMonth } from '../read-api/month.ts';
 // asks for the stored conversation of both doors besides (DK-16).
 // The daemon starts it only while `ANOMANDER_LOCAL_TOKEN` is set.
 
+/**
+ * B81 (DK-4 AC7): what `onText` answers when a login waiting for a pasted code or address took
+ * the text: `done` with `taken: 'login'`, so the window masks it.
+ */
+export const TAKEN_BY_LOGIN = Object.freeze({ taken: 'login' as const });
+export type TakenByLogin = typeof TAKEN_BY_LOGIN;
+const isTakenByLogin = (answered: unknown): answered is TakenByLogin => answered === TAKEN_BY_LOGIN;
+
 /** The daemon's handlers, the ones the Telegram front door calls too (DK-4 AC1). */
 export interface ChatHandlers {
   onText: (message: PrincipalText) => Promise<DoorReply | null>;
@@ -50,6 +58,14 @@ export interface ChatHandlers {
   onComputer: (request: ComputerRequest) => Promise<DoorReply | null>;
   /** DK-11: runs a task with the servers the principal connected. */
   onConnect: (request: ConnectRequest) => Promise<DoorReply | null>;
+}
+
+/**
+ * The handlers the app's chat reaches: those of `ChatHandlers`, its texts going first to a login
+ * that waits for a pasted code or address, which answers `TAKEN_BY_LOGIN` (R-17 AC7, B81).
+ */
+export interface ChannelHandlers extends Omit<ChatHandlers, 'onText'> {
+  onText: (message: PrincipalText) => Promise<DoorReply | TakenByLogin | null>;
 }
 
 /** DK-16: the conversation kept in the local database, from both doors. */
@@ -110,7 +126,7 @@ export interface LocalChannelDeps {
   token: string;
   /** `0` lets the system pick a free port, as tests do. */
   port: number;
-  handlers: ChatHandlers;
+  handlers: ChannelHandlers;
   conversation: StoredConversation;
   memory: StoredMemory;
   expenses: ExpensesLedger;
@@ -307,7 +323,9 @@ export const startLocalChannel = (deps: LocalChannelDeps): LocalChannel => {
       ? { type: 'memories', inReplyTo: request.id, memories: memory.memories() }
       : { type: 'actions', inReplyTo: request.id, actions: memory.actions() };
 
-  const answer = (request: Exclude<ChatRequest, Listing>): Promise<DoorReply | null> => {
+  const answer = (
+    request: Exclude<ChatRequest, Listing>,
+  ): Promise<DoorReply | TakenByLogin | null> => {
     const channelRef = `desktop:${randomUUID()}`;
     const at = now().toISOString();
     switch (request.type) {
@@ -413,7 +431,7 @@ export const startLocalChannel = (deps: LocalChannelDeps): LocalChannel => {
     socket: WebSocket,
     stoppable: Stoppable,
     request: Exclude<ChatRequest, Listing>,
-  ): Promise<DoorReply | null> => {
+  ): Promise<DoorReply | TakenByLogin | null> => {
     const controller = new AbortController();
     stoppable.set(request.id, controller);
     const report = (phase: ChatProgress['phase']) => {
@@ -441,7 +459,7 @@ export const startLocalChannel = (deps: LocalChannelDeps): LocalChannel => {
       await send(socket, { type: 'done', inReplyTo: request.id });
       return;
     }
-    let answered: DoorReply | ChatStoredMessage[] | ChatEvent | ChatProbe | null;
+    let answered: DoorReply | TakenByLogin | ChatStoredMessage[] | ChatEvent | ChatProbe | null;
     try {
       // DK-16 S4: the latest messages, oldest first. Their words are never logged.
       // DK-17: the month's expenses, never logged either.
@@ -466,6 +484,10 @@ export const startLocalChannel = (deps: LocalChannelDeps): LocalChannel => {
         error,
       });
       answered = failed();
+    }
+    if (isTakenByLogin(answered)) {
+      await send(socket, { type: 'done', inReplyTo: request.id, taken: 'login' });
+      return;
     }
     if (Array.isArray(answered)) {
       await send(socket, { type: 'history', inReplyTo: request.id, messages: answered });
