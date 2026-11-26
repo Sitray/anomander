@@ -853,14 +853,15 @@ database that records a version this build does not know is refused, with both v
 the error, and left untouched. When migrations are pending on a database that already holds some,
 it is first copied with `VACUUM INTO` beside its file as
 `<db>.backup-v<from>-<yyyymmddThhmmssZ>` (UTC, mode 600; `src/store/backup.ts`); the three newest
-such files are kept and older ones deleted. A fresh database gets no copy, and a copy that cannot
+such files are kept and older ones deleted. A copy stamped after the current time, left by a clock
+that was once ahead, is deleted before any real one (B52), daily copies included. A fresh database gets no copy, and a copy that cannot
 be written stops the start with nothing applied. To go back, stop the daemon and put a backup in
 place of the database file, removing its `-wal` and `-shm`.
 
 The daily backup (B5, `src/backup/daily-backup.ts`) runs right after each retention run, so at
 startup and at `ANOMANDER_RETENTION_CRON`: it copies the database the same way as
-`<db>.backup-daily-<yyyymmddThhmmssZ>`, unless a copy stamped on the same UTC day is already
-there, and keeps the seven newest daily copies; the copies taken before migrations are pruned
+`<db>.backup-daily-<yyyymmddThhmmssZ>`, unless a copy stamped on the same UTC day, and not after
+now, is already there, and keeps the seven newest daily copies; the copies taken before migrations are pruned
 apart. It runs in a `finally`, so also when retention failed; after a successful retention the
 copy holds nothing retention erased. What "Borrar conversación" or a confirmed forget erases stays
 in the older daily copies until seven newer ones replace them: seven days when the daemon runs

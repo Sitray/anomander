@@ -235,6 +235,24 @@ describe('upgrading an existing database', () => {
     expect(kept.filter((file) => file.startsWith('anomander.db.backup-v4-'))).toHaveLength(1);
   });
 
+  it('B52: deletes a backup stamped in the future before a real one', () => {
+    builtAt(4);
+    const real = [
+      'anomander.db.backup-v2-20200102T000000Z',
+      'anomander.db.backup-v3-20200103T000000Z',
+    ];
+    // A clock that was once ahead left this one.
+    const future = 'anomander.db.backup-v1-20300101T000000Z';
+    for (const file of [...real, future]) writeFileSync(join(scratch, file), 'x');
+
+    applyMigrations(open());
+
+    const kept = backups();
+    expect(kept).toHaveLength(3);
+    expect(kept.slice(0, 2)).toEqual(real);
+    expect(kept[2]).toMatch(/^anomander\.db\.backup-v4-/);
+  });
+
   // A read-only folder is POSIX: Windows ignores the read-only mark on a folder.
   it.skipIf(process.platform === 'win32')(
     'applies nothing when the backup cannot be written',
