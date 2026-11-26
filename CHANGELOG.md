@@ -76,6 +76,10 @@ On `main` since 0.1.0. The interface speaks English or Spanish, and the app runs
 - Gastos no longer drops an expense, or a whole month, whose currency the window's `Intl` does not know: the amount is shown with its ISO code (`12,30 XYZ`) (B78).
 - Several presses of "Añadir búsqueda web" during a daemon restart all wait for the new daemon; before, only one request was kept.
 - The check that a task comes from the message keeps English negations and contractions, and locale tags such as `es@euro` count as Spanish.
+- "Corregir" on a row of Gastos goes back to the chat because the daemon's reply says the next text is awaited (`awaitsText` on the local channel's reply), no longer because its words match S-7 (B63).
+- A row's "Corregir" in Gastos left 15 minutes without text no longer leaves its question open, unseen, for 7 days: it is closed, and the row's next press asks again. The question under a reply in the chat still opens again after 15 minutes, its buttons working (B63, PRD R-17 AC6).
+- The PRD now says that a row of Gastos corrects or undoes an expense of any age, also one older than the 7 days the buttons under its reply last, as the app already did (B63, DK-17 AC6).
+- A receipt registered without asking ("Deducido y comprobado") that you correct is now shown as "Lo confirmaste", since it rests on your word; "Deshacer" on that correction shows "Deducido y comprobado" again. Receipts corrected before this keep their label (B63, PRD R-7 AC6, AC9).
 
 ### Security
 

@@ -187,8 +187,8 @@ export interface ChatUndoExpense {
 
 /**
  * DK-17 AC6: "Corregir" on a row of "Gastos": the daemon answers as the chat's "Corregir" does
- * (R-7 AC6), so the principal's next text is the correction. Answered with a `ChatReply`: S-7, or
- * S-19 when the expense is no longer current.
+ * (R-7 AC6), so the principal's next text is the correction. Answered with a `ChatReply`: S-7 with
+ * `awaitsText`, or S-19 when the expense is no longer current.
  */
 export interface ChatCorrectExpense {
   type: 'correct_expense';
@@ -300,6 +300,11 @@ export interface ChatReply {
    * then sends the request again.
    */
   offer?: 'web_search';
+  /**
+   * R-7 AC1, AC6: the press this answers left a decision waiting for the principal's text, so
+   * their next text is its answer, written in the chat (DK-17 AC6); absent otherwise.
+   */
+  awaitsText?: true;
 }
 
 /** The request `inReplyTo` was handled and has no reply. */
