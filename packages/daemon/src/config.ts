@@ -221,6 +221,17 @@ const plainHttpOffHost = (input: Partial<Record<EnvKey, string>>): string | unde
 export const loadAuthPath = (env: Record<string, string | undefined>): string =>
   envSchema.shape.ANOMANDER_AUTH_PATH.parse(env.ANOMANDER_AUTH_PATH || undefined);
 
+/**
+ * `ANOMANDER_CURRENCY` alone, checked as `loadConfig` checks it: euros when unset or empty. The
+ * evaluations read amounts in the currency the app would (B78).
+ */
+export const loadCurrency = (env: Record<string, string | undefined>): string => {
+  const parsed = envSchema.shape.ANOMANDER_CURRENCY.safeParse(env.ANOMANDER_CURRENCY || undefined);
+  if (parsed.success) return parsed.data;
+  const reasons = parsed.error.issues.map(({ message }) => `ANOMANDER_CURRENCY ${message}`);
+  throw new Error(`invalid configuration: ${reasons.join('; ')}`);
+};
+
 /** Reads §14.4 from `env`. An empty value counts as unset, so its default applies. */
 export const loadConfig = (env: Record<string, string | undefined>): Config => {
   const keys = Object.keys(envSchema.shape) as EnvKey[];
