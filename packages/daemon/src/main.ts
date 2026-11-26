@@ -81,7 +81,7 @@ const withoutPaths = (error: unknown): string => {
   const message = reason(error);
   const syscall = (error as { syscall?: unknown } | null)?.syscall;
   if (typeof syscall !== 'string') return message;
-  const at = message.lastIndexOf(`, ${syscall} `);
+  const at = message.indexOf(`, ${syscall} `);
   return at === -1 ? message : message.slice(0, at);
 };
 
