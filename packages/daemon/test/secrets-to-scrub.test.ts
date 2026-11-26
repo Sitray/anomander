@@ -231,6 +231,80 @@ describe('the secrets the daemon gets after its start', () => {
     expect(log(`local ${LOCAL_TOKEN}`)).toBe('local [secret]');
   });
 
+  /** A refresh that failed as pi-ai reports it: its own error, the provider's as its cause. */
+  const failedRefresh = (cause: unknown) =>
+    Object.assign(new Error('OAuth refresh failed for openai-codex', { cause }), {
+      kind: 'oauth',
+    });
+
+  it('B51: include the tokens a failed refresh quotes in its cause, never stored', async () => {
+    const list = createSecretList();
+    const sink = { info: vi.fn(), warn: vi.fn(), error: vi.fn() };
+    const logger = createScrubbingLogger(sink, list.current);
+    const { credentials } = secretTellingStores(list, { authJson: '{}', authPath: '/nowhere' });
+    // As `openai-codex.js` words a token response it cannot use.
+    const body = { access_token: NEW_ACCESS, refresh_token: NEW_REFRESH, id_token: 'x' };
+    const error = failedRefresh(
+      new Error(`OpenAI Codex token refresh response missing fields: ${JSON.stringify(body)}`),
+    );
+
+    await expect(
+      credentials.modify('openai-codex', async () => {
+        throw error;
+      }),
+    ).rejects.toBe(error);
+    logger.error('the model call failed', { error });
+
+    const line = String(sink.error.mock.calls[0]?.[0]);
+    expect(line).toContain('OpenAI Codex token refresh response missing fields');
+    expect(line).not.toContain(NEW_ACCESS);
+    expect(line).not.toContain(NEW_REFRESH);
+    expect(await credentials.read('openai-codex')).toBeUndefined();
+  });
+
+  it('B51: include the tokens of a failed refresh whose cause holds them as fields', async () => {
+    const list = createSecretList();
+    const log = logOver(list);
+    const store = rememberingLogins(
+      createShellCredentialStore('{}', () => {}),
+      list.acquire,
+    );
+    const cause = Object.assign(new Error('token response rejected'), {
+      response: { tokens: { access: NEW_ACCESS, refresh: NEW_REFRESH } },
+    });
+
+    await expect(
+      store.modify('anthropic', async () => {
+        throw failedRefresh(cause);
+      }),
+    ).rejects.toThrow('OAuth refresh failed');
+
+    expect(log(`401 for ${NEW_ACCESS} then ${NEW_REFRESH}`)).toBe('401 for [secret] then [secret]');
+  });
+
+  it('keep what a failed refresh says visible when it quotes no token', async () => {
+    const list = createSecretList();
+    const log = logOver(list);
+    const store = rememberingLogins(
+      createShellCredentialStore('{}', () => {}),
+      list.acquire,
+    );
+    const error = failedRefresh(
+      new Error('invalid_grant: {"error":"invalid_grant","account":"account-0123456789"}'),
+    );
+
+    await expect(
+      store.modify('openai-codex', async () => {
+        throw error;
+      }),
+    ).rejects.toBe(error);
+
+    expect(list.current()).toEqual([]);
+    expect(log('invalid_grant for account-0123456789')).toBe(
+      'invalid_grant for account-0123456789',
+    );
+  });
+
   it('include a login another process wrote to the file after the start', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'anomander-late-login-'));
     try {
