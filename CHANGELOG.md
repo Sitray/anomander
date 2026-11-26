@@ -50,6 +50,7 @@ On `main` since 0.1.0. The interface speaks English or Spanish, and the app runs
 
 ### Fixed
 
+- What a task with connections asked in Telegram came to is no longer stored when "Borrar conversación", a confirmed forget or any other erase of the conversation came after its turn and before Telegram delivered it (B81).
 - **Backups stamped in the future**: a backup stamped after the current time, as a clock that was once ahead leaves them, no longer counts as the copy of its day, so the real day still gets its daily copy, and it is the first deleted when backups are pruned, so such copies never pile up; never more than the usual number of copies is deleted per backup taken, and the copy just taken never is. A copy stamped ahead that is still kept (fewer copies than the kept number, or others stamped ahead before it, for example when a daily run is missed) can still stand for its own day once that day arrives (B52).
 - **`/exportar` with an in-memory store**: with `ANOMANDER_DB_PATH=:memory:` there is no data folder, so `/exportar` writes nothing and replies S-80, instead of writing `exports/` into the folder the daemon was started from; the startup log no longer prints the database path (B52).
 - The daemon writes why it stops before it exits: a configuration error, a second daemon (`3`) or the `409 Conflict` of another bot reader (`4`) could lose its line on a macOS pipe. While it waits for that line, or for a crash's, it handles no new message, job or connection (B51).

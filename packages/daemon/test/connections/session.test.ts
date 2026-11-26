@@ -171,3 +171,73 @@ describe('connection session (DK-11)', () => {
     ]);
   });
 });
+
+// B81 (DK-16 AC5): the Telegram answer is stored after its turn, once delivered; an erase of the
+// conversation between that turn and the delivery leaves it erased.
+describe('connection session after an erase (B81)', () => {
+  const session = (
+    turns: ReturnType<typeof createRecentTurns>,
+    send: (m: DoorReply) => Promise<void>,
+  ) => {
+    const turnLock = lock();
+    return {
+      turnLock,
+      session: createConnectionSession({
+        tasks: answering('Mañana tienes dentista a las 10.'),
+        turnLock,
+        turns,
+        keep: () => {},
+        send,
+        logger,
+      }),
+    };
+  };
+
+  it('B81: in Telegram, an answer delivered after "Borrar conversación" is not stored', async () => {
+    const turns = createRecentTurns({ db, now: () => AT, logger });
+    turns.add('23 € cena', { text: 'Apuntado.' }, 'telegram');
+    const send = vi.fn(async (message: DoorReply) => {
+      // Erased while the answer is on its way.
+      turns.clear();
+      message.onDelivered?.({ channelRef: 'telegram:44', deliveredAt: AT.toISOString() });
+    });
+    const { session: running, turnLock } = session(turns, send);
+
+    running.run('qué tengo mañana', 'telegram');
+    await turnLock.settled();
+    await vi.waitFor(() => expect(send).toHaveBeenCalledTimes(1));
+    await new Promise((resolve) => setImmediate(resolve));
+
+    expect(stored()).toEqual([]);
+    expect(turns.recent()).toEqual([]);
+  });
+
+  it('in Telegram, an answer is still stored when the erase came before its turn', async () => {
+    const turns = createRecentTurns({ db, now: () => AT, logger });
+    turns.add('23 € cena', { text: 'Apuntado.' }, 'telegram');
+    turns.clear();
+    const send = vi.fn(async (message: DoorReply) => {
+      message.onDelivered?.({ channelRef: 'telegram:45', deliveredAt: AT.toISOString() });
+    });
+    const { session: running, turnLock } = session(turns, send);
+
+    running.run('qué tengo mañana', 'telegram');
+    await turnLock.settled();
+    await vi.waitFor(() => expect(stored()).toHaveLength(2));
+
+    expect(stored()).toEqual([
+      {
+        from: 'principal',
+        door: 'telegram',
+        text: '[conexiones] qué tengo mañana',
+        channelRef: null,
+      },
+      {
+        from: 'anomander',
+        door: 'telegram',
+        text: 'Mañana tienes dentista a las 10.',
+        channelRef: 'telegram:45',
+      },
+    ]);
+  });
+});

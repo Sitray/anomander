@@ -3,6 +3,7 @@ import type Database from 'better-sqlite3';
 import type { Logger } from '../processor/ports.ts';
 import {
   type ConversationMessage,
+  conversationErasures,
   conversationSince,
   deliveredAs,
   forgetConversation,
@@ -61,6 +62,13 @@ export interface RecentTurns {
    * to erase throws: the caller says it failed.
    */
   clear(): void;
+  /**
+   * B81: how many times the stored conversation was erased, whole ("Borrar conversación", a
+   * confirmed forget) or in part (a replaced or forgotten memory). A turn stored once its reply
+   * was delivered, after its own turn, reads it in that turn and is stored only if it did not
+   * change meanwhile.
+   */
+  erasures(): number;
 }
 
 export interface RecentTurnsDeps {
@@ -133,6 +141,7 @@ export const createRecentTurns = ({ db, now, logger }: RecentTurnsDeps): RecentT
   clear: () => {
     forgetConversation(db);
   },
+  erasures: () => conversationErasures(db),
 });
 
 /**

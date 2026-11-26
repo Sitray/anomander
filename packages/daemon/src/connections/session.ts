@@ -45,7 +45,7 @@ export interface ConnectionSessionDeps {
   tasks: ConnectionTasks;
   turnLock: TurnLock;
   /** R-16 AC3: how a task ended is a recent turn. */
-  turns: Pick<RecentTurns, 'add'>;
+  turns: Pick<RecentTurns, 'add' | 'erasures'>;
   /** DK-14 AC2: keeps an action once it ended; never throws. */
   keep: (record: Omit<ActionRecord, 'endedAt'>) => void;
   /** Sends to Telegram: a task asked there is answered there, by itself. */
@@ -104,10 +104,14 @@ export const createConnectionSession = (deps: ConnectionSessionDeps): Connection
         if (current.door === 'app') return turns.add(principal, { text: outcome.text }, 'app');
         // B55 (DK-16 AC1): in Telegram it is sent by itself after the turn, so it is stored as a
         // message sent unasked is: once delivered, as it was sent; a failed send stores nothing.
+        // B81 (DK-16 AC5): an erase of the conversation after this turn, before the delivery,
+        // keeps it unstored, as it would have erased it had it been stored in the turn.
         const text = outcome.text.slice(0, TELEGRAM_MAX_TEXT);
+        const erasures = turns.erasures();
         return {
           text,
           onDelivered: (delivery) => {
+            if (turns.erasures() !== erasures) return;
             turns.add(principal, { text }, 'telegram', delivery.channelRef);
           },
         };
