@@ -1089,6 +1089,35 @@ describe('the memories and the history in the window (DK-18)', () => {
     expect(logged()).not.toContain('zorbmem');
   });
 
+  it('B81: a text that replaces a memory in its old words is not stored, through the chat', async () => {
+    const chat = await client(await start());
+    const old = remember('Vive en Zorbtown', 'vivo en Zorbtown', true);
+    routed = JSON.stringify({
+      kind: 'conversation',
+      reply: 'Tomo nota de que vives en Lisboa.',
+      memories: [
+        {
+          text: 'Vive en Lisboa',
+          quote: 'ahora vivo en Lisboa',
+          said: true,
+          confidence: 1,
+          replaces: old,
+        },
+      ],
+    });
+
+    const answer = reply(
+      await chat.ask({ type: 'text', text: 'ya no vivo en Zorbtown, ahora vivo en Lisboa' }),
+    );
+
+    expect(answer.text).toBe('Tomo nota de que vives en Lisboa.');
+    expect(conversation()).toEqual([]);
+    expect(onDisk('Zorbtown')).toEqual([]);
+    routed = undefined;
+    await chat.ask({ type: 'text', text: '23 € cena' });
+    expect(conversation()).toEqual(['23 € cena', PHRASED]);
+  });
+
   it('forget_memory of a memory no longer current erases nothing and answers done', async () => {
     const chat = await client(await start());
     await chat.ask({ type: 'text', text: '23 € cena' });

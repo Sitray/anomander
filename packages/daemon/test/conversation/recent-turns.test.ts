@@ -280,6 +280,7 @@ describe('recent turns', () => {
 
 // B55 (R-23 AC3): the message that replaces a memory is answered, and so stored, after the
 // memory is saved; when it holds the old fact's words, its turn goes as the older ones do.
+// B81: only that turn is matched against those words, the one whose handler replaced it.
 describe('the turn that replaces a memory', () => {
   const remember = (text: string, quote: string, message: string, replaces: number | null) =>
     saveMemory(db, {
@@ -294,15 +295,34 @@ describe('the turn that replaces a memory', () => {
       now: AT.toISOString(),
     });
   const texts = () => stored().map(({ text }) => text);
+  /** A text turn whose handler runs `answer`, as the chat records a principal's text. */
+  const textTurn = (
+    turns: ReturnType<typeof createRecentTurns>,
+    answer: (text: string) => Promise<{ text: string }>,
+  ) =>
+    recordingTurns(
+      turns,
+      (text: string) => text,
+      answer,
+      () => 'app',
+    );
+  /** A handler that replaces memory `old` with a new fact said in the message, and replies. */
+  const replacing =
+    (old: number, fact: string, quote: string, reply: string) => async (text: string) => {
+      remember(fact, quote, text, old);
+      return { text: reply };
+    };
 
-  it('B55: is not stored when it holds the old quote', () => {
+  it('B55: is not stored when it holds the old quote', async () => {
     const turns = createRecentTurns({ db, now: () => AT, logger });
     const old = remember('Vive en Zorbtown', 'vivo en Zorbtown', 'vivo en Zorbtown', null);
     turns.add('vivo en Zorbtown', { text: 'Tomo nota.' }, 'app');
     const saying = 'ya no vivo en Zorbtown, ahora vivo en Lisboa';
-    remember('Vive en Lisboa', 'ahora vivo en Lisboa', saying, old);
 
-    const reply = turns.add(saying, { text: 'Tomo nota de que vives en Lisboa.' }, 'app');
+    const reply = await textTurn(
+      turns,
+      replacing(old, 'Vive en Lisboa', 'ahora vivo en Lisboa', 'Tomo nota de que vives en Lisboa.'),
+    )(saying);
 
     expect(reply).toEqual({ text: 'Tomo nota de que vives en Lisboa.' });
     expect(texts()).toEqual([]);
@@ -312,23 +332,58 @@ describe('the turn that replaces a memory', () => {
     expect(texts()).toEqual(['23 € cena', 'Apuntado.']);
   });
 
-  it('B55: is not stored when its reply holds the old text', () => {
+  it('B55: is not stored when its reply holds the old text', async () => {
     const turns = createRecentTurns({ db, now: () => AT, logger });
     const old = remember('Vive en Zorbtown', 'vivo en Zorbtown', 'vivo en Zorbtown', null);
-    remember('Vive en Lisboa', 'me mudé a Lisboa', 'me mudé a Lisboa', old);
 
-    turns.add('me mudé a Lisboa', { text: 'Ya no vive en Zorbtown: anotado.' }, 'app');
+    await textTurn(
+      turns,
+      replacing(old, 'Vive en Lisboa', 'me mudé a Lisboa', 'Ya no vive en Zorbtown: anotado.'),
+    )('me mudé a Lisboa');
 
     expect(texts()).toEqual([]);
   });
 
-  it('is stored when it does not hold the old words', () => {
+  it('is stored when it does not hold the old words', async () => {
     const turns = createRecentTurns({ db, now: () => AT, logger });
     const old = remember('Vive en Zorbtown', 'vivo en Zorbtown', 'vivo en Zorbtown', null);
-    remember('Vive en Lisboa', 'me mudé a Lisboa', 'me mudé a Lisboa', old);
 
-    turns.add('me mudé a Lisboa', { text: 'Tomo nota.' }, 'app');
+    await textTurn(
+      turns,
+      replacing(old, 'Vive en Lisboa', 'me mudé a Lisboa', 'Tomo nota.'),
+    )('me mudé a Lisboa');
 
     expect(texts()).toEqual(['me mudé a Lisboa', 'Tomo nota.']);
+  });
+
+  it('B81: another turn stored while it is answered does not take its words with it', async () => {
+    const turns = createRecentTurns({ db, now: () => AT, logger });
+    const old = remember('Vive en Zorbtown', 'vivo en Zorbtown', 'vivo en Zorbtown', null);
+    const saying = 'ya no vivo en Zorbtown, ahora vivo en Lisboa';
+
+    await textTurn(turns, async (text) => {
+      remember('Vive en Lisboa', 'ahora vivo en Lisboa', text, old);
+      // A Telegram answer delivered meanwhile is stored outside this turn.
+      turns.add('[conexiones] qué tengo mañana', { text: 'Dentista a las 10.' }, 'telegram');
+      return { text: 'Tomo nota.' };
+    })(saying);
+
+    expect(texts()).toEqual(['[conexiones] qué tengo mañana', 'Dentista a las 10.']);
+  });
+
+  it('B81: a turn that failed after replacing a memory leaves no words to drop a later turn', async () => {
+    const turns = createRecentTurns({ db, now: () => AT, logger });
+    const old = remember('Vive en Zorbtown', 'vivo en Zorbtown', 'vivo en Zorbtown', null);
+
+    await expect(
+      textTurn(turns, async (text) => {
+        remember('Vive en Lisboa', 'me mudé a Lisboa', text, old);
+        throw new Error('the phraser failed');
+      })('me mudé a Lisboa'),
+    ).rejects.toThrow('the phraser failed');
+    // Later, they move back: a new fact, said in its own turn.
+    turns.add('vivo en Zorbtown otra vez', { text: 'Tomo nota.' }, 'app');
+
+    expect(texts()).toEqual(['vivo en Zorbtown otra vez', 'Tomo nota.']);
   });
 });
