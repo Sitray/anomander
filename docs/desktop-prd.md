@@ -880,7 +880,8 @@ and keep its secrets in the operating system instead of a text file.
     converted.
   - AC3: every amount said about an expense (S-1 to S-8, S-100 to S-102, the receipt questions,
     the Gastos screen) is in its own currency, in the language's format: `12,30 €`, `12,30 US$`;
-    `€12.30`, `US$12.30` in English. One formatter in `packages/protocol` says them all.
+    `€12.30`, `US$12.30` in English. One formatter in `packages/protocol` says them all. A code
+    the window's `Intl` does not know is still shown, with the code (`12,30 XYZ`) (B78).
   - AC4: a sum never adds two currencies. When the expenses of a total or of a `{desglose}` line
     (S-9, S-90, S-91, the Gastos screen's total and pending) hold more than one currency, it is
     said per currency, the principal's first and then by code: `45,20 € y 12,00 US$`. With one

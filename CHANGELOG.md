@@ -56,6 +56,7 @@ On `main` since 0.1.0. The interface speaks English or Spanish, and the app runs
 - The weekly summary no longer shows `0,00 US$` for an empty category beside a week of euros after the currency changed: an empty category is zero in the currency of the week's total, or the principal's when the week has none (B78).
 - `pnpm eval:text` and `pnpm eval:receipts` read amounts in the principal's currency, as the daemon does: `ANOMANDER_CURRENCY` (euros by default) or `--currency`, refused before any call when the daemon would refuse it (B78).
 - `ANOMANDER_IMPORT_ENV` brings the `.env`'s `TZ` and `ANOMANDER_CURRENCY` with the rest of its setup, and a file without them keeps the zone and currency chosen in Configuración instead of clearing them (B78).
+- Gastos no longer drops an expense, or a whole month, whose currency the window's `Intl` does not know: the amount is shown with its ISO code (`12,30 XYZ`) (B78).
 - Several presses of "Añadir búsqueda web" during a daemon restart all wait for the new daemon; before, only one request was kept.
 - The check that a task comes from the message keeps English negations and contractions, and locale tags such as `es@euro` count as Spanish.
 
