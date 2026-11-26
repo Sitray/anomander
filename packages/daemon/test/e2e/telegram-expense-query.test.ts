@@ -291,6 +291,37 @@ describe('a free query on the expenses (R-30)', () => {
     ).toMatch(/^Del 1 de noviembre de 2025 al 24 de noviembre de 2026: /);
   });
 
+  // B78 (assumption): a month named without a year is the latest one that is not in the future,
+  // so "en diciembre" asked in November is last December, even if the processor said this one.
+  it("B78: a whole month in the future that the principal named without a year is last year's", async () => {
+    addRows([['Lidl', '2025-12-10', 1500, 'supermercado', 'current']]);
+    expect(textInterpreterPrompt()).toContain(
+      'A month named without a year is the latest one that is not after today: "en diciembre" asked in January is December of last year.',
+    );
+    expect(
+      await say('¿cuánto gasté en diciembre?', {
+        kind: 'expense_query',
+        from: '2026-12-01',
+        to: '2026-12-31',
+      }),
+    ).toBe(
+      `Del 1 de diciembre de 2025 al 31 de diciembre de 2025: ${eur('15,00')} en 1 gasto. Supermercado ${eur('15,00')}.`,
+    );
+  });
+
+  it('B78: a month in the future the principal named with its year is still refused', async () => {
+    addRows([['Lidl', '2025-12-10', 1500, 'supermercado', 'current']]);
+    logger.warn.mockClear();
+    expect(
+      await say('¿cuánto gasté en diciembre de 2026?', {
+        kind: 'expense_query',
+        from: '2026-12-01',
+        to: '2026-12-31',
+      }),
+    ).toBe(S22);
+    expect(logger.warn).toHaveBeenCalled();
+  });
+
   it('AC1: "en total" starts at the first expense', async () => {
     expect(
       await say('¿cuánto he gastado en total?', {
@@ -335,7 +366,7 @@ describe('a free query on the expenses (R-30)', () => {
   });
 
   it.each([
-    ['a range in the future', { kind: 'expense_query', from: '2026-12-01', to: '2026-12-31' }],
+    ['a range in the future', { kind: 'expense_query', from: '2026-12-01', to: '2026-12-15' }],
     ['a category that does not exist', { ...THIS_MONTH, category: 'viajes' }],
     ['a date that does not exist', { kind: 'expense_query', from: '2026-02-30', to: '2026-03-01' }],
     [
