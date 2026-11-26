@@ -270,9 +270,8 @@ export const startAnomander = <M>(config: Config, deps: AnomanderDeps<M>): Anoma
         ['sendDueReminders', sendDueReminders],
         ['drainQueue', drainQueue],
       ] as const) {
-        chatTurns
-          .track<unknown>(job())
-          .catch((error: unknown) => logger.error('scheduled job failed', { job: name, error }));
+        // Not a turn: `jobs.stop` waits for it, never the turns' deadline.
+        job().catch((error: unknown) => logger.error('scheduled job failed', { job: name, error }));
       }
     },
   );

@@ -228,18 +228,18 @@ describe('stopping the daemon (B69, B51)', () => {
 
     const stopped = daemon.stop();
     anomander = undefined;
-    await vi.waitFor(() =>
-      expect(logger.warn).toHaveBeenCalledWith(
-        'anomander stopped before every turn ended: 50 ms passed',
-      ),
-    );
-    await pause(50);
+    // Well past the 50 ms deadline.
+    await pause(200);
     reading.settle();
     await stopped;
     await pause(200);
 
     expect(closedStore()).toEqual([]);
     expect(jobFailures()).toEqual([]);
+    // A job is no turn: the deadline's warning does not call it one.
+    expect(logger.warn).not.toHaveBeenCalledWith(
+      'anomander stopped before every turn ended: 50 ms passed',
+    );
   });
 
   it('past its deadline, the jobs a connection queued never run', async () => {
