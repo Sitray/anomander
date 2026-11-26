@@ -69,6 +69,30 @@ export const findDecisionsShownIn = (db: Database.Database, channelRef: string):
     .all(channelRef)
     .flatMap((row) => toOpen(toDecision(row)) ?? []);
 
+/**
+ * B79, R-17 AC2: the "Deshacer" under a correction's reply (R-7 AC9) shown in that message, once
+ * used (`answered`), while its expense is still current; `null` otherwise. A reply to that message
+ * corrects the expense again, as one to the reply of an open "Deshacer" does: the question is
+ * given as the `open` one it was, since a correction applied through it never answers it (it is
+ * closed with the expense's other questions, R-7 AC8, and only open ones are).
+ */
+export const findUsedCorrectionUndoShownIn = (
+  db: Database.Database,
+  channelRef: string,
+): OpenDecision | null => {
+  const row = db
+    .prepare<[string], DecisionRow>(
+      `${SELECT_DECISION} WHERE d.channel_ref = ? AND d.status = 'answered'
+         AND p.operation = 'amend_expense' AND json_extract(p.payload_json, '$.restore') IS NOT NULL
+         AND EXISTS (SELECT 1 FROM expenses e
+                     WHERE e.id = json_extract(p.payload_json, '$.expense_id')
+                       AND e.status = 'current')
+       ORDER BY d.id DESC LIMIT 1`,
+    )
+    .get(channelRef);
+  return row === undefined ? null : { ...toDecision(row), status: 'open' };
+};
+
 /** R-17 AC3: the one decision waiting for text, if any (index `one_awaiting_text`). */
 export const findAwaitingDecision = (db: Database.Database): OpenDecision | null => {
   const row = db
@@ -196,10 +220,31 @@ export const answerCompleted = (db: Database.Database, actionId: number, now: st
   if (changed !== 1) throw new Error(`action ${actionId} was not started`);
 };
 
-/** B81: whether a "Sí" to the question of `proposalId` ran and did not complete. */
-export const answerFailed = (db: Database.Database, proposalId: number): boolean =>
+/**
+ * B83: the "Sí" to the question of `proposalId` erased part of what it asked about; called in
+ * the transaction of that erase, so the mark and the erase are kept or lost together. It is set
+ * in the proposal's payload, as `erased: true`: `actions` has no column for it.
+ */
+export const answerErased = (db: Database.Database, proposalId: number): void => {
+  const changed = db
+    .prepare(
+      "UPDATE proposals SET payload_json = json_set(payload_json, '$.erased', json('true')) WHERE id = ?",
+    )
+    .run(proposalId).changes;
+  if (changed !== 1) throw new Error(`proposal ${proposalId} does not exist`);
+};
+
+/**
+ * B81, B83: whether a "Sí" to the question of `proposalId` ran, erased part of it
+ * (`answerErased`) and did not complete. A "Sí" that failed before erasing anything is not one.
+ */
+export const answerFailedAfterErasing = (db: Database.Database, proposalId: number): boolean =>
   db
-    .prepare<[number]>("SELECT 1 FROM actions WHERE proposal_id = ? AND status = 'failed'")
+    .prepare<[number]>(
+      `SELECT 1 FROM actions a JOIN proposals p ON p.id = a.proposal_id
+       WHERE a.proposal_id = ? AND a.status = 'failed'
+         AND json_extract(p.payload_json, '$.erased') = 1`,
+    )
     .get(proposalId) !== undefined;
 
 const registerExpensePayload = z.object({ document_id: z.int().positive() });

@@ -44,6 +44,16 @@ const actionsOf = (id: number) =>
        JOIN pending_decisions d ON d.proposal_id = a.proposal_id WHERE d.id = ? ORDER BY a.id`,
     )
     .all(id);
+/** The payload of the proposal decision `id` asked. */
+const payloadOf = (id: number): unknown =>
+  JSON.parse(
+    db
+      .prepare<[number], { payload_json: string }>(
+        `SELECT p.payload_json FROM proposals p
+         JOIN pending_decisions d ON d.proposal_id = p.id WHERE d.id = ?`,
+      )
+      .get(id)?.payload_json ?? 'null',
+  );
 const conversation = () => storedConversation(db, HISTORY_LIMIT).map(({ text }) => text);
 const decisionOf = (id: number): OpenDecision => {
   const decision = asOpenDecision(loadDecision(db, id));
@@ -433,7 +443,7 @@ describe('the action a forget answer leaves (B81)', () => {
     expect(allActions()).toEqual([]);
   });
 
-  it('a "Sí" that failed before erasing, then "Olvidar" in Memoria, then "No": S-200', async () => {
+  it('a "Sí" that failed before erasing, then "Olvidar" in Memoria, then "No": S-31', async () => {
     const { id, decision } = ask();
     db.exec("CREATE TRIGGER t BEFORE DELETE ON memory_texts BEGIN SELECT RAISE(ABORT, 'io'); END");
     const answer = createForgetMemoryAnswerHandler({ clearRecentTurns: () => turns.clear() });
@@ -445,7 +455,188 @@ describe('the action a forget answer leaves (B81)', () => {
 
     const reply = await answer({ db, decision: decisionOf(decision), option: buttons.no, now });
 
-    // A "Sí" to this question ran and the memory is forgotten: part is gone, as S-200 says.
+    // B83: that "Sí" ran but forgot nothing; "Memoria" forgot it, so S-31 stays true.
+    expect(reply.text).toBe('Vale, no olvido nada.');
+    expect(allActions().map(({ status }) => status)).toEqual(['failed']);
+    expect(payloadOf(decision)).toEqual({ memory_ids: [id] });
+  });
+
+  // B83: the "Sí" that forgot a memory says so in its proposal, in the erase's own transaction.
+  it('a "Sí" that forgot the memory, then failed, records that it erased', async () => {
+    const { id, decision } = ask();
+    const answer = createForgetMemoryAnswerHandler({ clearRecentTurns: failingOnce() });
+    await expect(
+      answer({ db, decision: decisionOf(decision), option: buttons.yes, now }),
+    ).rejects.toThrow('database is locked');
+
+    expect(payloadOf(decision)).toEqual({ memory_ids: [id], erased: true });
+    const reply = await answer({ db, decision: decisionOf(decision), option: buttons.no, now });
     expect(reply.text).toBe(strings.notForgottenAfterPart());
+  });
+
+  it('a "Sí" that failed before erasing the history, then "Olvidar" in Memoria, then "No": "Vale, no borro nada."', async () => {
+    recordAction(db, {
+      kind: 'connect',
+      door: 'app',
+      task: 'qué tengo mañana',
+      outcome: 'answer',
+      steps: null,
+      calls: [],
+      endedAt: AT.toISOString(),
+    });
+    const upToId = lastActionId(db);
+    if (upToId === null) throw new Error('no action');
+    const decision = openForgetHistoryDecision(db, {
+      upToId,
+      question: strings.confirmForgetHistory(1),
+      options: [buttons.yes, buttons.no],
+      now: AT.toISOString(),
+    });
+    db.exec(
+      "CREATE TRIGGER t BEFORE DELETE ON action_history BEGIN SELECT RAISE(ABORT, 'io'); END",
+    );
+    const answer = createForgetHistoryAnswerHandler({ clearRecentTurns: () => turns.clear() });
+    await expect(
+      answer({ db, decision: decisionOf(decision), option: buttons.yes, now }),
+    ).rejects.toThrow('io');
+    db.exec('DROP TRIGGER t');
+    expect(forgetAction(db, upToId)).toBe(true);
+
+    const reply = await answer({ db, decision: decisionOf(decision), option: buttons.no, now });
+
+    expect(reply.text).toBe('Vale, no borro nada.');
+    expect(allActions().map(({ status }) => status)).toEqual(['failed']);
+    expect(payloadOf(decision)).toEqual({ up_to_id: upToId });
+  });
+
+  it('a "Sí" that erased the history, then failed, records that it erased', async () => {
+    recordAction(db, {
+      kind: 'connect',
+      door: 'app',
+      task: 'qué tengo mañana',
+      outcome: 'answer',
+      steps: null,
+      calls: [],
+      endedAt: AT.toISOString(),
+    });
+    const upToId = lastActionId(db);
+    if (upToId === null) throw new Error('no action');
+    const decision = openForgetHistoryDecision(db, {
+      upToId,
+      question: strings.confirmForgetHistory(1),
+      options: [buttons.yes, buttons.no],
+      now: AT.toISOString(),
+    });
+    const answer = createForgetHistoryAnswerHandler({ clearRecentTurns: failingOnce() });
+    await expect(
+      answer({ db, decision: decisionOf(decision), option: buttons.yes, now }),
+    ).rejects.toThrow('database is locked');
+
+    expect(payloadOf(decision)).toEqual({ up_to_id: upToId, erased: true });
+    const reply = await answer({ db, decision: decisionOf(decision), option: buttons.no, now });
+    expect(reply.text).toBe(strings.historyNotForgottenAfterPart());
+  });
+});
+
+describe('the "erased" mark and the erase are kept or lost together (B83)', () => {
+  const memory = () =>
+    saveMemory(db, {
+      text: 'Es vegetariano',
+      quote: 'soy vegetariano',
+      said: true,
+      confidence: 1,
+      message: 'soy vegetariano',
+      source: 'telegram:1',
+      replaces: null,
+      receivedAt: AT.toISOString(),
+      now: AT.toISOString(),
+    });
+  const askMemory = (id: number) =>
+    openForgetMemoryDecision(db, {
+      memoryIds: [id],
+      question: strings.confirmForget([]),
+      options: [buttons.yes, buttons.no],
+      now: AT.toISOString(),
+    });
+  const askHistory = () => {
+    recordAction(db, {
+      kind: 'connect',
+      door: 'app',
+      task: 'qué tengo mañana',
+      outcome: 'answer',
+      steps: null,
+      calls: [],
+      endedAt: AT.toISOString(),
+    });
+    const upToId = lastActionId(db);
+    if (upToId === null) throw new Error('no action');
+    return openForgetHistoryDecision(db, {
+      upToId,
+      question: strings.confirmForgetHistory(1),
+      options: [buttons.yes, buttons.no],
+      now: AT.toISOString(),
+    });
+  };
+  const failMark = () =>
+    db.exec(
+      "CREATE TRIGGER mark BEFORE UPDATE OF payload_json ON proposals BEGIN SELECT RAISE(ABORT, 'disk full'); END",
+    );
+
+  it('forget_memory: a mark that cannot be written rolls the erase back; "No" is S-31 and the memory is kept', async () => {
+    const decisionId = askMemory(memory());
+    failMark();
+    const answer = createForgetMemoryAnswerHandler({ clearRecentTurns: () => turns.clear() });
+    await expect(
+      answer({ db, decision: decisionOf(decisionId), option: buttons.yes, now }),
+    ).rejects.toThrow('disk full');
+    expect(listMemories(db)).toHaveLength(1);
+    db.exec('DROP TRIGGER mark');
+    const reply = await answer({ db, decision: decisionOf(decisionId), option: buttons.no, now });
+    expect(reply.text).toBe('Vale, no olvido nada.');
+    expect(listMemories(db)).toHaveLength(1);
+  });
+
+  it('forget_history: a mark that cannot be written rolls the erase back; "No" erases nothing', async () => {
+    const decisionId = askHistory();
+    failMark();
+    const answer = createForgetHistoryAnswerHandler({ clearRecentTurns: () => turns.clear() });
+    await expect(
+      answer({ db, decision: decisionOf(decisionId), option: buttons.yes, now }),
+    ).rejects.toThrow('disk full');
+    expect(countActions(db)).toBe(1);
+    db.exec('DROP TRIGGER mark');
+    const reply = await answer({ db, decision: decisionOf(decisionId), option: buttons.no, now });
+    expect(reply.text).toBe(strings.historyNotForgotten());
+    expect(countActions(db)).toBe(1);
+  });
+
+  it('a "Sí" that failed before erasing, then one that erased and failed, then "No": S-200', async () => {
+    const decisionId = askMemory(memory());
+    db.exec(
+      "CREATE TRIGGER t BEFORE DELETE ON memory_texts BEGIN SELECT RAISE(ABORT, 'disk I/O error'); END",
+    );
+    const answer = createForgetMemoryAnswerHandler({ clearRecentTurns: failingOnce() });
+    await expect(
+      answer({ db, decision: decisionOf(decisionId), option: buttons.yes, now }),
+    ).rejects.toThrow('disk I/O error');
+    db.exec('DROP TRIGGER t');
+    await expect(
+      answer({ db, decision: decisionOf(decisionId), option: buttons.yes, now }),
+    ).rejects.toThrow('database is locked');
+    const reply = await answer({ db, decision: decisionOf(decisionId), option: buttons.no, now });
+    expect(reply.text).toBe(strings.notForgottenAfterPart());
+  });
+
+  it('B83 (3): a failed "Sí" stored before the mark, memory gone, then "No": S-31 (accepted)', async () => {
+    const id = memory();
+    const decisionId = askMemory(id);
+    const proposal = loadDecision(db, decisionId)?.proposal_id;
+    db.prepare(
+      "INSERT INTO actions (proposal_id, authorized_by, executed_at, status) VALUES (?, 'principal', ?, 'failed')",
+    ).run(proposal, AT.toISOString());
+    forgetMemoryAndItsTurns(db, id);
+    const answer = createForgetMemoryAnswerHandler({ clearRecentTurns: () => turns.clear() });
+    const reply = await answer({ db, decision: decisionOf(decisionId), option: buttons.no, now });
+    expect(reply.text).toBe(strings.notForgotten());
   });
 });

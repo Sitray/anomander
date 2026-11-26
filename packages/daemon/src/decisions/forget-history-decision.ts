@@ -3,18 +3,20 @@ import { z } from 'zod';
 import {
   answerCompleted,
   answerDecision,
-  answerFailed,
+  answerErased,
+  answerFailedAfterErasing,
   answerStarted,
   settleProposal,
 } from '../store/decisions.ts';
-import { forgetHistory, hasAction } from '../store/history.ts';
+import { forgetHistory } from '../store/history.ts';
 import type { DecisionAnswerHandler } from './types.ts';
 
 // DK-14 AC4: the answer to the question that asks before erasing the history of what ANOMANDER
 // did. "Sí" erases every action up to the latest one when it was asked; "No" erases nothing.
 // B55: a "No" after a "Sí" that failed once the actions were erased cannot bring them back, so it
-// replies S-201 instead of saying nothing was erased. B81: only then: an action erased in
-// "Memoria" between the question and "No" gets "Vale, no borro nada.".
+// replies S-201 instead of saying nothing was erased. B81, B83: only then: an action erased in
+// "Memoria" between the question and "No", with no "Sí" or a "Sí" that failed before it erased
+// one, gets "Vale, no borro nada.".
 
 export interface ForgetHistoryDecisionDeps {
   /**
@@ -43,7 +45,8 @@ export const createForgetHistoryAnswerHandler =
     const started =
       option === buttons.yes ? answerStarted(db, decision.proposal_id, 'principal', at) : null;
     if (option === buttons.yes) {
-      forgetHistory(db, upToId);
+      // B83: the "Sí" that erases actions marks so in the same transaction.
+      forgetHistory(db, upToId, () => answerErased(db, decision.proposal_id));
       clearRecentTurns();
     }
     db.transaction(() => {
@@ -52,9 +55,9 @@ export const createForgetHistoryAnswerHandler =
       if (started !== null) answerCompleted(db, started, at);
     })();
     if (option === buttons.yes) return { text: strings.historyForgotten() };
-    // B81: only a "Sí" to this question that ran erased part of it; an action erased in "Memoria"
-    // meanwhile was not, so "Vale, no borro nada." stays true.
-    const partErased = answerFailed(db, decision.proposal_id) && !hasAction(db, upToId);
+    // B81, B83: only a "Sí" to this question that erased actions and failed erased part of it;
+    // an action erased in "Memoria" meanwhile was not, so "Vale, no borro nada." stays true.
+    const partErased = answerFailedAfterErasing(db, decision.proposal_id);
     return {
       text: partErased ? strings.historyNotForgottenAfterPart() : strings.historyNotForgotten(),
     };

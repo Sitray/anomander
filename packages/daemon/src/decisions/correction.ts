@@ -25,6 +25,7 @@ import {
   awaitText,
   correctExpense,
   type ExpenseCorrection,
+  loadDecision,
   pendingExpenseOf,
   registerByPrincipal,
 } from '../store/decisions.ts';
@@ -150,7 +151,7 @@ export interface CorrectionUndoAsk {
 export const askUndoCorrection = (
   db: Database.Database,
   { expenseId, restore, source, now }: CorrectionUndoAsk,
-): { text: string; decisionId: number } => {
+): { text: string; decisionId: number; proposalId: number } => {
   const text = correctedReply(readExpense(db, expenseId));
   const decisionId = openCorrectionUndoDecision(db, {
     expenseId,
@@ -160,7 +161,9 @@ export const askUndoCorrection = (
     options: [buttons.undo],
     now,
   });
-  return { text, decisionId };
+  const proposalId = loadDecision(db, decisionId)?.proposal_id;
+  if (proposalId === undefined) throw new Error(`decision ${decisionId} was not opened`);
+  return { text, decisionId, proposalId };
 };
 
 /**
@@ -278,12 +281,17 @@ const createCorrection = (
       return { text: strings.askCorrection() };
     }
 
-    const { actionId, text, undoId } = db.transaction(() => {
+    const { actionId, text, undoId, undoProposalId } = db.transaction(() => {
       const applied = apply(decision, expenseId, correction, message, at);
       if (applied.restore === undefined) {
         // R-9 AC1: S-8 from the stored row, verbatim (R-21 AC3: only S-1, S-2, S-16, S-21 are
         // phrased).
-        return { ...applied, text: correctedReply(readExpense(db, expenseId)), undoId: null };
+        return {
+          ...applied,
+          text: correctedReply(readExpense(db, expenseId)),
+          undoId: null,
+          undoProposalId: undefined,
+        };
       }
       const asked = askUndoCorrection(db, {
         expenseId,
@@ -291,14 +299,21 @@ const createCorrection = (
         source: message.channelRef,
         now: at,
       });
-      return { actionId: applied.actionId, text: asked.text, undoId: asked.decisionId };
+      return {
+        actionId: applied.actionId,
+        text: asked.text,
+        undoId: asked.decisionId,
+        undoProposalId: asked.proposalId,
+      };
     })();
 
     const reply = verifiedReply(db, actionId, text, now, logger);
+    // B79: an S-12 this correction leads to names its "Deshacer", which withdraws it.
     return thenOfferPattern(
       undoId === null ? reply : withUndoButton(db, reply, undoId, logger),
       expenseId,
       patterns,
+      undoProposalId,
     );
   };
 };

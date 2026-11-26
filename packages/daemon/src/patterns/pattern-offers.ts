@@ -24,9 +24,21 @@ export interface PatternOffersDeps {
 }
 
 export interface PatternOffers {
-  /** Opens and sends S-12 if the expense completes a pattern. Never throws. */
-  offerAfter(expenseId: number): void;
+  /**
+   * Opens and sends S-12 if the expense completes a pattern. Never throws. `ledBy` is the
+   * proposal of the "Deshacer" under the correction that led to it (R-7 AC9), kept in the offer's
+   * basis as `led_by_proposal_id` so that "Deshacer" withdraws it (B79).
+   */
+  offerAfter(expenseId: number, ledBy?: number): void;
 }
+
+/** Whether the question of a proposal was answered, as a used "Deshacer" is. */
+const wasUsed = (db: Database.Database, proposalId: number): boolean =>
+  db
+    .prepare<[number], { used: number }>(
+      `SELECT EXISTS (SELECT 1 FROM pending_decisions WHERE proposal_id = ? AND status = 'answered') AS used`,
+    )
+    .get(proposalId)?.used === 1;
 
 export const createPatternOffers = ({
   db,
@@ -34,13 +46,16 @@ export const createPatternOffers = ({
   notify,
   logger,
 }: PatternOffersDeps): PatternOffers => ({
-  offerAfter: (expenseId) => {
+  offerAfter: (expenseId, ledBy) => {
     let decisionId: number;
     let question: string;
     const options = [buttons.yes, buttons.no];
     try {
       // Found and opened at once (better-sqlite3 is synchronous), so a pattern is never open twice.
       const pattern = db.transaction(() => {
+        // B79: a correction whose "Deshacer" was already used leads to no offer, even when its
+        // reply's delivery is handled after that "Deshacer" (which withdraws only offers open then).
+        if (ledBy !== undefined && wasUsed(db, ledBy)) return null;
         const found = findPattern(db, expenseId);
         if (found === null) return null;
         const text = strings.proposePattern(strings.pattern(found.merchant, found.category));
@@ -48,7 +63,11 @@ export const createPatternOffers = ({
           merchant: found.merchant,
           category: found.category,
           source: null,
-          basis: { rule: 'R-13 AC2', expense_ids: found.expenseIds },
+          basis: {
+            rule: 'R-13 AC2',
+            expense_ids: found.expenseIds,
+            ...(ledBy === undefined ? {} : { led_by_proposal_id: ledBy }),
+          },
           question: text,
           options,
           now: now().toISOString(),
@@ -77,11 +96,15 @@ export const createPatternOffers = ({
   },
 });
 
-/** The reply, followed by S-12 once it is delivered, if the expense completes a pattern. */
+/**
+ * The reply, followed by S-12 once it is delivered, if the expense completes a pattern; `ledBy`
+ * names the correction's "Deshacer" proposal when the reply is a correction's (B79).
+ */
 export const thenOfferPattern = (
   reply: Reply,
   expenseId: number,
   patterns: PatternOffers | undefined,
+  ledBy?: number,
 ): Reply =>
   patterns === undefined
     ? reply
@@ -89,6 +112,6 @@ export const thenOfferPattern = (
         ...reply,
         onDelivered: (delivery) => {
           reply.onDelivered?.(delivery);
-          patterns.offerAfter(expenseId);
+          patterns.offerAfter(expenseId, ledBy);
         },
       };

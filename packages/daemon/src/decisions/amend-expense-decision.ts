@@ -11,6 +11,7 @@ import {
 } from '../store/amend-expense.ts';
 import { answerDecision, awaitText } from '../store/decisions.ts';
 import { readExpense } from '../store/expenses.ts';
+import { withdrawPatternOffersLedBy } from '../store/policies.ts';
 import { verifiedReply } from './register-expense-decision.ts';
 import type { DecisionAnswerHandler } from './types.ts';
 
@@ -53,8 +54,9 @@ export const createAmendExpenseDecision =
       return { text: strings.decisionClosed() };
     }
     if (restore !== null) {
-      // R-7 AC9: a correction no longer standing was overtaken; its question is closed (S-19).
-      if (!correctionStands(db, restore)) {
+      // R-7 AC9: a correction no longer standing was overtaken, or B79 the expense changed in a
+      // column it would put back; its question is closed (S-19).
+      if (!correctionStands(db, expenseId, restore)) {
         closeAmendDecisions(db, expenseId);
         logger.info('undo of a correction that no longer stands', { decisionId: decision.id });
         return { text: strings.decisionClosed() };
@@ -70,6 +72,8 @@ export const createAmendExpenseDecision =
         });
         answerDecision(db, decision.id, null);
         closeAmendDecisions(db, expenseId);
+        // B79: the S-12 this correction led to is withdrawn with it (S-19 from now on).
+        withdrawPatternOffersLedBy(db, decision.proposal_id);
         return undone;
       })();
       const stored = readExpense(db, expenseId);

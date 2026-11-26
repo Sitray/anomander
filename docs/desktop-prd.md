@@ -467,8 +467,10 @@ and keep its secrets in the operating system instead of a text file.
     turns and the stored conversation (DK-16 AC5) and replies "Hecho, he borrado mi historial.";
     `No` erases nothing and replies "Vale, no borro nada.", or PRD S-201 when a `Sí` to that
     same question failed after it had erased those actions (B55): the actions go first, then the
-    conversation, so a failure between them is seen. An action erased from "Memoria" (DK-18 AC5)
-    between the question and `No`, with no `Sí` pressed, gets "Vale, no borro nada." (B81). One action at a time can also be
+    conversation, so a failure between them is seen; that `Sí` marks its proposal `erased` in
+    the transaction that erases the actions, as R-23 AC6 does (B83). An action erased from
+    "Memoria" (DK-18 AC5) between the question and `No`, with no `Sí` pressed or after a `Sí`
+    that failed before it erased any, gets "Vale, no borro nada." (B81, B83). One action at a time can also be
     erased from the app's "Memoria" (DK-18 AC5).
   - AC5: the history is local: it lives only in the app's database (DK-8), is never logged (a
     failure to keep an action is logged without its words) and never leaves the machine except

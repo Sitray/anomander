@@ -1,5 +1,6 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 import type Database from 'better-sqlite3';
+import type { Logger } from '../processor/ports.ts';
 import { forgetTurnsHolding } from './conversation.ts';
 import { insertAssertion } from './expenses.ts';
 
@@ -198,9 +199,14 @@ const isCurrentMemory = (db: Database.Database, id: number): boolean =>
  * its text is erased as a forget erases it (AC6, AC7), with the turns of the stored conversation
  * that hold its text or quote, so no outdated text is ever kept; a
  * `replaces` that names no current memory is ignored and the fact is stored as new. Returns the
- * new memory's id.
+ * new memory's id. A replacement made outside any turn's scope (`replacingIn`) is warned to
+ * `logger`, once, by the fact alone (B83).
  */
-export const saveMemory = (db: Database.Database, capture: MemoryCapture): number => {
+export const saveMemory = (
+  db: Database.Database,
+  capture: MemoryCapture,
+  logger?: Pick<Logger, 'warn'>,
+): number => {
   const { id, replaced, holds } = db.transaction(() => {
     const declared = capture.said && quotedFrom(capture.quote, capture.message);
     const replaced =
@@ -238,7 +244,20 @@ export const saveMemory = (db: Database.Database, capture: MemoryCapture): numbe
     return { id, replaced, holds };
   })();
   // B81: only the turn this runs in is matched against the old words (`replacingIn`).
-  if (holds !== null) replacedInTurn.getStore()?.push(holds);
+  // B83: with no turn's scope (a caller outside `recordingTurns`, or a handler that lost its
+  // async context) no turn can be matched, so it is said instead of kept silently. There is no
+  // fallback: the door of the turn to come is not known here, and handing the words to whatever
+  // turn is stored next would let them suppress a turn of another door or outlive a turn that
+  // failed, which B81 rules out. Only the fact and the new memory's id are logged (R-23 AC8).
+  if (holds !== null) {
+    const scope = replacedInTurn.getStore();
+    if (scope !== undefined) scope.push(holds);
+    else {
+      logger?.warn('replaced memory not matched against its turn: no turn scope', {
+        memoryId: id,
+      });
+    }
+  }
   // The checkpoint cannot run inside the transaction (see forgetMemories).
   if (replaced !== null) db.pragma('wal_checkpoint(TRUNCATE)');
   return id;
@@ -331,33 +350,29 @@ export const forgetMemoryAndItsTurns = (db: Database.Database, id: number): bool
 };
 
 /**
- * B55: whether memory `id` was forgotten (`expired`), by a "Sí" that then failed halfway or by
- * "Olvidar" in the app; a replaced one (`refuted`) was not.
- */
-export const isForgottenMemory = (db: Database.Database, id: number): boolean =>
-  db
-    .prepare<[number]>(
-      "SELECT 1 FROM assertions WHERE id = ? AND predicate = 'memory' AND status = 'expired'",
-    )
-    .get(id) !== undefined;
-
-/**
  * R-23 AC6, AC7: forgets the given current memories. In one transaction each one's text and
  * quote are deleted from `memory_texts` (the triggers remove them from `memory_search`) and its
  * assertion becomes `expired`, the mark that something was remembered and forgotten. Then the
  * WAL is checkpointed and truncated so the erased text survives in no file; with
  * `secure_delete` and FTS5 `secure-delete` on, the freed pages hold zeros. Ids that are not
- * current memories are left alone. Returns the ids forgotten.
+ * current memories are left alone. `onForgotten` runs in that transaction when one was forgotten
+ * (B83: a "Sí" marks there that it erased). Returns the ids forgotten.
  */
-export const forgetMemories = (db: Database.Database, ids: readonly number[]): number[] => {
-  const forgotten = db.transaction(() =>
-    ids.filter((id) => {
+export const forgetMemories = (
+  db: Database.Database,
+  ids: readonly number[],
+  onForgotten?: () => void,
+): number[] => {
+  const forgotten = db.transaction(() => {
+    const erased = ids.filter((id) => {
       if (!isCurrentMemory(db, id)) return false;
       db.prepare('DELETE FROM memory_texts WHERE assertion_id = ?').run(id);
       db.prepare("UPDATE assertions SET status = 'expired' WHERE id = ?").run(id);
       return true;
-    }),
-  )();
+    });
+    if (erased.length > 0) onForgotten?.();
+    return erased;
+  })();
   if (forgotten.length > 0) db.pragma('wal_checkpoint(TRUNCATE)');
   return forgotten;
 };

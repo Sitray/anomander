@@ -74,7 +74,9 @@ const amendPayload = z.object({ expense_id: z.int().positive() });
  * `payload_json` beside `expense_id`: the expense's columns the correction changed, as they were
  * before it; the declarations it wrote; and the assertions it refuted, with the status each had.
  * `mode` is kept only when the correction changed it (`corroborated` to `confirmed`, B63); a
- * payload stored before that has none, and its "Deshacer" leaves the mode as it is.
+ * payload stored before that has none, and its "Deshacer" leaves the mode as it is. B79: `after`
+ * keeps the values the correction left in those same columns, so "Deshacer" refuses once one of
+ * them changed; a payload stored before that has none, and only its declarations are checked.
  */
 const RESTORED_COLUMNS = [
   'total_cents',
@@ -94,9 +96,13 @@ export interface CorrectionRestore {
     occurred_on?: string | undefined;
     mode?: 'corroborated' | undefined;
   };
+  /** B79: the values the correction left in the columns of `columns`. */
+  after?: Partial<Record<RestoredColumn, string | number | null | undefined>> | undefined;
   declarations: number[];
   refuted: { id: number; status: 'current' | 'confirmed' }[];
 }
+
+type RestoredColumn = (typeof RESTORED_COLUMNS)[number];
 
 const restorePayload = z.object({
   restore: z.object({
@@ -110,6 +116,17 @@ const restorePayload = z.object({
         mode: z.literal('corroborated').optional(),
       })
       .strict(),
+    after: z
+      .object({
+        total_cents: z.int().optional(),
+        merchant_id: z.int().nullable().optional(),
+        category_id: z.int().nullable().optional(),
+        category_basis: z.string().nullable().optional(),
+        occurred_on: z.string().optional(),
+        mode: z.string().optional(),
+      })
+      .strict()
+      .optional(),
     declarations: z.array(z.int().positive()),
     refuted: z.array(
       z.object({ id: z.int().positive(), status: z.enum(['current', 'confirmed']) }),
@@ -305,6 +322,7 @@ export const amendExpense = (
     declarations,
     restore: {
       columns,
+      after: restoredValues(db, expenseId, columns),
       declarations,
       refuted: before.filter(({ id }) => !still.has(id)),
     },
@@ -353,9 +371,37 @@ export const openCorrectionUndoDecision = (
     });
   })();
 
-/** R-7 AC9: whether every declaration the correction wrote still stands, so it can be undone. */
-export const correctionStands = (db: Database.Database, restore: CorrectionRestore): boolean =>
-  restore.declarations.every(
+/** B79: the expense's values now in the columns `columns` has a value for, by column. */
+const restoredValues = (
+  db: Database.Database,
+  expenseId: number,
+  columns: Partial<Record<RestoredColumn, unknown>>,
+): NonNullable<CorrectionRestore['after']> => {
+  const row = db
+    .prepare<[number], Record<RestoredColumn, string | number | null>>(
+      `SELECT ${RESTORED_COLUMNS.join(', ')} FROM expenses WHERE id = ?`,
+    )
+    .get(expenseId);
+  if (row === undefined) throw new Error(`expense ${expenseId} does not exist`);
+  const values: NonNullable<CorrectionRestore['after']> = {};
+  for (const column of RESTORED_COLUMNS) {
+    if (columns[column] !== undefined) values[column] = row[column];
+  }
+  return values;
+};
+
+/**
+ * R-7 AC9: whether the correction can still be undone: every declaration it wrote still stands
+ * and, B79, every column "Deshacer" would put back still holds the value the correction left,
+ * `mode` included, so no later change to the expense is overwritten. A payload stored before B79
+ * keeps no such values and is checked by its declarations only.
+ */
+export const correctionStands = (
+  db: Database.Database,
+  expenseId: number,
+  restore: CorrectionRestore,
+): boolean => {
+  const declared = restore.declarations.every(
     (id) =>
       db
         .prepare<[number], { id: number }>(
@@ -363,6 +409,11 @@ export const correctionStands = (db: Database.Database, restore: CorrectionResto
         )
         .get(id) !== undefined,
   );
+  if (!declared || restore.after === undefined) return declared;
+  const { after } = restore;
+  const now = restoredValues(db, expenseId, after);
+  return RESTORED_COLUMNS.every((column) => now[column] === after[column]);
+};
 
 export interface CorrectionUndo {
   expenseId: number;
@@ -377,7 +428,8 @@ export interface CorrectionUndo {
  * columns it changed take their old values, its declarations are `refuted`, and the assertions it
  * refuted take back the status they had (R-7 AC3: only `status` changes; nothing is deleted). The
  * expense stays current. The proposal is executed by an action the principal authorized. Throws if
- * the expense is not current or the correction no longer stands, so the caller's work rolls back.
+ * the expense is not current or the correction no longer stands (`correctionStands`), so the
+ * caller's work rolls back.
  */
 export const undoCorrection = (db: Database.Database, undo: CorrectionUndo): number => {
   const { expenseId, proposalId, restore, now } = undo;
@@ -387,7 +439,7 @@ export const undoCorrection = (db: Database.Database, undo: CorrectionUndo): num
     )
     .get(expenseId);
   if (current === undefined) throw new Error(`expense ${expenseId} is not current`);
-  if (!correctionStands(db, restore)) {
+  if (!correctionStands(db, expenseId, restore)) {
     throw new Error(`the correction of expense ${expenseId} no longer stands`);
   }
   settleProposal(db, proposalId, 'executed');

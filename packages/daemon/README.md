@@ -159,17 +159,27 @@ with the S-15 buttons first when S-15 is asked with it:
   S-19 and closes it. An answered decision, or one expired by retention (R-19 AC2), gets S-19 as
   any other.
 - **Deshacer under a correction (R-7 AC9).** Every correction of a registered expense (after
-  "Corregir", typed, from a row of "Gastos", or a Telegram reply to an earlier "Corregido…") closes
+  "Corregir", typed, from a row of "Gastos", or a Telegram reply to an earlier "Corregido…", also
+  one whose "Deshacer" was used while its expense is current: `findUsedCorrectionUndoShownIn`,
+  B79) closes
   the expense's open questions and opens a new `amend_expense` question with "Deshacer" alone under
   S-8 or S-102. Its proposal's `payload_json` keeps `restore` beside `expense_id`: the columns the
   correction changed as they were before it, the declarations it wrote, and the assertions it
   refuted with their status (`amendExpense` returns it; no schema change). A `corroborated`
   expense becomes `confirmed` when corrected, and `restore.columns.mode` keeps `corroborated`
-  for "Deshacer"; a payload stored before B63 has no `mode` and leaves the mode as it is. "Deshacer" runs
+  for "Deshacer"; a payload stored before B63 has no `mode` and leaves the mode as it is.
+  `restore.after` keeps the values the correction left in those same columns (B79):
+  `correctionStands` refuses (S-19) when a declaration no longer stands or one of those columns,
+  `mode` included, changed since; a payload stored before B79 has no `after` and is checked by its
+  declarations only. "Deshacer" runs
   `undoCorrection` in one transaction: the columns take their old values, the declarations are
   `refuted`, the refuted assertions take back their status, and the proposal is `executed` by the
   principal. The expense stays current; the reply is S-105, or S-106 without a merchant. A newer
-  correction closes the older one's question, so only the newest is undone (S-19 otherwise). A
+  correction closes the older one's question, so only the newest is undone (S-19 otherwise).
+  "Deshacer" also withdraws the S-12 the correction led to (`withdrawPatternOffersLedBy`, B79):
+  `thenOfferPattern` after a correction records the "Deshacer" proposal in the offer's
+  `basis_json` as `led_by_proposal_id`, and only the open offer naming it becomes `expired`, its
+  proposal `rejected`. An offer without it is never withdrawn. A
   row's "Deshacer" never presses this question (`openAmendDecisionOf` skips it): it takes the
   expense out, as before.
 

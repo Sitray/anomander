@@ -56,6 +56,8 @@ let interpretations: Map<string, (input: { expenses?: { id: number }[] }) => unk
 let interpreting: Promise<void>;
 /** The recorded receipt reading: one that does not add up unless a test says otherwise. */
 let readerFixture: string;
+/** The recorded correction reading: `total 28,40` unless a test says otherwise. */
+let correctionFixture: string;
 
 const answering = (envelope: unknown): AssistantMessage => ({
   ...recorded('text-interpreter/conversation'),
@@ -84,7 +86,7 @@ const complete = async (_model: string, context: Context): Promise<AssistantMess
     return recorded(`receipt-reader/${readerFixture}`);
   }
   if (context.systemPrompt === correctionInterpreterPrompt()) {
-    return recorded('correction-interpreter/total-28-40');
+    return recorded(`correction-interpreter/${correctionFixture}`);
   }
   // R-21 AC2: a wording without the facts is not sent, so the replies are the §12 strings.
   if (context.systemPrompt === replyPhraserPrompt()) return answering('vale');
@@ -136,6 +138,7 @@ beforeEach(async () => {
   interpretations = new Map();
   interpreting = Promise.resolve();
   readerFixture = 'lines-mismatch';
+  correctionFixture = 'total-28-40';
   logs = [];
   await start();
 });
@@ -650,6 +653,98 @@ describe('undoing a correction (R-7 AC9)', () => {
     expect(gastos()).toEqual([{ total_cents: 3200 }]);
   });
 
+  /** A Telegram reply to `message` (R-17 AC2); resolves with ANOMANDER's answer. */
+  const answerTo = async (message: SentMessage, text: string) => {
+    const before = api.sent.length;
+    api.push(updates.text({ chatId: PRINCIPAL }, text, { replyToMessageId: message.messageId }));
+    const [answer] = (await api.waitForSent(before + 1)).slice(before);
+    if (answer === undefined) throw new Error('no reply');
+    return answer;
+  };
+
+  // B79, R-17 AC2 (decided by the principal on 2026-11-26: "Corrige el gasto"): the expense of a
+  // "Corregido…" whose "Deshacer" was used is still recorded, so a reply to it corrects it again.
+  it('R-17 AC2: a Telegram reply to a "Corregido…" whose "Deshacer" was used corrects the expense again', async () => {
+    const reply = await registered();
+    expect(await press(reply, 'Corregir')).toBe(S7);
+    const corrected = await say('total 28,40');
+    await vi.waitFor(() =>
+      expect(
+        query("SELECT id FROM pending_decisions WHERE status = 'open' AND channel_ref IS NOT NULL"),
+      ).toHaveLength(1),
+    );
+    expect(await press(corrected, 'Deshacer')).toBe(S106(2300));
+    correctionFixture = 'total-14';
+
+    const again = await answerTo(corrected, 'es 14');
+
+    expect(again.text).toBe(S102(1400));
+    expect(buttonsOf(again).map(({ text }) => text)).toEqual(['Deshacer']);
+    expect(gastos()).toEqual([{ total_cents: 1400 }]);
+    expect(totals().filter(({ status }) => status === 'current')).toEqual([
+      { value_json: '1400', mode: 'declared', status: 'current', supersedes: 1 },
+    ]);
+    // It never reached the processor as a new message.
+    expect(interpreted.map(({ message }) => message)).not.toContain('es 14');
+    // Its own "Deshacer" puts back the 23 of before it; the used one stays S-19.
+    expect(await press(corrected, 'Deshacer')).toBe(S19);
+    expect(await press(again, 'Deshacer')).toBe(S106(2300));
+    expect(gastos()).toEqual([{ total_cents: 2300 }]);
+  });
+
+  it('a reply to a used "Corregido…" whose expense was then taken out goes to the processor, as before', async () => {
+    const reply = await registered();
+    expect(await press(reply, 'Corregir')).toBe(S7);
+    const corrected = await say('total 28,40');
+    await vi.waitFor(() =>
+      expect(
+        query("SELECT id FROM pending_decisions WHERE status = 'open' AND channel_ref IS NOT NULL"),
+      ).toHaveLength(1),
+    );
+    expect(await press(corrected, 'Deshacer')).toBe(S106(2300));
+    const chat = await appChat();
+    await chat.ask({ type: 'undo_expense', expenseId: 1 });
+    chat.close();
+    expect(gastos()).toEqual([]);
+
+    const answer = await answerTo(corrected, '23 € cena');
+
+    expect(answer.text).toBe(S2);
+    expect(interpreted.map(({ message }) => message)).toContain('23 € cena');
+  });
+
+  // R-17 AC2, AC5 as at baseline: a reply to an "Apuntado…" whose expense was taken out, by its
+  // "Deshacer" or by a row's, is a new message for the processor.
+  it('a reply to an "Apuntado…" whose expense was taken out by its "Deshacer" goes to the processor', async () => {
+    const reply = await registered();
+    expect(await press(reply, 'Deshacer')).toBe(S101);
+
+    const answer = await answerTo(reply, '23 € cena');
+
+    expect(answer.text).toBe(S2);
+    expect(interpreted.map(({ message }) => message)).toEqual(['23 € cena', '23 € cena']);
+    expect(query('SELECT status FROM expenses ORDER BY id')).toEqual([
+      { status: 'refuted' },
+      { status: 'current' },
+    ]);
+  });
+
+  it('a reply to an "Apuntado…" whose expense was taken out from its row goes to the processor', async () => {
+    const reply = await registered();
+    const chat = await appChat();
+    await chat.ask({ type: 'undo_expense', expenseId: 1 });
+    chat.close();
+
+    const answer = await answerTo(reply, '23 € cena');
+
+    expect(answer.text).toBe(S2);
+    expect(interpreted.map(({ message }) => message)).toEqual(['23 € cena', '23 € cena']);
+    expect(query('SELECT status FROM expenses ORDER BY id')).toEqual([
+      { status: 'refuted' },
+      { status: 'current' },
+    ]);
+  });
+
   it('a correction of a registered receipt is undone too, with S-105', async () => {
     api.putFile('receipt', pngBytes(1));
     api.push(updates.photo({ chatId: PRINCIPAL }, { fileId: 'receipt' }));
@@ -1108,6 +1203,43 @@ describe('undoing a correction: edges (R-7 AC9)', () => {
     ]);
   });
 
+  // B79: the correction keeps the values it left in the columns it would put back; a change to
+  // one of them after it, which none of its declarations records, makes "Deshacer" refuse.
+  it('keeps the values the correction left in the columns it would put back', async () => {
+    await corrected();
+    expect(
+      query<{ after: string }>(
+        `SELECT json_extract(payload_json, '$.restore.after') AS after FROM proposals
+         WHERE json_extract(payload_json, '$.restore') IS NOT NULL`,
+      ),
+    ).toEqual([{ after: JSON.stringify({ total_cents: 2840 }) }]);
+  });
+
+  it('a later change to a value it would put back, with its declarations standing, answers S-19 and changes nothing', async () => {
+    const correction = await corrected();
+    // A change no declaration of the correction records, as a later writer of the row would make.
+    write('UPDATE expenses SET total_cents = 3000');
+    const expenses = query('SELECT * FROM expenses');
+    const assertions = query('SELECT id, status FROM assertions ORDER BY id');
+
+    expect(await press(correction, 'Deshacer')).toBe(S19);
+
+    expect(query('SELECT * FROM expenses')).toEqual(expenses);
+    expect(query('SELECT id, status FROM assertions ORDER BY id')).toEqual(assertions);
+    expect(gastos()).toEqual([{ total_cents: 3000 }]);
+    // Its question is closed: a second press is S-19 too.
+    expect(await press(correction, 'Deshacer')).toBe(S19);
+  });
+
+  it('a "Deshacer" stored before B79, with no values after the correction, still puts them back', async () => {
+    const correction = await corrected();
+    write(`UPDATE proposals SET payload_json = json_remove(payload_json, '$.restore.after')
+           WHERE json_extract(payload_json, '$.restore') IS NOT NULL`);
+
+    expect(await press(correction, 'Deshacer')).toBe(S106(2300));
+    expect(gastos()).toEqual([{ total_cents: 2300 }]);
+  });
+
   it('the correction\'s "Deshacer" expires after 7 days: S-19, nothing changes', async () => {
     const correction = await corrected();
     await anomander.stop();
@@ -1224,6 +1356,72 @@ describe("a corrected receipt's mode (R-7 AC6, AC9)", () => {
     );
     expect(modes()).toEqual([{ mode: 'corroborated' }]);
     expect(gastos()).toEqual([{ total_cents: 2340 }]);
+    chat.close();
+  });
+
+  // B83 (from the B63 verifier): a category correction of a corroborated receipt, end to end. The
+  // correction is the principal's word for the category (declared) and the expense (confirmed);
+  // its "Deshacer" gives back the policy's category and the mode corroborated.
+  it('a category correction of a corroborated receipt declares it and confirms it; "Deshacer" puts policy and corroborated back', async () => {
+    const expense = await corroborated();
+    const state = () =>
+      query(
+        `SELECT c.name AS category, e.category_basis, e.mode, e.status FROM expenses e
+         LEFT JOIN categories c ON c.id = e.category_id`,
+      );
+    expect(state()).toEqual([
+      {
+        category: 'supermercado',
+        category_basis: 'policy',
+        mode: 'corroborated',
+        status: 'current',
+      },
+    ]);
+    correctionFixture = 'category-restaurantes';
+    const chat = await appChat();
+    expect((await chat.ask({ type: 'correct_expense', expenseId: expense.id })).text).toBe(S7);
+
+    const corrected = await chat.ask({ type: 'text', text: 'restaurantes' });
+
+    expect(corrected.text).toBe(`Corregido: ${formatAmount(2340)} en Mercadona (restaurantes).`);
+    expect(corrected.buttons.map((button) => button.label)).toEqual(['Deshacer']);
+    expect(state()).toEqual([
+      {
+        category: 'restaurantes',
+        category_basis: 'declared',
+        mode: 'confirmed',
+        status: 'current',
+      },
+    ]);
+    expect(
+      query(`SELECT value_json, mode, status FROM assertions
+             WHERE subject_type = 'expense' AND predicate = 'category' AND mode = 'declared'`),
+    ).toEqual([{ value_json: '"restaurantes"', mode: 'declared', status: 'current' }]);
+    expect(gastos()).toEqual([{ total_cents: 2340 }]);
+
+    const undo = corrected.buttons[0];
+    if (undo === undefined || !('data' in undo)) throw new Error('no Deshacer button');
+    const undone = await chat.ask({
+      type: 'button',
+      data: undo.data,
+      channelRef: corrected.channelRef,
+    });
+
+    expect(undone.text).toBe(
+      `Deshecho: vuelve a ser ${formatAmount(2340)} en Mercadona (supermercado).`,
+    );
+    expect(state()).toEqual([
+      {
+        category: 'supermercado',
+        category_basis: 'policy',
+        mode: 'corroborated',
+        status: 'current',
+      },
+    ]);
+    expect(
+      query(`SELECT value_json, status FROM assertions
+             WHERE subject_type = 'expense' AND predicate = 'category' AND mode = 'declared'`),
+    ).toEqual([{ value_json: '"restaurantes"', status: 'refuted' }]);
     chat.close();
   });
 
@@ -1360,6 +1558,26 @@ describe("a corrected receipt's mode (R-7 AC6, AC9)", () => {
     expect(gastos()).toEqual([{ total_cents: 3200 }]);
   });
 
+  // B79: the mode is one of the values "Deshacer" puts back (B63), so a later change to it refuses.
+  it('a later change to the mode it would put back answers S-19 and leaves the mode', async () => {
+    const expense = await corroborated();
+    const chat = await appChat();
+    const { undo } = await correctFromRow(chat, expense.id);
+    expect(
+      query<{ after: string }>(
+        `SELECT json_extract(payload_json, '$.restore.after') AS after FROM proposals
+         WHERE json_extract(payload_json, '$.restore') IS NOT NULL`,
+      ),
+    ).toEqual([{ after: JSON.stringify({ total_cents: 2840, mode: 'confirmed' }) }]);
+    rw("UPDATE expenses SET mode = 'declared'");
+
+    expect((await chat.ask({ type: 'button', ...undo })).text).toBe(S19);
+
+    expect(modes()).toEqual([{ mode: 'declared' }]);
+    expect(gastos()).toEqual([{ total_cents: 2840 }]);
+    chat.close();
+  });
+
   it('a restore payload whose mode is not corroborated answers S-19 and changes no row', async () => {
     const expense = await corroborated();
     const chat = await appChat();
@@ -1419,5 +1637,83 @@ describe("a corrected receipt's mode (R-7 AC6, AC9)", () => {
       { mode: 'confirmed', status: 'refuted' },
     ]);
     chat.close();
+  });
+});
+
+describe('a reply to a used "Corregido…" (R-17 AC2, B79)', () => {
+  const S106 = (cents: number) => `Deshecho: vuelve a ser ${formatAmount(cents)} (restaurantes).`;
+  const answerTo = async (message: SentMessage, text: string) => {
+    const before = api.sent.length;
+    api.push(updates.text({ chatId: PRINCIPAL }, text, { replyToMessageId: message.messageId }));
+    const [answer] = (await api.waitForSent(before + 1)).slice(before);
+    if (answer === undefined) throw new Error('no reply');
+    return answer;
+  };
+  const usedCorrection = async () => {
+    const reply = await registered();
+    expect(await press(reply, 'Corregir')).toBe(S7);
+    const corrected = await say('total 28,40');
+    await vi.waitFor(() =>
+      expect(
+        query("SELECT id FROM pending_decisions WHERE status = 'open' AND channel_ref IS NOT NULL"),
+      ).toHaveLength(1),
+    );
+    expect(await press(corrected, 'Deshacer')).toBe(S106(2300));
+    return corrected;
+  };
+
+  it('after a newer typed correction, a reply to the used one corrects the current values; the newer Deshacer closes', async () => {
+    const corrected = await usedCorrection();
+    interpretations.set('no eran 23, eran 32', ({ expenses = [] }) =>
+      correcting(expenses[0]?.id ?? null, 3200, 'eran 32'),
+    );
+    const newer = await say('no eran 23, eran 32');
+    expect(newer.text).toBe(S102(3200));
+    await vi.waitFor(() =>
+      expect(
+        query("SELECT id FROM pending_decisions WHERE status = 'open' AND channel_ref IS NOT NULL"),
+      ).toHaveLength(1),
+    );
+    correctionFixture = 'total-14';
+    const again = await answerTo(corrected, 'es 14');
+    expect(again.text).toBe(S102(1400));
+    expect(gastos()).toEqual([{ total_cents: 1400 }]);
+    expect(await press(newer, 'Deshacer')).toBe(S19);
+    expect(await press(again, 'Deshacer')).toBe(S106(3200));
+    expect(gastos()).toEqual([{ total_cents: 3200 }]);
+  });
+
+  it('8 days later (an unused Deshacer would have expired) a reply to the used one still corrects', async () => {
+    const corrected = await usedCorrection();
+    await anomander.stop();
+    clock = new Date(NOW.getTime() + 8 * 86_400_000);
+    await start();
+    correctionFixture = 'total-14';
+    const again = await answerTo(corrected, 'es 14');
+    // Records the behaviour: corrected, not sent to the processor.
+    expect(again.text).toBe(S102(1400));
+    expect(interpreted.map(({ message }) => message)).not.toContain('es 14');
+  });
+
+  it('a reply to an unused "Corregido…" whose Deshacer expired goes to the processor (baseline)', async () => {
+    const reply = await registered();
+    expect(await press(reply, 'Corregir')).toBe(S7);
+    const corrected = await say('total 28,40');
+    await vi.waitFor(() =>
+      expect(
+        query("SELECT id FROM pending_decisions WHERE status = 'open' AND channel_ref IS NOT NULL"),
+      ).toHaveLength(1),
+    );
+    await anomander.stop();
+    clock = new Date(NOW.getTime() + 8 * 86_400_000);
+    await start();
+    await vi.waitFor(() =>
+      expect(query("SELECT id FROM pending_decisions WHERE status = 'expired'")).not.toHaveLength(
+        0,
+      ),
+    );
+    const answer = await answerTo(corrected, '23 € cena');
+    expect(interpreted.map(({ message }) => message)).toContain('23 € cena');
+    expect(answer.text).toBe(S2);
   });
 });
