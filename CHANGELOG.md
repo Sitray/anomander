@@ -50,6 +50,11 @@ On `main` since 0.1.0. The interface speaks English or Spanish, and the app runs
 
 ### Fixed
 
+- **Backups stamped in the future**: a backup stamped after the current time, as a clock that was once ahead leaves them, no longer counts as the copy of its day, so the real day still gets its daily copy, and it is the first deleted when backups are pruned, so such copies never pile up; never more than the usual number of copies is deleted per backup taken, and the copy just taken never is. A copy stamped ahead that is still kept (fewer copies than the kept number, or others stamped ahead before it, for example when a daily run is missed) can still stand for its own day once that day arrives (B52).
+- **`/exportar` with an in-memory store**: with `ANOMANDER_DB_PATH=:memory:` there is no data folder, so `/exportar` writes nothing and replies S-80, instead of writing `exports/` into the folder the daemon was started from; the startup log no longer prints the database path (B52).
+- The daemon writes why it stops before it exits: a configuration error, a second daemon (`3`) or the `409 Conflict` of another bot reader (`4`) could lose its line on a macOS pipe. While it waits for that line, or for a crash's, it handles no new message, job or connection (B51).
+- A model login refresh that fails with an error quoting the new tokens no longer writes them to the log (B51).
+- A shutdown never runs a job on the closed store: a job the app's connection queued no longer starts once the shutdown began, and one it started is waited for like a scheduled job. Reconnecting the app many times queues each job once, not three per connection (B69).
 - A login code pasted in the app's chat no longer stays visible: once the login takes it, the chat shows "Código de acceso (oculto)" in its place and keeps none of its words, as the bot deletes it in Telegram (DK-4 AC7, B55).
 - "Sí, borrar" in the app's chat no longer waits forever: with no answer from the daemon in 2 minutes it says it cannot know whether the conversation was erased, as when the connection is lost (DK-16 AC4, B55).
 - The message that replaces a memory ("ya no vivo en …") is no longer stored when it, or its reply, holds the old fact's words: it goes as the earlier turns that held them do (R-23 AC3, B55).

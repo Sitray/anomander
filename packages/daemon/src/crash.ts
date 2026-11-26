@@ -24,16 +24,25 @@ export const DRAIN_LIMIT_MS = 5_000;
  * `exit`, called once whatever was written to `streams` is out (B45): a pipe on macOS or Windows
  * is written later, and `process.exit` drops what still waits, the crash line among it. A stream
  * that never drains holds the exit `limitMs` at most. Only the first code counts.
+ *
+ * B51: `halt` is called at once, before the wait, so the daemon takes no new event while its log
+ * drains. One that throws does not hold the exit.
  */
 export const exitOnceWritten = (
   streams: readonly Drainable[],
   exit: (code: ExitCode) => void,
   limitMs: number = DRAIN_LIMIT_MS,
+  halt: () => void = () => {},
 ): ((code: ExitCode) => void) => {
   let leaving = false;
   return (code) => {
     if (leaving) return;
     leaving = true;
+    try {
+      halt();
+    } catch {
+      // The exit matters more: the daemon is leaving anyway.
+    }
     let pending = streams.length;
     let gone = false;
     const leave = (): void => {

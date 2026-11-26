@@ -70,5 +70,10 @@ export interface Anomander {
    * `ANOMANDER_LOCAL_TOKEN` is unset, when no port is opened at all.
    */
   localChannel: Promise<LocalChannelAddress> | undefined;
+  /**
+   * B51: from now on nothing new starts (no turn, no job, no input of a door) and the doors
+   * begin to close, without waiting for anything: for a crash that waits for its log line.
+   */
+  halt(): void;
   stop(): Promise<void>;
 }

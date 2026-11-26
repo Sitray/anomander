@@ -64,6 +64,79 @@ const jsonSecrets = (raw: string | undefined, named?: (name: string) => boolean)
   }
 };
 
+/**
+ * A token field as a JSON text quotes it, such as `"access_token":"…"` of a token response or
+ * `"refresh":"…"` of a login, its value still escaped and its closing quote, when there is one,
+ * captured apart. Read from text, so a response that is not JSON still gives its tokens up.
+ */
+const QUOTED_TOKEN =
+  /"(?:access_token|refresh_token|id_token|access|refresh)"\s*:\s*"((?:[^"\\]|\\.)*)("?)/g;
+
+/**
+ * A token field of a form, such as `access_token=…&` of a token response, its value still
+ * URL-encoded.
+ */
+const FORM_TOKEN = /(?<![\w])(?:access_token|refresh_token|id_token)=([^&\s"';,]+)/g;
+
+/** The characters a token is written with: base64url, a JWT's dots, `/`, `+`, `=` and `~`. */
+const TOKEN_START = /^[\w.~+/=-]+/;
+
+/** A form's value, decoded; as written when it does not decode. */
+const formDecoded = (encoded: string): string => {
+  try {
+    return decodeURIComponent(encoded.replaceAll('+', ' '));
+  } catch {
+    return encoded;
+  }
+};
+
+/**
+ * The tokens `text` quotes as JSON or as a form. A JSON value with no closing quote was cut short,
+ * as in a body that did not parse: its token is what it starts with, up to the first character no
+ * token holds.
+ */
+const tokensIn = (text: string): string[] => [
+  ...[...text.matchAll(QUOTED_TOKEN)].map(([, token = '', closed]) =>
+    closed === '"' ? unquoted(token) : (TOKEN_START.exec(token)?.[0] ?? ''),
+  ),
+  ...[...text.matchAll(FORM_TOKEN)].map(([, token = '']) => formDecoded(token)),
+];
+
+/** The token a JSON string holds, unescaped; as written when it does not read as JSON. */
+const unquoted = (escaped: string): string => {
+  try {
+    return String(JSON.parse(`"${escaped}"`));
+  } catch {
+    return escaped;
+  }
+};
+
+/**
+ * B51: the tokens a failure quotes, however deep: in a field named as a login's or an OAuth set's
+ * secret, or quoted as JSON in any text of it, its message and its causes included (an `Error`
+ * keeps those out of its own fields). A failed refresh's error may quote the tokens it got.
+ */
+const quotedTokens = (value: unknown, seen = new Set<object>()): string[] => {
+  if (typeof value === 'string') return tokensIn(value);
+  if (typeof value !== 'object' || value === null || seen.has(value)) return [];
+  seen.add(value);
+  const own: [string, unknown][] =
+    value instanceof Error
+      ? [
+          ['message', value.message],
+          ['cause', value.cause],
+          ...(value instanceof AggregateError
+            ? [['errors', value.errors] as [string, unknown]]
+            : []),
+        ]
+      : [];
+  return [...own, ...Object.entries(value)].flatMap(([name, inner]) =>
+    typeof inner === 'string' && (isLoginSecret(name) || isOAuthSecret(name))
+      ? [inner]
+      : quotedTokens(inner, seen),
+  );
+};
+
 /** A blank value is never a secret: it would match everywhere. */
 const nonBlank = (secrets: readonly (string | undefined)[]): string[] =>
   secrets.filter((secret): secret is string => secret !== undefined && secret.trim() !== '');
@@ -105,8 +178,11 @@ export const secretsToScrub = (
   ]);
 };
 
-/** What the daemon can get after its start: a model login, or the OAuth state of connections. */
-export type AcquiredKind = 'login' | 'oauth';
+/**
+ * What the daemon can get after its start: a model login, the OAuth state of connections, or a
+ * failure that may quote new tokens it never got whole (B51).
+ */
+export type AcquiredKind = 'login' | 'oauth' | 'failure';
 
 export interface SecretList {
   /** Every secret known now: those of the start and those acquired since. For the log. */
@@ -115,7 +191,8 @@ export interface SecretList {
   setFromStart: (secrets: readonly string[]) => void;
   /**
    * B42: adds the secrets of `value`, a login (one `Credential` or a set of them by provider)
-   * or an OAuth set, by the same fields as the start's. The only way a later secret gets in.
+   * or an OAuth set, by the same fields as the start's, or the tokens a failure quotes (B51).
+   * The only way a later secret gets in.
    */
   acquire: (kind: AcquiredKind, value: unknown) => void;
 }
@@ -133,7 +210,10 @@ export const createSecretList = (): SecretList => {
       start = [...secrets];
     },
     acquire: (kind, value) => {
-      const found = stringLeaves(value, kind === 'login' ? isLoginSecret : isOAuthSecret);
+      const found =
+        kind === 'failure'
+          ? quotedTokens(value)
+          : stringLeaves(value, kind === 'login' ? isLoginSecret : isOAuthSecret);
       for (const secret of nonBlank(found)) acquired.add(secret);
     },
   };
