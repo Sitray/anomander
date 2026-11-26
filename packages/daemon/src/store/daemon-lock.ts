@@ -5,9 +5,13 @@ import Database from 'better-sqlite3';
 // DK-2 AC1 (docs/desktop-prd.md): one daemon per database. The desktop app and Docker are two
 // ways to run the same daemon, never both at once.
 
+/**
+ * B84: says why without where, as `main.ts` does for a store that does not open: the path of the
+ * database may name the principal, and the daemon's output is a log.
+ */
 export class DaemonAlreadyRunningError extends Error {
-  constructor(dbPath: string) {
-    super(`another ANOMANDER daemon is already running on ${dbPath}`);
+  constructor() {
+    super('another ANOMANDER daemon is already running on the same database');
     this.name = 'DaemonAlreadyRunningError';
   }
 }
@@ -45,7 +49,7 @@ export const acquireDaemonLock = (dbPath: string): DaemonLock => {
   } catch (error) {
     lock.close();
     if ((error as { code?: string }).code === 'SQLITE_BUSY') {
-      throw new DaemonAlreadyRunningError(dbPath);
+      throw new DaemonAlreadyRunningError();
     }
     throw error;
   }

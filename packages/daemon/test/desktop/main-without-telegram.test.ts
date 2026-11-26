@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { exitCodes, LOCAL_CHANNEL_PROTOCOL } from '@anomander/protocol';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { acquireDaemonLock } from '../../src/store/daemon-lock.ts';
 
 // T13: `main.ts` as the desktop app starts it, without a Telegram bot. The local channel is the
 // only front door; without it too, the daemon refuses to start and says what it needs.
@@ -159,5 +160,25 @@ describe('main.ts without Telegram', () => {
     );
     expect(started.output()).not.toContain(scratch);
     expect(started.output()).not.toContain('not-a-folder');
+  }, 20_000);
+
+  it('B84: says another daemon holds the store, without its path', async () => {
+    const dbPath = join(scratch, 'held-by-another', 'anomander.db');
+    const lock = acquireDaemonLock(dbPath);
+    try {
+      const started = run({
+        ANOMANDER_LOCAL_TOKEN: TOKEN,
+        ANOMANDER_LOCAL_PORT: String(await freePort()),
+        ANOMANDER_DB_PATH: dbPath,
+      });
+      expect(await started.exited).toBe(exitCodes.alreadyRunning);
+      expect(started.output()).toContain(
+        'anomander daemon failed: another ANOMANDER daemon is already running on the same database',
+      );
+      expect(started.output()).not.toContain(scratch);
+      expect(started.output()).not.toContain('held-by-another');
+    } finally {
+      lock.release();
+    }
   }, 20_000);
 });

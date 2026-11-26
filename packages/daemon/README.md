@@ -555,7 +555,8 @@ The desktop app and Docker are two ways to run this daemon, never both at once
 (`docs/desktop-prd.md`). `startAnomander` and `startSetupGuide` take the lock of the database
 before anything else (`src/store/daemon-lock.ts`): an exclusive SQLite transaction on
 `<ANOMANDER_DB_PATH>.lock`, held until `stop` (SQLite keeps a small `.lock-journal` beside it). A second daemon throws
-`DaemonAlreadyRunningError` before the store is opened, so the ledger is unchanged (AC1). The
+`DaemonAlreadyRunningError` before the store is opened, so the ledger is unchanged (AC1); `main.ts`
+says so (`another ANOMANDER daemon is already running on the same database`) without its path (B84). The
 operating system frees the lock when the process ends, so a crash leaves nothing stale. An
 in-memory store (`ANOMANDER_DB_PATH=:memory:`) takes no lock: it belongs to its process alone, and
 no `:memory:.lock` lands in the current folder (B80). When the store cannot be opened, `main.ts`
