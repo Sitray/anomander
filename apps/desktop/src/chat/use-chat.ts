@@ -139,6 +139,8 @@ export const useChat = (channel: LocalChannel | null, options: ChatOptions = {})
   latest.current = options;
   /** The plain texts whose answer has not arrived: only theirs may carry a route (DK-13). */
   const texts = useRef(new Set<string>());
+  /** B81: whether a login started in Telegram waits for a pasted text, as the daemon last said. */
+  const loginWaits = useRef(false);
   /** The presses whose answer has not arrived: a forget is answered to one (B48). */
   const presses = useRef(new Set<string>());
   /**
@@ -205,6 +207,10 @@ export const useChat = (channel: LocalChannel | null, options: ChatOptions = {})
           known[requestId] === phase ? known : { ...known, [requestId]: phase },
         ),
       // DK-22: what ANOMANDER sent unasked is said in the chat and notified as an answer is.
+      // B81: a text sent while a login waits may be its code (DK-4 AC7).
+      onLoginWaiting: (waiting) => {
+        loginWaits.current = waiting;
+      },
       onNotice: (notice) => {
         dispatch({ type: 'notice', notice });
         latest.current.onReply?.(notice.text);
@@ -276,14 +282,18 @@ export const useChat = (channel: LocalChannel | null, options: ChatOptions = {})
 
   const deliver = useCallback(async (id: string, text: string, attachments: Attachment[]) => {
     let requestId: string | null = null;
+    let toLogin = false;
     try {
       const request = await requestFor(text, attachments);
       requestId = client.current?.send(request) ?? null;
-      if (requestId !== null && request.type === 'text') texts.current.add(requestId);
+      if (requestId !== null && request.type === 'text') {
+        texts.current.add(requestId);
+        toLogin = loginWaits.current;
+      }
     } catch {
       // A file that cannot be read never left: it is reported as not sent.
     }
-    dispatch({ type: 'left', id, requestId });
+    dispatch({ type: 'left', id, requestId, ...(toLogin ? { toLogin } : {}) });
   }, []);
 
   const say = useCallback(

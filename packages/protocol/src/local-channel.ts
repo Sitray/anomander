@@ -187,8 +187,8 @@ export interface ChatUndoExpense {
 
 /**
  * DK-17 AC6: "Corregir" on a row of "Gastos": the daemon answers as the chat's "Corregir" does
- * (R-7 AC6), so the principal's next text is the correction. Answered with a `ChatReply`: S-7, or
- * S-19 when the expense is no longer current.
+ * (R-7 AC6), so the principal's next text is the correction. Answered with a `ChatReply`: S-7 with
+ * `awaitsText`, or S-19 when the expense is no longer current.
  */
 export interface ChatCorrectExpense {
   type: 'correct_expense';
@@ -300,12 +300,22 @@ export interface ChatReply {
    * then sends the request again.
    */
   offer?: 'web_search';
+  /**
+   * R-7 AC1, AC6: the press this answers left a decision waiting for the principal's text, so
+   * their next text is its answer, written in the chat (DK-17 AC6); absent otherwise.
+   */
+  awaitsText?: true;
 }
 
 /** The request `inReplyTo` was handled and has no reply. */
 export interface ChatDone {
   type: 'done';
   inReplyTo: string;
+  /**
+   * B81 (DK-4 AC7, PRD R-27 AC3): only on a `text` a login waiting for a pasted code or address
+   * took. It is stored nowhere, so the window keeps none of its words either. Absent otherwise.
+   */
+  taken?: 'login';
 }
 
 /** A frame that is not a `ChatRequest`. Nothing was done with it. */
@@ -438,6 +448,20 @@ export interface ChatNotice {
   sentAt: string;
 }
 
+/**
+ * B81 (DK-4 AC7, PRD R-27 AC3): pushed to every open connection when a login started in
+ * Telegram starts or stops waiting for a pasted code or address, and to a connection that opens
+ * while one waits. A text the window sends while `waiting` goes to that login: if its answer
+ * never comes (the connection is lost first), the window keeps none of its words. Optional: a
+ * window that ignores it masks such a text only once the daemon says the login took it.
+ */
+export interface ChatLoginWaiting {
+  type: 'login_waiting';
+  /** It answers no request. */
+  inReplyTo: null;
+  waiting: boolean;
+}
+
 /** DK-21: the answer to an `ai_usage` request. */
 export interface ChatAiUsage {
   type: 'ai_usage';
@@ -501,6 +525,7 @@ export type ChatEvent =
   | ChatAiUsage
   | ChatReply
   | ChatNotice
+  | ChatLoginWaiting
   | ChatDone
   | ChatRejected
   | ChatHistory

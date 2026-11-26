@@ -106,7 +106,11 @@ Every incoming message has exactly one destination, decided by code (R-17):
 
 A decision `awaiting_text` for 15 minutes is `open` again (AC6). The button handler and the
 router move stale decisions back to `open` before routing, and the retention job does too, so a
-forgotten decision can still expire (R-19 AC2).
+forgotten decision can still expire (R-19 AC2). A row of "Gastos" applies it before choosing the
+question it presses (`rowButton`). The `amend_expense` question a row asks of its own
+(`basis_json.rule` `DK-17 AC6`, no `channel_ref`) is shown in no message, so instead of going back
+to `open` it is closed, `expired` with its proposal `rejected`, and the row's next press asks a new
+one (`reopenStaleAwaiting`, backlog B63).
 
 `register_expense` (`src/decisions/register-expense-decision.ts`) answers S-3, S-4, S-6 and S-33:
 
@@ -119,9 +123,10 @@ forgotten decision can still expire (R-19 AC2).
 - **Descartar (R-6 AC4).** The proposal is `rejected`, the pending expense `refuted` (so no
   current expense remains) and the decision `answered`. The reply is S-23, verbatim, from the
   stored row.
-- **Corregir (R-7 AC1).** The reply is S-7, verbatim, and the decision becomes `awaiting_text`
-  with `awaiting_since`; any other decision awaiting text goes back to `open` first, so the
-  unique index `one_awaiting_text` holds (R-17 AC3).
+- **Corregir (R-7 AC1).** The reply is S-7, verbatim, with `awaitsText` (the desktop app goes
+  back to its chat on it), and the decision becomes `awaiting_text` with `awaiting_since`; any
+  other decision awaiting text goes back to `open` first, so the unique index `one_awaiting_text`
+  holds (R-17 AC3).
 
 A correction (`createExpenseCorrection`, `src/decisions/correction.ts`, R-7 AC2) sends the text
 and the stored expense to the `CorrectionInterpreter`. A new total is accepted only if it is
@@ -145,7 +150,7 @@ with the S-15 buttons first when S-15 is asked with it:
   `authorized_by 'principal'`, the expense `refuted` (it leaves `gastos`; nothing is deleted) and
   the decision `answered`. The reply is S-100, or S-101 without a merchant, verbatim, and its
   delivery verifies the action.
-- **Corregir (R-7 AC6).** S-7 and `awaiting_text`, as for a receipt. The text goes to
+- **Corregir (R-7 AC6).** S-7 with `awaitsText` and `awaiting_text`, as for a receipt. The text goes to
   `createAmendExpenseCorrection`, which shares the checks of `createExpenseCorrection`
   (`acceptCorrection`) and writes them with `amendExpense`: the principal's `declared` assertion
   is the one superseded and the inference it stood with is refuted too. The reply is S-8, or
@@ -158,7 +163,9 @@ with the S-15 buttons first when S-15 is asked with it:
   the expense's open questions and opens a new `amend_expense` question with "Deshacer" alone under
   S-8 or S-102. Its proposal's `payload_json` keeps `restore` beside `expense_id`: the columns the
   correction changed as they were before it, the declarations it wrote, and the assertions it
-  refuted with their status (`amendExpense` returns it; no schema change). "Deshacer" runs
+  refuted with their status (`amendExpense` returns it; no schema change). A `corroborated`
+  expense becomes `confirmed` when corrected, and `restore.columns.mode` keeps `corroborated`
+  for "Deshacer"; a payload stored before B63 has no `mode` and leaves the mode as it is. "Deshacer" runs
   `undoCorrection` in one transaction: the columns take their old values, the declarations are
   `refuted`, the refuted assertions take back their status, and the proposal is `executed` by the
   principal. The expense stays current; the reply is S-105, or S-106 without a merchant. A newer
@@ -602,7 +609,7 @@ Each message is one JSON text frame, typed in `packages/protocol/src/local-chann
 
 | The app sends | The daemon answers |
 | --- | --- |
-| `text` | `reply` with the same string Telegram would get (DK-4 AC1) |
+| `text` | `reply` with the same string Telegram would get (DK-4 AC1); `done` with `taken: 'login'` when a login waiting for a pasted code or address took it (DK-4 AC7, B81) |
 | `receipt`: one or several images in base64 | `reply`; a PDF, another file type or an image over 20 MB gets R-20's reply, as in Telegram |
 | `button`: the `data` of a reply's button | `reply`; S-19 when the decision is no longer open, whichever door closed it (DK-4 AC3) |
 | `screen`: a question and one capture of the screen in base64 (DK-9) | `reply` with what the vision processor sees (`src/processor/screen-reader.ts`): no tools, nothing stored but its question in the history (DK-14), one call against the daily AI limit; an image over 20 MB gets R-20's reply |
@@ -618,6 +625,12 @@ Each message is one JSON text frame, typed in `packages/protocol/src/local-chann
 While a task with connections calls a tool for a request still owed, the daemon may send
 `progress` (`of`: that request's id; `phase`: `web_search` or `connection`), never an answer
 itself (DK-19).
+
+While a login started in Telegram waits for a pasted code or address, the daemon tells every
+open connection, and one that opens meanwhile, with `login_waiting` (`waiting: true`), and again
+with `waiting: false` once it no longer waits (`src/app/login-waits.ts` watches the login's
+prompts, never what is pasted). The window masks a text it sent meanwhile whose answer never came
+(B81, desktop PRD DK-4 AC7).
 
 A `reply` carries its own `channelRef`, `desktop:<uuid>`, which is recorded as the delivery
 (R-9 AC2) once the frame left through the socket. The channel only answers: what ANOMANDER
@@ -805,7 +818,8 @@ key (R-15 AC3).
   and `logout:<provider>`, apart from `decision:` data) and the awaited text are handled in
   `app.ts` before every other route, so they work when no model is reachable (R-17 AC7). While a
   login waits, a text sent in the desktop app's chat goes to it too (`takePasted`), answered
-  `done`; the app never takes `/login` or `/logout` (desktop PRD DK-4 AC7).
+  `done` with `taken: 'login'`, the only answer that carries it, so the window masks it (B81);
+  the app never takes `/login` or `/logout` (desktop PRD DK-4 AC7).
 - **From a terminal on the server.** `pnpm run login [provider]` and `pnpm run logout <provider>`
   (`scripts/login.ts`, `scripts/logout.ts`) do the same and print the link or device code. Plain
   `pnpm login` is pnpm's own npm-registry login, so `run` is needed. Run them from the directory

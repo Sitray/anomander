@@ -37,7 +37,8 @@ export type ConnectionState = 'offline' | 'connecting' | 'open';
  */
 export type Outcome =
   | { type: 'reply'; reply: ChatReply }
-  | { type: 'done' }
+  /** `taken`: B81 (DK-4 AC7), a text a waiting login took; absent for any other `done`. */
+  | { type: 'done'; taken?: 'login' }
   | { type: 'rejected' }
   | { type: 'unknown' };
 
@@ -63,6 +64,11 @@ export interface ChatClientOptions {
   onProgress?: (requestId: string, phase: ProgressPhase) => void;
   /** DK-22: what ANOMANDER sent unasked; it answers no request. */
   onNotice?: (notice: ChatNotice) => void;
+  /**
+   * B81 (DK-4 AC7): whether a login started in Telegram waits for a pasted text now. `false`
+   * whenever the connection is not open: the daemon says it again on the next one.
+   */
+  onLoginWaiting?: (waiting: boolean) => void;
   /** Defaults to the platform's `WebSocket`. */
   createSocket?: (url: string, protocols: string[]) => ChatSocket;
 }
@@ -329,6 +335,12 @@ const parseEvent = (data: unknown): ChatEvent | undefined => {
     const event = JSON.parse(data) as Partial<ChatEvent> | null;
     if (event?.type === 'reply') return withOffer(withRoute(event as ChatReply));
     if (event?.type === 'notice') return parseNotice(event as Record<string, unknown>);
+    if (event?.type === 'login_waiting') {
+      const { waiting } = event as { waiting: unknown };
+      return typeof waiting === 'boolean'
+        ? { type: 'login_waiting', inReplyTo: null, waiting }
+        : undefined;
+    }
     if (event?.type === 'history') {
       const { messages } = event as { messages: unknown };
       return Array.isArray(messages)
@@ -373,6 +385,7 @@ export const createChatClient = (options: ChatClientOptions): ChatClient => {
     onOutcome,
     onProgress,
     onNotice,
+    onLoginWaiting,
     createSocket = (url, protocols) => new WebSocket(url, protocols),
   } = options;
 
@@ -387,6 +400,8 @@ export const createChatClient = (options: ChatClientOptions): ChatClient => {
 
   const report = (next: ConnectionState): void => {
     if (next === state) return;
+    // B81: what the daemon said of a waiting login holds only while its connection is open.
+    if (state === 'open') onLoginWaiting?.(false);
     state = next;
     onConnection(next);
   };
@@ -489,6 +504,10 @@ export const createChatClient = (options: ChatClientOptions): ChatClient => {
         onNotice?.(event);
         return;
       }
+      if (event?.type === 'login_waiting') {
+        onLoginWaiting?.(event.waiting);
+        return;
+      }
       // A `rejected` without an id cannot be one of ours: every request carries its id.
       if (event === undefined || event.inReplyTo === null) return;
       const waiting = awaited.get(event.inReplyTo);
@@ -509,7 +528,11 @@ export const createChatClient = (options: ChatClientOptions): ChatClient => {
       }
       settle(
         event.inReplyTo,
-        event.type === 'reply' ? { type: 'reply', reply: event } : { type: event.type },
+        event.type === 'reply'
+          ? { type: 'reply', reply: event }
+          : event.type === 'done' && event.taken === 'login'
+            ? { type: 'done', taken: 'login' }
+            : { type: event.type },
       );
     };
     opened.onclose = () => {

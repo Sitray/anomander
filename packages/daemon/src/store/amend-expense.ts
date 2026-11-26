@@ -73,6 +73,8 @@ const amendPayload = z.object({ expense_id: z.int().positive() });
  * R-7 AC9: what "Deshacer" under a correction puts back, kept in its `amend_expense` proposal's
  * `payload_json` beside `expense_id`: the expense's columns the correction changed, as they were
  * before it; the declarations it wrote; and the assertions it refuted, with the status each had.
+ * `mode` is kept only when the correction changed it (`corroborated` to `confirmed`, B63); a
+ * payload stored before that has none, and its "Deshacer" leaves the mode as it is.
  */
 const RESTORED_COLUMNS = [
   'total_cents',
@@ -80,6 +82,7 @@ const RESTORED_COLUMNS = [
   'category_id',
   'category_basis',
   'occurred_on',
+  'mode',
 ] as const;
 
 export interface CorrectionRestore {
@@ -89,6 +92,7 @@ export interface CorrectionRestore {
     category_id?: number | null | undefined;
     category_basis?: string | null | undefined;
     occurred_on?: string | undefined;
+    mode?: 'corroborated' | undefined;
   };
   declarations: number[];
   refuted: { id: number; status: 'current' | 'confirmed' }[];
@@ -103,6 +107,7 @@ const restorePayload = z.object({
         category_id: z.int().nullable().optional(),
         category_basis: z.string().nullable().optional(),
         occurred_on: z.string().optional(),
+        mode: z.literal('corroborated').optional(),
       })
       .strict(),
     declarations: z.array(z.int().positive()),
@@ -250,8 +255,8 @@ export const amendExpense = (
 ): { actionId: number; declarations: number[]; restore: CorrectionRestore } => {
   const { expenseId, proposalId, correction, source, receivedAt, now } = amendment;
   const current = db
-    .prepare<[number], Required<CorrectionRestore['columns']>>(
-      `SELECT total_cents, merchant_id, category_id, category_basis, occurred_on
+    .prepare<[number], Required<Omit<CorrectionRestore['columns'], 'mode'>> & { mode: string }>(
+      `SELECT total_cents, merchant_id, category_id, category_basis, occurred_on, mode
        FROM expenses WHERE id = ? AND status = 'current'`,
     )
     .get(expenseId);
@@ -288,6 +293,13 @@ export const amendExpense = (
     columns.category_basis = current.category_basis;
   }
   if (correction.occurred_on !== undefined) columns.occurred_on = current.occurred_on;
+  // B63, PRD §7.2: `corroborated` says none of the expense came from the principal; after their
+  // correction it is `confirmed`, as a pending receipt they correct is (R-7 AC2). `declared` and
+  // `confirmed` already rest on the principal's word and stay.
+  if (current.mode === 'corroborated' && declarations.length > 0) {
+    db.prepare("UPDATE expenses SET mode = 'confirmed' WHERE id = ?").run(expenseId);
+    columns.mode = 'corroborated';
+  }
   return {
     actionId,
     declarations,

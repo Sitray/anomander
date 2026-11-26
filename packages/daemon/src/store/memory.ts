@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from 'node:async_hooks';
 import type Database from 'better-sqlite3';
 import { forgetTurnsHolding } from './conversation.ts';
 import { insertAssertion } from './expenses.ts';
@@ -147,32 +148,42 @@ const eraseReplacedText = (db: Database.Database, id: number, mentioned = false)
 };
 
 /** Whether a message of the stored conversation holds a replaced memory's words. */
-type TurnHolds = (message: { from: 'principal' | 'anomander'; text: string }) => boolean;
+export type TurnHolds = (message: { from: 'principal' | 'anomander'; text: string }) => boolean;
 
 /**
- * B55 (R-23 AC3): per database, how to tell the turns of the memories replaced since the last
- * principal's turn was stored. The message that replaces a memory is stored after it, with the
- * reply it got (`recentTurns.add`), so the erase above cannot find it; that turn asks here. It
- * lives only in this process, until that turn is stored.
+ * B55, B81 (R-23 AC3): how to tell the words of the memories replaced while one turn is
+ * answered, gathered for that turn only. The message that replaces a memory is stored after it,
+ * with the reply it got (`recentTurns.add`), so the erase above cannot find it; its own turn
+ * asks here (`replacingIn`). A turn stored meanwhile by another door never sees them, and a turn
+ * that fails before it is stored takes them with it.
  */
-const replacedSinceLastTurn = new WeakMap<Database.Database, TurnHolds[]>();
+const replacedInTurn = new AsyncLocalStorage<TurnHolds[]>();
 
 /**
- * B55: whether the turn about to be stored, the principal's `message` and its `reply`, says a
- * memory replaced while it was answered, so it is not stored. It forgets those memories' words.
+ * B81: runs `answer`, the handler of one turn, and returns its result with the words of every
+ * memory `saveMemory` replaced while it ran, for that turn to be matched against.
+ */
+export const replacingIn = async <T>(
+  answer: () => Promise<T>,
+): Promise<{ result: T; replaced: readonly TurnHolds[] }> => {
+  const replaced: TurnHolds[] = [];
+  const result = await replacedInTurn.run(replaced, answer);
+  return { result, replaced };
+};
+
+/**
+ * B55: whether the turn about to be stored, the principal's `message` and its `reply`, says one
+ * of the memories its own handler `replaced`, so it is not stored.
  */
 export const turnSaysReplacedMemory = (
-  db: Database.Database,
+  replaced: readonly TurnHolds[],
   message: string,
   reply: string,
-): boolean => {
-  const replaced = replacedSinceLastTurn.get(db) ?? [];
-  replacedSinceLastTurn.delete(db);
-  return replaced.some(
+): boolean =>
+  replaced.some(
     (holds) =>
       holds({ from: 'principal', text: message }) || holds({ from: 'anomander', text: reply }),
   );
-};
 
 const isCurrentMemory = (db: Database.Database, id: number): boolean =>
   db
@@ -226,9 +237,8 @@ export const saveMemory = (db: Database.Database, capture: MemoryCapture): numbe
     }
     return { id, replaced, holds };
   })();
-  if (holds !== null) {
-    replacedSinceLastTurn.set(db, [...(replacedSinceLastTurn.get(db) ?? []), holds]);
-  }
+  // B81: only the turn this runs in is matched against the old words (`replacingIn`).
+  if (holds !== null) replacedInTurn.getStore()?.push(holds);
   // The checkpoint cannot run inside the transaction (see forgetMemories).
   if (replaced !== null) db.pragma('wal_checkpoint(TRUNCATE)');
   return id;

@@ -313,9 +313,25 @@ describe('"Corregir" and "Deshacer" on a row (DK-17 AC6)', () => {
     fireEvent.click(screen.getByRole('button', { name: correctOf('2026-11-02') }));
     const request = socket.lastRequest;
     expect(request).toEqual({ type: 'correct_expense', id: expect.any(String), expenseId: 1 });
-    await act(async () => socket.receive(replyTo(request.id, { text: S7 })));
+    await act(async () => socket.receive(replyTo(request.id, { text: S7, awaitsText: true })));
 
     expect(onAmended).toHaveBeenCalledOnce();
+    expect(onCorrecting).toHaveBeenCalledOnce();
+  });
+
+  it('goes to the chat because the reply says a decision waits for text, not because of its words', async () => {
+    const socket = await shown();
+
+    fireEvent.click(screen.getByRole('button', { name: correctOf('2026-11-02') }));
+    await act(async () => socket.receive(replyTo(socket.lastRequest.id, { text: S7 })));
+    expect(notes()).toContain(S7);
+    expect(onCorrecting).not.toHaveBeenCalled();
+
+    await answer(socket, NOVEMBER);
+    fireEvent.click(screen.getByRole('button', { name: correctOf('2026-11-02') }));
+    await act(async () =>
+      socket.receive(replyTo(socket.lastRequest.id, { text: 'Otra pregunta', awaitsText: true })),
+    );
     expect(onCorrecting).toHaveBeenCalledOnce();
   });
 

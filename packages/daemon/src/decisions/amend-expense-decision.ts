@@ -37,7 +37,7 @@ export const createAmendExpenseDecision =
     if (option === buttons.correct) {
       // R-7 AC6 as AC1: S-7, verbatim, and the decision waits for the principal's text.
       awaitText(db, decision.id, at);
-      return { text: strings.askCorrection() };
+      return { text: strings.askCorrection(), awaitsText: true };
     }
     if (option !== buttons.undo) {
       throw new Error(`unknown option ${JSON.stringify(option)} for decision ${decision.id}`);

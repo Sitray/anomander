@@ -46,10 +46,16 @@ On `main` since 0.1.0. The interface speaks English or Spanish, and the app runs
 - `pnpm coverage` measures the test coverage with Vitest's V8 provider and prints a summary; no thresholds.
 - Repository: issue templates (bug, feature), a pull request template that asks for `scripts/ci-local.sh`, `CODEOWNERS`, and `apps/desktop/src-tauri/rust-toolchain.toml` (stable, with clippy and rustfmt). A CI `msrv` job checks the shell on the `rust-version` of its `Cargo.toml`; `scripts/ci-local.sh` runs it where that toolchain is installed.
 - The daemon image has a `HEALTHCHECK`: healthy while a daemon holds its database lock. `compose.yaml` rotates the daemon log at 3 files of 10 MB.
+- Dependabot no longer proposes `@types/node` major updates: the runtime is Node 24 (`.node-version`), so the Node types stay on its major (#93).
 - Dependency updates (croner 11, pi-ai 1.6, better-sqlite3 13.2, grammy 1.48, Tauri 2.12.7, getrandom 0.4, Biome 2.6, CI actions). Custom `ANOMANDER_*_CRON` patterns are now parsed strictly: one that was quietly misread before stops the daemon at start with an error. The every-minute tick keeps running through the repeated hour when the clocks go back.
 
 ### Fixed
 
+- A text sent in the app's chat while a login started in Telegram waited for a pasted code, whose answer never came because the connection was lost, no longer stays visible: the daemon tells the windows while a login waits (`login_waiting`), and the chat masks such a text as "Código de acceso (oculto)" (DK-4 AC7, B81).
+- The app's chat masks a pasted login code only when the daemon says a login took it: the local channel's `done` carries `taken: 'login'` for that text alone, instead of the window reading any `done` with no reply as a login code (DK-4 AC7, B81).
+- A "No" to forget a memory or erase the history says part was already erased (S-200, S-201) only when a "Sí" to that same question ran and failed halfway; a memory or action erased from "Memoria" in between gets the plain reply again. Each "Sí" is recorded as a failed action of its proposal before it erases, and becomes executed once answered (B81).
+- The old words of a replaced memory are matched only against the turn that replaced it: a turn of the other door stored meanwhile no longer takes them, leaving the replacing turn stored with them, and a turn that failed after the replacement no longer leaves them to drop a later, unrelated turn (R-23 AC3, B81).
+- What a task with connections asked in Telegram came to is no longer stored when "Borrar conversación", a confirmed forget, or a replaced or forgotten memory that took a turn with it, came after its turn and before Telegram delivered it (B81).
 - **Backups stamped in the future**: a backup stamped after the current time, as a clock that was once ahead leaves them, no longer counts as the copy of its day, so the real day still gets its daily copy, and it is the first deleted when backups are pruned, so such copies never pile up; never more than the usual number of copies is deleted per backup taken, and the copy just taken never is. A copy stamped ahead that is still kept (fewer copies than the kept number, or others stamped ahead before it, for example when a daily run is missed) can still stand for its own day once that day arrives (B52).
 - **`/exportar` with an in-memory store**: with `ANOMANDER_DB_PATH=:memory:` there is no data folder, so `/exportar` writes nothing and replies S-80, instead of writing `exports/` into the folder the daemon was started from; the startup log no longer prints the database path (B52).
 - The daemon writes why it stops before it exits: a configuration error, a second daemon (`3`) or the `409 Conflict` of another bot reader (`4`) could lose its line on a macOS pipe. While it waits for that line, or for a crash's, it handles no new message, job or connection (B51).
@@ -76,9 +82,14 @@ On `main` since 0.1.0. The interface speaks English or Spanish, and the app runs
 - Gastos no longer drops an expense, or a whole month, whose currency the window's `Intl` does not know: the amount is shown with its ISO code (`12,30 XYZ`) (B78).
 - Several presses of "Añadir búsqueda web" during a daemon restart all wait for the new daemon; before, only one request was kept.
 - The check that a task comes from the message keeps English negations and contractions, and locale tags such as `es@euro` count as Spanish.
+- "Corregir" on a row of Gastos goes back to the chat because the daemon's reply says the next text is awaited (`awaitsText` on the local channel's reply), no longer because its words match S-7 (B63).
+- A row's "Corregir" in Gastos left 15 minutes without text no longer leaves its question open, unseen, for 7 days: it is closed, and the row's next press asks again. The question under a reply in the chat still opens again after 15 minutes, its buttons working (B63, PRD R-17 AC6).
+- The PRD now says that a row of Gastos corrects or undoes an expense of any age, also one older than the 7 days the buttons under its reply last, as the app already did (B63, DK-17 AC6).
+- A receipt registered without asking ("Deducido y comprobado") that you correct is now shown as "Lo confirmaste", since it rests on your word; "Deshacer" on that correction shows "Deducido y comprobado" again. Receipts corrected before this keep their label (B63, PRD R-7 AC6, AC9).
 
 ### Security
 
+- Dependencies (B58): the AWS SDK chain of the Bedrock provider moves off `@smithy/core` 3.38.0, deprecated for a bug in custom logger redaction, to 3.41.1, and `tldts` / `tldts-core` (through jsdom, tests only) move off the partial release 7.4.20 to 7.6.0. The lockfile only: every range already allowed them.
 - On Windows the daemon runs in a Job Object that ends everything it started when it stops, and the data and log folders are readable by their owner only.
 - Web search runs the `pi-web-access` installed with the daemon, its whole dependency tree pinned in `pnpm-lock.yaml`, instead of what `npx` resolves afresh; existing `mcp.json` files need no change.
 - The daemon log now also hides model provider keys, connection secrets, the model login and OAuth tokens, and logs a crash scrubbed instead of raw.

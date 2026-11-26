@@ -733,7 +733,11 @@ describe('the expenses (DK-17)', () => {
         at,
       },
     ];
-    act(() => socket.receive(replyTo(socket.lastRequest.id, { text: replies.askCorrection() })));
+    act(() =>
+      socket.receive(
+        replyTo(socket.lastRequest.id, { text: replies.askCorrection(), awaitsText: true }),
+      ),
+    );
 
     await waitFor(() =>
       expect(screen.queryByRole('heading', { name: strings.expenses.title })).toBeNull(),

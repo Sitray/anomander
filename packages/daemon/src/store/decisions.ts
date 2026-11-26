@@ -77,14 +77,39 @@ export const findAwaitingDecision = (db: Database.Database): OpenDecision | null
   return row === undefined ? null : toOpen(toDecision(row));
 };
 
-/** R-17 AC6: a decision awaiting text for 15 minutes returns to `open`. Returns how many did. */
+/**
+ * R-17 AC6: a decision awaiting text for 15 minutes returns to `open`, so its buttons still work.
+ * A row's own `amend_expense` question (desktop PRD DK-17 AC6) is shown in no message, so it has no
+ * buttons left: it is closed instead, `expired` with its proposal `rejected` as R-7 AC8 closes one,
+ * and the row's next press asks a new one (backlog B63). Returns how many changed.
+ */
 export const reopenStaleAwaiting = (db: Database.Database, now: Date): number =>
-  db
-    .prepare(
-      `UPDATE pending_decisions SET status = 'open', awaiting_since = NULL
-       WHERE status = 'awaiting_text' AND awaiting_since <= ?`,
-    )
-    .run(new Date(now.getTime() - AWAITING_TEXT_TIMEOUT_MS).toISOString()).changes;
+  db.transaction(() => {
+    const before = new Date(now.getTime() - AWAITING_TEXT_TIMEOUT_MS).toISOString();
+    const rowQuestions = db
+      .prepare<[string], { id: number; proposal_id: number }>(
+        `SELECT d.id, d.proposal_id FROM pending_decisions d JOIN proposals p ON p.id = d.proposal_id
+         WHERE d.status = 'awaiting_text' AND d.awaiting_since <= ? AND d.channel_ref IS NULL
+           AND p.operation = 'amend_expense'
+           AND json_extract(p.basis_json, '$.rule') = 'DK-17 AC6'`,
+      )
+      .all(before);
+    for (const { id, proposal_id } of rowQuestions) {
+      db.prepare(
+        "UPDATE pending_decisions SET status = 'expired', awaiting_since = NULL WHERE id = ?",
+      ).run(id);
+      db.prepare("UPDATE proposals SET status = 'rejected' WHERE id = ? AND status = 'asked'").run(
+        proposal_id,
+      );
+    }
+    const reopened = db
+      .prepare(
+        `UPDATE pending_decisions SET status = 'open', awaiting_since = NULL
+         WHERE status = 'awaiting_text' AND awaiting_since <= ?`,
+      )
+      .run(before).changes;
+    return rowQuestions.length + reopened;
+  })();
 
 /**
  * R-7 AC1, R-17 AC3: the decision waits for the principal's text; any other one that was
@@ -132,6 +157,50 @@ export const settleProposal = (
     .run(status, proposalId).changes;
   if (changed !== 1) throw new Error(`proposal ${proposalId} was not asked`);
 };
+
+/**
+ * B81 (R-23 AC6, DK-14 AC4): a "Sí" that erases is recorded before it erases anything, as an
+ * action of its proposal that `failed`: if the erase stops halfway the row stays, so a later "No"
+ * knows that a "Sí" to that same question ran (`answerFailed`). A "Sí" pressed again reuses it.
+ * Returns the action, which `answerCompleted` makes `executed` once the decision is answered.
+ */
+export const answerStarted = (
+  db: Database.Database,
+  proposalId: number,
+  authorizedBy: string,
+  now: string,
+): number => {
+  const failed = db
+    .prepare<[number], { id: number }>(
+      "SELECT id FROM actions WHERE proposal_id = ? AND status = 'failed' ORDER BY id LIMIT 1",
+    )
+    .get(proposalId);
+  if (failed !== undefined) return failed.id;
+  return Number(
+    db
+      .prepare(
+        `INSERT INTO actions (proposal_id, authorized_by, executed_at, status)
+         VALUES (?, ?, ?, 'failed')`,
+      )
+      .run(proposalId, authorizedBy, now).lastInsertRowid,
+  );
+};
+
+/** B81: the "Sí" of `answerStarted` erased all it had to; in the transaction that answers it. */
+export const answerCompleted = (db: Database.Database, actionId: number, now: string): void => {
+  const changed = db
+    .prepare(
+      "UPDATE actions SET status = 'executed', executed_at = ? WHERE id = ? AND status = 'failed'",
+    )
+    .run(now, actionId).changes;
+  if (changed !== 1) throw new Error(`action ${actionId} was not started`);
+};
+
+/** B81: whether a "Sí" to the question of `proposalId` ran and did not complete. */
+export const answerFailed = (db: Database.Database, proposalId: number): boolean =>
+  db
+    .prepare<[number]>("SELECT 1 FROM actions WHERE proposal_id = ? AND status = 'failed'")
+    .get(proposalId) !== undefined;
 
 const registerExpensePayload = z.object({ document_id: z.int().positive() });
 

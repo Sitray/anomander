@@ -96,10 +96,19 @@ and keep its secrets in the operating system instead of a text file.
     The app has its own place for the same logins, the Suscripciones screen (DK-15); the chat
     does not offer them. While a login started in Telegram waits for a pasted code or address,
     the next text sent in the app's chat goes to it, as in Telegram (R-17 AC7): it is answered
-    `done` and is never stored, logged, a recent turn or sent to the model. As the bot deletes it
-    in Telegram, the chat then shows "Código de acceso (oculto)" in its place and keeps none of
-    its words, in the window or anywhere a reload reads (B55): a text answered `done` is one a
-    login took.
+    `done` with `taken: 'login'` and is never stored, logged, a recent turn or sent to the model.
+    As the bot deletes it in Telegram, the chat then shows "Código de acceso (oculto)" in its
+    place and keeps none of its words, in the window or anywhere a reload reads (B55). Only that
+    signal, set by the daemon when a login took the text, masks it; any other `done` leaves the
+    text as typed (B81).
+    While a login waits, the daemon also tells the app's open windows (`login_waiting`), and one
+    that connects meanwhile; it says so again when the login stops waiting. A text the chat sent
+    while a login waited, whose answer never came (the connection was lost first, so it cannot
+    know whether the login took it), is masked the same way, still marked as not known to have
+    arrived and with no resend; a text sent while no login waited stays as typed (B81, decided
+    in the unit as the safest reading: the window cannot know the login took it, and a text
+    sent then is the one a waiting login takes). What the window knew of a waiting login ends
+    with its connection.
 - DK-5 Secrets in the Keychain.
   - AC1: the Telegram bot token (optional, AC4), the provider API keys and the subscription login are stored
     in the macOS Keychain, entered once in the app's setup screen. The login is made from
@@ -456,9 +465,10 @@ and keep its secrets in the operating system instead of a text file.
     `No`, or replies "No tengo nada en mi historial." when it is empty. `Sí` erases every action
     kept when it was asked, checkpoints the WAL as a forget does (R-23 AC7), empties the recent
     turns and the stored conversation (DK-16 AC5) and replies "Hecho, he borrado mi historial.";
-    `No` erases nothing and replies "Vale, no borro nada.", or PRD S-201 when a `Sí` that failed
-    had already erased those actions (B55): the actions go first, then the conversation, so a
-    failure between them is seen. One action at a time can also be
+    `No` erases nothing and replies "Vale, no borro nada.", or PRD S-201 when a `Sí` to that
+    same question failed after it had erased those actions (B55): the actions go first, then the
+    conversation, so a failure between them is seen. An action erased from "Memoria" (DK-18 AC5)
+    between the question and `No`, with no `Sí` pressed, gets "Vale, no borro nada." (B81). One action at a time can also be
     erased from the app's "Memoria" (DK-18 AC5).
   - AC5: the history is local: it lives only in the app's database (DK-8), is never logged (a
     failure to keep an action is logged without its words) and never leaves the machine except
@@ -526,7 +536,10 @@ and keep its secrets in the operating system instead of a text file.
     "Sí, borrar" sends `clear_history`: the daemon erases the stored conversation and the recent
     turns for real (secure delete, then the WAL checkpoint, as a forget, R-23 AC7) and answers
     `done`, and the chat empties. The erase waits for a turn of either door that runs, so
-    nothing of that turn is kept after it. When it was not erased the chat keeps its messages and says so;
+    nothing of that turn is kept after it; nor is the answer of a task with connections asked in
+    Telegram, kept once delivered after its turn, when an erase of the conversation came between
+    its turn and its delivery (B81): "Borrar conversación" or a confirmed forget, or a replaced or
+    forgotten memory that took a turn with it. When it was not erased the chat keeps its messages and says so;
     when the connection was lost first, or no answer came within 2 minutes (B55), it says it
     cannot know. It cannot be pressed while the
     connection is not open, while an answer is owed, or while a task runs or waits for
@@ -584,7 +597,9 @@ and keep its secrets in the operating system instead of a text file.
     lost with its connection is asked again once it reopens, since it only reads. The rows are
     never logged, by the daemon or the window.
   - AC6: each row has "Corregir" and "Deshacer", the buttons B20 puts under a typed expense's
-    reply (PRD R-7 AC4 to AC8), for any current expense shown, typed or a registered receipt. The
+    reply (PRD R-7 AC4 to AC8), for any current expense shown, typed or a registered receipt, of
+    any age: one older than the 7 days the question under its reply lasts (R-19 AC2) is corrected
+    or undone from its row as well (backlog B63, an assumption the PRD now states). The
     window sends `correct_expense` or `undo_expense` with the expense's id; the daemon presses that
     expense's own `amend_expense` button as a press in the app's chat: in the chat's turn of either
     door that runs, kept in the stored conversation as `[botón: Corregir]` or `[botón: Deshacer]`
@@ -592,6 +607,7 @@ and keep its secrets in the operating system instead of a text file.
     asks first in the window, "¿Lo deshago? Lo quito de tus gastos.", with "Sí, deshacer" and "No
     deshacer" ("No deshacer" sends nothing); then the expense is `refuted` as R-7 AC5 says and the
     reply is S-100 or S-101. "Corregir" replies S-7 and the decision waits for text (R-7 AC6): the
+    reply says so with `awaitsText` (backlog B63; the window never compares its words), the
     window goes back to the chat, which shows the question, and the next text is the correction,
     a `declared` assertion that supersedes the old one. An expense no longer current gets S-19
     and nothing changes; when the daemon fails, S-22. After either press the window says the
@@ -600,9 +616,15 @@ and keep its secrets in the operating system instead of a text file.
     expense's reply is open its button is the one pressed, so its buttons in the chat close too;
     a registered receipt, or a typed expense whose question was answered or expired, gets an
     `amend_expense` question of its own (`basis_json.rule` `DK-17 AC6`) answered at once, since a
-    receipt's own "Corregir" and "Descartar" (R-6) belong to it only while it is pending. A
+    receipt's own "Corregir" and "Descartar" (R-6) belong to it only while it is pending. That
+    question is shown in no message, so when "Corregir" left it waiting 15 minutes without text it
+    is closed (`expired`, its proposal `rejected`) instead of going back to `open` (PRD R-17 AC6),
+    and the row's next press asks a new one (backlog B63). A
     correction of a registered receipt refutes the `confirmed` assertions of "Apuntar" whose
-    inference it refuted, so only the new declaration is current. The "Deshacer" under a
+    inference it refuted, so only the new declaration is current. A receipt registered without
+    asking, "Deducido y comprobado" (`corroborated`), is "Lo confirmaste" (`confirmed`) once
+    corrected, and "Deducido y comprobado" again when that correction is undone (PRD R-7 AC6,
+    AC9; backlog B63). The "Deshacer" under a
     correction's reply (PRD R-7 AC9) puts values back, so a row never presses it: a row's
     "Deshacer" still takes the expense out, and closes that button too.
   - AC7: it is a table with its headers, read and moved through by keyboard; Escape or "Volver
@@ -642,6 +664,8 @@ and keep its secrets in the operating system instead of a text file.
     case, accents and punctuation (verifier finding F1, 2026-11-24, within that decision: the
     turns that mention it, never unrelated ones). A memory replaced by a new fact (R-23 AC3) keeps
     its whole-word rule. A memory no longer current is left alone and nothing else is erased.
+    A chat question to forget that memory still open then gets S-31 on `No`, never S-200: no `Sí`
+    to it ran (B81).
   - AC5: "Sí, olvidar" on an action sends `forget_action` with its id: the daemon erases that
     one row of `action_history` for real and, by the same decision, its own turn: the line it was
     stored as (`[captura de pantalla] …`, `[control del ordenador] …` or `[conexiones] …`) and its
