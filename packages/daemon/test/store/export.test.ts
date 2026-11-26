@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import type Database from 'better-sqlite3';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { applyMigrations, openDatabase } from '../../src/store/database.ts';
-import { exportLedger } from '../../src/store/export.ts';
+import { exportLedger, InMemoryStoreError } from '../../src/store/export.ts';
 
 // B5: the principal's ledger, the read views of RA-1, as one CSV file per view and one JSON file,
 // in a dated folder under `<data folder>/exports/`, readable by the owner only (§16).
@@ -184,5 +184,16 @@ describe('the ledger export', () => {
       '20261124T103000Z',
       '20261124T103000Z-1',
     ]);
+  });
+
+  it('B52: refuses an in-memory store, which has no data folder, and writes nothing', () => {
+    const memory = openDatabase(':memory:');
+    applyMigrations(memory);
+    try {
+      expect(() => exportLedger(memory, scratch, NOW)).toThrow(InMemoryStoreError);
+      expect(readdirSync(scratch)).not.toContain('exports');
+    } finally {
+      memory.close();
+    }
   });
 });

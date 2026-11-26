@@ -124,3 +124,12 @@ describe('/exportar over Telegram (R-29 AC3)', () => {
     expect(JSON.stringify(logger.error.mock.calls)).not.toContain(scratch);
   });
 });
+
+describe('the startup log (B52)', () => {
+  it('says the store is ready without naming its path', () => {
+    expect(logger.info).toHaveBeenCalledWith(
+      expect.stringMatching(/^anomander store ready \(\d+ migrations applied\)$/),
+    );
+    expect(JSON.stringify(logger.info.mock.calls)).not.toContain(scratch);
+  });
+});

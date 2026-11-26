@@ -880,7 +880,9 @@ folder. A CSV text that starts with `=`, `+`, `-`, `@`, a tab or a carriage retu
 
 `/exportar` (PRD R-29 AC3) in Telegram calls it with the folder of `ANOMANDER_DB_PATH` and
 replies S-79 with the four files in `files`; `@anomander/telegram` sends the text, then each file
-with `sendDocument`. A failed export replies S-80 and logs only the error code. It runs in the
+with `sendDocument`. A failed export replies S-80 and logs only the error code. An in-memory store
+(`ANOMANDER_DB_PATH=:memory:`) has no data folder: `exportLedger` throws `InMemoryStoreError`,
+writing nothing, so the export never lands in the folder the daemon was started from (B52). It runs in the
 chat's turn and gets the setup guide while setup is incomplete. In the app `/exportar` replies
 S-81 and writes nothing. Exports stay under `exports/` until deleted by hand.
 

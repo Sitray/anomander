@@ -69,11 +69,23 @@ const newFolder = (exportsDir: string, now: Date): string => {
 };
 
 /**
+ * B52: an in-memory store (`ANOMANDER_DB_PATH=:memory:`) has no data folder, and the folder its
+ * name points to is wherever the daemon was started from, so it is never exported.
+ */
+export class InMemoryStoreError extends Error {
+  constructor() {
+    super('an in-memory store has no data folder to export into');
+    this.name = 'InMemoryStoreError';
+  }
+}
+
+/**
  * Writes the export of `db` under `<dataDir>/exports/` and returns what it wrote. The views are
  * read in one transaction, so the files agree with each other. Throws, leaving no partial folder,
- * when a file cannot be written.
+ * when a file cannot be written, and `InMemoryStoreError`, writing nothing, for an in-memory `db`.
  */
 export const exportLedger = (db: Database.Database, dataDir: string, now: Date): LedgerExport => {
+  if (db.memory) throw new InMemoryStoreError();
   const views = db.transaction(() =>
     EXPORTED_VIEWS.map((view) => {
       const statement = db.prepare(`SELECT * FROM ${view}`);
