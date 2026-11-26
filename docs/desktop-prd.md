@@ -114,7 +114,9 @@ and keep its secrets in the operating system instead of a text file.
     environment (AC3).
   - AC3: `.env` keeps working for Docker installs; the app does not read it, except once, when
     the principal asks: launched with `ANOMANDER_IMPORT_ENV=<path>`, it stores that file's bot
-    token and provider keys in the Keychain and its chat ID and models in its settings.
+    token and provider keys in the Keychain and its chat ID, models, `TZ` and
+    `ANOMANDER_CURRENCY` in its settings (DK-25); a file without `TZ` or `ANOMANDER_CURRENCY`
+    keeps the zone and currency chosen before (B78).
   - AC4: Telegram is optional (asked for launch, engineering audit Medium 9). The setup screen
     shows it as "Telegram (opcional)"; saving with both of its fields empty starts ANOMANDER with
     the app's chat as its only front door (no bot token or chat ID reaches the daemon), and half
