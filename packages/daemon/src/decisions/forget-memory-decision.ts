@@ -1,7 +1,12 @@
 import { buttons, strings } from '@anomander/protocol';
 import { z } from 'zod';
-import { answerDecision, settleProposal } from '../store/decisions.ts';
-import { insertAction } from '../store/expenses.ts';
+import {
+  answerCompleted,
+  answerDecision,
+  answerFailed,
+  answerStarted,
+  settleProposal,
+} from '../store/decisions.ts';
 import { forgetMemories, isForgottenMemory } from '../store/memory.ts';
 import type { DecisionAnswerHandler } from './types.ts';
 
@@ -9,7 +14,8 @@ import type { DecisionAnswerHandler } from './types.ts';
 // nothing and replies S-31. A memory forgotten or replaced since it was asked has no text left
 // to erase: a replacement erases the old text (R-23 AC3), so S-30 is always true. B55: a "Sí"
 // that failed once its memories were forgotten leaves the question open; a "No" after it cannot
-// bring them back, so it replies S-200 instead of saying nothing was forgotten.
+// bring them back, so it replies S-200 instead of saying nothing was forgotten. B81: only then: a
+// memory forgotten in "Memoria" between the question and "No" gets S-31.
 
 export interface ForgetMemoryDecisionDeps {
   /**
@@ -33,6 +39,9 @@ export const createForgetMemoryAnswerHandler =
     // Erased before the answer is recorded, each in a transaction of its own (the WAL checkpoint
     // cannot run inside one): when an erase fails the question stays open, so "Sí" can be
     // pressed again; erasing twice changes nothing.
+    // B81: the "Sí" is recorded first, so a "No" after it failed knows it ran.
+    const started =
+      option === buttons.yes ? answerStarted(db, decision.proposal_id, 'principal', at) : null;
     if (option === buttons.yes) {
       forgetMemories(db, memoryIds);
       clearRecentTurns();
@@ -40,9 +49,12 @@ export const createForgetMemoryAnswerHandler =
     db.transaction(() => {
       answerDecision(db, decision.id, null);
       settleProposal(db, decision.proposal_id, option === buttons.yes ? 'executed' : 'rejected');
-      if (option === buttons.yes) insertAction(db, decision.proposal_id, 'principal', at);
+      if (started !== null) answerCompleted(db, started, at);
     })();
     if (option === buttons.yes) return { text: strings.forgotten() };
-    const partForgotten = memoryIds.some((id) => isForgottenMemory(db, id));
+    // B81: only a "Sí" to this question that ran forgot part of it; one forgotten in "Memoria"
+    // meanwhile was not, so S-31 stays true.
+    const partForgotten =
+      answerFailed(db, decision.proposal_id) && memoryIds.some((id) => isForgottenMemory(db, id));
     return { text: partForgotten ? strings.notForgottenAfterPart() : strings.notForgotten() };
   };

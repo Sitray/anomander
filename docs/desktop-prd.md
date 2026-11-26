@@ -456,9 +456,10 @@ and keep its secrets in the operating system instead of a text file.
     `No`, or replies "No tengo nada en mi historial." when it is empty. `Sí` erases every action
     kept when it was asked, checkpoints the WAL as a forget does (R-23 AC7), empties the recent
     turns and the stored conversation (DK-16 AC5) and replies "Hecho, he borrado mi historial.";
-    `No` erases nothing and replies "Vale, no borro nada.", or PRD S-201 when a `Sí` that failed
-    had already erased those actions (B55): the actions go first, then the conversation, so a
-    failure between them is seen. One action at a time can also be
+    `No` erases nothing and replies "Vale, no borro nada.", or PRD S-201 when a `Sí` to that
+    same question failed after it had erased those actions (B55): the actions go first, then the
+    conversation, so a failure between them is seen. An action erased from "Memoria" (DK-18 AC5)
+    between the question and `No`, with no `Sí` pressed, gets "Vale, no borro nada." (B81). One action at a time can also be
     erased from the app's "Memoria" (DK-18 AC5).
   - AC5: the history is local: it lives only in the app's database (DK-8), is never logged (a
     failure to keep an action is logged without its words) and never leaves the machine except
@@ -644,6 +645,8 @@ and keep its secrets in the operating system instead of a text file.
     case, accents and punctuation (verifier finding F1, 2026-11-24, within that decision: the
     turns that mention it, never unrelated ones). A memory replaced by a new fact (R-23 AC3) keeps
     its whole-word rule. A memory no longer current is left alone and nothing else is erased.
+    A chat question to forget that memory still open then gets S-31 on `No`, never S-200: no `Sí`
+    to it ran (B81).
   - AC5: "Sí, olvidar" on an action sends `forget_action` with its id: the daemon erases that
     one row of `action_history` for real and, by the same decision, its own turn: the line it was
     stored as (`[captura de pantalla] …`, `[control del ordenador] …` or `[conexiones] …`) and its
