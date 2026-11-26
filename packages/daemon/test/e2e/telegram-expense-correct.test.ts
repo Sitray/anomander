@@ -1284,4 +1284,140 @@ describe("a corrected receipt's mode (R-7 AC6, AC9)", () => {
     expect(modes()).toEqual([{ mode: 'declared' }]);
     chat.close();
   });
+
+  /** Writes to the store as data stored by an earlier version would be. */
+  const rw = (sql: string, ...args: unknown[]) => {
+    const db = new Database(join(scratch, 'anomander.db'));
+    try {
+      return db.prepare(sql).run(...args);
+    } finally {
+      db.close();
+    }
+  };
+  /** The `mode` each correction's restore payload keeps, oldest first; `null` when none. */
+  const restoreModes = () =>
+    query<{ m: string | null }>(
+      `SELECT json_extract(payload_json, '$.restore.columns.mode') AS m FROM proposals
+       WHERE json_extract(payload_json, '$.restore') IS NOT NULL ORDER BY id`,
+    ).map(({ m }) => m);
+  /** A typed correction of the corroborated receipt to 32,00, whose reply carries "Deshacer". */
+  const typedCorrection = async () => {
+    interpretations.set('no eran 23, eran 32', ({ expenses = [] }) =>
+      correcting(expenses[0]?.id ?? null, 3200, 'eran 32'),
+    );
+    const first = await say('no eran 23, eran 32');
+    await vi.waitFor(() =>
+      expect(
+        query("SELECT id FROM pending_decisions WHERE status = 'open' AND channel_ref IS NOT NULL"),
+      ).toHaveLength(1),
+    );
+    return first;
+  };
+  /** A Telegram reply to `message` (R-17 AC2); resolves with ANOMANDER's answer. */
+  const replyTo = async (message: SentMessage, text: string) => {
+    const before = api.sent.length;
+    api.push(updates.text({ chatId: PRINCIPAL }, text, { replyToMessageId: message.messageId }));
+    const [answer] = (await api.waitForSent(before + 1)).slice(before);
+    if (answer === undefined) throw new Error('no reply');
+    return answer;
+  };
+
+  it('R-17 AC2: a Telegram reply to "Corregido…" of a corrected receipt keeps it confirmed, and so does its "Deshacer"', async () => {
+    await corroborated();
+    const first = await typedCorrection();
+    expect(modes()).toEqual([{ mode: 'confirmed' }]);
+
+    const second = await replyTo(first, 'total 28,40');
+
+    expect(buttonsOf(second).map(({ text }) => text)).toEqual(['Deshacer']);
+    expect(gastos()).toEqual([{ total_cents: 2840 }]);
+    expect(modes()).toEqual([{ mode: 'confirmed' }]);
+    expect(restoreModes()).toEqual(['corroborated', null]);
+    expect(await press(first, 'Deshacer')).toBe(S19);
+    expect(await press(second, 'Deshacer')).toBe(
+      `Deshecho: vuelve a ser ${formatAmount(3200)} en Mercadona (supermercado).`,
+    );
+    expect(gastos()).toEqual([{ total_cents: 3200 }]);
+    expect(modes()).toEqual([{ mode: 'confirmed' }]);
+  });
+
+  it('R-17 AC2: a reply to a "Corregido…" stored before B63, its receipt still corroborated, confirms it; "Deshacer" puts corroborated back', async () => {
+    await corroborated();
+    const first = await typedCorrection();
+    // As stored before B63: the corrected receipt stayed corroborated, its payload has no mode.
+    rw("UPDATE expenses SET mode = 'corroborated'");
+    rw(`UPDATE proposals SET payload_json = json_remove(payload_json, '$.restore.columns.mode')
+        WHERE json_extract(payload_json, '$.restore') IS NOT NULL`);
+
+    const second = await replyTo(first, 'total 28,40');
+
+    expect(modes()).toEqual([{ mode: 'confirmed' }]);
+    expect(restoreModes()).toEqual([null, 'corroborated']);
+    expect(await press(second, 'Deshacer')).toBe(
+      `Deshecho: vuelve a ser ${formatAmount(3200)} en Mercadona (supermercado).`,
+    );
+    expect(modes()).toEqual([{ mode: 'corroborated' }]);
+    expect(gastos()).toEqual([{ total_cents: 3200 }]);
+  });
+
+  it('a restore payload whose mode is not corroborated answers S-19 and changes no row', async () => {
+    const expense = await corroborated();
+    const chat = await appChat();
+    const { undo } = await correctFromRow(chat, expense.id);
+    rw(`UPDATE proposals
+        SET payload_json = json_set(payload_json, '$.restore.columns.mode', 'declared')
+        WHERE json_extract(payload_json, '$.restore') IS NOT NULL`);
+    const snapshot = () =>
+      JSON.stringify([
+        query('SELECT * FROM expenses'),
+        query('SELECT id, status FROM assertions ORDER BY id'),
+      ]);
+    const was = snapshot();
+
+    expect((await chat.ask({ type: 'button', ...undo })).text).toBe(S19);
+
+    expect(snapshot()).toBe(was);
+    expect(modes()).toEqual([{ mode: 'confirmed' }]);
+    // Its question is closed: a second press is S-19 too.
+    expect((await chat.ask({ type: 'button', ...undo })).text).toBe(S19);
+    chat.close();
+  });
+
+  it('after a newer typed correction, the row correction\'s "Deshacer" answers S-19 and puts no mode back', async () => {
+    const expense = await corroborated();
+    const chat = await appChat();
+    const { undo } = await correctFromRow(chat, expense.id);
+    interpretations.set('no eran 28,40, eran 32', ({ expenses = [] }) =>
+      correcting(expenses[0]?.id ?? null, 3200, 'eran 32'),
+    );
+    const second = await say('no eran 28,40, eran 32');
+    expect(modes()).toEqual([{ mode: 'confirmed' }]);
+    expect(restoreModes()).toEqual(['corroborated', null]);
+
+    expect((await chat.ask({ type: 'button', ...undo })).text).toBe(S19);
+    expect(modes()).toEqual([{ mode: 'confirmed' }]);
+    expect(gastos()).toEqual([{ total_cents: 3200 }]);
+    expect(await press(second, 'Deshacer')).toBe(
+      `Deshecho: vuelve a ser ${formatAmount(2840)} en Mercadona (supermercado).`,
+    );
+    expect(modes()).toEqual([{ mode: 'confirmed' }]);
+    expect((await chat.ask({ type: 'button', ...undo })).text).toBe(S19);
+    expect(modes()).toEqual([{ mode: 'confirmed' }]);
+    chat.close();
+  });
+
+  it('a row "Deshacer" after the correction takes the expense out, and the correction\'s "Deshacer" then answers S-19', async () => {
+    const expense = await corroborated();
+    const chat = await appChat();
+    const { undo } = await correctFromRow(chat, expense.id);
+    await chat.ask({ type: 'undo_expense', expenseId: expense.id });
+    expect(gastos()).toEqual([]);
+
+    expect((await chat.ask({ type: 'button', ...undo })).text).toBe(S19);
+
+    expect(query<{ mode: string; status: string }>('SELECT mode, status FROM expenses')).toEqual([
+      { mode: 'confirmed', status: 'refuted' },
+    ]);
+    chat.close();
+  });
 });
