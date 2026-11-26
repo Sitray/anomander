@@ -10,7 +10,7 @@ import type {
 } from '@anomander/protocol';
 import type { Bot } from 'grammy';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { createTelegramBot, createTelegramNotify } from '../src/index.ts';
+import { createTelegramBot, createTelegramNotify, haltTelegramBot } from '../src/index.ts';
 import {
   type FakeTelegramApi,
   type IncomingUpdate,
@@ -213,6 +213,107 @@ describe('R-22 failure reply', () => {
 
     expect(sent.map((message) => message.text)).toEqual(['Apuntado: 23,00 € (sin clasificar).']);
     await vi.waitFor(() => expect(onDelivered).toHaveBeenCalledOnce());
+  });
+});
+
+// B82: a crash halts the bot while the daemon drains its log. A text whose turn never started is
+// not acknowledged, so Telegram hands it over again once the daemon is back; what was handled is.
+describe('halting the bot (B82)', () => {
+  /** A second bot on the same Bot API, as the daemon restarted; the texts it was handed. */
+  const restart = async () => {
+    const handed: string[] = [];
+    const next = createTelegramBot({
+      token: api.token,
+      apiRoot: api.apiRoot,
+      principalChatId: PRINCIPAL,
+      onText: async ({ text }) => {
+        handed.push(text);
+        return { text: `visto: ${text}` };
+      },
+      onReceipt,
+      onButton,
+      logger,
+    });
+    const nextPolling = next.start();
+    return {
+      handed,
+      stop: async () => {
+        await next.stop();
+        await nextPolling;
+      },
+    };
+  };
+
+  /** Handles `uno`, then holds `dos` in a turn until it is refused or answered. */
+  const holdSecondText = async () => {
+    api.push(updates.text(principal, 'uno'));
+    await api.waitForSent(1);
+    let refuse = (_: Error): void => {};
+    let answer = (_: Reply): void => {};
+    onText.mockImplementationOnce(
+      () =>
+        new Promise((resolve, reject) => {
+          refuse = reject;
+          answer = resolve;
+        }),
+    );
+    api.push(updates.text(principal, 'dos'));
+    await vi.waitFor(() => expect(onText).toHaveBeenCalledTimes(2));
+    return Object.assign((error: Error) => refuse(error), {
+      answer: (reply: Reply) => answer(reply),
+    });
+  };
+
+  it('a text the daemon did not take while halted is handed over again after the restart', async () => {
+    const refuse = await holdSecondText();
+
+    const halted = haltTelegramBot(bot);
+    refuse(new Error('ANOMANDER is stopping: this turn did not start'));
+    await halted;
+    await polling;
+
+    // No failure reply: the text is not lost, only left for later.
+    expect(api.sent.map(({ text }) => text)).toEqual(['Apuntado: 23,00 € (sin clasificar).']);
+    const restarted = await restart();
+    await api.waitForSent(2);
+    await restarted.stop();
+    expect(restarted.handed).toEqual(['dos']);
+  });
+
+  it('a text whose turn ran through the halt is answered and acknowledged, never handed over twice', async () => {
+    const hold = await holdSecondText();
+
+    const halted = haltTelegramBot(bot);
+    hold.answer({ text: 'Apuntado: dos.' });
+    await halted;
+    await polling;
+
+    await api.waitForSent(2);
+    expect(api.sent.at(-1)?.text).toBe('Apuntado: dos.');
+    const restarted = await restart();
+    api.push(updates.text(principal, 'tres'));
+    await api.waitForSent(3);
+    await restarted.stop();
+    expect(restarted.handed).toEqual(['tres']);
+  });
+
+  it('a stop still answers a text the daemon did not take and acknowledges it, as before', async () => {
+    const refuse = await holdSecondText();
+
+    const stopped = bot.stop();
+    refuse(new Error('ANOMANDER is stopping: this turn did not start'));
+    await stopped;
+    await polling;
+
+    await api.waitForSent(2);
+    expect(api.sent.at(-1)?.text).toBe(
+      'Algo ha fallado y no he podido procesar tu mensaje. ¿Me lo vuelves a enviar en un rato?',
+    );
+    const restarted = await restart();
+    api.push(updates.text(principal, 'tres'));
+    await api.waitForSent(3);
+    await restarted.stop();
+    expect(restarted.handed).toEqual(['tres']);
   });
 });
 

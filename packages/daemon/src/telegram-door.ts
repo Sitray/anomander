@@ -27,6 +27,11 @@ export interface TelegramDoor {
    */
   ended: Promise<void>;
   stop(): Promise<void>;
+  /**
+   * B82: stops polling as a crash does: a text the daemon did not take is not acknowledged, so
+   * Telegram hands it over again after the restart (`haltTelegramBot`). Without Telegram, `stop`.
+   */
+  halt(): Promise<void>;
 }
 
 export const NO_TELEGRAM = 'Telegram is not configured: nothing is sent unasked';
@@ -56,6 +61,7 @@ export const openTelegramDoor = (
       started: Promise.resolve(),
       ended,
       stop: async () => stopped(),
+      halt: async () => stopped(),
     };
   }
   const { botToken, principalChatId } = config;
@@ -69,6 +75,7 @@ export const openTelegramDoor = (
     });
     return {
       bot,
+      halt: () => telegram.haltTelegramBot(bot),
       send: telegram.createTelegramNotify(bot, principalChatId),
       deleteMessage: telegram.createTelegramDelete(bot, principalChatId),
     };
@@ -90,6 +97,11 @@ export const openTelegramDoor = (
     stop: () =>
       loaded.then(
         ({ bot }) => bot.stop(),
+        () => {},
+      ),
+    halt: () =>
+      loaded.then(
+        ({ halt }) => halt(),
         () => {},
       ),
   };

@@ -13,6 +13,7 @@ import { type Anomander, startAnomander } from '../../src/app.ts';
 import { createAiBudget } from '../../src/budget/ai-budget.ts';
 import { loadConfig } from '../../src/config.ts';
 import { createReceiptExpenseCycle } from '../../src/expenses/receipt-expense.ts';
+import type { Complete } from '../../src/processor/ports.ts';
 import { verbatimReplies } from '../../src/processor/reply-phraser.ts';
 import { applyMigrations, openDatabase } from '../../src/store/database.ts';
 
@@ -212,8 +213,9 @@ describe('the jobs run when the app connects (B69)', () => {
 });
 
 describe('stopping the daemon (B69, B51)', () => {
-  const start = async (complete: () => Promise<never>, { queued = true } = {}) => {
-    api = await startFakeTelegramApi();
+  /** `restart`: on the same Bot API as the daemon before, as after a crash. */
+  const start = async (complete: Complete<string>, { queued = true, restart = false } = {}) => {
+    if (!restart || api === undefined) api = await startFakeTelegramApi();
     const config = configFor({
       TELEGRAM_BOT_TOKEN: api.token,
       ANOMANDER_PRINCIPAL_CHAT_ID: String(PRINCIPAL),
@@ -321,6 +323,39 @@ describe('stopping the daemon (B69, B51)', () => {
     expect(closedStore()).toEqual([]);
     expect(jobFailures()).toEqual([]);
     expect(complete).toHaveBeenCalledTimes(1);
+  });
+
+  it('B82: a Telegram text whose turn never started before a crash halt comes again after the restart', async () => {
+    const appTurn = pending<void>();
+    const asked: string[] = [];
+    const complete = vi.fn(async (_target: unknown, context: unknown): Promise<never> => {
+      const text = JSON.stringify(context);
+      asked.push(text.includes('cena tardía') ? 'telegram' : 'other');
+      if (text.includes('pregunta del app')) await appTurn.promise;
+      throw new Error('probe: no processor');
+    });
+    const daemon = await start(complete, { queued: false });
+    await daemon.started;
+    await pause(300);
+    // The app's turn holds the chat; the Telegram text waits for its turn behind it.
+    const socket = await connectApp(daemon);
+    socket.send(JSON.stringify({ type: 'text', id: 'm1', text: 'pregunta del app' }));
+    await vi.waitFor(() => expect(asked).toContain('other'), { timeout: 10_000 });
+    const sentBefore = api?.sent.length ?? 0;
+    api?.push(updates.text({ chatId: PRINCIPAL }, 'cena tardía'));
+    await pause(300);
+
+    daemon.halt();
+    appTurn.settle();
+    await daemon.stop();
+    anomander = undefined;
+    // Its turn never started: no answer, and not lost.
+    expect(asked).not.toContain('telegram');
+    expect(api?.sent.length).toBe(sentBefore);
+
+    const restarted = await start(complete, { queued: false, restart: true });
+    await restarted.started;
+    await vi.waitFor(() => expect(asked).toContain('telegram'), { timeout: 10_000 });
   });
 
   it('B51: once halted, a text from Telegram reaches no processor and the app cannot connect', async () => {
