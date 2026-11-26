@@ -13,6 +13,7 @@ import { type Anomander, startAnomander } from '../../src/app.ts';
 import { createAiBudget } from '../../src/budget/ai-budget.ts';
 import { loadConfig } from '../../src/config.ts';
 import { createReceiptExpenseCycle } from '../../src/expenses/receipt-expense.ts';
+import type { Complete } from '../../src/processor/ports.ts';
 import { verbatimReplies } from '../../src/processor/reply-phraser.ts';
 import { applyMigrations, openDatabase } from '../../src/store/database.ts';
 
@@ -40,6 +41,28 @@ const pending = <T>() => {
 };
 
 const pause = (ms: number) => new Promise((resolveWait) => setTimeout(resolveWait, ms));
+
+/** B82: how many times the jobs of a connection were asked for, by name, since the test began. */
+const asked = vi.hoisted(() => ({ sendMorningDigest: 0, sendDueReminders: 0, drainQueue: 0 }));
+vi.mock('../../src/app/jobs.ts', async (original) => {
+  const actual = await original<typeof import('../../src/app/jobs.ts')>();
+  return {
+    ...actual,
+    startJobs: (deps: Parameters<typeof actual.startJobs>[0]) => {
+      const jobs = actual.startJobs(deps);
+      const counted = (name: keyof typeof asked) => () => {
+        asked[name] += 1;
+        return jobs[name]();
+      };
+      return {
+        ...jobs,
+        sendMorningDigest: counted('sendMorningDigest'),
+        sendDueReminders: counted('sendDueReminders'),
+        drainQueue: counted('drainQueue'),
+      };
+    },
+  };
+});
 
 /** Queues one receipt, received half an hour before `NOW`, as the budget queues it. */
 const queueReceipt = async (dbPath: string, inbox: string) => {
@@ -103,6 +126,7 @@ beforeEach(() => {
   logger.info.mockClear();
   logger.warn.mockClear();
   logger.error.mockClear();
+  for (const name of Object.keys(asked) as (keyof typeof asked)[]) asked[name] = 0;
 });
 
 afterEach(async () => {
@@ -189,8 +213,9 @@ describe('the jobs run when the app connects (B69)', () => {
 });
 
 describe('stopping the daemon (B69, B51)', () => {
-  const start = async (complete: () => Promise<never>, { queued = true } = {}) => {
-    api = await startFakeTelegramApi();
+  /** `restart`: on the same Bot API as the daemon before, as after a crash. */
+  const start = async (complete: Complete<string>, { queued = true, restart = false } = {}) => {
+    if (!restart || api === undefined) api = await startFakeTelegramApi();
     const config = configFor({
       TELEGRAM_BOT_TOKEN: api.token,
       ANOMANDER_PRINCIPAL_CHAT_ID: String(PRINCIPAL),
@@ -242,6 +267,39 @@ describe('stopping the daemon (B69, B51)', () => {
     );
   });
 
+  it('B82: a job still running past the deadline is told once, by its kind, and still waited for', async () => {
+    const reading = pending<void>();
+    const complete = vi.fn(async (): Promise<never> => {
+      await reading.promise;
+      throw new Error('probe: no processor');
+    });
+    const daemon = await start(complete, { queued: false });
+    await daemon.started;
+    await pause(300);
+    await queueReceipt(join(scratch, 'anomander.db'), join(scratch, 'inbox'));
+    await connectApp(daemon);
+    await vi.waitFor(() => expect(complete).toHaveBeenCalledTimes(1), { timeout: 10_000 });
+
+    let stoppedYet = false;
+    const stopped = daemon.stop().then(() => {
+      stoppedYet = true;
+    });
+    anomander = undefined;
+    const jobWarnings = () =>
+      logger.warn.mock.calls.filter(([message]) => String(message).includes('waiting for a job'));
+    await vi.waitFor(() => expect(jobWarnings()).toHaveLength(1));
+    // Told, yet still waited for: the store stays open under it.
+    await pause(200);
+    expect(stoppedYet).toBe(false);
+    reading.settle();
+    await stopped;
+
+    expect(jobWarnings()).toEqual([
+      ['anomander is still waiting for a job before it stops: 50 ms passed', { job: 'drainQueue' }],
+    ]);
+    expect(closedStore()).toEqual([]);
+  });
+
   it('past its deadline, the jobs a connection queued never run', async () => {
     const reading = pending<void>();
     const complete = vi.fn(async (): Promise<never> => {
@@ -250,9 +308,11 @@ describe('stopping the daemon (B69, B51)', () => {
     });
     const daemon = await start(complete);
     await vi.waitFor(() => expect(complete).toHaveBeenCalledTimes(1), { timeout: 10_000 });
-    // Its digest, reminders and drain wait behind the startup drain.
+    // Its digest, reminders and drain wait behind the startup drain, once it asked for them.
     await connectApp(daemon);
-    await pause(50);
+    await vi.waitFor(() =>
+      expect(asked).toEqual({ sendMorningDigest: 1, sendDueReminders: 1, drainQueue: 1 }),
+    );
 
     const stopped = daemon.stop();
     anomander = undefined;
@@ -263,6 +323,39 @@ describe('stopping the daemon (B69, B51)', () => {
     expect(closedStore()).toEqual([]);
     expect(jobFailures()).toEqual([]);
     expect(complete).toHaveBeenCalledTimes(1);
+  });
+
+  it('B82: a Telegram text whose turn never started before a crash halt comes again after the restart', async () => {
+    const appTurn = pending<void>();
+    const asked: string[] = [];
+    const complete = vi.fn(async (_target: unknown, context: unknown): Promise<never> => {
+      const text = JSON.stringify(context);
+      asked.push(text.includes('cena tardía') ? 'telegram' : 'other');
+      if (text.includes('pregunta del app')) await appTurn.promise;
+      throw new Error('probe: no processor');
+    });
+    const daemon = await start(complete, { queued: false });
+    await daemon.started;
+    await pause(300);
+    // The app's turn holds the chat; the Telegram text waits for its turn behind it.
+    const socket = await connectApp(daemon);
+    socket.send(JSON.stringify({ type: 'text', id: 'm1', text: 'pregunta del app' }));
+    await vi.waitFor(() => expect(asked).toContain('other'), { timeout: 10_000 });
+    const sentBefore = api?.sent.length ?? 0;
+    api?.push(updates.text({ chatId: PRINCIPAL }, 'cena tardía'));
+    await pause(300);
+
+    daemon.halt();
+    appTurn.settle();
+    await daemon.stop();
+    anomander = undefined;
+    // Its turn never started: no answer, and not lost.
+    expect(asked).not.toContain('telegram');
+    expect(api?.sent.length).toBe(sentBefore);
+
+    const restarted = await start(complete, { queued: false, restart: true });
+    await restarted.started;
+    await vi.waitFor(() => expect(asked).toContain('telegram'), { timeout: 10_000 });
   });
 
   it('B51: once halted, a text from Telegram reaches no processor and the app cannot connect', async () => {

@@ -295,15 +295,20 @@ export const startAnomander = <M>(config: Config, deps: AnomanderDeps<M>): Anoma
   );
 
   // B51: nothing new starts once this is called: no turn, no job, no input of a door. The doors
-  // begin to close; `stop` waits for them.
+  // begin to close; `stop` waits for them. B82: a crash (`crashed`) halts the bot without
+  // acknowledging a Telegram text whose turn never started, so it comes again after the restart;
+  // a stop answers it as failed, as before.
   let doorsClosing: Promise<unknown>[] | undefined;
-  const halt = (): Promise<unknown>[] => {
+  const halt = ({ crashed = false } = {}): Promise<unknown>[] => {
     if (doorsClosing !== undefined) return doorsClosing;
     stopping = true;
     chatTurns.close();
     login?.stop();
     jobs.halt();
-    doorsClosing = [localChannel?.stop() ?? Promise.resolve(), telegram.stop()];
+    doorsClosing = [
+      localChannel?.stop() ?? Promise.resolve(),
+      crashed ? telegram.halt() : telegram.stop(),
+    ];
     for (const closing of doorsClosing) closing.catch(() => {});
     return doorsClosing;
   };
@@ -314,7 +319,7 @@ export const startAnomander = <M>(config: Config, deps: AnomanderDeps<M>): Anoma
     readApi: readApi?.listening,
     localChannel: localChannel?.listening,
     halt: () => {
-      halt();
+      halt({ crashed: true });
     },
     // T14: nothing new starts once this begins; the turns that run end, up to a deadline, and
     // the jobs however long they take (B69), before the store closes. A step that fails is
@@ -332,10 +337,22 @@ export const startAnomander = <M>(config: Config, deps: AnomanderDeps<M>): Anoma
       // and neither the store nor the lock may go from under it. B69: that holds for a job the
       // app's connection started too; one still queued never starts.
       const jobsEnded = settle(jobs.stop());
+      // B82: still waited for past the deadline, but told once, by its kind: a hung job holds the
+      // stop until whoever started the daemon kills it.
+      const jobsTold = settlesWithin(jobsEnded, deadlineMs).then((inTime) => {
+        if (inTime) return;
+        logger.warn(
+          `anomander is still waiting for a job before it stops: ${deadlineMs} ms passed`,
+          {
+            job: jobs.running() ?? 'unknown',
+          },
+        );
+      });
       const ended = settle(...doors, chatTurns.drained());
       if (!(await settlesWithin(ended, deadlineMs))) {
         logger.warn(`anomander stopped before every turn ended: ${deadlineMs} ms passed`);
       }
+      await jobsTold;
       await jobsEnded;
       await settle(servers?.close(), readApi?.stop());
       db.close();

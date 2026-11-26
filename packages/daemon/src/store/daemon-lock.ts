@@ -21,8 +21,12 @@ export interface DaemonLock {
  * another daemon holds it. The lock is an exclusive SQLite transaction on `<dbPath>.lock`, held
  * for as long as the daemon runs: the operating system frees it when the process ends, however it
  * ends, so a crash never leaves a stale lock behind. The ledger itself is not opened.
+ *
+ * B80: an in-memory store (`:memory:`) takes no lock: it belongs to its process alone, so no other
+ * daemon can share it, and a `:memory:.lock` would land in whatever folder the daemon started in.
  */
 export const acquireDaemonLock = (dbPath: string): DaemonLock => {
+  if (dbPath === ':memory:') return { release: () => {} };
   const path = `${dbPath}.lock`;
   // §16: as `openDatabase` does for the database, folder 700 and file 600.
   mkdirSync(dirname(path), { recursive: true, mode: 0o700 });

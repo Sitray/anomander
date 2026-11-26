@@ -16,7 +16,7 @@ const PRINCIPAL = 4242;
 const NOW = new Date('2026-11-24T10:30:00.000Z');
 
 let scratch: string;
-let startedIn: string;
+let before: string[];
 let api: FakeTelegramApi;
 let anomander: Anomander;
 type Log = (message: string, fields?: Record<string, unknown>) => void;
@@ -24,12 +24,9 @@ let logger: { info: Mock<Log>; warn: Mock<Log>; error: Mock<Log> };
 
 beforeEach(async () => {
   scratch = mkdtempSync(join(tmpdir(), 'anomander-e2e-export-memory-'));
-  // The daemon is started from `scratch`: whatever lands in "the current folder" lands there. The
-  // change of folder stays: the daemon lock of an in-memory store is `:memory:.lock` in the current
-  // folder (a known follow-up), which would otherwise land in the repository. Vitest runs test files
-  // in child processes (`forks`), where `process.chdir` works and is undone in `afterEach`.
-  startedIn = process.cwd();
-  process.chdir(scratch);
+  // What the current folder held before the daemon started: nothing may land there (B80: nor the
+  // daemon lock, which an in-memory store no longer takes).
+  before = readdirSync(process.cwd());
   api = await startFakeTelegramApi();
   logger = { info: vi.fn<Log>(), warn: vi.fn<Log>(), error: vi.fn<Log>() };
   anomander = startAnomander(
@@ -57,7 +54,6 @@ beforeEach(async () => {
 afterEach(async () => {
   await anomander.stop();
   await api.close();
-  process.chdir(startedIn);
   rmSync(scratch, { recursive: true, force: true });
 });
 
@@ -68,7 +64,7 @@ describe('/exportar with an in-memory store (B52)', () => {
     const [reply] = await api.waitForSent(1);
     expect(reply?.text).toBe('No he podido exportar tus datos. Inténtalo de nuevo en un rato.');
     expect(api.documents).toEqual([]);
-    expect(readdirSync(scratch)).not.toContain('exports');
+    expect(readdirSync(process.cwd()).filter((entry) => !before.includes(entry))).toEqual([]);
     expect(logger.error).toHaveBeenCalledWith('the ledger export failed', {
       reason: 'InMemoryStoreError',
     });

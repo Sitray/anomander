@@ -73,6 +73,18 @@ const orFail = async <T>(
 
 const reason = (error: unknown) => (error instanceof Error ? error.message : String(error));
 
+/**
+ * B80: why, without where. A system error (`EACCES: permission denied, mkdir '<path>'`) ends with
+ * the call and the paths it was given; only its code and words are kept.
+ */
+const withoutPaths = (error: unknown): string => {
+  const message = reason(error);
+  const syscall = (error as { syscall?: unknown } | null)?.syscall;
+  if (typeof syscall !== 'string') return message;
+  const at = message.indexOf(`, ${syscall} `);
+  return at === -1 ? message : message.slice(0, at);
+};
+
 log.info('anomander daemon starting');
 
 // DK-5 AC2: only the desktop app sets the flag; Docker and the CLI keep the environment. A handed
@@ -124,7 +136,7 @@ const anomander = await orFail(
   (error) =>
     error instanceof DaemonAlreadyRunningError
       ? [error.message, exitCodes.alreadyRunning]
-      : [`could not open the store at ${config.dbPath}: ${reason(error)}`],
+      : [`could not open the store: ${withoutPaths(error)}`],
 );
 daemon = anomander;
 

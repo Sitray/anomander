@@ -248,10 +248,19 @@ still runs), stops the doors and the jobs (a job still queued, scheduled or aske
 app's connection, never starts), and waits for the turns and task steps in progress, up to
 `SHUTDOWN_DEADLINE_MS` (5 s; `shutdownDeadlineMs` in tests), with `Promise.allSettled`. Past the
 deadline it logs a warning. The job in progress is waited for however long it takes, so it never
-runs on a closed store (B69). Only then does it close the connections, the read API and the
+runs on a closed store (B69); when it is still running past the deadline the stop says so once,
+naming only its kind (`anomander is still waiting for a job before it stops`, `{ job:
+'drainQueue' }`), and keeps waiting (B82). Only then does it close the connections, the read API and the
 store; a step that failed is thrown after everything closed. `Anomander.halt` is that first,
 synchronous part alone: `main.ts` calls it when it fails or crashes, so no new event is handled
-while the last log line drains (B51).
+while the last log line drains (B51). Once closed, the turns refuse at once every turn that
+waits, with `TurnNotStartedError` (its `code` is `TURN_NOT_STARTED` of `@anomander/telegram`).
+`halt` stops the bot with `haltTelegramBot` rather than `bot.stop()`: every update the bot began
+to handle stays acknowledged, the one still running included, so nothing that ran comes again;
+only a text or a receipt refused with `TURN_NOT_STARTED`, and what was read after the halt, get
+no reply and are not acknowledged, so Telegram hands them over again once the daemon is back
+(B82). A failed turn, an album and a button press are answered with S-22 as before. `stop`
+keeps `bot.stop()`, which answers a refused text with S-22 and acknowledges it.
 
 ## Failures (R-22)
 
@@ -547,7 +556,10 @@ The desktop app and Docker are two ways to run this daemon, never both at once
 before anything else (`src/store/daemon-lock.ts`): an exclusive SQLite transaction on
 `<ANOMANDER_DB_PATH>.lock`, held until `stop` (SQLite keeps a small `.lock-journal` beside it). A second daemon throws
 `DaemonAlreadyRunningError` before the store is opened, so the ledger is unchanged (AC1). The
-operating system frees the lock when the process ends, so a crash leaves nothing stale.
+operating system frees the lock when the process ends, so a crash leaves nothing stale. An
+in-memory store (`ANOMANDER_DB_PATH=:memory:`) takes no lock: it belongs to its process alone, and
+no `:memory:.lock` lands in the current folder (B80). When the store cannot be opened, `main.ts`
+says why (`could not open the store: EACCES: permission denied`) without its path (B80).
 
 `Anomander.polling` settles when Telegram polling ends: it resolves after `stop` and rejects
 when Telegram ends it, for example with the `409 Conflict` of another process reading the same

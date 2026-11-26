@@ -91,6 +91,7 @@ export interface ChatClient {
   /**
    * DK-16: erases the stored conversation. `not_done`: nothing was erased; `unknown`: the
    * connection was lost first, or no answer came within `CLEAR_LIMIT_MS`, so it may have been.
+   * B80: `forgetMemory` and `forgetAction` share that limit.
    */
   clearHistory(): Promise<'done' | 'not_done' | 'unknown'>;
   /** DK-18: the current memories, or `null` when they did not come, as `requestHistory`. */
@@ -144,7 +145,7 @@ const RETRY_DELAYS_MS = [250, 500, 1000, 2000, 4000];
 /**
  * B55 (DK-16 AC4): how long "Sí, borrar" waits for the daemon's answer, which waits for a turn of
  * either door that runs: past it, it cannot know whether it was erased, as when the connection is
- * lost. A late answer changes nothing.
+ * lost. A late answer changes nothing. B80: forgetting a memory or an action waits as long.
  */
 export const CLEAR_LIMIT_MS = 120_000;
 
@@ -460,6 +461,17 @@ export const createChatClient = (options: ChatClientOptions): ChatClient => {
     return answered;
   };
 
+  /**
+   * B55, B80: an erase that waits for the daemon's answer at most `CLEAR_LIMIT_MS`; past it, it
+   * cannot know whether it was erased, as when the connection is lost.
+   */
+  const eraseWithin = (
+    request:
+      | { type: 'clear_history' }
+      | { type: 'forget_memory'; memoryId: number }
+      | { type: 'forget_action'; actionId: number },
+  ): Promise<'done' | 'not_done' | 'unknown'> => erased(ask(request, CLEAR_LIMIT_MS));
+
   /** Lets go of the current socket without hearing from it again. */
   const release = (): void => {
     clearTimeout(retryTimer);
@@ -560,7 +572,7 @@ export const createChatClient = (options: ChatClientOptions): ChatClient => {
       const event = await ask({ type: 'history' });
       return event?.type === 'history' ? event.messages : null;
     },
-    clearHistory: () => erased(ask({ type: 'clear_history' }, CLEAR_LIMIT_MS)),
+    clearHistory: () => eraseWithin({ type: 'clear_history' }),
     async requestMemories() {
       const event = await ask({ type: 'memories' });
       return event?.type === 'memories' ? event.memories : null;
@@ -569,8 +581,8 @@ export const createChatClient = (options: ChatClientOptions): ChatClient => {
       const event = await ask({ type: 'actions' });
       return event?.type === 'actions' ? event.actions : null;
     },
-    forgetMemory: (memoryId) => erased(ask({ type: 'forget_memory', memoryId })),
-    forgetAction: (actionId) => erased(ask({ type: 'forget_action', actionId })),
+    forgetMemory: (memoryId) => eraseWithin({ type: 'forget_memory', memoryId }),
+    forgetAction: (actionId) => eraseWithin({ type: 'forget_action', actionId }),
     async requestConnectionGrants() {
       const event = await ask({ type: 'connection_grants' });
       return event?.type === 'connection_grants' ? event.grants : null;

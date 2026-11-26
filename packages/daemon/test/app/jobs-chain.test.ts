@@ -12,7 +12,7 @@ const logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn() };
 let scratch: string;
 afterEach(() => rmSync(scratch, { recursive: true, force: true }));
 
-const setup = (sendCount: { n: number }) => {
+const setup = (sendCount: { n: number }, control = { fail: false }) => {
   scratch = mkdtempSync(join(tmpdir(), 'anomander-jobs-chain-'));
   const config = loadConfig({
     ANOMANDER_LOCAL_TOKEN: 'probe-local-token-0123456789abcdef',
@@ -35,6 +35,11 @@ const setup = (sendCount: { n: number }) => {
     reachable: () => {
       reach += 1;
       sendCount.n += 1;
+      // B82: while `control.fail` is set, the next run fails as it starts.
+      if (control.fail) {
+        control.fail = false;
+        throw new Error('probe: the run fails');
+      }
       return false;
     },
   });
@@ -61,14 +66,19 @@ describe('verifier S3', () => {
   });
 
   it('a merged run that failed does not keep answering later requests', async () => {
-    const count = { n: 0 };
-    const { db, jobs } = setup(count);
+    const control = { fail: false };
+    const { db, jobs, reached } = setup({ n: 0 }, control);
     await jobs.scheduler.started;
-    const first = jobs.drainQueue();
-    await first;
-    const second = jobs.drainQueue();
-    expect(second).not.toBe(first);
-    await second;
+    control.fail = true;
+    const failed = jobs.drainQueue();
+    await expect(failed).rejects.toThrow('probe: the run fails');
+
+    // B82: the next request queues a fresh run, which runs, instead of answering the failure.
+    const before = reached();
+    const fresh = jobs.drainQueue();
+    expect(fresh).not.toBe(failed);
+    await expect(fresh).resolves.toBeUndefined();
+    expect(reached() - before).toBe(1);
     await jobs.stop();
     db.close();
   });

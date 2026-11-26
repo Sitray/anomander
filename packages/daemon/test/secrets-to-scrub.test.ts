@@ -282,6 +282,52 @@ describe('the secrets the daemon gets after its start', () => {
     expect(log(`401 for ${NEW_ACCESS} then ${NEW_REFRESH}`)).toBe('401 for [secret] then [secret]');
   });
 
+  it("B82: keep a failed refresh's ordinary fields visible, such as the provider it names as `key`", async () => {
+    const list = createSecretList();
+    const log = logOver(list);
+    const store = rememberingLogins(
+      createShellCredentialStore('{}', () => {}),
+      list.acquire,
+    );
+    const cause = Object.assign(new Error('token response rejected'), {
+      key: 'openai-codex',
+      env: { OPENAI_API_KEY: 'not-a-key-only-a-label' },
+      response: { tokens: { access: NEW_ACCESS } },
+    });
+
+    await expect(
+      store.modify('openai-codex', async () => {
+        throw failedRefresh(cause);
+      }),
+    ).rejects.toThrow('OAuth refresh failed');
+
+    expect(log('the model call to openai-codex failed')).toBe(
+      'the model call to openai-codex failed',
+    );
+    expect(log('label not-a-key-only-a-label')).toBe('label not-a-key-only-a-label');
+    expect(log(`401 for ${NEW_ACCESS}`)).toBe('401 for [secret]');
+  });
+
+  it("B82: keep hiding a failed refresh's other provider credentials, such as AWS_SESSION_TOKEN", async () => {
+    const list = createSecretList();
+    const log = logOver(list);
+    const store = rememberingLogins(
+      createShellCredentialStore('{}', () => {}),
+      list.acquire,
+    );
+    const cause = Object.assign(new Error('token response rejected'), {
+      env: { AWS_SESSION_TOKEN: 'aws-session-0123456789abcdef' },
+    });
+
+    await expect(
+      store.modify('amazon-bedrock', async () => {
+        throw failedRefresh(cause);
+      }),
+    ).rejects.toThrow('OAuth refresh failed');
+
+    expect(log('session aws-session-0123456789abcdef')).toBe('session [secret]');
+  });
+
   /** What the log shows of `error`, once `store.modify` failed with it. */
   const loggedAfterFailure = async (error: Error): Promise<string> => {
     const list = createSecretList();

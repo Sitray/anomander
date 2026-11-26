@@ -402,18 +402,25 @@ describe('the stored conversation (DK-16)', () => {
     expect(await second).toBe('not_done');
   });
 
-  it('the other erases still wait for their answer, with no limit', async () => {
+  it('B80: forgetting a memory or an action gives up after the same 2 minutes: it cannot know', async () => {
     const socket = connected();
-    let outcome: string | undefined;
+    const results: Record<string, string> = {};
     void client.forgetMemory(3).then((value) => {
-      outcome = value;
+      results.memory = value;
+    });
+    const memoryId = socket.lastRequest.id;
+    void client.forgetAction(12).then((value) => {
+      results.action = value;
     });
 
-    await vi.advanceTimersByTimeAsync(CLEAR_LIMIT_MS * 2);
-    expect(outcome).toBeUndefined();
-    socket.receive({ type: 'done', inReplyTo: socket.lastRequest.id });
+    await vi.advanceTimersByTimeAsync(CLEAR_LIMIT_MS - 1);
+    expect(results).toEqual({});
+    await vi.advanceTimersByTimeAsync(1);
+    expect(results).toEqual({ memory: 'unknown', action: 'unknown' });
+
+    socket.receive({ type: 'done', inReplyTo: memoryId });
     await vi.advanceTimersByTimeAsync(0);
-    expect(outcome).toBe('done');
+    expect(results).toEqual({ memory: 'unknown', action: 'unknown' });
   });
 
   it("takes the daemon's failure reply as nothing read and nothing erased, never as an outcome", async () => {
