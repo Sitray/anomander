@@ -74,6 +74,7 @@ On `main` since 0.1.0. The interface speaks English or Spanish, and the app runs
 
 ### Security
 
+- Dependencies (B58): the AWS SDK chain of the Bedrock provider moves off `@smithy/core` 3.38.0, deprecated for a bug in custom logger redaction, to 3.41.1, and `tldts` / `tldts-core` (through jsdom, tests only) move off the partial release 7.4.20 to 7.6.0. The lockfile only: every range already allowed them.
 - On Windows the daemon runs in a Job Object that ends everything it started when it stops, and the data and log folders are readable by their owner only.
 - Web search runs the `pi-web-access` installed with the daemon, its whole dependency tree pinned in `pnpm-lock.yaml`, instead of what `npx` resolves afresh; existing `mcp.json` files need no change.
 - The daemon log now also hides model provider keys, connection secrets, the model login and OAuth tokens, and logs a crash scrubbed instead of raw.
