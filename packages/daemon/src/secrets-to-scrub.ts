@@ -66,11 +66,41 @@ const jsonSecrets = (raw: string | undefined, named?: (name: string) => boolean)
 
 /**
  * A token field as a JSON text quotes it, such as `"access_token":"…"` of a token response or
- * `"refresh":"…"` of a login, its value still escaped. Read from text, so a response cut short,
- * or not JSON at all, still gives its tokens up.
+ * `"refresh":"…"` of a login, its value still escaped and its closing quote, when there is one,
+ * captured apart. Read from text, so a response that is not JSON still gives its tokens up.
  */
 const QUOTED_TOKEN =
-  /"(?:access_token|refresh_token|id_token|access|refresh)"\s*:\s*"((?:[^"\\]|\\.)*)"/g;
+  /"(?:access_token|refresh_token|id_token|access|refresh)"\s*:\s*"((?:[^"\\]|\\.)*)("?)/g;
+
+/**
+ * A token field of a form, such as `access_token=…&` of a token response, its value still
+ * URL-encoded.
+ */
+const FORM_TOKEN = /(?<![\w])(?:access_token|refresh_token|id_token)=([^&\s"';,]+)/g;
+
+/** The characters a token is written with: base64url, a JWT's dots, `/`, `+`, `=` and `~`. */
+const TOKEN_START = /^[\w.~+/=-]+/;
+
+/** A form's value, decoded; as written when it does not decode. */
+const formDecoded = (encoded: string): string => {
+  try {
+    return decodeURIComponent(encoded.replaceAll('+', ' '));
+  } catch {
+    return encoded;
+  }
+};
+
+/**
+ * The tokens `text` quotes as JSON or as a form. A JSON value with no closing quote was cut short,
+ * as in a body that did not parse: its token is what it starts with, up to the first character no
+ * token holds.
+ */
+const tokensIn = (text: string): string[] => [
+  ...[...text.matchAll(QUOTED_TOKEN)].map(([, token = '', closed]) =>
+    closed === '"' ? unquoted(token) : (TOKEN_START.exec(token)?.[0] ?? ''),
+  ),
+  ...[...text.matchAll(FORM_TOKEN)].map(([, token = '']) => formDecoded(token)),
+];
 
 /** The token a JSON string holds, unescaped; as written when it does not read as JSON. */
 const unquoted = (escaped: string): string => {
@@ -87,9 +117,7 @@ const unquoted = (escaped: string): string => {
  * keeps those out of its own fields). A failed refresh's error may quote the tokens it got.
  */
 const quotedTokens = (value: unknown, seen = new Set<object>()): string[] => {
-  if (typeof value === 'string') {
-    return [...value.matchAll(QUOTED_TOKEN)].map(([, token = '']) => unquoted(token));
-  }
+  if (typeof value === 'string') return tokensIn(value);
   if (typeof value !== 'object' || value === null || seen.has(value)) return [];
   seen.add(value);
   const own: [string, unknown][] =
