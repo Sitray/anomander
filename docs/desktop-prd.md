@@ -890,10 +890,10 @@ and keep its secrets in the operating system instead of a text file.
     both, the zone from the IANA list and the currency from a short list or any ISO 4217 code.
     An install set up before proposes nothing: while neither is chosen it shows the machine's
     clock and `EUR`, and saving for another reason leaves both unset. They take effect when
-    ANOMANDER starts again, which saving the setup does, and the screen says so.
+    ANOMANDER starts again, which saving the setup does, and the screen says so (S-190 to S-193).
   - AC6: amounts are kept in hundredths (`total_cents`), so the currency must have two decimals:
-    one with none (`JPY`) or three (`BHD`) is refused by the setup, the shell and the daemon,
-    with the reason, and is not offered in the list.
+    one with none (`JPY`) or three (`BHD`) is refused by the setup (S-194), the shell and the
+    daemon, with the reason, and is not offered in the list.
 
 ## 6. Decisions
 
