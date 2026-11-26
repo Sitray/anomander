@@ -74,8 +74,10 @@ export interface Anomander {
    * B51: from now on nothing new starts (no turn, no job, no input of a door) and the doors
    * begin to close, without waiting for anything: for a crash that waits for its log line.
    * B82: a Telegram text or receipt whose turn never started is not acknowledged, so it comes
-   * again after the restart; whatever started stays acknowledged.
+   * again after the restart; whatever started stays acknowledged. B84: settles once the doors
+   * closed, the bot's last `getUpdates` included, never rejecting: a crash waits for it, up to
+   * its limit, before it exits.
    */
-  halt(): void;
+  halt(): Promise<void>;
   stop(): Promise<void>;
 }

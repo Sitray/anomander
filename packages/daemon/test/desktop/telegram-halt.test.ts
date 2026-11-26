@@ -1,7 +1,9 @@
 import { mkdtempSync, rmSync } from 'node:fs';
+import { createServer, type Server } from 'node:http';
+import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { LOCAL_CHANNEL_PROTOCOL } from '@anomander/protocol';
+import { exitCodes, LOCAL_CHANNEL_PROTOCOL } from '@anomander/protocol';
 import {
   type FakeTelegramApi,
   startFakeTelegramApi,
@@ -10,6 +12,7 @@ import {
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { type Anomander, startAnomander } from '../../src/app.ts';
 import { loadConfig } from '../../src/config.ts';
+import { exitOnceWritten } from '../../src/crash.ts';
 import { type SetupGap, setupGuide } from '../../src/setup/setup-guide.ts';
 
 // B82: a Telegram text that waits for its turn behind the app's turn when the daemon halts. A
@@ -221,5 +224,95 @@ describe('a Telegram text in its setup check when the daemon halts (B84)', () =>
     await vi.waitFor(() => expect(guides()).toBe(2));
     expect(api.sent.map(({ text }) => text)).not.toContain(S22);
     expect(complete).not.toHaveBeenCalled();
+  });
+});
+
+// B84: a crash exits once its log is out and its halt settled, the bot's last `getUpdates`
+// included, so Telegram learns what was handled before the process is gone.
+describe('a crash exit and the halt of the bot (B84)', () => {
+  let proxy: Server | undefined;
+  afterEach(async () => {
+    // The daemon stops through the proxy, so the proxy closes after it.
+    for (const release of releases) release();
+    releases = [];
+    await daemon?.stop();
+    daemon = undefined;
+    await new Promise<void>((closed) =>
+      proxy === undefined ? closed() : proxy.close(() => closed()),
+    );
+    proxy = undefined;
+  });
+
+  /** A Bot API in front of the fake one that tells `seen` of every `getUpdates` and its offset. */
+  const recordingApi = async (seen: string[]): Promise<string> => {
+    proxy = createServer(async (req, res) => {
+      const chunks: Buffer[] = [];
+      for await (const chunk of req) chunks.push(chunk as Buffer);
+      const body = Buffer.concat(chunks).toString();
+      if (req.url?.endsWith('/getUpdates') === true) {
+        const { offset } = (body === '' ? {} : JSON.parse(body)) as { offset?: number };
+        seen.push(`getUpdates ${offset ?? 0}`);
+      }
+      const answer = await fetch(`${api.apiRoot}${req.url}`, {
+        method: req.method ?? 'POST',
+        headers: { 'content-type': req.headers['content-type'] ?? 'application/json' },
+        ...(req.method === 'GET' ? {} : { body }),
+      });
+      res.writeHead(answer.status, { 'content-type': 'application/json' });
+      res.end(await answer.text());
+    });
+    await new Promise<void>((listening) => proxy?.listen(0, '127.0.0.1', () => listening()));
+    const { port } = proxy.address() as AddressInfo;
+    return `http://127.0.0.1:${port}`;
+  };
+
+  it('waits for the acknowledgement of a turn that runs, sent after the log is out, then exits', async () => {
+    const seen: string[] = [];
+    const apiRoot = await recordingApi(seen);
+    let release = (): void => {};
+    const answered = new Promise<never>((_, reject) => {
+      release = () => reject(new Error('the model call is over'));
+    });
+    answered.catch(() => {});
+    releases.push(release);
+    const complete = vi.fn(async (): Promise<never> => answered);
+    const started = startAnomander(configFor(), {
+      complete,
+      model: 'openai/gpt-4o-mini',
+      telegramApiRoot: apiRoot,
+      logger,
+      shutdownDeadlineMs: 50,
+    });
+    daemon = started;
+    await started.started;
+    api.push(updates.text({ chatId: PRINCIPAL }, 'café 3'));
+    await vi.waitFor(() => expect(complete).toHaveBeenCalledTimes(1));
+    // The log is out at once; the halt waits for the running turn before it acknowledges it.
+    const drained = {
+      write: (_chunk: string, done: () => void) => {
+        setImmediate(done);
+        return true;
+      },
+    };
+    const exited = new Promise<number>((resolveExit) => {
+      const exit = exitOnceWritten(
+        [drained],
+        (code) => {
+          seen.push(`exit ${code}`);
+          resolveExit(code);
+        },
+        5_000,
+        () => started.halt(),
+      );
+      seen.length = 0;
+      exit(exitCodes.failed);
+    });
+
+    expect(await exited).toBe(exitCodes.failed);
+    expect(seen).toEqual([
+      expect.stringMatching(/^getUpdates [1-9]\d*$/),
+      `exit ${exitCodes.failed}`,
+    ]);
+    expect(await unacknowledged()).toEqual([]);
   });
 });

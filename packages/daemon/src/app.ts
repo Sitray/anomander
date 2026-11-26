@@ -319,8 +319,8 @@ export const startAnomander = <M>(config: Config, deps: AnomanderDeps<M>): Anoma
     polling: telegram.ended,
     readApi: readApi?.listening,
     localChannel: localChannel?.listening,
-    halt: () => {
-      halt({ crashed: true });
+    halt: async () => {
+      await Promise.allSettled(halt({ crashed: true }));
     },
     // T14: nothing new starts once this begins; the turns that run end, up to a deadline, and
     // the jobs however long they take (B69), before the store closes. A step that fails is

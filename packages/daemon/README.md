@@ -253,7 +253,10 @@ naming only its kind (`anomander is still waiting for a job before it stops`, `{
 'drainQueue' }`), and keeps waiting (B82). Only then does it close the connections, the read API and the
 store; a step that failed is thrown after everything closed. `Anomander.halt` is that first,
 synchronous part alone: `main.ts` calls it when it fails or crashes, so no new event is handled
-while the last log line drains (B51). Once closed, the turns refuse at once every turn that
+while the last log line drains (B51). It returns a promise that settles once the doors closed:
+`exitOnceWritten` (`src/crash.ts`) waits for it and for the log together, under the same 5 s
+`DRAIN_LIMIT_MS`, so the bot's last `getUpdates` reaches Telegram before the process exits, and
+a halt or a network that hangs still exits on time (B84). Once closed, the turns refuse at once every turn that
 waits, with `TurnNotStartedError` (its `code` is `TURN_NOT_STARTED` of `@anomander/telegram`),
 and so every input still in its setup check (`beforeTurn`, B84), which runs off the turn lock and
 is not run again. `halt` stops the bot with `haltTelegramBot` rather than `bot.stop()`: every update the bot began
@@ -571,7 +574,7 @@ says why (`could not open the store: EACCES: permission denied`) without its pat
 when Telegram ends it, for example with the `409 Conflict` of another process reading the same
 bot (`isBotInUse`, AC2). `main.ts` then exits instead of staying up deaf. Its exit code tells
 whoever started it why (`exitCodes` in `packages/protocol`). It exits once the line that says
-why is written, up to 5 s (`exitOnceWritten` in `src/crash.ts`), as a crash does, so a pipe on
+why is written and the halt settled, up to 5 s (`exitOnceWritten` in `src/crash.ts`), as a crash does, so a pipe on
 macOS keeps it (B51):
 
 | Code | Meaning |

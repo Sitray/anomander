@@ -59,6 +59,60 @@ describe('exitOnceWritten', () => {
     expect(exited.mock.calls).toEqual([[exitCodes.failed]]);
   });
 
+  it('B84: waits for a halt that settles after the log is out, then exits with the same code', async () => {
+    const { stream, flush } = slowStream();
+    const order: string[] = [];
+    let settleHalt = (): void => {};
+    const exit = exitOnceWritten(
+      [stream],
+      (code) => order.push(`exit ${code}`),
+      5_000,
+      () => {
+        order.push('halt');
+        return new Promise<void>((resolveHalt) => {
+          settleHalt = () => {
+            order.push('halted');
+            resolveHalt();
+          };
+        });
+      },
+    );
+
+    exit(exitCodes.botInUse);
+    flush();
+    await Promise.resolve();
+    expect(order).toEqual(['halt']);
+    settleHalt();
+    await vi.waitFor(() => expect(order).toEqual(['halt', 'halted', `exit ${exitCodes.botInUse}`]));
+  });
+
+  it('B84: a halt that fails still lets the exit go once the log is out', async () => {
+    const exited = vi.fn();
+    const exit = exitOnceWritten([], exited, 5_000, () =>
+      Promise.reject(new Error('Telegram is unreachable')),
+    );
+
+    exit(exitCodes.failed);
+
+    await vi.waitFor(() => expect(exited.mock.calls).toEqual([[exitCodes.failed]]));
+  });
+
+  it('B84: a halt that never settles still exits within the limit', () => {
+    vi.useFakeTimers();
+    try {
+      const exited = vi.fn();
+      const exit = exitOnceWritten([], exited, 100, () => new Promise<void>(() => {}));
+
+      exit(exitCodes.failed);
+      vi.advanceTimersByTime(99);
+      expect(exited).not.toHaveBeenCalled();
+      vi.advanceTimersByTime(1);
+      expect(exited.mock.calls).toEqual([[exitCodes.failed]]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('without a halt, still exits once a stream that never drains has waited its limit', () => {
     vi.useFakeTimers();
     try {
