@@ -165,7 +165,11 @@ with the S-15 buttons first when S-15 is asked with it:
   correction changed as they were before it, the declarations it wrote, and the assertions it
   refuted with their status (`amendExpense` returns it; no schema change). A `corroborated`
   expense becomes `confirmed` when corrected, and `restore.columns.mode` keeps `corroborated`
-  for "Deshacer"; a payload stored before B63 has no `mode` and leaves the mode as it is. "Deshacer" runs
+  for "Deshacer"; a payload stored before B63 has no `mode` and leaves the mode as it is.
+  `restore.after` keeps the values the correction left in those same columns (B79):
+  `correctionStands` refuses (S-19) when a declaration no longer stands or one of those columns,
+  `mode` included, changed since; a payload stored before B79 has no `after` and is checked by its
+  declarations only. "Deshacer" runs
   `undoCorrection` in one transaction: the columns take their old values, the declarations are
   `refuted`, the refuted assertions take back their status, and the proposal is `executed` by the
   principal. The expense stays current; the reply is S-105, or S-106 without a merchant. A newer

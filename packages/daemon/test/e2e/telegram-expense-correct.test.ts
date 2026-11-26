@@ -1108,6 +1108,43 @@ describe('undoing a correction: edges (R-7 AC9)', () => {
     ]);
   });
 
+  // B79: the correction keeps the values it left in the columns it would put back; a change to
+  // one of them after it, which none of its declarations records, makes "Deshacer" refuse.
+  it('keeps the values the correction left in the columns it would put back', async () => {
+    await corrected();
+    expect(
+      query<{ after: string }>(
+        `SELECT json_extract(payload_json, '$.restore.after') AS after FROM proposals
+         WHERE json_extract(payload_json, '$.restore') IS NOT NULL`,
+      ),
+    ).toEqual([{ after: JSON.stringify({ total_cents: 2840 }) }]);
+  });
+
+  it('a later change to a value it would put back, with its declarations standing, answers S-19 and changes nothing', async () => {
+    const correction = await corrected();
+    // A change no declaration of the correction records, as a later writer of the row would make.
+    write('UPDATE expenses SET total_cents = 3000');
+    const expenses = query('SELECT * FROM expenses');
+    const assertions = query('SELECT id, status FROM assertions ORDER BY id');
+
+    expect(await press(correction, 'Deshacer')).toBe(S19);
+
+    expect(query('SELECT * FROM expenses')).toEqual(expenses);
+    expect(query('SELECT id, status FROM assertions ORDER BY id')).toEqual(assertions);
+    expect(gastos()).toEqual([{ total_cents: 3000 }]);
+    // Its question is closed: a second press is S-19 too.
+    expect(await press(correction, 'Deshacer')).toBe(S19);
+  });
+
+  it('a "Deshacer" stored before B79, with no values after the correction, still puts them back', async () => {
+    const correction = await corrected();
+    write(`UPDATE proposals SET payload_json = json_remove(payload_json, '$.restore.after')
+           WHERE json_extract(payload_json, '$.restore') IS NOT NULL`);
+
+    expect(await press(correction, 'Deshacer')).toBe(S106(2300));
+    expect(gastos()).toEqual([{ total_cents: 2300 }]);
+  });
+
   it('the correction\'s "Deshacer" expires after 7 days: S-19, nothing changes', async () => {
     const correction = await corrected();
     await anomander.stop();
@@ -1358,6 +1395,26 @@ describe("a corrected receipt's mode (R-7 AC6, AC9)", () => {
     );
     expect(modes()).toEqual([{ mode: 'corroborated' }]);
     expect(gastos()).toEqual([{ total_cents: 3200 }]);
+  });
+
+  // B79: the mode is one of the values "Deshacer" puts back (B63), so a later change to it refuses.
+  it('a later change to the mode it would put back answers S-19 and leaves the mode', async () => {
+    const expense = await corroborated();
+    const chat = await appChat();
+    const { undo } = await correctFromRow(chat, expense.id);
+    expect(
+      query<{ after: string }>(
+        `SELECT json_extract(payload_json, '$.restore.after') AS after FROM proposals
+         WHERE json_extract(payload_json, '$.restore') IS NOT NULL`,
+      ),
+    ).toEqual([{ after: JSON.stringify({ total_cents: 2840, mode: 'confirmed' }) }]);
+    rw("UPDATE expenses SET mode = 'declared'");
+
+    expect((await chat.ask({ type: 'button', ...undo })).text).toBe(S19);
+
+    expect(modes()).toEqual([{ mode: 'declared' }]);
+    expect(gastos()).toEqual([{ total_cents: 2840 }]);
+    chat.close();
   });
 
   it('a restore payload whose mode is not corroborated answers S-19 and changes no row', async () => {

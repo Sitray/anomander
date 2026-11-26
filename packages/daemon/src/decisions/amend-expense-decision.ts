@@ -53,8 +53,9 @@ export const createAmendExpenseDecision =
       return { text: strings.decisionClosed() };
     }
     if (restore !== null) {
-      // R-7 AC9: a correction no longer standing was overtaken; its question is closed (S-19).
-      if (!correctionStands(db, restore)) {
+      // R-7 AC9: a correction no longer standing was overtaken, or B79 the expense changed in a
+      // column it would put back; its question is closed (S-19).
+      if (!correctionStands(db, expenseId, restore)) {
         closeAmendDecisions(db, expenseId);
         logger.info('undo of a correction that no longer stands', { decisionId: decision.id });
         return { text: strings.decisionClosed() };

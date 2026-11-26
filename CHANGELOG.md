@@ -51,6 +51,7 @@ On `main` since 0.1.0. The interface speaks English or Spanish, and the app runs
 
 ### Fixed
 
+- The "Deshacer" under a correction now answers S-19 and changes nothing when any value it would put back, the mode included, changed after that correction, even with the correction's declarations still standing: its payload keeps the values the correction left. One stored before this keeps checking the declarations only (R-7 AC9, B79).
 - A "No" after a "Sí" to forget a memory or erase the history that failed before it erased anything, with that memory or action then erased from "Memoria", says nothing was erased again (S-31, "Vale, no borro nada.") instead of S-200 or S-201: the "Sí" that erases marks its proposal `erased` in the same transaction. A "Sí" that failed halfway under an earlier build has no mark, so a "No" after the upgrade replies S-31 (B83).
 - A memory replaced outside any turn's scope, so its old words cannot be matched against the turn that replaced it, is now logged as a warning with the new memory's id only, never its text (B83).
 - A text sent in the app's chat while a login started in Telegram waited for a pasted code, whose answer never came because the connection was lost, no longer stays visible: the daemon tells the windows while a login waits (`login_waiting`), and the chat masks such a text as "Código de acceso (oculto)" (DK-4 AC7, B81).
