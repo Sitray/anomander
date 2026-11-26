@@ -596,7 +596,9 @@ and keep its secrets in the operating system instead of a text file.
     `amend_expense` question of its own (`basis_json.rule` `DK-17 AC6`) answered at once, since a
     receipt's own "Corregir" and "Descartar" (R-6) belong to it only while it is pending. A
     correction of a registered receipt refutes the `confirmed` assertions of "Apuntar" whose
-    inference it refuted, so only the new declaration is current.
+    inference it refuted, so only the new declaration is current. The "Deshacer" under a
+    correction's reply (PRD R-7 AC9) puts values back, so a row never presses it: a row's
+    "Deshacer" still takes the expense out, and closes that button too.
   - AC7: it is a table with its headers, read and moved through by keyboard; Escape or "Volver
     al chat" goes back to the chat.
 - DK-18 Memories and history in the window (backlog B32, 2026-11-24: "Memories and history
