@@ -42,8 +42,11 @@ Real messages carry personal data, so the cases never enter the repository:
   come from it.
 - `categories` (default `supermercado`, `restaurantes`), `memories` (each `id`, `text`, `mode`)
   and `pending` (each `id`, `text`, `when`, `null` for a task) are what the interpreter is given.
-- `expenses` (each `id`, `total_cents`, `merchant`, `category`, `occurred_on`, newest first) are
-  the recent expenses a typed correction may point at (R-7 AC7); left out, none are given.
+- `currency` names the principal's currency for that case (B87); left out, the run's
+  (`--currency`, or `ANOMANDER_CURRENCY`).
+- `expenses` (each `id`, `total_cents`, `merchant`, `category`, `occurred_on`, newest first, and
+  optionally its own `currency`, the case's when left out, B87) are the recent expenses a typed
+  correction may point at (R-7 AC7); left out, none are given.
 - `expect` names the envelope `kind` and any field to compare; fields left out are not compared.
   For an expense, name the predicates: `total` (cents), `merchant`, `occurred_on`, `category`,
   `declared_category`. `"memories": true` asks for at least one remembered fact.
