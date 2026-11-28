@@ -39,7 +39,11 @@ export const useConnectionGrants = (channel: LocalChannel | null | undefined) =>
       onConnection: (state) => {
         // Read again each time it opens: one may have been granted in the meantime.
         if (state === 'open') read(created);
-        else setGrants(NONE);
+        else {
+          // B67: a read the connection lost answers after this; it is not shown over "none".
+          reads.current += 1;
+          setGrants(NONE);
+        }
       },
       // It sends nothing but its own requests, which never settle as outcomes.
       onOutcome: () => {},
