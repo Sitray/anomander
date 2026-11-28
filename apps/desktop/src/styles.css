@@ -208,6 +208,10 @@ button {
     transform 120ms var(--ease-out);
 }
 
+.button:disabled {
+  color: var(--text-3);
+}
+
 .button:hover:not(:disabled) {
   background: var(--fill-hover);
 }
@@ -216,23 +220,19 @@ button {
   transform: scale(0.97);
 }
 
-.button:disabled {
-  color: var(--text-3);
-}
-
 .button.primary {
   background: var(--accent);
   color: var(--on-accent);
   font-weight: 600;
 }
 
-.button.primary:hover:not(:disabled) {
-  background: var(--accent-hover);
-}
-
 .button.primary:disabled {
   background: var(--fill);
   color: var(--text-3);
+}
+
+.button.primary:hover:not(:disabled) {
+  background: var(--accent-hover);
 }
 
 .button.small {
@@ -257,6 +257,11 @@ button {
     transform 120ms var(--ease-out);
 }
 
+.icon-button:disabled {
+  color: var(--text-3);
+  opacity: 0.6;
+}
+
 .icon-button:hover:not(:disabled) {
   background: var(--fill);
   color: var(--text);
@@ -264,11 +269,6 @@ button {
 
 .icon-button:active:not(:disabled) {
   transform: scale(0.94);
-}
-
-.icon-button:disabled {
-  color: var(--text-3);
-  opacity: 0.6;
 }
 
 .link {
@@ -292,13 +292,13 @@ button {
   transform: translateY(-50%);
 }
 
+.link:disabled {
+  color: var(--text-3);
+}
+
 .link:hover:not(:disabled) {
   text-decoration: underline;
   text-underline-offset: 2px;
-}
-
-.link:disabled {
-  color: var(--text-3);
 }
 
 /* ---------- The window ---------- */
@@ -731,12 +731,12 @@ button {
   box-shadow: inset 0 0 0 1px var(--control-line);
 }
 
-.choice:hover:not(:disabled) {
-  background: var(--fill);
-}
-
 .choice:disabled {
   box-shadow: inset 0 0 0 1px var(--line);
+}
+
+.choice:hover:not(:disabled) {
+  background: var(--fill);
 }
 
 /* The button the principal pressed stays marked, waiting or answered. */
@@ -881,17 +881,17 @@ button {
     transform 120ms var(--ease-out);
 }
 
+.send:disabled {
+  background: var(--fill);
+  color: var(--text-3);
+}
+
 .send:hover:not(:disabled) {
   background: var(--accent-hover);
 }
 
 .send:active:not(:disabled) {
   transform: scale(0.92);
-}
-
-.send:disabled {
-  background: var(--fill);
-  color: var(--text-3);
 }
 
 .tray {
@@ -1231,6 +1231,7 @@ button {
   gap: var(--s2);
 }
 
+/* biome-ignore lint/style/noDescendingSpecificity: sets size or placement only, never the hover background. */
 .key-add-row .button {
   height: 1.875rem;
 }
@@ -1247,6 +1248,7 @@ button {
   gap: var(--s2) var(--s3);
 }
 
+/* biome-ignore lint/style/noDescendingSpecificity: sets size or placement only, never the hover background. */
 .probe-row .button {
   height: 1.875rem;
 }
@@ -1298,6 +1300,7 @@ button {
   text-wrap: pretty;
 }
 
+/* biome-ignore lint/style/noDescendingSpecificity: sets size or placement only, never the hover background. */
 .connector .button,
 .connector-state {
   justify-self: start;
