@@ -955,7 +955,8 @@ read in one transaction; folders get mode 700 and files 600, and a failed write 
 folder. A CSV text that starts with `=`, `+`, `-`, `@`, a tab or a carriage return, also behind
 spaces or as the full-width `＝`, `＋`, `－`, `＠` (B54), or behind zero-width and other format
 characters (U+200B, U+200C, U+200D, U+2060, U+FEFF, …) or as the small-form `﹦`, `﹢`, `﹣`, `﹫`
-or the minus sign `−` (B86), gets a leading `'`, so a spreadsheet never runs a merchant or product
+or the minus sign `−` (B86), or behind the next-line character U+0085 or as the figure and en
+dashes `‒`, `–` (B89), gets a leading `'`, so a spreadsheet never runs a merchant or product
 name read from a receipt as a formula; numbers are written as they are;
 `ledger.json` keeps the text as stored. Each `gastos` and `lineas_de_compra` row has its
 `moneda`; `por_moneda` of `pendientes_de_confirmar` is JSON text in its CSV file and an array in

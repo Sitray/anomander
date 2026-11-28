@@ -30,13 +30,11 @@ import {
   readdirSync,
   readFileSync,
   readlinkSync,
-  realpathSync,
   renameSync,
   rmSync,
   writeFileSync,
 } from 'node:fs';
 import { dirname, join, posix, relative, resolve, sep } from 'node:path';
-import { fileURLToPath } from 'node:url';
 
 const ROOT = resolve(import.meta.dirname, '..');
 const OUT = join(ROOT, 'apps/desktop/src-tauri/resources/daemon');
@@ -284,8 +282,8 @@ const stage = async () => {
   console.info(`stage-daemon: ${relative(ROOT, OUT)} is ready for ${target}`);
 };
 
-// Run as `node scripts/stage-daemon.mjs`, not imported: Node gives the main module's real path.
-const script = process.argv[1];
-if (script !== undefined && existsSync(script)) {
-  if (realpathSync(script) === realpathSync(fileURLToPath(import.meta.url))) await stage();
-}
+// Run as `node scripts/stage-daemon.mjs`, not imported (Node 24.2+ says which module is main; an
+// older Node would stage nothing and say nothing).
+if (import.meta.main === undefined)
+  fail(`Node ${process.version} cannot stage: it needs 24.2 or later`);
+if (import.meta.main) await stage();

@@ -5,10 +5,10 @@
   "license": "MIT",
   "packageManager": "pnpm@12.15.0",
   "engines": {
-    "node": ">=24"
+    "node": ">=24.2"
   },
   "scripts": {
-    "typecheck": "pnpm -r typecheck",
+    "typecheck": "pnpm -r typecheck && tsc -p scripts/tsconfig.json",
     "test": "vitest run",
     "coverage": "vitest run --coverage --testTimeout 30000",
     "eval:receipts": "pnpm -F @anomander/daemon eval:receipts",

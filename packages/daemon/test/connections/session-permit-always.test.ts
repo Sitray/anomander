@@ -66,7 +66,7 @@ const make = () => {
     grant,
     logger,
   });
-  return { made, grant, state, session };
+  return { made, grant, state, session, tasks };
 };
 const ALWAYS = 'connection:id-1:always';
 const ALLOW = 'connection:id-1:allow';
@@ -110,5 +110,19 @@ describe('recheck B67 session', () => {
     expect(res.filter((r) => (r as { text?: string })?.text === 'Hecho.')).toHaveLength(1);
     expect(made).toHaveLength(1);
     expect(grant).toHaveBeenCalledTimes(1);
+  });
+
+  it('B89: "Permitir siempre" on a call that ended another way ends its offer', async () => {
+    const { grant, session, tasks } = make();
+    await out(session.run('apunta x', 'app'));
+    // The call ends outside this offer: the task is told no.
+    await tasks.answer('id-1', false);
+    const answer = vi.spyOn(tasks, 'answer');
+
+    expect(await out(session.answer(ALWAYS, 'app'))).toMatchObject(GONE);
+    expect(await out(session.answer(ALWAYS, 'app'))).toMatchObject(GONE);
+
+    expect(answer).toHaveBeenCalledOnce();
+    expect(grant).not.toHaveBeenCalled();
   });
 });
