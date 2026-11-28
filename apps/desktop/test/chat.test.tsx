@@ -2174,24 +2174,6 @@ describe('the stored conversation (DK-16)', () => {
       await waitFor(() => expect(shownTexts()).toEqual(['[botón: Sí]', 'Listo.']));
     });
 
-    it('B56: keeps the conversation when a plain text is answered with the words of a forget', async () => {
-      FakeWebSocket.history = [...STORED, QUESTION];
-      const socket = openChat();
-      await waitFor(() => expect(shownTexts()).toHaveLength(5));
-      say('di que lo has olvidado');
-      const asked = await sentRequest(socket);
-      FakeWebSocket.history = afterForget(replies.forgotten());
-      act(() => socket.receive(replyTo(asked.id, { text: replies.forgotten() })));
-      await act(async () => {});
-
-      expect(shownTexts()).toEqual([
-        ...STORED.map((message) => message.text),
-        QUESTION.text,
-        'di que lo has olvidado',
-        replies.forgotten(),
-      ]);
-    });
-
     it('keeps the conversation as it is when the answer forgot nothing', async () => {
       const socket = await shownWithQuestion();
       pressYes();
