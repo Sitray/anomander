@@ -4,11 +4,13 @@ All notable changes to ANOMANDER are recorded here. The format follows [Keep a C
 
 ## [Unreleased]
 
-On `main` since 0.1.0. The interface speaks English or Spanish, and the app runs on macOS and on Windows.
+## [0.2.0] - 2026-11-28
+
+The first release with downloads: the Mac app for Apple silicon and the Windows installer. The interface speaks English or Spanish, and the app runs on macOS and on Windows.
 
 ### Added
 
-- **Downloads** (B11): each `vX.Y.Z` tag gets a GitHub release with the Mac app for Apple silicon (`ANOMANDER-<version>-macos-arm64.zip`) and the Windows installer, each with its SHA-256. The app carries the daemon, its production dependencies and the Node that runs it (24.22.3, its download checked against a pinned SHA-256), so it needs no checkout, Node or pnpm; a build from source still runs the checkout's daemon. Unsigned: the Mac app is signed ad hoc, so macOS asks once in Privacidad y seguridad ("Abrir igualmente") and Windows in SmartScreen ("Ejecutar de todas formas"), and macOS asks for the keychain password again after each update. `scripts/release.sh` builds, signs and uploads the Mac app from a clean worktree of the tag; `.github/workflows/release.yml`, run by a pushed tag only, adds the Windows installer. No notarization, no automatic updates.
+- **Downloads** (B11): each `vX.Y.Z` tag gets a GitHub release with the Mac app for Apple silicon (`ANOMANDER-<version>-macos-arm64.zip`) and the Windows installer, each with its SHA-256. The app carries the daemon, its production dependencies and the Node that runs it (24.22.3, its download checked against a pinned SHA-256), so it needs no checkout, Node or pnpm; a build from source still runs the checkout's daemon. Unsigned: the Mac app is signed ad hoc, so macOS asks once in Privacidad y seguridad ("Abrir igualmente") and Windows in SmartScreen ("Ejecutar de todas formas"), and macOS asks for the keychain password again after each update. `scripts/release.sh` builds, signs and uploads the Mac app from a clean worktree of the tag; `.github/workflows/release.yml`, run by a pushed tag only, adds the Windows installer. The release's notes are its CHANGELOG section, then the builds and how to check their SHA-256 (`scripts/release-notes.sh`); a tag with no section is not released. No notarization, no automatic updates.
 - **"Permitir siempre" on a connection**: a call of a task with connections that asks also offers "Permitir siempre", in the app and in Telegram. The next calls of that tool of that server run without asking, until "Quitar" under the server in Conexiones, or until the server is removed or its command, arguments, environment or URL changes. The question now says the call in one plain line above its exact arguments (DK-24).
 - **English**: the app's window and the notch speak the system's language (Spanish on a Spanish system, English otherwise). The daemon and Telegram speak the language of `ANOMANDER_LOCALE`, `es` by default or `en`; the app sets it from the system's language.
 - **Windows**: the same app, built from this repository, with the chat, the setup, connections, subscription login and Telegram. Secrets go to the Windows Credential Manager; the tray icon shows the working wave and the finished drop appears at the top of the screen; an unsigned NSIS installer. A look at the screen and tasks on the computer stay macOS-only (see [`docs/windows-check.md`](docs/windows-check.md)).
@@ -107,7 +109,7 @@ On `main` since 0.1.0. The interface speaks English or Spanish, and the app runs
 
 ## [0.1.0] - 2026-11-21
 
-The first tagged version. There is no packaged download: you build and run it from this repository, with Docker or as the Mac app (see the [README](README.md)). In this version the interface is in Spanish only and the Mac app runs on macOS only; English and Windows came later (see [Unreleased](#unreleased)).
+The first tagged version. There is no packaged download: you build and run it from this repository, with Docker or as the Mac app (see the [README](README.md)). In this version the interface is in Spanish only and the Mac app runs on macOS only; English and Windows came in [0.2.0](#020---2026-11-28).
 
 ### Added
 

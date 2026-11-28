@@ -18,4 +18,4 @@ ANOMANDER serves one principal per installation and holds personal data, so thes
 
 ## Supported versions
 
-Only the latest commit on `main` is supported.
+Only the latest release on [GitHub Releases](https://github.com/Sitray/anomander/releases) is supported, and, between releases, the latest commit on `main`. A fix lands on `main` and goes out in the next release; older releases get no fixes.

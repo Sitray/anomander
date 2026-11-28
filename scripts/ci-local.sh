@@ -14,6 +14,10 @@ skip_build=false
 [[ "${1:-}" == "--skip-build" ]] && skip_build=true
 
 step() { printf '\n==> %s\n' "$*"; }
+# What this run could have checked yet skipped, said again at the end: a pass with checks skipped
+# is no full pass. The Windows and Linux jobs never run here, and the last lines say so too.
+skipped=()
+skip() { echo "skipped: $1"; skipped+=("$2"); }
 
 # The `docker smoke start` step, as ci.yml runs it.
 source "$root/scripts/docker-smoke.sh"
@@ -32,6 +36,7 @@ step "pnpm typecheck"; pnpm typecheck
 step "pnpm test"; pnpm test
 step "pnpm audit --audit-level high"; pnpm audit --audit-level high
 step "release script arguments"; bash scripts/test/release-args.sh
+step "release notes"; bash scripts/test/release-notes.sh
 step "docker smoke step ends"; bash scripts/test/docker-smoke.sh
 
 cd apps/desktop/src-tauri
@@ -42,7 +47,7 @@ step "cargo test"; cargo test
 if command -v cargo-audit >/dev/null 2>&1; then
   step "cargo audit"; cargo audit
 else
-  echo "skipped: cargo audit (cargo-audit is not installed; the CI audit job runs it)"
+  skip "cargo audit (cargo-audit is not installed; the CI audit job runs it)" "cargo audit"
 fi
 # The msrv job: the declared rust-version, here only if that toolchain is already installed.
 # `cargo +1.90` runs only the toolchain named `1.90-<host>`; one installed as `1.90.0-<host>` is
@@ -51,12 +56,12 @@ msrv="$(sed -n 's/^rust-version = "\(.*\)"$/\1/p' Cargo.toml)"
 if rustup toolchain list | awk -v name="$msrv-" 'index($1, name) == 1 { found = 1 } END { exit !found }'; then
   step "cargo +$msrv check --locked --all-targets"; cargo +"$msrv" check --locked --all-targets
 else
-  echo "skipped: cargo check on rust-version $msrv (install it with: rustup toolchain install $msrv --profile minimal)"
+  skip "cargo check on rust-version $msrv (install it with: rustup toolchain install $msrv --profile minimal)" "msrv"
 fi
 cd "$root"
 
 if $skip_build; then
-  echo "skipped: tauri build, docker build, docker smoke start (--skip-build)"
+  skip "tauri build, docker build, docker smoke start (--skip-build)" "builds"
 else
   step "tauri build (debug, unsigned)"
   (cd apps/desktop && pnpm tauri build --debug --ci)
@@ -64,10 +69,14 @@ else
     step "docker build"; docker build --tag anomander-daemon:ci .
     step "docker smoke start (healthy)"; docker_smoke
   else
-    echo "skipped: docker build, docker smoke start (Docker is not running)"
+    skip "docker build, docker smoke start (Docker is not running)" "docker"
   fi
 fi
 
 echo
 echo "skipped: check on windows-latest, tauri-build-windows (need Windows), check-linux (needs Linux)"
-echo "ci-local: all checks passed"
+if ((${#skipped[@]} == 0)); then
+  echo "ci-local: all checks this machine can run passed"
+else
+  echo "ci-local: passed, with ${#skipped[@]} check(s) skipped on this machine: ${skipped[*]}"
+fi

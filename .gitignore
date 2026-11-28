@@ -10,3 +10,4 @@ evals/text/cases.json
 !.env.example
 .atl/
 apps/desktop/dist/
+.playwright-mcp/
