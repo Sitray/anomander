@@ -50,6 +50,8 @@ describe.each(Object.entries(scripts))('the %s evaluation', (_name, script) => {
 // checks `ANOMANDER_CURRENCY`, for every case before any model is called.
 describe("the text evaluation's case currencies", () => {
   const dir = mkdtempSync(join(tmpdir(), 'anomander-eval-case-currency-'));
+  // A model no provider has: a run that got past the currencies stops on it, before any call.
+  const NO_MODEL = 'nobody/no-model';
   afterAll(() => rmSync(dir, { recursive: true, force: true }));
   const casesWith = (currency: string) => {
     const file = join(dir, `${currency}.json`);
@@ -61,19 +63,57 @@ describe("the text evaluation's case currencies", () => {
       ...extra,
     });
     writeFileSync(file, JSON.stringify([item('first'), item('switched', { currency })]));
-    return ['--file', file];
+    return ['--file', file, '--model', NO_MODEL];
   };
 
   it.each([
     ['XYZ', 'must be an ISO 4217 currency, such as EUR'],
     ['JPY', 'must have two decimals, as EUR or USD do: JPY has not'],
   ])('refuses a case in %s before any model is called', (currency, reason) => {
-    // No model is set, so a run that reached the provider would stop on an unknown model.
     const ran = run(scripts.text, casesWith(currency));
     expect(ran.status).toBe(1);
     expect(ran.stderr).toContain(
       `case switched: invalid configuration: ANOMANDER_CURRENCY ${reason}`,
     );
     expect(ran.stderr).not.toContain('unknown model');
+  });
+
+  const expensesIn = (currency: string) => {
+    const file = join(dir, `expense-${currency}.json`);
+    const expense = {
+      id: 1,
+      total_cents: 2300,
+      currency,
+      merchant: 'Mercadona',
+      category: 'supermercado',
+      occurred_on: '2026-11-24',
+    };
+    const item = {
+      name: 'mistyped',
+      message: 'el de 23, eran 32',
+      now: '2026-11-24T10:00',
+      expenses: [expense],
+      expect: { kind: 'expense_correct' },
+    };
+    writeFileSync(file, JSON.stringify([item]));
+    return ['--file', file, '--model', NO_MODEL];
+  };
+
+  it.each(['XYZ', 'eur'])(
+    'refuses an expense in %s, which is no ISO 4217 code, before any model is called',
+    (currency) => {
+      const ran = run(scripts.text, expensesIn(currency));
+      expect(ran.status).toBe(1);
+      expect(ran.stderr).toContain(
+        `case mistyped: expense 1 has ${currency}, which is no ISO 4217 currency`,
+      );
+      expect(ran.stderr).not.toContain('unknown model');
+    },
+  );
+
+  it('takes an expense in a currency without cents, as a stored expense may be', () => {
+    const ran = run(scripts.text, expensesIn('JPY'));
+    expect(ran.stderr).not.toContain('which is no ISO 4217 currency');
+    expect(ran.stderr).toContain('unknown model');
   });
 });

@@ -13,7 +13,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { parseArgs } from 'node:util';
 import { weekdayOf } from '@anomander/core';
-import { getCurrency, setCurrency } from '@anomander/protocol';
+import { getCurrency, isCurrency, setCurrency } from '@anomander/protocol';
 import type { AssistantMessage } from '@earendil-works/pi-ai';
 import { builtinModels } from '@earendil-works/pi-ai/providers/all';
 import { z } from 'zod';
@@ -160,7 +160,17 @@ if (cases.length === 0 || !(runs > 0)) {
 
 // B87: each case's own currency is checked as the daemon checks `ANOMANDER_CURRENCY`, for every
 // case before any model is called, so a currency the daemon refuses never costs a provider call.
+// An expense's own currency only has to be an ISO 4217 code: a stored expense may be in one
+// without cents.
 for (const item of cases) {
+  for (const expense of item.expenses ?? []) {
+    if (expense.currency !== undefined && !isCurrency(expense.currency)) {
+      console.error(
+        `case ${item.name}: expense ${expense.id} has ${expense.currency}, which is no ISO 4217 currency`,
+      );
+      process.exit(1);
+    }
+  }
   if (item.currency === undefined) continue;
   try {
     item.currency = loadCurrency({ ANOMANDER_CURRENCY: item.currency });
