@@ -1,5 +1,6 @@
 // B77: the helpers of scripts/stage-daemon.mjs that decide what a release app carries: the pinned
 // hash of Node's archive, no link left in the resource folder, and only the target's addon.
+import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import {
   existsSync,
@@ -183,5 +184,34 @@ describe('the dependencies (prebuild pruning)', () => {
     ]);
     expect(existsSync(join(modules, '.bin'))).toBe(false);
     expect(existsSync(join(modules, '.modules.yaml'))).toBe(false);
+  });
+});
+
+describe('when it stages', () => {
+  const script = join(import.meta.dirname, '..', 'stage-daemon.mjs');
+  const node = (...args: string[]) => spawnSync(process.execPath, args, { encoding: 'utf8' });
+
+  it('runs when started directly, and says so for a target it has no release for', () => {
+    const run = node(script, 'no-such-target');
+
+    expect(run.status).toBe(1);
+    expect(run.stderr).toContain('no release for no-such-target');
+  });
+
+  it('runs when started through a link to it', () => {
+    const link = join(scratch, 'stage-daemon.mjs');
+    symlinkSync(script, link);
+
+    const run = node(link, 'no-such-target');
+
+    expect(run.status).toBe(1);
+    expect(run.stderr).toContain('no release for no-such-target');
+  });
+
+  it('stages nothing and prints nothing when imported', () => {
+    const run = node('--input-type=module', '-e', `await import(${JSON.stringify(script)});`);
+
+    expect(run.status).toBe(0);
+    expect(run.stdout + run.stderr).toBe('');
   });
 });
