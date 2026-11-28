@@ -175,45 +175,43 @@ export const NO_DOOR = 'Telegram is not configured and the app is not connected:
 /**
  * Records each message sent to the principal unasked as a turn with no principal part, once it
  * was delivered. It goes to Telegram as before (R-1), when `notify` is given, and also to the
- * app while it is connected (DK-22): one fan-out, kept once, as the first door that delivered it
- * gives its reference, and `message.onDelivered` is called that once. A send that fails or ends
- * without delivering it stores nothing (DK-16 AC1); it rejects with Telegram's failure when no
- * door delivered it. When Telegram failed and the app got it, one fixed line says so, never its
- * words or the error, which may quote them.
+ * app while it is connected (DK-22): one fan-out, sent to both at once (B75), so the app's copy
+ * never waits for Telegram's retries. Once both answered it is kept once, with Telegram's
+ * reference when Telegram delivered it and the app's otherwise, and `message.onDelivered` is
+ * called that once, with that delivery. A send that fails or ends without delivering it stores
+ * nothing (DK-16 AC1); it rejects with Telegram's failure when no door delivered it. When Telegram
+ * failed and the app got it, one fixed line says so, never its words or the error, which may
+ * quote them.
  */
 export const recordingNotices =
   (turns: RecentTurns, notify: Notify | undefined, app?: AppNotices, logger?: Logger): Notify =>
   async (message) => {
-    let first: { door: TurnDoor; channelRef: string } | undefined;
+    const deliveries: Partial<Record<TurnDoor, Delivery>> = {};
     const through = (door: TurnDoor) => ({
       ...message,
       onDelivered: (delivery: Delivery) => {
-        if (first !== undefined) return;
-        first = { door, channelRef: delivery.channelRef };
-        message.onDelivered?.(delivery);
+        deliveries[door] ??= delivery;
       },
     });
-    let failure: { error: unknown } | undefined;
-    if (notify === undefined) failure = { error: new Error(NO_DOOR) };
-    else {
-      try {
-        await notify(through('telegram'));
-      } catch (error) {
-        failure = { error };
-      }
-    }
-    if (app?.connected() === true) {
-      // An app that closed meanwhile leaves Telegram's outcome as it was.
-      await app.notify(through('app')).catch(() => {});
-    }
-    if (first === undefined) {
-      if (failure !== undefined) throw failure.error;
+    const toTelegram = (async () => {
+      if (notify === undefined) throw new Error(NO_DOOR);
+      await notify(through('telegram'));
+    })();
+    // An app that closes meanwhile leaves Telegram's outcome as it is.
+    const toApp =
+      app?.connected() === true ? app.notify(through('app')).catch(() => {}) : undefined;
+    const [telegram] = await Promise.allSettled([toTelegram, toApp]);
+    const door = deliveries.telegram !== undefined ? 'telegram' : 'app';
+    const delivered = deliveries[door];
+    if (delivered === undefined) {
+      if (telegram.status === 'rejected') throw telegram.reason;
       return;
     }
-    if (notify !== undefined && failure !== undefined) {
+    if (notify !== undefined && telegram.status === 'rejected') {
       logger?.warn('an unasked message reached the app but not Telegram');
     }
-    turns.add(null, message, first.door, first.channelRef);
+    message.onDelivered?.(delivered);
+    turns.add(null, message, door, delivered.channelRef);
   };
 
 /** How a task on the computer appears in the recent turns: what was asked, never the screen. */
