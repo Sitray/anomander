@@ -175,6 +175,29 @@ describe('the ledger export', () => {
     expect(json.gastos[0].comercio).toBe('=HYPERLINK("x")');
   });
 
+  it('B54 R1-001: also guards a formula behind spaces or written with full-width signs', () => {
+    // A spreadsheet that trims spaces on import, or reads a full-width sign as its ASCII one,
+    // would still run these; the receipt reader can put any text in a merchant's name.
+    const names = [
+      ' =1+1',
+      '\u3000@SUM(A1)',
+      '\uFF1DHYPERLINK("x")',
+      '\uFF0B1',
+      '\uFF0D1',
+      '\uFF20A1',
+    ];
+    for (const name of names) expense(name, 500, 'current');
+
+    const { folder } = exportLedger(db, scratch, NOW);
+
+    const gastos = readFileSync(join(folder, 'gastos.csv'), 'utf8');
+    for (const name of names) expect(gastos).toContain(`,"'${name.replaceAll('"', '""')}",`);
+    // A text that only looks like one further in is left as it is.
+    expense('Café = bueno', 500, 'current');
+    const again = exportLedger(db, scratch, NOW);
+    expect(readFileSync(join(again.folder, 'gastos.csv'), 'utf8')).toContain(',Café = bueno,');
+  });
+
   it('never overwrites an export made the same second', () => {
     const first = exportLedger(db, scratch, NOW);
     const second = exportLedger(db, scratch, NOW);
