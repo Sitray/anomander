@@ -892,6 +892,10 @@ is only logged, and the app's chat answers every message with it. `/start` repli
 S-69 once setup is complete, or the guide; like the login routes, it never reaches the processor
 and is never a recent turn (R-17 AC8).
 
+A crash halts the setup guide as it halts the daemon (B85): both doors begin to close in the same
+call, and the bot stops with `haltTelegramBot`, so what it read after the halt gets no reply and
+comes again after the restart. Its `stop` keeps `bot.stop()`.
+
 ## Running the daemon
 
 `src/main.ts` reads the configuration, resolves `ANOMANDER_MODEL` through pi-ai's
