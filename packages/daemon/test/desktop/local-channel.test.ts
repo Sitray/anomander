@@ -1317,7 +1317,7 @@ describe('a text pasted in the app while a Telegram login waits (R-17 AC7, R-27 
     ]);
   });
 
-  it('B56: goes to the login in the setup guide too, and the next text gets the guide', async () => {
+  it('B49: goes to the login in the setup guide too, and the next text gets the guide', async () => {
     const pasted = 'http://127.0.0.1:1455/auth/callback?code=zorbguided&state=s';
     let received: string | undefined;
     const models: ModelLogin = {
