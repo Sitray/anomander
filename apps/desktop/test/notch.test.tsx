@@ -21,7 +21,7 @@ describe('the notice from the notch', () => {
 
   it('starts retracted into the notch, saying nothing yet', () => {
     const { pill, label } = mount();
-    expect(pill.dataset['up']).toBe('false');
+    expect(pill.dataset.up).toBe('false');
     expect(label.textContent).toBe('');
     expect(pill.getAttribute('aria-label')).toBe(noticeText.open);
     expect(pill.querySelector('[role="img"]')?.getAttribute('aria-label')).toBe('ANOMANDER');
@@ -30,7 +30,7 @@ describe('the notice from the notch', () => {
   it('drops over the menu bar it is given to say the work has ended', () => {
     const { notice, pill, label } = mount();
     notice.show({ say: 'done', bar: 37, floating: false });
-    expect(pill.dataset['up']).toBe('true');
+    expect(pill.dataset.up).toBe('true');
     expect(pill.style.getPropertyValue('--bar')).toBe('37px');
     expect(label.textContent).toBe('Ha terminado');
   });
@@ -49,10 +49,10 @@ describe('the notice from the notch', () => {
 
   it('floats, rounded, where there is no notch or menu bar to hang from', () => {
     const { notice, pill } = mount();
-    expect(pill.dataset['floating']).toBe('false');
+    expect(pill.dataset.floating).toBe('false');
     notice.show({ say: 'done', bar: 0, floating: true });
-    expect(pill.dataset['floating']).toBe('true');
-    expect(pill.dataset['up']).toBe('true');
+    expect(pill.dataset.floating).toBe('true');
+    expect(pill.dataset.up).toBe('true');
     expect(pill.style.getPropertyValue('--bar')).toBe('0px');
   });
 
@@ -60,11 +60,11 @@ describe('the notice from the notch', () => {
     const { notice, pill, label } = mount();
     notice.show({ say: 'done', bar: 37, floating: false });
     notice.show({ say: 'nothing', bar: 37, floating: false });
-    expect(pill.dataset['up']).toBe('false');
+    expect(pill.dataset.up).toBe('false');
     expect(label.textContent).toBe('Ha terminado');
     // The next end drops it again.
     notice.show({ say: 'done', bar: 37, floating: false });
-    expect(pill.dataset['up']).toBe('true');
+    expect(pill.dataset.up).toBe('true');
   });
 
   it('opens the chat on a click', () => {
