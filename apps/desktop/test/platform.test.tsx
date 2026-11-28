@@ -53,6 +53,24 @@ describe('the text on Windows', () => {
     }
   });
 
+  it('never offers a look at the screen in the empty chat, which Windows does not have yet', () => {
+    window.__ANOMANDER_PLATFORM__ = 'windows';
+    try {
+      for (const locale of ['es', 'en'] as const) {
+        setLocale(locale);
+        expect(strings.chat.examples.filter((text) => /pantalla|screen/i.test(text))).toEqual([]);
+        expect(strings.chat.emptyBody).not.toMatch(/pantalla|screen/i);
+        expect(strings.chat.examples.length).toBeGreaterThan(2);
+      }
+    } finally {
+      delete window.__ANOMANDER_PLATFORM__;
+      setLocale('es');
+    }
+    // macOS still offers it.
+    expect(strings.chat.examples).toContain('¿Qué ves en mi pantalla?');
+    expect(strings.chat.emptyBody).toContain('miro tu pantalla');
+  });
+
   it('names the Windows Credential Manager where macOS names the Keychain', () => {
     window.__ANOMANDER_PLATFORM__ = 'windows';
     expect(strings.setup.intro).toBe(

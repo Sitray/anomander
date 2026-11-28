@@ -70,6 +70,19 @@ describe('an empty chat', () => {
 });
 
 describe('the examples of an empty chat (B23)', () => {
+  it('on Windows, offer no look at the screen', () => {
+    window.__ANOMANDER_PLATFORM__ = 'windows';
+    try {
+      openChat();
+      const examples = within(screen.getByRole('list', { name: strings.chat.examplesLabel }));
+
+      expect(examples.getAllByRole('button').length).toBeGreaterThan(2);
+      expect(examples.queryByRole('button', { name: /pantalla|screen/i })).toBeNull();
+    } finally {
+      delete window.__ANOMANDER_PLATFORM__;
+    }
+  });
+
   it('fill the composer with what can be asked, and send nothing by themselves', async () => {
     const socket = openChat();
     const examples = within(screen.getByRole('list', { name: strings.chat.examplesLabel }));
@@ -77,9 +90,10 @@ describe('the examples of an empty chat (B23)', () => {
     expect(examples.getAllByRole('button').map((button) => button.textContent)).toEqual(
       strings.chat.examples,
     );
-    fireEvent.click(examples.getByRole('button', { name: strings.chat.examples[0] }));
+    const [first = ''] = strings.chat.examples;
+    fireEvent.click(examples.getByRole('button', { name: first }));
 
-    expect(composer().value).toBe(strings.chat.examples[0]);
+    expect(composer().value).toBe(first);
     expect(document.activeElement).toBe(composer());
     await act(async () => {});
     expect(socket.requests).toEqual([]);
