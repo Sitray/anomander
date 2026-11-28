@@ -131,11 +131,13 @@ export const useShell = (): Shell => {
     const seen = events.current;
     const saved = await shell.setNotifications(mode);
     // B75: an event that arrived meanwhile may have been read before the save, so it wins but
-    // for the mode, which only this command changes, and the setting asks one at a time.
+    // for the mode, which only this command changes, and the setting asks one at a time. An
+    // absent mode is `content`.
+    const notifications = saved.setup.notifications ?? 'content';
     setSnapshot((current) =>
       events.current === seen || current === null
         ? saved
-        : { ...current, setup: { ...current.setup, notifications: saved.setup.notifications } },
+        : { ...current, setup: { ...current.setup, notifications } },
     );
     return saved;
   }, []);
