@@ -130,22 +130,47 @@ describe('the daily backup', () => {
     expect(dailyCopies()).toEqual(real);
   });
 
-  it('logs a failed copy without its path, leaves nothing behind and copies at the next run', async () => {
+  // B54: root writes into a folder of mode 500 anyway, so there this copy would not fail.
+  it.skipIf(process.getuid?.() === 0)(
+    'logs a failed copy without its path, leaves nothing behind and copies at the next run',
+    async () => {
+      const logger = quietLogger();
+      let now = NOW;
+      const backup = createDailyBackup({ db, now: () => now, logger });
+      chmodSync(scratch, 0o500);
+
+      await expect(backup.run()).resolves.toBeUndefined();
+
+      expect(logger.error).toHaveBeenCalledTimes(1);
+      expect(JSON.stringify(logger.error.mock.calls)).not.toContain(scratch);
+      expect(dailyCopies()).toEqual([]);
+
+      chmodSync(scratch, 0o700);
+      now = new Date('2026-11-25T03:00:00.000Z');
+      await backup.run();
+      expect(dailyCopies()).toEqual(['anomander.db.backup-daily-20261125T030000Z']);
+    },
+  );
+
+  it('B54: a copy that fails once its file was made removes it, whoever runs it, and logs only its code', async () => {
     const logger = quietLogger();
     let now = NOW;
     const backup = createDailyBackup({ db, now: () => now, logger });
-    chmodSync(scratch, 0o500);
+    // SQLite refuses `VACUUM INTO` inside a transaction: the copy's file exists, then fails.
+    db.exec('BEGIN');
 
     await expect(backup.run()).resolves.toBeUndefined();
 
-    expect(logger.error).toHaveBeenCalledTimes(1);
-    expect(JSON.stringify(logger.error.mock.calls)).not.toContain(scratch);
+    expect(logger.error).toHaveBeenCalledExactlyOnceWith(
+      'daily backup failed; it is tried again at the next run',
+      { reason: 'SQLITE_ERROR' },
+    );
     expect(dailyCopies()).toEqual([]);
 
-    chmodSync(scratch, 0o700);
-    now = new Date('2026-11-25T03:00:00.000Z');
+    db.exec('ROLLBACK');
+    now = new Date('2026-11-24T04:00:00.000Z');
     await backup.run();
-    expect(dailyCopies()).toEqual(['anomander.db.backup-daily-20261125T030000Z']);
+    expect(dailyCopies()).toEqual(['anomander.db.backup-daily-20261124T040000Z']);
   });
 
   it('is taken at startup by the scheduler, after retention erased the old conversation', async () => {
