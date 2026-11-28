@@ -114,6 +114,37 @@ describe('the tools allowed always (DK-24 AC3)', () => {
     expect((await screen.findByRole('alert')).textContent).toBe(text.revokeGrantUnknown);
   });
 
+  it('B67: a read the connection lost says nothing once it closed, and it reads again on open', async () => {
+    render(
+      <ConnectionsScreen
+        load={async () => CONNECTIONS}
+        onSave={async () => CONNECTIONS}
+        onRemove={async () => NO_CONNECTIONS}
+        onClose={() => {}}
+        channel={CHANNEL}
+      />,
+    );
+    await waitFor(() => expect(screen.queryByText(text.loading)).toBeNull());
+    const socket = FakeWebSocket.last;
+    act(() => socket.open());
+    await requestOf(socket, 'connection_grants');
+
+    await act(async () => socket.close());
+
+    expect(screen.queryByText(text.grantsFailed)).toBeNull();
+    // It connects again by itself after a short wait.
+    await waitFor(() => expect(FakeWebSocket.last).not.toBe(socket));
+    const reopened = FakeWebSocket.last;
+    act(() => reopened.open());
+    const again = await requestOf(reopened, 'connection_grants');
+    act(() =>
+      reopened.receive({ type: 'connection_grants', inReplyTo: again.id, grants: [CREATE] }),
+    );
+    await waitFor(() =>
+      expect(within(allowedOf('notes')).getAllByRole('listitem')).toHaveLength(1),
+    );
+  });
+
   it('shows none and asks nothing without a running daemon', async () => {
     render(
       <ConnectionsScreen

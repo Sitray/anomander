@@ -23,11 +23,15 @@ const installedBin = (): string => {
     version?: string;
     bin?: Record<string, string>;
   };
-  const entry = bin?.[MCP_BIN];
-  if (version !== WEB_SEARCH_VERSION || entry === undefined) {
+  if (version !== WEB_SEARCH_VERSION) {
     throw new Error(
       `${WEB_SEARCH_PACKAGE} ${version} is installed, ${WEB_SEARCH_VERSION} is pinned`,
     );
+  }
+  const entry = bin?.[MCP_BIN];
+  // B86: the pinned version without its bin is told as that, not as a version mismatch.
+  if (entry === undefined) {
+    throw new Error(`${WEB_SEARCH_PACKAGE} ${version} is installed without its ${MCP_BIN} bin`);
   }
   installed = join(dirname(manifest), entry);
   return installed;

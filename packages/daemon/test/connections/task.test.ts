@@ -204,6 +204,26 @@ describe('DK-11: a task with connections', () => {
     expect(await line({ 'a 1, b': 'c' })).not.toBe(await line({ a: 1, b: 'c' }));
     // A typed code is not a line break written as its code.
     expect(await line({ v: 'a\\u000ab' })).not.toBe(await line({ v: 'a\nb' }));
+    // B65: a JSON value cut after ", " is not a line cut between arguments behind a name with a
+    // space, so a name ends at its first space.
+    const q = 'Q'.repeat(53);
+    const pairs: [Record<string, unknown>, Record<string, unknown>][] = [
+      [{ n: [`${q} 1, then more`] }, { [`n ["${q}`]: 1, k: '\u200b'.repeat(60) }],
+      // A name that holds a whole value, or the start of a JSON one.
+      [{ 'a 1 b': 2 }, { a: '1 b 2' }],
+      [{ 'n ["x"]': 1 }, { n: ['x'] }],
+      [{ 'n ["x", "y': 1 }, { n: ['x', 'y 1'] }],
+      [{ 'n «x»': 1 }, { n: 'x' }],
+      // A value cut after ", ", against a whole value.
+      [{ n: [`${'Q'.repeat(55)}, k`] }, { n: 1 }],
+      // Other blanks in a name, an empty name, and a name cut after a space.
+      [{ 'n\u00a0x': 1 }, { 'n x': 1 }],
+      [{ 'n\u3000x': 1 }, { 'n x': 1 }],
+      [{ n: 1, '': 2 }, { n: '1,  2' }],
+      [{ [`${'a'.repeat(30)} ${'b'.repeat(40)}`]: 1 }, { ['a'.repeat(30)]: `${'b'.repeat(40)} 1` }],
+    ];
+    for (const [one, other] of pairs) expect(await line(one)).not.toBe(await line(other));
+    expect(await line({ 'a b': 1 })).toBe('Quiero usar «create» de «notes» con: a\\u0020b 1');
   });
 
   it('DK-24 AC5: "Permitir siempre" is told only once the call is confirmed to wait, before it runs', async () => {
@@ -218,6 +238,58 @@ describe('DK-11: a task with connections', () => {
     expect(made).toHaveLength(1);
     expect(await tasks.answer(outcome.id, true, confirmed)).toEqual({ kind: 'gone' });
     expect(confirmed).toHaveBeenCalledOnce();
+  });
+
+  it('B67: when "Permitir siempre" cannot be stored, nothing runs and the call still waits', async () => {
+    script = [call(['notes__create', { title: 'x' }]), say('Hecho.')];
+    const outcome = asked(await start([notes()]).start('t'));
+    const failing = () => {
+      throw new Error('disk full');
+    };
+
+    await expect(tasks.answer(outcome.id, true, failing)).rejects.toThrow('disk full');
+    expect(made).toEqual([]);
+    expect(decided).toEqual([]);
+    const stored = vi.fn();
+    expect(await tasks.answer(outcome.id, true, stored)).toEqual({
+      kind: 'answer',
+      text: 'Hecho.',
+    });
+    expect(stored).toHaveBeenCalledOnce();
+    expect(made).toHaveLength(1);
+    expect(await tasks.answer(outcome.id, true, stored)).toEqual({ kind: 'gone' });
+    expect(stored).toHaveBeenCalledOnce();
+  });
+
+  it('B67: after a grant that cannot be stored, "Detener" still ends the call, refused once', async () => {
+    script = [call(['notes__create', { title: 'x' }])];
+    const outcome = asked(await start([notes()]).start('t'));
+    const failing = vi.fn(() => {
+      throw new Error('disk full');
+    });
+
+    await expect(tasks.answer(outcome.id, true, failing)).rejects.toThrow('disk full');
+    // A refusal is never told as a grant.
+    expect(await tasks.answer(outcome.id, false, failing)).toEqual({ kind: 'stopped' });
+    expect(failing).toHaveBeenCalledOnce();
+    expect(made).toEqual([]);
+    expect(decided).toEqual([{ server: 'notes', tool: 'create', allowed: false }]);
+    expect(await tasks.answer(outcome.id, true)).toEqual({ kind: 'gone' });
+  });
+
+  it('B67: two "Permitir siempre" at once store it once and run the call once', async () => {
+    script = [call(['notes__create', { title: 'x' }]), say('Hecho.')];
+    const outcome = asked(await start([notes()]).start('t'));
+    const stored = vi.fn();
+
+    const answers = await Promise.all([
+      tasks.answer(outcome.id, true, stored),
+      tasks.answer(outcome.id, true, stored),
+    ]);
+
+    expect(answers).toContainEqual({ kind: 'gone' });
+    expect(stored).toHaveBeenCalledOnce();
+    expect(made).toHaveLength(1);
   });
 
   it('S3: "Detener" ends the task and nothing runs; an answer is taken once', async () => {
