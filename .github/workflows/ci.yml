@@ -184,17 +184,22 @@ jobs:
       # steps run in scripts/ci-local.sh.
       - name: docker smoke start (healthy)
         run: |
+          check="$(docker image inspect --format '{{with .Config.Healthcheck}}{{index .Test 0}}{{end}}' anomander-daemon:ci)"
+          if [[ -z "$check" || "$check" == NONE ]]; then
+            echo "anomander-daemon:ci has no HEALTHCHECK (Dockerfile), so it can never turn healthy" >&2
+            exit 1
+          fi
           token="$(head -c 32 /dev/urandom | od -An -tx1 | tr -d ' \n')"
+          # The logs, on every way out once the container may exist.
+          trap 'docker logs anomander-smoke 2>&1 || true; docker rm --force anomander-smoke >/dev/null 2>&1 || true' EXIT
           docker run --detach --name anomander-smoke --health-interval=2s \
             --env ANOMANDER_LOCAL_TOKEN="$token" anomander-daemon:ci
           status=starting
           for _ in $(seq 1 30); do
-            status="$(docker inspect --format '{{if .State.Running}}{{.State.Health.Status}}{{else}}exited{{end}}' anomander-smoke)"
+            status="$(docker inspect --format '{{if .State.Running}}{{with .State.Health}}{{.Status}}{{else}}without health{{end}}{{else}}exited{{end}}' anomander-smoke)"
             [[ "$status" == starting ]] || break
             sleep 2
           done
-          docker logs anomander-smoke
-          docker rm --force anomander-smoke >/dev/null
           echo "container status: $status"
           [[ "$status" == healthy ]]
 
