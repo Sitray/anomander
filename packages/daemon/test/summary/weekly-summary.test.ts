@@ -131,6 +131,20 @@ describe('R-10 weekly summary', () => {
     );
   });
 
+  // B74: categories are ordered by the principal's currency first, so 50 US$ never counts as
+  // more than 10 € because its figure is larger; it comes after every amount in euros.
+  it('DK-25: a category spent only in another currency is never ranked against euros by its figure', async () => {
+    addCategory('ocio');
+    addExpense('2026-10-26', 1000, 'restaurantes');
+    addExpense('2026-10-27', 5000, 'supermercado', 'current', 'USD');
+
+    const reply = await sendSummary();
+
+    expect(reply?.text).toBe(
+      'Semana del 26 de octubre al 1 de noviembre: 10,00 € y 50,00 US$. Restaurantes 10,00 € · Supermercado 50,00 US$ · Ocio 0,00 € · Sin clasificar 0,00 €. Pendientes de confirmar: 0.',
+    );
+  });
+
   // B78: the principal changed to US dollars but the week's expenses are all in euros, stored
   // before; an empty category reads 0,00 € beside them, never 0,00 US$.
   it('B78: an empty category is zero in the currency of the week, not 0,00 US$ beside euros', async () => {
