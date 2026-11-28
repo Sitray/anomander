@@ -4,6 +4,7 @@ import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { exitCodes, LOCAL_CHANNEL_PROTOCOL } from '@anomander/protocol';
+import { HALT_REFUSAL_LIMIT_MS } from '@anomander/telegram';
 import {
   type FakeTelegramApi,
   startFakeTelegramApi,
@@ -344,7 +345,45 @@ describe('a crash exit and the halt of the bot (B84)', () => {
 });
 
 // B84: what the daemon's halt settles on: the bot's acknowledgement, not the turns that run.
+// B85: the halt runs on a fake clock, so what these tests assert about its limit does not depend
+// on how loaded the runner is. Only `setTimeout`, `clearTimeout` and `Date` are faked: sockets and
+// `setImmediate` stay real, so the Bot API round trips still happen, and the clock moves only as
+// far as a test turns it. The teardown runs on the real clock.
 describe('what the daemon halt waits for (B84)', () => {
+  const fakeClock = () =>
+    vi.useFakeTimers({
+      toFake: ['setTimeout', 'clearTimeout', 'Date'],
+      shouldClearNativeTimers: true,
+    });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+  /** Whether `promise` settled yet, and how. */
+  const tracked = <T>(promise: Promise<T>) => {
+    const state: { settled: boolean; value?: T } = { settled: false };
+    void promise.then((value) => {
+      state.settled = true;
+      state.value = value;
+    });
+    return state;
+  };
+  /**
+   * Lets real I/O run, firing only the fake timers already due, until `done` or `turns` turns of
+   * the event loop passed. The fake clock does not move. Timers fire synchronously, so one a
+   * socket's callback sets for 0 ms is due now (during an async tick it would be set 1 ms ahead).
+   */
+  const runIo = async (done: () => boolean, turns = Number.POSITIVE_INFINITY) => {
+    for (let turn = 0; turn < turns && !done(); turn++) {
+      vi.advanceTimersByTime(0);
+      await new Promise((resolveTurn) => setImmediate(resolveTurn));
+    }
+  };
+  /** Turns the fake clock to `ms` after `began`, then lets real I/O run `turns` turns. */
+  const clockTo = async (began: number, ms: number, turns = 200) => {
+    vi.advanceTimersByTime(began + ms - Date.now());
+    await runIo(() => false, turns);
+  };
+
   it('with a Telegram turn running it settles after the acknowledgement, not the turn; a text read meanwhile comes again', async () => {
     let release = (): void => {};
     const answered = new Promise<never>((_, reject) => {
@@ -366,14 +405,17 @@ describe('what the daemon halt waits for (B84)', () => {
     await vi.waitFor(() => expect(complete).toHaveBeenCalledTimes(1));
     api.push(updates.text({ chatId: PRINCIPAL }, 'té 2'));
     await pause(100);
+    fakeClock();
     const began = Date.now();
 
-    const result = await started.halt();
-    const took = Date.now() - began;
+    const halted = tracked(started.halt());
+    await clockTo(began, HALT_REFUSAL_LIMIT_MS - 1);
+    expect(halted.settled).toBe(false);
+    await clockTo(began, HALT_REFUSAL_LIMIT_MS, 0);
+    await runIo(() => halted.settled);
+    vi.useRealTimers();
 
-    expect(result).toBeUndefined();
-    expect(took).toBeGreaterThanOrEqual(240);
-    expect(took).toBeLessThan(2000);
+    expect(halted.value).toBeUndefined();
     expect(await unacknowledged()).toEqual(['té 2']);
     expect(complete).toHaveBeenCalledTimes(1);
     // A second halt settles at once with the same outcome.
@@ -392,10 +434,12 @@ describe('what the daemon halt waits for (B84)', () => {
     });
     daemon = started;
     await started.started;
-    const began = Date.now();
+    fakeClock();
 
-    await started.halt();
+    const halted = tracked(started.halt());
+    // The fake clock never moves: a halt that waited the limit would never settle.
+    await runIo(() => halted.settled);
 
-    expect(Date.now() - began).toBeLessThan(240);
+    expect(halted.settled).toBe(true);
   });
 });

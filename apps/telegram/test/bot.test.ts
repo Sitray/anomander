@@ -495,14 +495,57 @@ describe('halting the bot (B82)', () => {
     expect(await restart()).toEqual([]);
   });
 
+  // B85: the halt's limit runs on a fake clock, so what these tests assert about it does not
+  // depend on how loaded the runner is. Only `setTimeout`, `clearTimeout` and `Date` are faked:
+  // sockets and `setImmediate` stay real, so the Bot API round trips still happen, and the clock
+  // moves only as far as a test turns it. The teardown and `restart` run on the real clock.
+  const fakeClock = () =>
+    vi.useFakeTimers({
+      toFake: ['setTimeout', 'clearTimeout', 'Date'],
+      shouldClearNativeTimers: true,
+    });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+  /** Whether `promise` settled yet. */
+  const tracked = (promise: Promise<unknown>) => {
+    const state = { settled: false };
+    void promise.finally(() => {
+      state.settled = true;
+    });
+    return state;
+  };
+  /**
+   * Lets real I/O run, firing only the fake timers already due, until `done` or `turns` turns of
+   * the event loop passed. The fake clock does not move. Timers fire synchronously, so one a
+   * socket's callback sets for 0 ms is due now (during an async tick it would be set 1 ms ahead).
+   */
+  const runIo = async (done: () => boolean, turns = Number.POSITIVE_INFINITY) => {
+    for (let turn = 0; turn < turns && !done(); turn++) {
+      vi.advanceTimersByTime(0);
+      await new Promise((resolve) => setImmediate(resolve));
+    }
+  };
+  /** Turns the fake clock to `ms` after `began`, then lets real I/O run `turns` turns. */
+  const clockTo = async (began: number, ms: number, turns = 200) => {
+    vi.advanceTimersByTime(began + ms - Date.now());
+    await runIo(() => false, turns);
+  };
+
   it('B84: the halt waits for a running turn at most HALT_REFUSAL_LIMIT_MS before it acknowledges it', async () => {
+    // Never answered: the teardown settles it.
     await holdSecondText();
+    fakeClock();
     const began = Date.now();
 
-    await haltTelegramBot(bot);
+    const halted = tracked(haltTelegramBot(bot));
+    await clockTo(began, HALT_REFUSAL_LIMIT_MS - 1);
+    expect(halted.settled).toBe(false);
+    await clockTo(began, HALT_REFUSAL_LIMIT_MS, 0);
+    await runIo(() => halted.settled);
 
-    expect(Date.now() - began).toBeLessThan(HALT_REFUSAL_LIMIT_MS + 1000);
     expect(HALT_REFUSAL_LIMIT_MS).toBe(250);
+    vi.useRealTimers();
     expect(await restart()).toEqual([]);
   });
 
@@ -512,24 +555,35 @@ describe('halting the bot (B82)', () => {
     const held = await holdSecondText();
     api.push(updates.text(principal, 'tres'));
     await wait(50);
+    fakeClock();
     const began = Date.now();
 
-    await haltTelegramBot(bot);
-    const took = Date.now() - began;
+    const halted = tracked(haltTelegramBot(bot));
+    await clockTo(began, HALT_REFUSAL_LIMIT_MS - 1);
+    expect(halted.settled).toBe(false);
+    await clockTo(began, HALT_REFUSAL_LIMIT_MS, 0);
+    await runIo(() => halted.settled);
+    vi.useRealTimers();
     held.settle({ text: 'hecho dos' });
     await polling;
 
-    expect(took).toBeGreaterThanOrEqual(HALT_REFUSAL_LIMIT_MS - 5);
     expect(onText).toHaveBeenCalledTimes(2);
     expect(await restart()).toEqual(['text:tres']);
   });
 
   it('B84: a refusal 150 ms after the halt, within the limit, is left for after the restart without a warning', async () => {
     const held = await holdSecondText();
+    fakeClock();
+    const began = Date.now();
 
-    const halted = haltTelegramBot(bot);
+    const halted = tracked(haltTelegramBot(bot));
     setTimeout(() => held.settle(notStarted()), 150);
-    await halted;
+    await clockTo(began, 149);
+    expect(halted.settled).toBe(false);
+    // The refusal settles the update, so the halt acknowledges it then, without the limit.
+    await clockTo(began, 150, 0);
+    await runIo(() => halted.settled);
+    vi.useRealTimers();
     await polling;
 
     expect(api.sent.map(({ text }) => text)).not.toContain(S22);
@@ -539,11 +593,15 @@ describe('halting the bot (B82)', () => {
 
   it('B84: a started turn that fails past the limit gets S-22, with no fallback warning, and never comes again', async () => {
     const held = await holdSecondText();
+    fakeClock();
+    const began = Date.now();
 
-    const halted = haltTelegramBot(bot);
-    setTimeout(() => held.settle(new Error('boom')), 400);
-    await halted;
-    await wait(450);
+    const halted = tracked(haltTelegramBot(bot));
+    await clockTo(began, HALT_REFUSAL_LIMIT_MS, 0);
+    await runIo(() => halted.settled);
+    vi.useRealTimers();
+    // Past the limit: the halt already acknowledged it.
+    held.settle(new Error('boom'));
     await polling;
 
     await api.waitForSent(2);
@@ -555,11 +613,12 @@ describe('halting the bot (B82)', () => {
   it('B84: a halt with nothing being handled does not wait the limit', async () => {
     api.push(updates.text(principal, 'uno'));
     await api.waitForSent(1);
-    const began = Date.now();
+    fakeClock();
 
-    await haltTelegramBot(bot);
-
-    expect(Date.now() - began).toBeLessThan(HALT_REFUSAL_LIMIT_MS);
+    const halted = tracked(haltTelegramBot(bot));
+    // The fake clock never moves: a halt that waited the limit would never settle.
+    await runIo(() => halted.settled);
+    vi.useRealTimers();
     expect(await restart()).toEqual([]);
   });
 
@@ -568,10 +627,16 @@ describe('halting the bot (B82)', () => {
     onReceipt.mockImplementationOnce(() => answer);
     api.push(updates.photo(principal));
     await vi.waitFor(() => expect(onReceipt).toHaveBeenCalledTimes(1));
+    fakeClock();
+    const began = Date.now();
 
-    const halted = haltTelegramBot(bot);
+    const halted = tracked(haltTelegramBot(bot));
     setTimeout(() => held.settle(notStarted()), 100);
-    await halted;
+    await clockTo(began, 99);
+    expect(halted.settled).toBe(false);
+    await clockTo(began, 100, 0);
+    await runIo(() => halted.settled);
+    vi.useRealTimers();
     await polling;
 
     expect(api.sent).toEqual([]);
