@@ -204,6 +204,13 @@ describe('DK-11: a task with connections', () => {
     expect(await line({ 'a 1, b': 'c' })).not.toBe(await line({ a: 1, b: 'c' }));
     // A typed code is not a line break written as its code.
     expect(await line({ v: 'a\\u000ab' })).not.toBe(await line({ v: 'a\nb' }));
+    // B65: a JSON value cut after ", " is not a line cut between arguments behind a name with a
+    // space, so a name ends at its first space.
+    const q = 'Q'.repeat(53);
+    expect(await line({ n: [`${q} 1, then more`] })).not.toBe(
+      await line({ [`n ["${q}`]: 1, k: '​'.repeat(60) }),
+    );
+    expect(await line({ 'a b': 1 })).toBe('Quiero usar «create» de «notes» con: a\\u0020b 1');
   });
 
   it('DK-24 AC5: "Permitir siempre" is told only once the call is confirmed to wait, before it runs', async () => {

@@ -231,8 +231,12 @@ const plainText = (text: string): string =>
     ' ',
   );
 
-/** An argument's name: as a text, and its commas as their code, the mark between arguments. */
-const plainName = (name: string): string => plainText(name).replace(/,/g, codeOf);
+/**
+ * An argument's name: as a text, its commas as their code, the mark between arguments, and its
+ * spaces too, so a name ends at its first space: a value cut after ", " cannot read as the line
+ * cut between arguments behind a name that holds the start of a value (B65).
+ */
+const plainName = (name: string): string => plainText(name).replace(/[, ]/g, codeOf);
 
 /** A value that is not a text, as compact JSON, which escapes its own backslashes and quotes. */
 const plainJson = (json: string): string => seen(json.replace(/[«»]/g, codeOf), ' ');
