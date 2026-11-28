@@ -1,7 +1,9 @@
 // @vitest-environment jsdom
 import {
+  DEFAULT_CURRENCY,
   formatAmount,
   formatDate,
+  getCurrency,
   LOCAL_CHANNEL_PROTOCOL,
   strings as replies,
 } from '@anomander/protocol';
@@ -831,6 +833,17 @@ describe('the expenses (DK-17)', () => {
 
     const total = await screen.findByText(strings.expenses.total);
     expect(total.closest('tr')?.textContent).toContain(said);
+  });
+
+  // B74: a currency the shell and the daemon refuse (DK-25 AC6) is never the window's, as an
+  // unknown code is not: the principal's is then the daemon's default.
+  it.each(['JPY', 'XYZ'])('takes a stored %s as no currency of the principal', async (stored) => {
+    await open(runningSnapshot({ setup: { ...FILLED_SETUP, currency: 'USD' } }));
+    expect(getCurrency()).toBe('USD');
+
+    emit(runningSnapshot({ setup: { ...FILLED_SETUP, currency: stored } }));
+
+    expect(getCurrency()).toBe(DEFAULT_CURRENCY);
   });
 
   it('"Corregir" on a row goes to the chat, which shows the question, so the next text corrects it (AC6)', async () => {

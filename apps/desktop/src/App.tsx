@@ -2,7 +2,7 @@
 // connections screen, the subscriptions screen, the import of a ledger, the expenses (DK-17)
 // or Memoria (DK-18). The container: it
 // reads the shell and decides which one is on screen.
-import { DEFAULT_CURRENCY, getCurrency, isCurrency, setCurrency } from '@anomander/protocol';
+import { DEFAULT_CURRENCY, getCurrency, hasCents, setCurrency } from '@anomander/protocol';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ChatScreen } from './chat/ChatScreen.tsx';
 import { ConnectionsScreen } from './connections/ConnectionsScreen.tsx';
@@ -25,10 +25,11 @@ export function App() {
   const shell = useShell();
   const { snapshot } = shell;
   // B74: a sum of several currencies says the principal's first, as the daemon's do. Set before
-  // the screens render, since they read it while rendering; a code this window's `Intl` does not
-  // know (B78) leaves the order of the daemon's default.
+  // the screens render, since they read it while rendering. A code this window's `Intl` does not
+  // know (B78), or one without cents, which the shell and the daemon refuse (DK-25 AC6), leaves
+  // the daemon's default.
   const currency = snapshot?.setup.currency ?? DEFAULT_CURRENCY;
-  const principal = isCurrency(currency) ? currency : DEFAULT_CURRENCY;
+  const principal = hasCents(currency) ? currency : DEFAULT_CURRENCY;
   if (getCurrency() !== principal) setCurrency(principal);
   /** The screen over the chat, when there is one. */
   const [open, setOpen] = useState<
