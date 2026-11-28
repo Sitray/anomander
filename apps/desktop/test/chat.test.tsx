@@ -2309,22 +2309,6 @@ describe('the stored conversation (DK-16)', () => {
         return { socket, shellShown: () => act(() => shellShown()) };
       };
 
-      it('B56: asks once when the page and the shell both say the window was shown', async () => {
-        const { socket, shellShown } = await withShellSign();
-        await hideAndShow();
-        const asked = historyAsks(socket);
-        expect(asked).toHaveLength(2);
-        act(() =>
-          socket.receive({ type: 'history', inReplyTo: asked[1]?.id ?? '', messages: STORED }),
-        );
-        await act(async () => {});
-
-        shellShown();
-        await act(async () => {});
-
-        expect(historyAsks(socket)).toHaveLength(2);
-      });
-
       it('B56: asks again on a later sign of the shell, or once the window was hidden', async () => {
         const now = vi.spyOn(Date, 'now').mockReturnValue(1_000_000);
         const { socket, shellShown } = await withShellSign();

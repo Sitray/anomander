@@ -161,8 +161,13 @@ export const useChat = (channel: LocalChannel | null, options: ChatOptions = {})
   const wanted = useRef(false);
   /** A request for it is on its way. */
   const asking = useRef(false);
-  /** B56: when it was last asked for since the window was last hidden; `null` when not. */
+  /** B56: when it was last asked for; `null` before the first time. */
   const askedAt = useRef<number | null>(null);
+  /**
+   * B56: the window was hidden since it was last asked for: the next sign is a new show, and what
+   * is asked for, or on its way, may be older than a change made meanwhile.
+   */
+  const hiddenSinceAsked = useRef(false);
   const [reload, setReload] = useState(0);
   const wantStored = useCallback(() => {
     wanted.current = true;
@@ -500,16 +505,19 @@ export const useChat = (channel: LocalChannel | null, options: ChatOptions = {})
   // B48: the window is hidden, not closed; shown again, it shows what the daemon keeps now, so a
   // forget made through Telegram meanwhile is gone from it too. The shell says when it shows the
   // window (`shownAgain`); the page's own visibility is a second, harmless sign of it.
-  // B56: both signs of one show ask once.
+  // B56: both signs of one show ask once. A show after a hide always asks, once the request on
+  // its way came if one is: it may have been read before a change made while hidden.
   const shownAgain = useCallback(() => {
-    if (asking.current) return;
-    if (askedAt.current !== null && Date.now() - askedAt.current < SHOWN_AGAIN_MS) return;
+    if (!hiddenSinceAsked.current) {
+      if (asking.current) return;
+      if (askedAt.current !== null && Date.now() - askedAt.current < SHOWN_AGAIN_MS) return;
+    }
     wantStored();
   }, [wantStored]);
   useEffect(() => {
     const visible = () => {
       if (document.visibilityState === 'visible') shownAgain();
-      else askedAt.current = null;
+      else hiddenSinceAsked.current = true;
     };
     document.addEventListener('visibilitychange', visible);
     return () => document.removeEventListener('visibilitychange', visible);
@@ -525,6 +533,7 @@ export const useChat = (channel: LocalChannel | null, options: ChatOptions = {})
     wanted.current = false;
     asking.current = true;
     askedAt.current = Date.now();
+    hiddenSinceAsked.current = false;
     const replacing = conversation.messages;
     void request.then((messages) => {
       asking.current = false;
