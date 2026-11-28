@@ -505,6 +505,22 @@ describe('the grants follow mcp.json (DK-24 AC2, AC3)', { timeout: 20_000 }, () 
     expect(await grants(chat)).toHaveLength(1);
   });
 
+  it('B67: drops them all when mcp.json is gone, and none when it cannot be read', async () => {
+    const env = withServer({ env: [] });
+    await grantNames(env);
+    writeFileSync(env.ANOMANDER_MCP_CONFIG, '{ not json');
+    const unreadable = await client(await start(env, true));
+    expect(await grants(unreadable)).toHaveLength(1);
+    await stop();
+
+    rmSync(env.ANOMANDER_MCP_CONFIG);
+    const gone = await client(await start(env, true));
+
+    // No file is no server: a grant of a server that is not there holds for nothing.
+    expect(await grants(gone)).toEqual([]);
+    expect(permissions()[0]?.revoked_at).toEqual(expect.any(String));
+  });
+
   it('drops them when the server was removed, and adding it again does not bring them back', async () => {
     await grantNames(withServer({ env: [] }));
     const chat = await client(await start(withServer({}), true));
