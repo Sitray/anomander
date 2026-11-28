@@ -161,7 +161,10 @@ export const createRetention = ({
       // R-17 AC6 is applied lazily, when a message arrives; a decision left awaiting text must be
       // open again here, or it would never expire (AC2).
       reopenStaleAwaiting(db, new Date(at));
-      const decisionsExpired = expireOpenDecisions(db, new Date(at - DECISION_EXPIRY_MS).toISOString());
+      const decisionsExpired = expireOpenDecisions(
+        db,
+        new Date(at - DECISION_EXPIRY_MS).toISOString(),
+      );
       const inferencesExpired = expireLooseInferences(db, new Date(at - 30 * DAY).toISOString());
       const receiptsDiscarded = await discardExpired();
       const receiptsAbandoned = await abandonHalfRead();
