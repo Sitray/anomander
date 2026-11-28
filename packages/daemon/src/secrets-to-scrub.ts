@@ -232,26 +232,43 @@ export interface SecretList {
 }
 
 /**
- * B53: how many acquired secrets the log keeps hiding. Every log line is scrubbed of each, so a
- * daemon that runs for months, its logins refreshed every hour, would slow every line down.
+ * B53: how many acquired secrets the log keeps hiding once they are old. Every log line is
+ * scrubbed of each, so a daemon that runs for months, its logins refreshed every hour, would slow
+ * every line down: about 1 µs per secret per line (0.26 ms a line at 256, 1 ms at 1024, 4.3 ms at
+ * 4096, measured for B86).
  */
 export const ACQUIRED_LIMIT = 256;
 
 /**
+ * B86: how long a secret acquired is kept past `ACQUIRED_LIMIT` after it was last seen: a rotated
+ * token may still be valid for that long (an access token lives an hour or so), and a line may
+ * quote it whatever came since.
+ */
+export const ACQUIRED_KEPT_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * B86: how many acquired secrets are kept at most, recent or not, so a flood of failures, each
+ * quoting a token of its own, keeps the memory and each line's scrub bounded (1 ms a line).
+ */
+export const ACQUIRED_CEILING = 4 * ACQUIRED_LIMIT;
+
+/**
  * The secrets the log hides. Those of the start are kept for the life of the daemon. Of those
- * acquired, a rotated token may still be valid and a line may quote it, so the last
- * `ACQUIRED_LIMIT` seen are kept, and past that the one seen longest ago is dropped (B53), never
- * one still in use: a login is seen again each time it is read, before every model call, and the
- * connections' current OAuth set, which they use without reading it again, is never dropped.
+ * acquired, a rotated token may still be valid and a line may quote it, so those seen within
+ * `ACQUIRED_KEPT_MS` are kept and, of the older ones, the last `ACQUIRED_LIMIT` seen (B53, B86):
+ * past that the one seen longest ago is dropped, and past `ACQUIRED_CEILING` even a recent one,
+ * never one still in use: a login is seen again each time it is read, before every model call,
+ * and the connections' current OAuth set, which they use without reading it again, is never
+ * dropped.
  */
 export const createSecretList = (): SecretList => {
   let start: readonly string[] = [];
-  /** In the order they were last seen, the one seen longest ago first. */
-  const acquired = new Set<string>();
+  /** When each was last seen, in that order, the one seen longest ago first. */
+  const acquired = new Map<string, number>();
   /** The tokens of the OAuth set acquired last: the connections' current ones. */
   let currentOAuth = new Set<string>();
   return {
-    current: () => (acquired.size === 0 ? start : [...start, ...acquired]),
+    current: () => (acquired.size === 0 ? start : [...start, ...acquired.keys()]),
     setFromStart: (secrets) => {
       start = [...secrets];
     },
@@ -262,12 +279,15 @@ export const createSecretList = (): SecretList => {
           : stringLeaves(value, kind === 'login' ? isLoginSecret : isOAuthSecret),
       );
       if (kind === 'oauth') currentOAuth = new Set(found);
+      const now = Date.now();
       for (const secret of found) {
         acquired.delete(secret);
-        acquired.add(secret);
+        acquired.set(secret, now);
       }
-      for (const secret of acquired) {
+      for (const [secret, seen] of acquired) {
         if (acquired.size <= ACQUIRED_LIMIT) break;
+        // In the order seen: from this one on, every one is recent.
+        if (acquired.size <= ACQUIRED_CEILING && now - seen < ACQUIRED_KEPT_MS) break;
         if (!currentOAuth.has(secret)) acquired.delete(secret);
       }
     },

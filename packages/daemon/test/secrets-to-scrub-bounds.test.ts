@@ -1,7 +1,9 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { loadConfig } from '../src/config.ts';
 import { createScrubbingLogger } from '../src/scrubbing-logger.ts';
 import {
+  ACQUIRED_CEILING,
+  ACQUIRED_KEPT_MS,
   ACQUIRED_LIMIT,
   createSecretList,
   secretsBeforeConfig,
@@ -47,6 +49,14 @@ const oauthSet = (tokens: Record<string, string>) =>
   );
 
 describe('the bound on the secrets acquired after the start (B53)', () => {
+  // B86: a secret seen within ACQUIRED_KEPT_MS is kept past ACQUIRED_LIMIT; these tests let a day
+  // pass where a secret must be old enough to be dropped.
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
   it('never drops a secret of the start, however many are acquired', () => {
     const list = createSecretList();
     const start = ['bot-token-123456:ABCDEFGH', 'sk-proj-provider-key-0123', 'local-token-0123456'];
@@ -68,13 +78,14 @@ describe('the bound on the secrets acquired after the start (B53)', () => {
       'oauth',
       oauthSet({ notion: 'notion-a2-0123456789', github: 'github-g1-0123456789' }),
     );
+    vi.advanceTimersByTime(ACQUIRED_KEPT_MS);
     failuresQuoting(list, 3 * ACQUIRED_LIMIT, 'x');
 
     expect(log('github-g1-0123456789')).toBe('[secret]');
     expect(log('github-g1-0123456789-refresh')).toBe('[secret]');
     expect(log('github-client-secret-0123')).toBe('[secret]');
     expect(log('notion-a2-0123456789')).toBe('[secret]');
-    // Rotated out, it is kept only until ACQUIRED_LIMIT newer ones came.
+    // Rotated out a day ago, it is kept only until ACQUIRED_LIMIT newer ones came.
     expect(log('notion-a1-0123456789')).toBe('notion-a1-0123456789');
   });
 
@@ -97,6 +108,7 @@ describe('the bound on the secrets acquired after the start (B53)', () => {
       refresh: 'login-refresh-0123456789',
     };
     list.acquire('login', login);
+    vi.advanceTimersByTime(ACQUIRED_KEPT_MS);
     failuresQuoting(list, ACQUIRED_LIMIT, 'x');
     const dropped = log('login-access-0123456789');
     list.acquire('login', login);
@@ -108,6 +120,8 @@ describe('the bound on the secrets acquired after the start (B53)', () => {
   it('stays bounded under churn and hides the newest', () => {
     const list = createSecretList();
     for (let index = 0; index < 2000; index += 1) {
+      // A refresh of the connections and of the login every hour.
+      vi.advanceTimersByTime(60 * 60 * 1000);
       list.acquire('oauth', oauthSet({ s: `s-${index}-0123456789` }));
       list.acquire('login', { access: `l-${index}-0123456789`, refresh: `r-${index}-0123456789` });
     }
@@ -117,6 +131,60 @@ describe('the bound on the secrets acquired after the start (B53)', () => {
     expect(log('s-1999-0123456789 l-1999-0123456789 s-1999-0123456789-refresh')).toBe(
       '[secret] [secret] [secret]',
     );
+  });
+});
+
+describe('the secrets acquired recently, kept past the bound (B86)', () => {
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('keeps hiding a rotated token seen within ACQUIRED_KEPT_MS however many newer came', () => {
+    const list = createSecretList();
+    const log = logOver(list);
+    list.acquire('oauth', oauthSet({ notion: 'notion-a1-0123456789' }));
+    list.acquire('oauth', oauthSet({ notion: 'notion-a2-0123456789' }));
+    vi.advanceTimersByTime(ACQUIRED_KEPT_MS - 1);
+    failuresQuoting(list, 3 * ACQUIRED_LIMIT, 'x');
+
+    expect(log('late error quoting notion-a1-0123456789')).toBe('late error quoting [secret]');
+  });
+
+  it('drops it past ACQUIRED_LIMIT once ACQUIRED_KEPT_MS passed since it was seen', () => {
+    const list = createSecretList();
+    const log = logOver(list);
+    list.acquire('oauth', oauthSet({ notion: 'notion-a1-0123456789' }));
+    list.acquire('oauth', oauthSet({ notion: 'notion-a2-0123456789' }));
+    failuresQuoting(list, ACQUIRED_LIMIT, 'early');
+    vi.advanceTimersByTime(ACQUIRED_KEPT_MS);
+    failuresQuoting(list, 1, 'late');
+
+    // Past the floor the one seen longest ago goes first, as before; the current OAuth set never.
+    expect(log('notion-a1-0123456789')).toBe('notion-a1-0123456789');
+    expect(log('early-0123456789-0')).toBe('early-0123456789-0');
+    expect(log(`early-0123456789-${ACQUIRED_LIMIT - 1} notion-a2-0123456789`)).toBe(
+      '[secret] [secret]',
+    );
+    expect(log('late-0123456789-0')).toBe('[secret]');
+    expect(list.current()).toHaveLength(ACQUIRED_LIMIT);
+  });
+
+  it('stays within ACQUIRED_CEILING under a flood of recent ones, keeping the start and the current OAuth set', () => {
+    const list = createSecretList();
+    const start = ['local-token-0123456789'];
+    list.setFromStart(start);
+    const log = logOver(list);
+    list.acquire('oauth', oauthSet({ notion: 'notion-a1-0123456789' }));
+    failuresQuoting(list, 2 * ACQUIRED_CEILING, 'flood');
+
+    expect(list.current()).toHaveLength(start.length + ACQUIRED_CEILING);
+    expect(log('notion-a1-0123456789 notion-a1-0123456789-refresh')).toBe('[secret] [secret]');
+    expect(log('local-token-0123456789')).toBe('[secret]');
+    expect(log(`flood-0123456789-${2 * ACQUIRED_CEILING - 1}`)).toBe('[secret]');
+    expect(log('flood-0123456789-0')).toBe('flood-0123456789-0');
   });
 });
 
