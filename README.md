@@ -1,7 +1,5 @@
 # ANOMANDER
 
-[![CI](https://github.com/Sitray/anomander/actions/workflows/ci.yml/badge.svg)](https://github.com/Sitray/anomander/actions/workflows/ci.yml)
-
 A personal assistant that understands your world, knows what is true, knows what it may do, and carries a matter to a verifiable result.
 
 > Status: version 0.2.0. The app is a [download](#download) from GitHub Releases, unsigned, or built from source. Milestones M0 to M6 of the [PRD](PRD.md) roadmap (§17) are built: see [What works today](#what-works-today) and the [CHANGELOG](CHANGELOG.md). The design is in [`docs/`](docs).
@@ -9,8 +7,6 @@ A personal assistant that understands your world, knows what is true, knows what
 The app speaks English, or Spanish on a computer whose language is Spanish. It runs on macOS and, without a look at the screen or tasks on the computer for now, on Windows. Telegram replies follow `ANOMANDER_LOCALE` (`es` by default for Docker, `en` for English; the Mac app sets it from the system's language), see PRD §12. Amounts are in `ANOMANDER_CURRENCY` (`EUR` by default); stored expenses keep their own currency.
 
 To run your own, [download the app](#download), or see [Getting started](#getting-started) (Docker and Telegram), [Run the Mac app](#run-the-mac-app) or [Run the app on Windows](#run-the-app-on-windows) to build it.
-
-<!-- screenshot: TODO -->
 
 ## What works today
 
@@ -41,7 +37,6 @@ The Mac app:
 Not built yet:
 
 - A signed app. The [download](#download) is unsigned, so the system asks before it opens the first time; signing, notarization and automatic updates are not planned for now.
-- Reminders and summaries in the Mac app without Telegram: they wait until a bot is set up.
 - The export in the Mac app: `/exportar` there says to ask for it in Telegram.
 - Google Calendar and Drive connectors.
 
@@ -157,6 +152,12 @@ This runs the daemon with Docker, reached over Telegram. For the Mac app, see [R
 
 You need Docker, a Telegram account and a model: an API key, or a ChatGPT or Kimi Code subscription.
 
+Get the code first:
+
+```bash
+git clone https://github.com/Sitray/anomander.git && cd anomander
+```
+
 1. **Create the bot.** In Telegram, send `/newbot` to [@BotFather](https://t.me/BotFather) and pick a name. It answers with a token such as `123456:ABC…`.
 2. **Find your user ID.** Send any message to [@userinfobot](https://t.me/userinfobot). It answers with your `Id`, a number. The bot will serve only that ID.
 3. **Fill in `.env`.**
@@ -197,16 +198,18 @@ Each release on [GitHub Releases](https://github.com/Sitray/anomander/releases) 
 | `ANOMANDER-<version>-macos-arm64.zip` | A Mac with Apple silicon (M1 or later) |
 | `ANOMANDER_<version>_x64-setup.exe` | Windows 10 or 11, 64-bit |
 
-Each file has a `.sha256` beside it: `shasum -a 256 -c ANOMANDER-<version>-macos-arm64.zip.sha256` on the Mac checks the download. As with a build of your own, stop a Docker install first: two daemons on one bot fail (DK-2 AC2).
+There is no download for an Intel Mac or for Linux: on an Intel Mac, build the app from source ([Run the Mac app](#run-the-mac-app)); on Linux, run ANOMANDER with Docker ([Getting started](#getting-started)).
 
-The builds are not signed by Apple or Microsoft (no paid certificate), so the system asks before it opens them the first time:
+Each file has a `.sha256` beside it to check the download: on the Mac, `shasum -a 256 -c ANOMANDER-<version>-macos-arm64.zip.sha256` prints `OK`; on Windows, `Get-FileHash ANOMANDER_<version>_x64-setup.exe -Algorithm SHA256` in PowerShell prints the hash, which must be the one in the `.sha256` file. As with a build of your own, stop a Docker install first: two daemons on one bot fail (DK-2 AC2).
 
-- **macOS.** Unzip it, move `ANOMANDER.app` to Applications and open it. macOS says it cannot verify it and does not open it: close the message. Then open Ajustes del Sistema → Privacidad y seguridad, scroll to "Seguridad", press "Abrir igualmente" beside the line about ANOMANDER, and confirm with your password. From then on it opens as any app.
-- **Windows.** Run the installer. SmartScreen says it protected your PC: choose "Más información" → "Ejecutar de todas formas".
+The builds are not signed by Apple or Microsoft (no paid certificate), so the system asks before it opens them the first time. The system's labels are given as on an English system, with the Spanish ones in parentheses:
+
+- **macOS.** Unzip it, move `ANOMANDER.app` to Applications and open it. macOS says it cannot verify it and does not open it: close the message. Then open System Settings (Ajustes del Sistema) → Privacy & Security (Privacidad y seguridad), scroll to "Security" ("Seguridad"), press "Open Anyway" ("Abrir igualmente") beside the line about ANOMANDER, and confirm with your password. From then on it opens as any app.
+- **Windows.** Run the installer. SmartScreen says it protected your PC: choose "More info" ("Más información") → "Run anyway" ("Ejecutar de todas formas").
 
 Then set it up as in [Run the Mac app](#run-the-mac-app), step 4 (and step 5 on a Mac).
 
-Updating: quit ANOMANDER, then replace the app in Applications with the new one, or run the new installer. Your data, setup and secrets stay. On the Mac, each version has a new ad hoc signature, so macOS asks again for your login keychain password the first time the new version reads each stored secret ("Permitir siempre" stops it asking until the next update). It may also ask again for Screen Recording and Accessibility: if a look at the screen or a task on the computer says it lacks the permission while its switch is on, turn the switch off and on again in Ajustes del Sistema → Privacidad y seguridad.
+Updating: quit ANOMANDER, then replace the app in Applications with the new one, or run the new installer. Your data, setup and secrets stay. On the Mac, each version has a new ad hoc signature, so macOS asks again for your login keychain password the first time the new version reads each stored secret ("Always Allow", "Permitir siempre", stops it asking until the next update). It may also ask again for Screen Recording and Accessibility: if a look at the screen or a task on the computer says it lacks the permission while its switch is on, turn the switch off and on again in System Settings (Ajustes del Sistema) → Privacy & Security (Privacidad y seguridad).
 
 ### Cutting a release
 
@@ -236,7 +239,7 @@ You need:
 
 Steps:
 
-1. **Install.** From the repository root: `pnpm install`.
+1. **Install.** Get the code as in [Getting started](#getting-started), then, from the repository root: `pnpm install`.
 2. **Pick an identity.** `security find-identity -v -p codesigning` lists them.
 3. **Build.**
    ```bash
@@ -244,7 +247,7 @@ Steps:
    ```
    The app is `apps/desktop/src-tauri/target/debug/bundle/macos/ANOMANDER.app`.
 4. **Set it up.** Open the app and fill in the setup screen: choose the model's provider (a model is suggested for it) and paste its key, or connect a subscription from Suscripciones; "Probar" checks the saved model with one real call. Telegram is optional: add the bot token and your Telegram ID to talk to ANOMANDER there too, or leave both empty to use the app's chat alone. "Búsqueda web" comes checked: leave it so to let ANOMANDER search the internet (the note beside it says what leaves the Mac), or uncheck it and add it later from Conexiones.
-5. **Allow it.** In System Settings › Privacy & Security, turn ANOMANDER on under Screen Recording (for a look at the screen) and Accessibility (for tasks on the computer). Until then the app says how and does nothing.
+5. **Allow it.** In System Settings (Ajustes del Sistema) › Privacy & Security (Privacidad y seguridad), turn ANOMANDER on under Screen Recording (for a look at the screen) and Accessibility (for tasks on the computer). Until then the app says how and does nothing.
 
 Good to know:
 
@@ -270,12 +273,12 @@ You need:
 
 Steps, in a terminal (PowerShell or Git Bash):
 
-1. **Install.** From the repository root: `pnpm install`.
+1. **Install.** Get the code as in [Getting started](#getting-started), then, from the repository root: `pnpm install`.
 2. **Build.**
    ```bash
    pnpm --dir apps/desktop tauri build --bundles nsis
    ```
-   The installer is `apps/desktop/src-tauri/target/release/bundle/nsis/ANOMANDER_0.1.0_x64-setup.exe`. It is not signed, so SmartScreen asks before it runs: choose "More info" › "Run anyway". `apps/desktop/src-tauri/target/release/anomander-desktop.exe` runs the app without installing it. A `--debug` build is quicker to make but opens a console window beside the app.
+   The installer is `apps/desktop/src-tauri/target/release/bundle/nsis/ANOMANDER_<version>_x64-setup.exe`, with the version of `apps/desktop/src-tauri/tauri.conf.json`. It is not signed, so SmartScreen asks before it runs: choose "More info" ("Más información") › "Run anyway" ("Ejecutar de todas formas"). `apps/desktop/src-tauri/target/release/anomander-desktop.exe` runs the app without installing it. A `--debug` build is quicker to make but opens a console window beside the app.
 3. **Set it up.** As on the Mac (step 4 above). The secrets go to the Windows Credential Manager.
 
 Good to know:
@@ -313,7 +316,7 @@ The documentation lives in `docs/`, beside each package's README:
 | [`docs/stack.md`](docs/stack.md) | Stack, repository layout, tests, Docker and providers |
 | [`docs/decisions.md`](docs/decisions.md) | What is out of scope, the size of the ontology and the decisions taken |
 | [`docs/capabilities.md`](docs/capabilities.md) | How a capability is added, and what the Mac app can do on its own routes |
-| [`docs/desktop-prd.md`](docs/desktop-prd.md) | The Mac app (M6): requirements DK-1 to DK-15 |
+| [`docs/desktop-prd.md`](docs/desktop-prd.md) | The Mac app (M6): requirements DK-1 to DK-25 |
 | [`docs/read-access-prd.md`](docs/read-access-prd.md) | The read API for other applications (M5b) |
 | [`apps/desktop/README.md`](apps/desktop/README.md) | How the Mac app is built and what it guarantees |
 | [`packages/daemon/README.md`](packages/daemon/README.md) | How the daemon is built and configured |
