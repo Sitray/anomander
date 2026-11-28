@@ -1683,16 +1683,15 @@ describe('a reply to a used "Corregido…" (R-17 AC2, B79)', () => {
     expect(gastos()).toEqual([{ total_cents: 3200 }]);
   });
 
-  it('8 days later (an unused Deshacer would have expired) a reply to the used one still corrects', async () => {
+  // B85 (4), decided by the principal on 2026-11-28 ("7 días, igual"): as an unused one expires.
+  it('8 days later a reply to the used one goes to the processor, as one to an expired unused one does', async () => {
     const corrected = await usedCorrection();
     await anomander.stop();
     clock = new Date(NOW.getTime() + 8 * 86_400_000);
     await start();
-    correctionFixture = 'total-14';
-    const again = await answerTo(corrected, 'es 14');
-    // Records the behaviour: corrected, not sent to the processor.
-    expect(again.text).toBe(S102(1400));
-    expect(interpreted.map(({ message }) => message)).not.toContain('es 14');
+    const answer = await answerTo(corrected, '23 € cena');
+    expect(answer.text).toBe(S2);
+    expect(interpreted.map(({ message }) => message)).toContain('23 € cena');
   });
 
   it('a reply to an unused "Corregido…" whose Deshacer expired goes to the processor (baseline)', async () => {

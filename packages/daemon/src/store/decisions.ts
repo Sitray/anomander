@@ -16,6 +16,9 @@ import { openPendingDecision } from './receipts.ts';
 /** R-17 AC6: a decision `awaiting_text` this long without text returns to `open`. */
 export const AWAITING_TEXT_TIMEOUT_MS = 15 * 60 * 1000;
 
+/** R-19 AC2: a decision still `open` this long after its `created_at` expires. */
+export const DECISION_EXPIRY_MS = 7 * 24 * 60 * 60 * 1000;
+
 export interface StoredDecision extends Omit<OpenDecision, 'status'> {
   status: DecisionStatus;
   awaiting_since: string | null;
@@ -75,21 +78,29 @@ export const findDecisionsShownIn = (db: Database.Database, channelRef: string):
  * corrects the expense again, as one to the reply of an open "Deshacer" does: the question is
  * given as the `open` one it was, since a correction applied through it never answers it (it is
  * closed with the expense's other questions, R-7 AC8, and only open ones are).
+ *
+ * B85 (4), decided by the principal on 2026-11-28 ("7 días, igual"): only for as long as an unused
+ * one stays open, `DECISION_EXPIRY_MS` after its `created_at` as R-19 AC2 counts it. That is when
+ * the "Corregido…" was sent, which the principal sees; the decision keeps no time for when
+ * "Deshacer" was used, and counting from it would keep a used one answering longer than an unused
+ * one.
  */
 export const findUsedCorrectionUndoShownIn = (
   db: Database.Database,
   channelRef: string,
+  now: Date,
 ): OpenDecision | null => {
+  const since = new Date(now.getTime() - DECISION_EXPIRY_MS).toISOString();
   const row = db
-    .prepare<[string], DecisionRow>(
-      `${SELECT_DECISION} WHERE d.channel_ref = ? AND d.status = 'answered'
+    .prepare<[string, string], DecisionRow>(
+      `${SELECT_DECISION} WHERE d.channel_ref = ? AND d.status = 'answered' AND d.created_at >= ?
          AND p.operation = 'amend_expense' AND json_extract(p.payload_json, '$.restore') IS NOT NULL
          AND EXISTS (SELECT 1 FROM expenses e
                      WHERE e.id = json_extract(p.payload_json, '$.expense_id')
                        AND e.status = 'current')
        ORDER BY d.id DESC LIMIT 1`,
     )
-    .get(channelRef);
+    .get(channelRef, since);
   return row === undefined ? null : { ...toDecision(row), status: 'open' };
 };
 
