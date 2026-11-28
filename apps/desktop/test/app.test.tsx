@@ -1,9 +1,12 @@
 // @vitest-environment jsdom
 import {
+  DEFAULT_CURRENCY,
   formatAmount,
   formatDate,
+  getCurrency,
   LOCAL_CHANNEL_PROTOCOL,
   strings as replies,
+  setLocale,
 } from '@anomander/protocol';
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -137,6 +140,121 @@ describe('opening', () => {
       ['https://example.com/login'],
       ['https://example.com/abrir'],
     ]);
+    expect(screen.queryByText(strings.chat.linkNotOpened)).toBeNull();
+  });
+
+  /** The chat with a reply holding one web address; returns its link. */
+  const linkInReply = async () => {
+    await open(runningSnapshot());
+    const socket = FakeWebSocket.last;
+    act(() => socket.open());
+    fireEvent.change(composer(), { target: { value: '/login' } });
+    fireEvent.keyDown(composer(), { key: 'Enter' });
+    await waitFor(() => expect(socket.requests).toHaveLength(1));
+    act(() =>
+      socket.receive(
+        replyTo(socket.lastRequest.id, { text: 'Entra en https://example.com/login.' }),
+      ),
+    );
+    return () => screen.getByRole('link', { name: 'https://example.com/login' });
+  };
+
+  it('says in the chat when the shell could not open a link (B86)', async () => {
+    mocked.openLink.mockRejectedValue('the browser did not start');
+    const link = await linkInReply();
+
+    fireEvent.click(link());
+
+    expect((await screen.findByText(strings.chat.linkNotOpened)).getAttribute('role')).toBe(
+      'status',
+    );
+    expect(strings.chat.linkNotOpened).toBe('No he podido abrir el enlace en el navegador.');
+  });
+
+  it('says it when opening a link throws at once (B86)', async () => {
+    mocked.openLink.mockImplementation(() => {
+      throw new Error('no shell');
+    });
+    const link = await linkInReply();
+
+    fireEvent.click(link());
+
+    await screen.findByText(strings.chat.linkNotOpened);
+  });
+
+  it('keeps the outcome of the latest link when an earlier one fails after it (B86)', async () => {
+    let failFirst: (reason: unknown) => void = () => {};
+    mocked.openLink.mockReturnValueOnce(
+      new Promise<undefined>((_, reject) => {
+        failFirst = reject;
+      }),
+    );
+    const link = await linkInReply();
+    fireEvent.click(link());
+    fireEvent.click(link());
+    await act(async () => {});
+
+    await act(async () => failFirst('the browser did not start'));
+
+    expect(mocked.openLink).toHaveBeenCalledTimes(2);
+    expect(screen.queryByText(strings.chat.linkNotOpened)).toBeNull();
+  });
+
+  it('takes back the notice once a later link opens (B86)', async () => {
+    mocked.openLink.mockRejectedValueOnce('the browser did not start');
+    const link = await linkInReply();
+    fireEvent.click(link());
+    await screen.findByText(strings.chat.linkNotOpened);
+
+    fireEvent.click(link());
+
+    await waitFor(() => expect(screen.queryByText(strings.chat.linkNotOpened)).toBeNull());
+    expect(mocked.openLink).toHaveBeenCalledTimes(2);
+  });
+
+  it('says it once for links failed one after another, and takes it back on a send (B86)', async () => {
+    mocked.openLink.mockRejectedValue(new Error('refused'));
+    const link = await linkInReply();
+    const socket = FakeWebSocket.last;
+    fireEvent.click(link());
+    await screen.findByText(strings.chat.linkNotOpened);
+    fireEvent.click(link());
+    await act(async () => {});
+
+    expect(mocked.openLink).toHaveBeenCalledTimes(2);
+    expect(screen.getAllByText(strings.chat.linkNotOpened)).toHaveLength(1);
+
+    fireEvent.change(composer(), { target: { value: 'hola' } });
+    fireEvent.keyDown(composer(), { key: 'Enter' });
+    await waitFor(() => expect(socket.requests).toHaveLength(2));
+    expect(screen.queryByText(strings.chat.linkNotOpened)).toBeNull();
+  });
+
+  it('says it in English in an English window (B86)', async () => {
+    setLocale('en');
+    try {
+      mocked.openLink.mockRejectedValue('refused');
+      const link = await linkInReply();
+      fireEvent.click(link());
+
+      expect(await screen.findByText("I couldn't open the link in the browser.")).toBeTruthy();
+    } finally {
+      setLocale('es');
+    }
+  });
+
+  it('keeps any other notice of the composer when a link opens (B86)', async () => {
+    const link = await linkInReply();
+    fireEvent.paste(composer(), {
+      clipboardData: { files: [new File(['bytes'], 'factura.pdf', { type: 'application/pdf' })] },
+    });
+    expect(screen.getByText(strings.chat.onlyImages)).toBeTruthy();
+
+    fireEvent.click(link());
+    await act(async () => {});
+
+    expect(mocked.openLink).toHaveBeenCalledOnce();
+    expect(screen.getByText(strings.chat.onlyImages)).toBeTruthy();
   });
 
   it('says it is loading until the shell answers', () => {
@@ -728,6 +846,55 @@ describe('the expenses (DK-17)', () => {
     fireEvent.click(status.getByRole('button', { name: strings.status.closeSetup }));
     expect(screen.queryByRole('heading', { name: strings.expenses.title })).toBeNull();
     expect(composer().closest('[hidden]')).toBeNull();
+  });
+
+  // B74: a sum of two currencies is said with the principal's first, as the daemon says it.
+  it.each([
+    ['USD', '12,00 US$ y 45,20 €'],
+    [null, '45,20 € y 12,00 US$'],
+  ])('says a total with the currency of the setup (%s) first', async (currency, said) => {
+    await open(runningSnapshot({ setup: { ...FILLED_SETUP, currency } }));
+    fireEvent.click(screen.getByRole('button', { name: strings.status.openExpenses }));
+    const socket = FakeWebSocket.last;
+    act(() => socket.open());
+    act(() =>
+      socket.receive({
+        type: 'expenses',
+        inReplyTo: socket.lastRequest.id,
+        month: '2026-11',
+        expenses: (['EUR', 'USD'] as const).map((code, index) => ({
+          id: index + 1,
+          date: '2026-11-02',
+          merchant: null,
+          category: null,
+          totalCents: code === 'EUR' ? 4520 : 1200,
+          currency: code,
+          mode: 'declared' as const,
+          categoryMode: null,
+          origin: 'text' as const,
+          lines: 0,
+        })),
+        totals: [
+          { cents: 4520, currency: 'EUR' },
+          { cents: 1200, currency: 'USD' },
+        ],
+        pending: { count: 0, totals: [] },
+      }),
+    );
+
+    const total = await screen.findByText(strings.expenses.total);
+    expect(total.closest('tr')?.textContent).toContain(said);
+  });
+
+  // B74: a currency the shell and the daemon refuse (DK-25 AC6) is never the window's, as an
+  // unknown code is not: the principal's is then the daemon's default.
+  it.each(['JPY', 'XYZ'])('takes a stored %s as no currency of the principal', async (stored) => {
+    await open(runningSnapshot({ setup: { ...FILLED_SETUP, currency: 'USD' } }));
+    expect(getCurrency()).toBe('USD');
+
+    emit(runningSnapshot({ setup: { ...FILLED_SETUP, currency: stored } }));
+
+    expect(getCurrency()).toBe(DEFAULT_CURRENCY);
   });
 
   it('"Corregir" on a row goes to the chat, which shows the question, so the next text corrects it (AC6)', async () => {

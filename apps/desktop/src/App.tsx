@@ -2,6 +2,7 @@
 // connections screen, the subscriptions screen, the import of a ledger, the expenses (DK-17)
 // or Memoria (DK-18). The container: it
 // reads the shell and decides which one is on screen.
+import { DEFAULT_CURRENCY, getCurrency, hasCents, setCurrency } from '@anomander/protocol';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ChatScreen } from './chat/ChatScreen.tsx';
 import { ConnectionsScreen } from './connections/ConnectionsScreen.tsx';
@@ -23,6 +24,13 @@ import { strings } from './strings.ts';
 export function App() {
   const shell = useShell();
   const { snapshot } = shell;
+  // B74: a sum of several currencies says the principal's first, as the daemon's do. Set before
+  // the screens render, since they read it while rendering. A code this window's `Intl` does not
+  // know (B78), or one without cents, which the shell and the daemon refuse (DK-25 AC6), leaves
+  // the daemon's default.
+  const currency = snapshot?.setup.currency ?? DEFAULT_CURRENCY;
+  const principal = hasCents(currency) ? currency : DEFAULT_CURRENCY;
+  if (getCurrency() !== principal) setCurrency(principal);
   /** The screen over the chat, when there is one. */
   const [open, setOpen] = useState<
     'setup' | 'connections' | 'subscriptions' | 'ledger' | 'expenses' | 'memory' | null
@@ -81,11 +89,9 @@ export function App() {
     [connections, saveConnection],
   );
 
-  // B25: a web address of a reply opens in the browser. A refusal leaves the window as it is:
-  // the shell refuses only what is not an http(s) address, which the chat never offers.
-  const openLink = useCallback((url: string) => {
-    native.openLink(url).catch(() => {});
-  }, []);
+  // B25: a web address of a reply opens in the browser. B86: the chat says so when it did not
+  // (the shell refuses what is not an http(s) address, or the system could not open it).
+  const openLink = useCallback((url: string) => native.openLink(url), []);
 
   // B48: the shell shows the window again (closing it only hides it); the chat then shows what
   // the daemon keeps now. Subscribed as `useShell` subscribes "Detener tarea".

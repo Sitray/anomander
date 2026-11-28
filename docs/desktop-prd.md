@@ -717,7 +717,8 @@ and keep its secrets in the operating system instead of a text file.
     reads photos (a test checks both). Choosing one fills "Modelo" and "Modelo para fotos" with its
     suggestion, keeping a photo model the principal typed. "Otro modelo…" keeps the free
     `provider/model` field, still checked only by shape; a model typed with a listed provider
-    selects it. "Modelo para fotos" left empty is saved as the model only when that is a suggested
+    selects it. Chosen after a listed provider, "Otro modelo…" empties "Modelo" (and "Modelo para
+    fotos" when it only followed the suggestion), so the picker stays on it (B64). "Modelo para fotos" left empty is saved as the model only when that is a suggested
     one, known to read photos; otherwise the screen asks for it ("Falta el modelo para fotos:
     escribe uno que lea imágenes, o elige un proveedor de la lista."), so the daemon never starts
     with half of R-28 AC2's pair nor reads receipts with a model that cannot see them.
@@ -884,7 +885,8 @@ and keep its secrets in the operating system instead of a text file.
     absolute `http` or `https` address with a host and no user name. Any other scheme
     (`javascript:`, `file:`) or a relative address stays text, and a link button with one is named
     as before ("solo se puede abrir desde Telegram"). Only the chat window may call `open_link`.
-    Telegram is unchanged but for the prompt.
+    When the shell refuses or cannot open the address, the composer's notice says "No he podido
+    abrir el enlace en el navegador." (B86) until a link opens. Telegram is unchanged but for the prompt.
   - AC3: while an answer is owed the chat says what ANOMANDER is doing, in a live region that is
     always in the page, so each phase is announced: "ANOMANDER está pensando…" for a text or a
     step, "Leyendo el ticket…" for a receipt, "Mirando tu pantalla…" for a look. While a task with
@@ -922,8 +924,9 @@ and keep its secrets in the operating system instead of a text file.
     the window's `Intl` does not know is still shown, with the code (`12,30 XYZ`) (B78).
   - AC4: a sum never adds two currencies. When the expenses of a total or of a `{desglose}` line
     (S-9, S-90, S-91, the Gastos screen's total and pending) hold more than one currency, it is
-    said per currency, the principal's first and then by code: `45,20 € y 12,00 US$`. With one
-    currency every figure reads as before.
+    said per currency, the principal's first and then by code: `45,20 € y 12,00 US$`. The window
+    takes the principal's from the setup, as the daemon does (B74). With one currency every
+    figure reads as before.
   - AC5: the first setup proposes the system's time zone and the currency of the system's region
     (`EUR` when the region has none the app knows); "Configuración" lets the principal change
     both, the zone from the IANA list and the currency from a short list or any ISO 4217 code.

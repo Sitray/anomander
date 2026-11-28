@@ -118,6 +118,7 @@ fn is_currency(value: &str) -> bool {
 
 /// The currencies the window's and the daemon's `Intl` write without two decimals (none, as
 /// `JPY`, or three, as `BHD`). Amounts are kept in hundredths, so none of them can be chosen.
+/// `test/setup-currencies.test.ts` checks the list against `Intl` (B74).
 const WITHOUT_CENTS: &[&str] = &[
     "AFN", "ALL", "BHD", "BIF", "CLP", "COP", "DJF", "GNF", "HUF", "IDR", "IQD", "IRR", "ISK",
     "JOD", "JPY", "KMF", "KPW", "KRW", "KWD", "LAK", "LBP", "LYD", "MGA", "MMK", "OMR", "PYG",
@@ -761,7 +762,8 @@ mod tests {
             provider_keys: vec!["OPENAI_API_KEY".into()],
             connection_secrets: Vec::new(),
             time_zone: Some("Asia/Tokyo".into()),
-            currency: Some("JPY".into()),
+            // B74: a currency the setup can choose; JPY, which it refuses (DK-25 AC6), could not be.
+            currency: Some("GBP".into()),
             notifications: NotificationMode::Content,
             daily_ai_call_limit: None,
         };
@@ -775,7 +777,7 @@ mod tests {
                 provider_keys: vec!["OPENAI_API_KEY".into()],
                 // DK-25: what Configuración chose, so the window shows it back.
                 time_zone: Some("Asia/Tokyo".into()),
-                currency: Some("JPY".into()),
+                currency: Some("GBP".into()),
                 notifications: NotificationMode::Content,
             }
         );

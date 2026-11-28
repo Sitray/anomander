@@ -250,6 +250,8 @@ const es = {
       'Se cortó la conexión y no sé si me llegó tu respuesta. Pulsa otra vez: si ya estaba contestada, te lo diré.',
     /** A `{label, url}` button: this window cannot open links. */
     linkOnlyInTelegram: (label: string) => `«${label}» solo se puede abrir desde Telegram.`,
+    /** B86: the shell could not hand a web address of a reply to the browser. */
+    linkNotOpened: 'No he podido abrir el enlace en el navegador.',
 
     /** DK-16: a stored message that came through Telegram. */
     viaTelegram: 'Por Telegram',
@@ -936,6 +938,7 @@ const en: Strings = {
     pressUnknown:
       "The connection dropped and I don't know if your answer reached me. Press again: if it was already answered, I'll tell you.",
     linkOnlyInTelegram: (label: string) => `“${label}” can only be opened from Telegram.`,
+    linkNotOpened: "I couldn't open the link in the browser.",
 
     viaTelegram: 'Via Telegram',
     loginCodeHidden: 'Access code (hidden)',

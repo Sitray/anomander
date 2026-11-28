@@ -195,9 +195,16 @@ function SetupForm(props: FormProps) {
   const pick = (id: string) => {
     const offered = SETUP_PROVIDERS.find((one) => one.id === id);
     setOtherModel(id === OTHER);
-    if (offered === undefined) return;
     // Every suggestion reads photos too; a photo model of the principal's own is kept.
     const ownVision = visionModel.trim() !== '' && visionModel.trim() !== model.trim();
+    if (offered === undefined) {
+      // B64: a model of a listed provider would select it again, so the picker would snap back:
+      // "Otro modelo…" leaves the model to write, and a photo model that only followed it goes.
+      if (chosen === undefined) return;
+      setModel('');
+      if (!ownVision) setVisionModel('');
+      return;
+    }
     setModel(suggestedModel(offered));
     if (!ownVision || readsPhotos(visionModel.trim())) setVisionModel(suggestedModel(offered));
   };

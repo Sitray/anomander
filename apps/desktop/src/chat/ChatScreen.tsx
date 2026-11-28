@@ -57,8 +57,11 @@ export interface ChatScreenProps {
    * there. Absent where the window cannot add one: the chat then only says it is missing.
    */
   onAddWebSearch?: () => Promise<boolean>;
-  /** B25: opens an http(s) address in the principal's browser; absent where the shell cannot. */
-  onOpenLink?: (url: string) => void;
+  /**
+   * B25: opens an http(s) address in the principal's browser; absent where the shell cannot.
+   * B86: when the promise it returns rejects, the composer says the link did not open.
+   */
+  onOpenLink?: (url: string) => Promise<unknown>;
   /** DK-21: opens the setup from the model's name under the composer. */
   onOpenSetup?: () => void;
 }
@@ -107,6 +110,24 @@ export function ChatScreen(props: ChatScreenProps) {
     onProblem: draft.warn,
     ...(onAddWebSearch === undefined ? {} : { addWebSearch: onAddWebSearch }),
   });
+  const { warn, withdraw } = draft;
+  // B86: a link that did not open says so until one opens, which takes back only that notice.
+  // Only the latest click decides, however the opens settle; one that throws at once failed too.
+  const latestOpen = useRef(0);
+  const openLink = useMemo(
+    () =>
+      onOpenLink === undefined
+        ? undefined
+        : (url: string) => {
+            latestOpen.current += 1;
+            const click = latestOpen.current;
+            new Promise<unknown>((resolve) => resolve(onOpenLink(url))).then(
+              () => click === latestOpen.current && withdraw(strings.chat.linkNotOpened),
+              () => click === latestOpen.current && warn(strings.chat.linkNotOpened),
+            );
+          },
+    [onOpenLink, warn, withdraw],
+  );
   const [dropping, setDropping] = useState(false);
   /** B23: how many times an example asked for the caret. */
   const [focusRequest, setFocusRequest] = useState(0);
@@ -288,7 +309,7 @@ export function ChatScreen(props: ChatScreenProps) {
         turn={turn}
         onStop={cancel}
         onExample={fillWith}
-        onOpenLink={onOpenLink}
+        onOpenLink={openLink}
         empty={emptyStateFor(disabled ? daemon : null, props.onStart)}
         onRetry={chat.retry}
         onRestart={chat.restart}

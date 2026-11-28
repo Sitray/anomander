@@ -19,6 +19,8 @@ export interface Draft {
   addFiles(files: File[]): void;
   /** Says why something could not be added. */
   warn(notice: string): void;
+  /** Takes back `notice` when it is the one shown, leaving any other as it is. */
+  withdraw(notice: string): void;
   remove(id: string): void;
   /** Empties the draft once it was sent; the message keeps the thumbnails. */
   clear(): void;
@@ -68,6 +70,10 @@ export const useDraft = (): Draft => {
     [attachments],
   );
 
+  const withdraw = useCallback((notice: string) => {
+    setNotice((shown) => (shown === notice ? null : shown));
+  }, []);
+
   const clear = useCallback(() => {
     setText('');
     setAttachments([]);
@@ -81,6 +87,7 @@ export const useDraft = (): Draft => {
     setText,
     addFiles,
     warn: setNotice,
+    withdraw,
     remove,
     clear,
   };

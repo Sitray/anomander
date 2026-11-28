@@ -5,7 +5,7 @@ import { App } from '../src/App.tsx';
 import { shell } from '../src/shell.ts';
 import { strings } from '../src/strings.ts';
 import { FakeWebSocket } from './fake-web-socket.ts';
-import { runningSnapshot } from './fixtures.ts';
+import { NO_CONNECTIONS, runningSnapshot } from './fixtures.ts';
 
 // DK-20 (B27): Cmd+, on macOS and Ctrl+, on Windows open the setup, as in any app, and close it
 // again. The whole window against a mocked shell: never real Tauri.
@@ -17,6 +17,7 @@ vi.mock('../src/shell.ts', () => ({
     onChatShown: vi.fn(),
     setThinking: vi.fn(),
     setTaskRunning: vi.fn(),
+    connections: vi.fn(),
   },
 }));
 
@@ -31,6 +32,7 @@ beforeEach(() => {
   mocked.setThinking.mockResolvedValue(undefined);
   mocked.setTaskRunning.mockResolvedValue(undefined);
   mocked.snapshot.mockResolvedValue(runningSnapshot());
+  mocked.connections.mockResolvedValue(NO_CONNECTIONS);
 });
 
 afterEach(() => {
@@ -82,5 +84,33 @@ describe('the setup shortcut', () => {
 
     press({ ctrlKey: true });
     expect(setupHeading()).toBeTruthy();
+  });
+
+  // B66: the two branches of `App.tsx`: the import of a ledger counts as the setup, which it is
+  // opened from, and any other screen gives way to the setup.
+  it('closes the import of a ledger, opened from the setup, back to the composer', async () => {
+    await open();
+    press({ metaKey: true });
+    fireEvent.click(screen.getByRole('button', { name: strings.ledger.open }));
+    expect(screen.getByRole('heading', { name: strings.ledger.title })).toBeTruthy();
+
+    press({ metaKey: true });
+
+    expect(screen.queryByRole('heading', { name: strings.ledger.title })).toBeNull();
+    expect(setupHeading()).toBeNull();
+    await waitFor(() =>
+      expect(document.activeElement).toBe(screen.getByLabelText(strings.chat.message)),
+    );
+  });
+
+  it('opens the setup over another screen instead of closing it', async () => {
+    await open();
+    fireEvent.click(screen.getByRole('button', { name: strings.status.openConnections }));
+    expect(screen.getByRole('heading', { name: strings.connections.title })).toBeTruthy();
+
+    press({ metaKey: true });
+
+    expect(setupHeading()).toBeTruthy();
+    expect(screen.queryByRole('heading', { name: strings.connections.title })).toBeNull();
   });
 });
