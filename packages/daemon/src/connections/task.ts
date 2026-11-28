@@ -94,7 +94,8 @@ export interface ConnectionTasks {
   /**
    * The principal's answer to the call `id`: it is performed at most once. `confirmed`, when
    * given with `allow`, is called once that call is found waiting, before it is made: where
-   * "Permitir siempre" is stored (DK-24 AC5); never for a call that no longer waits.
+   * "Permitir siempre" is stored (DK-24 AC5); never for a call that no longer waits. When it
+   * throws, the answer throws with it: nothing is made and the call still waits.
    */
   answer(id: string, allow: boolean, confirmed?: () => void): Promise<TaskOutcome>;
 }
@@ -231,8 +232,12 @@ const plainText = (text: string): string =>
     ' ',
   );
 
-/** An argument's name: as a text, and its commas as their code, the mark between arguments. */
-const plainName = (name: string): string => plainText(name).replace(/,/g, codeOf);
+/**
+ * An argument's name: as a text, its commas as their code, the mark between arguments, and its
+ * spaces too, so a name ends at its first space: a value cut after ", " cannot read as the line
+ * cut between arguments behind a name that holds the start of a value (B65).
+ */
+const plainName = (name: string): string => plainText(name).replace(/[, ]/g, codeOf);
 
 /** A value that is not a text, as compact JSON, which escapes its own backslashes and quotes. */
 const plainJson = (json: string): string => seen(json.replace(/[«»]/g, codeOf), ' ');
@@ -459,14 +464,16 @@ export const createConnectionTasks = <M>(deps: ConnectionTasksDeps<M>): Connecti
     answer: async (id, allow, confirmed) => {
       const step = pending.get(id);
       if (step === undefined) return { kind: 'gone' };
-      // Taken out first: a second answer finds nothing to perform.
+      // B67: told before the call is taken out, in the same step, so a grant that cannot be
+      // stored throws with nothing run and the call still waiting for an answer.
+      if (allow) confirmed?.();
+      // Taken out before anything is awaited: a second answer finds nothing to perform.
       pending.delete(id);
       if (!allow) {
         const { connection, tool } = step.target;
         decided({ server: connection.name, tool: tool.name, allowed: false });
         return { kind: 'stopped' };
       }
-      confirmed?.();
       await perform(step);
       return advance(step.run);
     },
