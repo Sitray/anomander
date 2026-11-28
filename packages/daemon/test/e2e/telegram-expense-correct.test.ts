@@ -48,10 +48,15 @@ let anomander: Anomander;
 let clock: Date;
 /** The user turns the text interpreter received, parsed. */
 let interpreted: { message: string; expenses?: unknown }[];
+/** The user turns the correction interpreter received, parsed. */
+let corrections: { expense: unknown }[];
 /** Everything the daemon logged, with its fields (§16: no amount or text of the principal). */
 let logs: unknown[];
 /** What the text interpreter answers, by message, built from its input; an expense when absent. */
-let interpretations: Map<string, (input: { expenses?: { id: number }[] }) => unknown>;
+let interpretations: Map<
+  string,
+  (input: { expenses?: { id: number; total: { currency: string } }[] }) => unknown
+>;
 /** What the text interpreter waits for before it answers. */
 let interpreting: Promise<void>;
 /** The recorded receipt reading: one that does not add up unless a test says otherwise. */
@@ -86,6 +91,7 @@ const complete = async (_model: string, context: Context): Promise<AssistantMess
     return recorded(`receipt-reader/${readerFixture}`);
   }
   if (context.systemPrompt === correctionInterpreterPrompt()) {
+    corrections.push(JSON.parse(String(context.messages[0]?.content)));
     return recorded(`correction-interpreter/${correctionFixture}`);
   }
   // R-21 AC2: a wording without the facts is not sent, so the replies are the §12 strings.
@@ -135,6 +141,7 @@ beforeEach(async () => {
   api = await startFakeTelegramApi();
   clock = NOW;
   interpreted = [];
+  corrections = [];
   interpretations = new Map();
   interpreting = Promise.resolve();
   readerFixture = 'lines-mismatch';
@@ -345,6 +352,76 @@ describe('undoing and correcting a typed expense', () => {
     ]);
   });
 
+  // B87: after the principal chooses US dollars, a euro expense and a dollar one of the same
+  // figure are told apart by their own currency, which each interpreter is given.
+  it('B87: "el de 23 euros" corrects the euro expense, not the dollar one of the same figure', async () => {
+    await registered();
+    await anomander.stop();
+    await start({ ANOMANDER_CURRENCY: 'USD' });
+    interpretations.set('23 cena', () => ({
+      kind: 'expense',
+      inferences: [
+        {
+          subject_type: 'expense',
+          subject_id: null,
+          predicate: 'total',
+          value_json: 2300,
+          mode: 'inferred',
+          basis_json: { quote: '23' },
+          confidence: 0.9,
+        },
+      ],
+    }));
+    await say('23 cena');
+
+    // The model points at the expense in the currency the message names.
+    interpretations.set('el de 23 euros, eran 32', ({ expenses = [] }) =>
+      correcting(
+        expenses.find(({ total }) => total.currency === 'EUR')?.id ?? null,
+        3200,
+        'eran 32',
+      ),
+    );
+    expect((await say('el de 23 euros, eran 32')).text).toBe(
+      'Corregido: 32,00\u00a0€ (restaurantes).',
+    );
+    expect(interpreted.at(-1)?.expenses).toEqual([
+      {
+        id: 2,
+        total: { cents: 2300, currency: 'USD' },
+        merchant: null,
+        category: null,
+        occurred_on: '2026-10-30',
+      },
+      {
+        id: 1,
+        total: { cents: 2300, currency: 'EUR' },
+        merchant: null,
+        category: 'restaurantes',
+        occurred_on: '2026-10-30',
+      },
+    ]);
+    expect(query('SELECT id, total_cents, currency FROM expenses ORDER BY id')).toEqual([
+      { id: 1, total_cents: 3200, currency: 'EUR' },
+      { id: 2, total_cents: 2300, currency: 'USD' },
+    ]);
+  });
+
+  it('B87: "Corregir" under a euro expense gives the correction interpreter its euros', async () => {
+    const reply = await registered();
+    await anomander.stop();
+    await start({ ANOMANDER_CURRENCY: 'USD' });
+
+    expect(await press(reply, 'Corregir')).toBe(S7);
+    expect((await say('total 28,40')).text).toBe('Corregido: 28,40\u00a0€ (restaurantes).');
+    expect(corrections.at(-1)?.expense).toEqual({
+      total: { cents: 2300, currency: 'EUR' },
+      merchant: null,
+      category: 'restaurantes',
+      occurred_on: '2026-10-30',
+    });
+  });
+
   it('R-7 AC6: "Corregir" asks S-7, and the text supersedes the declaration with a new declared one', async () => {
     const reply = await registered();
 
@@ -429,7 +506,7 @@ describe('undoing and correcting a typed expense', () => {
     expect(interpreted.at(-1)?.expenses).toEqual([
       {
         id: 1,
-        total_cents: 2300,
+        total: { cents: 2300, currency: 'EUR' },
         merchant: null,
         category: 'restaurantes',
         occurred_on: '2026-10-30',

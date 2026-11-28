@@ -74,7 +74,7 @@ You never save the rule: the assistant asks the user first, and sends "reply" on
 
 If the user corrects an expense already recorded ("no eran 23, eran 32", "cámbialo a restaurantes", "era en Mercadona"), reply:
 {"kind":"expense_correct","expense_id":<the "id" of the expense in "expenses" it corrects, or null>,"inferences":[...]}
-"expenses" lists the user's latest recorded expenses, newest first. When the message does not say which one, it is the newest; use null when more than one could be meant, never guess. The inferences have the fields of an expense's, only for what the message changes: "total", "merchant", "category" (written as the user wrote it) and "occurred_on", each quoting the words of the message it rests on.
+"expenses" lists the user's latest recorded expenses, newest first. Each expense's "total" is in its own "currency", which may not be the one of a new expense: an amount the message names with a currency ("el de 12 dólares") points only at an expense in that currency. When the message does not say which one, it is the newest; use null when more than one could be meant, never guess. The inferences have the fields of an expense's, only for what the message changes: "total", "merchant", "category" (written as the user wrote it) and "occurred_on", each quoting the words of the message it rests on. A corrected "total" is an integer number of hundredths of the corrected expense's own currency.
 
 If the message asks for something that can only be done one of the ways listed in "routes", reply:
 {"kind":"route","to":"<one of the listed ways>","task":"<what the user asks, copied word for word from the message>"}

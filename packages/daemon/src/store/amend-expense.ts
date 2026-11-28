@@ -1,3 +1,4 @@
+import type { Money } from '@anomander/protocol';
 import type Database from 'better-sqlite3';
 import { z } from 'zod';
 import type { OpenDecision } from '../decisions/types.ts';
@@ -461,7 +462,8 @@ export const undoCorrection = (db: Database.Database, undo: CorrectionUndo): num
 
 export interface RecentExpense {
   id: number;
-  total_cents: number;
+  /** Its total in its own currency, which may not be the principal's now (DK-25, B87). */
+  total: Money;
   merchant: string | null;
   category: string | null;
   occurred_on: string;
@@ -476,8 +478,11 @@ export const RECENT_EXPENSE_LIMIT = 5;
  */
 export const recentExpenses = (db: Database.Database, since: string): RecentExpense[] =>
   db
-    .prepare<[string, number], RecentExpense>(
-      `SELECT e.id, e.total_cents, m.name AS merchant, c.name AS category, e.occurred_on
+    .prepare<
+      [string, number],
+      Omit<RecentExpense, 'total'> & { total_cents: number; currency: string }
+    >(
+      `SELECT e.id, e.total_cents, e.currency, m.name AS merchant, c.name AS category, e.occurred_on
        FROM expenses e
        LEFT JOIN actions a    ON a.id = e.created_by_action_id
        LEFT JOIN entities m   ON m.id = e.merchant_id
@@ -486,4 +491,11 @@ export const recentExpenses = (db: Database.Database, since: string): RecentExpe
        ORDER BY coalesce(a.executed_at, e.created_at) DESC, e.id DESC
        LIMIT ?`,
     )
-    .all(since, RECENT_EXPENSE_LIMIT);
+    .all(since, RECENT_EXPENSE_LIMIT)
+    .map(({ id, total_cents, currency, merchant, category, occurred_on }) => ({
+      id,
+      total: { cents: total_cents, currency },
+      merchant,
+      category,
+      occurred_on,
+    }));
