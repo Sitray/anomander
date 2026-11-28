@@ -14,7 +14,8 @@ skip_build=false
 [[ "${1:-}" == "--skip-build" ]] && skip_build=true
 
 step() { printf '\n==> %s\n' "$*"; }
-# What this run could not check, said again at the end: a pass with checks skipped is no full pass.
+# What this run could have checked yet skipped, said again at the end: a pass with checks skipped
+# is no full pass. The Windows and Linux jobs never run here, and the last lines say so too.
 skipped=()
 skip() { echo "skipped: $1"; skipped+=("$2"); }
 
@@ -75,7 +76,7 @@ fi
 echo
 echo "skipped: check on windows-latest, tauri-build-windows (need Windows), check-linux (needs Linux)"
 if ((${#skipped[@]} == 0)); then
-  echo "ci-local: all checks passed"
+  echo "ci-local: all checks this machine can run passed"
 else
   echo "ci-local: passed, with ${#skipped[@]} check(s) skipped on this machine: ${skipped[*]}"
 fi

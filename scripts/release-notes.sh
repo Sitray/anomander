@@ -41,6 +41,7 @@ repo="https://github.com/Sitray/anomander/blob/v$version"
 sed -E -e "s,\]\(([^)#:/][^):]*)\),](${repo}/\1),g" <<<"$section" |
   awk 'NF { for (; blank > 0; blank--) print ""; print; started = 1; next } started { blank++ }'
 
+# The builds and their checks say what README.md, "Download", says: change both together.
 zip="ANOMANDER-$version-macos-arm64.zip"
 exe="ANOMANDER_${version}_x64-setup.exe"
 cat <<EOF

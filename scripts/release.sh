@@ -152,9 +152,11 @@ cat "$out/$zip_name.sha256"
 files=("$out/$zip_name" "$out/$zip_name.sha256")
 notes_file="$scratch/release-notes.md"
 printf '%s\n' "$notes" >"$notes_file"
+creating=false
 if gh release view "$tag" >/dev/null 2>&1; then
   upload=(gh release upload "$tag" "${files[@]}" --clobber)
 else
+  creating=true
   upload=(gh release create "$tag" "${files[@]}" --draft --verify-tag --title "ANOMANDER $version"
     --notes-file "$notes_file")
 fi
@@ -162,7 +164,7 @@ if [[ "$mode" == dry-run ]]; then
   printf 'release: dry run, not uploading:'
   printf ' %q' "${upload[@]}"
   printf '\n'
-  [[ "${upload[2]}" != create ]] || { echo "release: the notes would be:"; cat "$notes_file"; }
+  ! $creating || { echo "release: the notes would be:"; cat "$notes_file"; }
 else
   "${upload[@]}"
   echo "release: $tag has $zip_name; publish the draft once the Windows installer is there"
