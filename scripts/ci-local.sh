@@ -28,7 +28,7 @@ have="$(node -p 'process.versions.node.split(".")[0]')"
 
 step "pnpm install --frozen-lockfile"; pnpm install --frozen-lockfile
 step "pnpm biome ci ."; pnpm biome ci .
-step "pnpm -r typecheck"; pnpm -r typecheck
+step "pnpm typecheck"; pnpm typecheck
 step "pnpm test"; pnpm test
 step "pnpm audit --audit-level high"; pnpm audit --audit-level high
 step "release script arguments"; bash scripts/test/release-args.sh

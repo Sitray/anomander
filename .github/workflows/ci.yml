@@ -51,7 +51,7 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
       - run: pnpm biome ci .
-      - run: pnpm -r typecheck
+      - run: pnpm typecheck
       - run: pnpm test
 
       # The `stable` branch of this action has no tags; its master commit takes the toolchain
@@ -91,7 +91,7 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm biome ci .
-      - run: pnpm -r typecheck
+      - run: pnpm typecheck
       - run: pnpm test
 
   # The shell still compiles on the oldest compiler it declares: `rust-version` in Cargo.toml,

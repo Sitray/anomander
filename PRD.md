@@ -969,7 +969,7 @@ The receipt and text evaluations are measurements, not pass/fail tests. It decid
 Checks every feature document should run:
 
 - `pnpm biome check .`
-- `pnpm -r typecheck`
+- `pnpm typecheck`
 - `pnpm test`
 - `pnpm eval:receipts` (when a processor or prompt changes)
 

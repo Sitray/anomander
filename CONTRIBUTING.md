@@ -17,7 +17,7 @@ Every change must pass:
 
 ```sh
 pnpm biome check .
-pnpm -r typecheck
+pnpm typecheck
 pnpm test
 ```
 
