@@ -15,41 +15,8 @@ skip_build=false
 
 step() { printf '\n==> %s\n' "$*"; }
 
-# Prints the smoke container's logs and removes it: on success, and from the EXIT trap on any
-# failure of `docker_smoke` once the container may exist.
-smoke_cleanup() {
-  docker logs anomander-smoke || true
-  docker rm --force anomander-smoke >/dev/null 2>&1 || true
-}
-
-# The `docker smoke start` step of ci.yml: the image starts with a throwaway local token as its
-# only front door (no model, no Telegram, no published port) and its HEALTHCHECK turns healthy.
-docker_smoke() {
-  local token check status=starting
-  # Without a HEALTHCHECK the container never reports a health, so say so instead of waiting.
-  check="$(docker image inspect --format '{{with .Config.Healthcheck}}{{index .Test 0}}{{end}}' anomander-daemon:ci)"
-  if [[ -z "$check" || "$check" == NONE ]]; then
-    echo "docker smoke start: anomander-daemon:ci has no HEALTHCHECK (Dockerfile), so it can never turn healthy" >&2
-    return 1
-  fi
-  token="$(head -c 32 /dev/urandom | od -An -tx1 | tr -d ' \n')"
-  docker rm --force anomander-smoke >/dev/null 2>&1 || true
-  trap smoke_cleanup EXIT
-  docker run --detach --name anomander-smoke --health-interval=2s \
-    --env ANOMANDER_LOCAL_TOKEN="$token" anomander-daemon:ci >/dev/null
-  for _ in $(seq 1 30); do
-    status="$(docker inspect --format '{{if .State.Running}}{{with .State.Health}}{{.Status}}{{else}}without health{{end}}{{else}}exited{{end}}' anomander-smoke)"
-    [[ "$status" == starting ]] || break
-    sleep 2
-  done
-  trap - EXIT
-  smoke_cleanup
-  echo "container status: $status"
-  if [[ "$status" != healthy ]]; then
-    echo "docker smoke start: the container is $status, not healthy" >&2
-    return 1
-  fi
-}
+# The `docker smoke start` step, as ci.yml runs it.
+source "$root/scripts/docker-smoke.sh"
 
 wanted="$(cat .node-version)"
 # Run on the Node major CI uses when Homebrew has it (`brew install node@<major>`), ahead of the default one.
@@ -61,7 +28,7 @@ have="$(node -p 'process.versions.node.split(".")[0]')"
 
 step "pnpm install --frozen-lockfile"; pnpm install --frozen-lockfile
 step "pnpm biome ci ."; pnpm biome ci .
-step "pnpm -r typecheck"; pnpm -r typecheck
+step "pnpm typecheck"; pnpm typecheck
 step "pnpm test"; pnpm test
 step "pnpm audit --audit-level high"; pnpm audit --audit-level high
 step "release script arguments"; bash scripts/test/release-args.sh

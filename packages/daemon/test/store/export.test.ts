@@ -230,6 +230,24 @@ describe('the ledger export', () => {
     );
   });
 
+  it('B89: also guards a formula behind a next-line character or written with an en or figure dash', () => {
+    const names = ['\u0085=1+1', '\u0085 @A1', '\u2013=1', '\u20131+1', '\u2012=1'];
+    for (const name of names) expense(name, 500, 'current');
+
+    const { folder } = exportLedger(db, scratch, NOW);
+
+    const gastos = readFileSync(join(folder, 'gastos.csv'), 'utf8');
+    for (const name of names) {
+      expect(gastos).toContain(`,"'${name}",supermercado,500,`);
+    }
+    // A next-line character before a plain text, or a sign further in, is left as it is.
+    expense('\u0085Mercadona', 300, 'current');
+    expense('Mercadona \u2013 =1', 300, 'current');
+    const again = readFileSync(join(exportLedger(db, scratch, NOW).folder, 'gastos.csv'), 'utf8');
+    expect(again).toContain(',\u0085Mercadona,supermercado,300,');
+    expect(again).toContain(',Mercadona \u2013 =1,supermercado,300,');
+  });
+
   it('never overwrites an export made the same second', () => {
     const first = exportLedger(db, scratch, NOW);
     const second = exportLedger(db, scratch, NOW);
