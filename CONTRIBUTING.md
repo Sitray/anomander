@@ -41,4 +41,4 @@ The end-to-end tests run with `pnpm test`, against the fake Telegram API. When a
 
 ## Requirements
 
-Node 24 (see `.node-version`), pnpm (the version in `package.json`, through Corepack) and Docker.
+Node 24.2 or later (see `.node-version`), pnpm (the version in `package.json`, through Corepack) and Docker.
