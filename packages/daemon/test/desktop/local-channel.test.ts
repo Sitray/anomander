@@ -2931,6 +2931,8 @@ describe('who the principal is and what ANOMANDER did (DK-14)', () => {
     );
 
     expect(done.text).toBe('Hecho, lo he olvidado.');
+    // B56: the window is told the stored conversation was erased, not left to read it in the text.
+    expect(done.erased).toBe('conversation');
     // Only the press and S-30, which name no fact, are stored after the erase.
     expect(query('SELECT text FROM conversation ORDER BY id')).toEqual([
       { text: '[botón: Sí]' },
@@ -2969,6 +2971,8 @@ describe('who the principal is and what ANOMANDER did (DK-14)', () => {
       );
 
       expect(done.text).toBe('Hecho, he borrado mi historial.');
+      // B56: the window is told the stored conversation was erased.
+      expect(done.erased).toBe('conversation');
       expect(history()).toEqual([]);
       // DK-16 S6: the stored conversation is erased too; only the press and its answer follow.
       expect(query('SELECT sender, text FROM conversation ORDER BY id')).toEqual([
@@ -3024,10 +3028,12 @@ describe('who the principal is and what ANOMANDER did (DK-14)', () => {
       const question = reply(await chat.ask({ type: 'text', text: 'borra tu historial' }));
       const [, no] = question.buttons as { data: string }[];
 
-      expect(
-        reply(await chat.ask({ type: 'button', data: no?.data, channelRef: question.channelRef }))
-          .text,
-      ).toBe('Vale, no borro nada.');
+      const kept = reply(
+        await chat.ask({ type: 'button', data: no?.data, channelRef: question.channelRef }),
+      );
+      expect(kept.text).toBe('Vale, no borro nada.');
+      // B56: nothing was erased, so the window is not told it was.
+      expect(kept).not.toHaveProperty('erased');
       expect(history()).toHaveLength(1);
     });
   });

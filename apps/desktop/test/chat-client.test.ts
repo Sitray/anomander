@@ -294,6 +294,25 @@ describe('requests', () => {
   });
 });
 
+describe('a reply that erased the stored conversation (B56)', () => {
+  it('keeps `erased` only as the daemon sends it: the conversation', () => {
+    const socket = connected();
+    const values = ['conversation', 'memories', true];
+    const ids = values.map(() => sent(client.send({ type: 'button', data: 'decision:9:yes' })));
+    values.forEach((erased, index) => {
+      socket.receive({ ...reply(ids[index] as string), erased } as never);
+    });
+
+    const replies = outcomes.map(([, outcome]) =>
+      outcome.type === 'reply' ? outcome.reply : null,
+    );
+    expect(replies[0]?.erased).toBe('conversation');
+    expect(replies.slice(1).some((received) => received === null || 'erased' in received)).toBe(
+      false,
+    );
+  });
+});
+
 describe('the stored conversation (DK-16)', () => {
   const STORED: ChatStoredMessage[] = [
     {

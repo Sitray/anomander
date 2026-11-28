@@ -54,7 +54,8 @@ export const createForgetMemoryAnswerHandler =
       settleProposal(db, decision.proposal_id, option === buttons.yes ? 'executed' : 'rejected');
       if (started !== null) answerCompleted(db, started, at);
     })();
-    if (option === buttons.yes) return { text: strings.forgotten() };
+    // B56: the app is told the stored conversation is gone (`clearRecentTurns`).
+    if (option === buttons.yes) return { text: strings.forgotten(), erased: 'conversation' };
     // B81, B83: only a "Sí" to this question that forgot one of them and failed forgot part of
     // it; one forgotten in "Memoria" meanwhile was not, so S-31 stays true.
     const partForgotten = answerFailedAfterErasing(db, decision.proposal_id);

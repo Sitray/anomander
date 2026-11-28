@@ -54,7 +54,8 @@ export const createForgetHistoryAnswerHandler =
       settleProposal(db, decision.proposal_id, option === buttons.yes ? 'executed' : 'rejected');
       if (started !== null) answerCompleted(db, started, at);
     })();
-    if (option === buttons.yes) return { text: strings.historyForgotten() };
+    // B56: the app is told the stored conversation is gone (`clearRecentTurns`).
+    if (option === buttons.yes) return { text: strings.historyForgotten(), erased: 'conversation' };
     // B81, B83: only a "Sí" to this question that erased actions and failed erased part of it;
     // an action erased in "Memoria" meanwhile was not, so "Vale, no borro nada." stays true.
     const partErased = answerFailedAfterErasing(db, decision.proposal_id);

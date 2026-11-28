@@ -528,6 +528,8 @@ export const startLocalChannel = (deps: LocalChannelDeps): LocalChannel => {
       ...(reply.offer === undefined ? {} : { offer: reply.offer }),
       // R-7 AC6, DK-17 AC6: the next text answers the decision; the app goes back to its chat.
       ...(reply.awaitsText === true ? { awaitsText: true as const } : {}),
+      // B56: a confirmed forget erased the stored conversation; the app shows it again.
+      ...(reply.erased === undefined ? {} : { erased: reply.erased }),
     });
     // R-9 AC2: only a reply that left through the socket was delivered.
     reply.onDelivered?.({ channelRef, deliveredAt: sentAt });

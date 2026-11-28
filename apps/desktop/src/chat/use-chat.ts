@@ -1,7 +1,7 @@
 // DK-4: binds the chat client to React. It owns the connection for as long as the chat is on
 // screen and turns what the client reports into the conversation.
 
-import { type ProgressPhase, strings as replies } from '@anomander/protocol';
+import { type ChatReply, type ProgressPhase, strings as replies } from '@anomander/protocol';
 import { useCallback, useEffect, useReducer, useRef, useState } from 'react';
 import type { LocalChannel } from '../shell.ts';
 import { strings } from '../strings.ts';
@@ -230,8 +230,10 @@ export const useChat = (channel: LocalChannel | null, options: ChatOptions = {})
         // DK-13: a route is followed only in the answer to a plain text.
         const plain = texts.current.delete(requestId);
         // B48: a forget confirmed here erased the stored conversation; the window follows it.
+        // B56: the daemon says so (`erased`); one older than it, only in the words of the answer
+        // to a press.
         const pressed = presses.current.delete(requestId);
-        if (pressed && outcome.type === 'reply' && forgets(outcome.reply.text)) wantStored();
+        if (outcome.type === 'reply' && erased(outcome.reply, pressed)) wantStored();
         const step = session.answer(requestId, outcome);
         // A step on the way to the next one is not an answer to notify.
         if (step === 'routine') return;
@@ -563,6 +565,11 @@ export const useChat = (channel: LocalChannel | null, options: ChatOptions = {})
 const startable = (route: Route, options: ChatOptions): boolean =>
   (route.to === 'computer' ? options.computer : options.look) !== undefined;
 
-/** B48: the answer to a "Sí" that forgot a memory or erased the history, as the daemon says it. */
-const forgets = (text: string): boolean =>
-  text === replies.forgotten() || text === replies.historyForgotten();
+/**
+ * B48, B56: whether `reply` erased the stored conversation: the daemon says so, or, from a daemon
+ * older than `erased`, it answers a press with the words of a "Sí" that forgot a memory or erased
+ * the history.
+ */
+const erased = (reply: ChatReply, pressed: boolean): boolean =>
+  reply.erased === 'conversation' ||
+  (pressed && (reply.text === replies.forgotten() || reply.text === replies.historyForgotten()));

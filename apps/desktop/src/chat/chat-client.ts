@@ -173,6 +173,13 @@ const withOffer = (reply: ChatReply): ChatReply => {
   return rest;
 };
 
+/** B56: whether the reply erased the stored conversation, only as the daemon says it. */
+const withErased = (reply: ChatReply): ChatReply => {
+  if (!('erased' in reply) || reply.erased === 'conversation') return reply;
+  const { erased: _unknown, ...rest } = reply;
+  return rest;
+};
+
 const ONE_OF = { from: ['principal', 'anomander'], door: ['app', 'telegram'] } as const;
 
 /** DK-16: a stored message only as the window can show it. */
@@ -334,7 +341,7 @@ const parseEvent = (data: unknown): ChatEvent | undefined => {
   if (typeof data !== 'string') return undefined;
   try {
     const event = JSON.parse(data) as Partial<ChatEvent> | null;
-    if (event?.type === 'reply') return withOffer(withRoute(event as ChatReply));
+    if (event?.type === 'reply') return withErased(withOffer(withRoute(event as ChatReply)));
     if (event?.type === 'notice') return parseNotice(event as Record<string, unknown>);
     if (event?.type === 'login_waiting') {
       const { waiting } = event as { waiting: unknown };
