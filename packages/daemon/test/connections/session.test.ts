@@ -371,7 +371,9 @@ describe('"Permitir siempre" whose grant cannot be stored (B67)', () => {
       logger,
     });
     const asked = await (session.run('apunta x', 'app') as Later).later;
-    const always = asked?.buttons?.find((button) => button.data.endsWith(':always'))?.data;
+    const always = asked?.buttons
+      ?.flatMap((button) => ('data' in button ? [button.data] : []))
+      .find((data) => data.endsWith(':always'));
     expect(always).toBe('connection:id-1:always');
 
     await expect((session.answer(always ?? '', 'app') as Later).later).rejects.toThrow('disk full');
