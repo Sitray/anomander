@@ -1,4 +1,4 @@
-import { mkdtempSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import Database from 'better-sqlite3';
@@ -115,5 +115,20 @@ describe('a copy being written (B54)', () => {
     // The copies taken before migrations delete their own leftovers.
     backupDatabase(db, 2, NOW);
     expect(backups()).toEqual([DAILY, 'anomander.db.backup-v2-20261124T030000Z']);
+  });
+});
+
+describe('a leftover .partial that cannot be deleted (B54 review R3-001)', () => {
+  it('moves the copy to the next suffix instead of failing on its name', async () => {
+    // A directory under the `.partial` name: `rmSync` without `recursive` refuses it, as it
+    // would refuse an undeletable file, so the leftover outlives the cleanup.
+    const stuck = join(scratch, `${DAILY}.partial`);
+    mkdirSync(stuck);
+    writeFileSync(join(stuck, 'kept'), '');
+
+    await createDailyBackup({ db, now: () => NOW, logger }).run();
+
+    expect(backups()).toEqual([`${DAILY}-1`, `${DAILY}.partial`]);
+    expect(logger.error).not.toHaveBeenCalled();
   });
 });

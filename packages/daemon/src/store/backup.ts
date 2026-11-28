@@ -75,9 +75,11 @@ const writeBackup = (
   const pattern = namePattern(file, labels);
   removePartials(folder, pattern);
   const base = `${file}.backup-${label}-${stamp(now)}`;
-  // A second start within the same second gets `-1`, `-2`, … rather than failing.
+  // A second start within the same second gets `-1`, `-2`, … rather than failing, and so does a
+  // name whose leftover `.partial` could not be deleted.
   let target = join(folder, base);
-  for (let n = 1; existsSync(target); n += 1) target = join(folder, `${base}-${n}`);
+  const taken = (name: string) => existsSync(name) || existsSync(`${name}${PARTIAL}`);
+  for (let n = 1; taken(target); n += 1) target = join(folder, `${base}-${n}`);
   const partial = `${target}${PARTIAL}`;
   // Created empty with mode 600 first, so the copy is never readable by others.
   const handle = openSync(partial, 'wx', 0o600);
