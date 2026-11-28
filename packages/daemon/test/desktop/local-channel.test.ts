@@ -434,6 +434,9 @@ describe('the chat over the local channel', () => {
     expect(query('SELECT total_cents FROM expenses')).toHaveLength(1);
   });
 
+  // B57: the image over the 20 MiB cap is about 28 MB of base64 sent, framed and parsed over the
+  // socket. Alone this takes under a second; under a full parallel run it can pass the default
+  // 5 s. No timer is involved, so fake timers cannot help, and the cap fixes the size.
   it('DK-4 AC2: inputs R-20 does not support get the same replies as in Telegram', async () => {
     const chat = await client(await start());
     const sendFile = async (mimeType: string, data = 'AAAA') =>
@@ -447,7 +450,7 @@ describe('the chat over the local channel', () => {
       'La imagen es demasiado grande. ¿Me mandas una foto más ligera?',
     );
     expect(query('SELECT id FROM documents')).toEqual([]);
-  });
+  }, 30_000);
 
   it('DK-4 AC4: turns from Telegram and from the app are the same recent context', async () => {
     const chat = await client(await start());
