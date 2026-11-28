@@ -77,8 +77,10 @@ else
   echo "skipped: cargo audit (cargo-audit is not installed; the CI audit job runs it)"
 fi
 # The msrv job: the declared rust-version, here only if that toolchain is already installed.
+# `cargo +1.90` runs only the toolchain named `1.90-<host>`; one installed as `1.90.0-<host>` is
+# another name, so only the exact name counts.
 msrv="$(sed -n 's/^rust-version = "\(.*\)"$/\1/p' Cargo.toml)"
-if rustup toolchain list | grep -q "^$msrv[-.]"; then
+if rustup toolchain list | awk -v name="$msrv-" 'index($1, name) == 1 { found = 1 } END { exit !found }'; then
   step "cargo +$msrv check --locked --all-targets"; cargo +"$msrv" check --locked --all-targets
 else
   echo "skipped: cargo check on rust-version $msrv (install it with: rustup toolchain install $msrv --profile minimal)"
