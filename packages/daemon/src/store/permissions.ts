@@ -122,11 +122,23 @@ const isConnectionTool = (value: unknown): value is ConnectionTool & { door?: un
   return typeof server === 'string' && typeof tool === 'string' && typeof identity === 'string';
 };
 
-/** Every "Permitir siempre" in force, by server and then tool. */
+/** What `json` holds; `undefined` when it is not JSON. */
+const parsedOrNone = (json: string): unknown => {
+  try {
+    return JSON.parse(json);
+  } catch {
+    return undefined;
+  }
+};
+
+/**
+ * Every "Permitir siempre" in force, by server and then tool. One whose conditions cannot be
+ * read is none: it grants nothing and stops no other (B67).
+ */
 export const connectionToolGrants = (db: Database.Database): ConnectionToolGrant[] =>
   activePermissions(db, CONNECTION_TOOL_OPERATION, new Date())
     .flatMap(({ id, conditions_json, granted_at }) => {
-      const conditions: unknown = JSON.parse(conditions_json);
+      const conditions = parsedOrNone(conditions_json);
       if (!isConnectionTool(conditions)) return [];
       const { server, tool, identity } = conditions;
       return [{ id, server, tool, identity, grantedAt: granted_at }];
