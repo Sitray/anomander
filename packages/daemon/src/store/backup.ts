@@ -1,4 +1,12 @@
-import { closeSync, fchmodSync, openSync, readdirSync, rmSync } from 'node:fs';
+import {
+  closeSync,
+  existsSync,
+  fchmodSync,
+  openSync,
+  readdirSync,
+  renameSync,
+  rmSync,
+} from 'node:fs';
 import { basename, dirname, join } from 'node:path';
 import type Database from 'better-sqlite3';
 
@@ -15,7 +23,9 @@ export const stamp = (at: Date): string => `${at.toISOString().slice(0, 19).repl
 /**
  * Writes a copy of `db` beside its file, as `<file>.backup-v<version>-<yyyymmddThhmmssZ>`, with
  * mode 600 (§16), then deletes all but the `keep` newest files with that name pattern. Returns
- * the backup's path. Throws, leaving no partial copy, when the copy cannot be written.
+ * the backup's path. Throws, leaving no partial copy, when the copy cannot be written. B54: the
+ * copy is written as `<name>.partial` and renamed once complete, so a daemon killed meanwhile
+ * leaves no file with a backup's name; the next copy deletes what it left.
  */
 export const backupDatabase = (
   db: Database.Database,
@@ -62,32 +72,45 @@ const writeBackup = (
 ): string => {
   const folder = dirname(db.name);
   const file = basename(db.name);
+  const pattern = namePattern(file, labels);
+  removePartials(folder, pattern);
   const base = `${file}.backup-${label}-${stamp(now)}`;
   // A second start within the same second gets `-1`, `-2`, … rather than failing.
   let target = join(folder, base);
-  let handle: number | undefined;
-  for (let n = 1; handle === undefined; n += 1) {
-    try {
-      // Created empty with mode 600 first, so the copy is never readable by others.
-      handle = openSync(target, 'wx', 0o600);
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
-      target = join(folder, `${base}-${n}`);
-    }
-  }
+  for (let n = 1; existsSync(target); n += 1) target = join(folder, `${base}-${n}`);
+  const partial = `${target}${PARTIAL}`;
+  // Created empty with mode 600 first, so the copy is never readable by others.
+  const handle = openSync(partial, 'wx', 0o600);
   try {
     fchmodSync(handle, 0o600);
   } finally {
     closeSync(handle);
   }
   try {
-    db.prepare('VACUUM INTO ?').run(target);
+    db.prepare('VACUUM INTO ?').run(partial);
+    renameSync(partial, target);
   } catch (error) {
-    rmSync(target, { force: true });
+    rmSync(partial, { force: true });
     throw error;
   }
-  prune(folder, namePattern(file, labels), keep, basename(target), stamp(now));
+  prune(folder, pattern, keep, basename(target), stamp(now));
   return target;
+};
+
+// B54: what a copy is written as until it is complete; never a backup's name (`namePattern`).
+const PARTIAL = '.partial';
+
+// The `.partial` files a daemon killed while copying left, of these copies of this database
+// only. A failure to delete one does not stop the copy: it never counts as a backup.
+const removePartials = (folder: string, pattern: RegExp): void => {
+  for (const name of readdirSync(folder)) {
+    if (!name.endsWith(PARTIAL) || !pattern.test(name.slice(0, -PARTIAL.length))) continue;
+    try {
+      rmSync(join(folder, name), { force: true });
+    } catch {
+      // Left for the next copy to delete.
+    }
+  }
 };
 
 // Only files named exactly as backups of this database are ever deleted, never `written`, the one
