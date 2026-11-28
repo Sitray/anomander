@@ -144,7 +144,7 @@ describe('R-23 AC3: a replaced memory takes the turns that hold its words with i
       '¿Eres vegetariano?',
     ]);
   });
-  it('B56: a message sent unasked that holds the old fact goes alone; the turn before it stays', () => {
+  it('B48: a message sent unasked that holds the old fact goes alone; the turn before it stays', () => {
     db = openDatabase(path);
     applyMigrations(db);
     const turns = createRecentTurns({ db, now: () => AT, logger });

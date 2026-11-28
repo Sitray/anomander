@@ -15,23 +15,40 @@ skip_build=false
 
 step() { printf '\n==> %s\n' "$*"; }
 
+# Prints the smoke container's logs and removes it: on success, and from the EXIT trap on any
+# failure of `docker_smoke` once the container may exist.
+smoke_cleanup() {
+  docker logs anomander-smoke || true
+  docker rm --force anomander-smoke >/dev/null 2>&1 || true
+}
+
 # The `docker smoke start` step of ci.yml: the image starts with a throwaway local token as its
 # only front door (no model, no Telegram, no published port) and its HEALTHCHECK turns healthy.
 docker_smoke() {
-  local token status=starting
+  local token check status=starting
+  # Without a HEALTHCHECK the container never reports a health, so say so instead of waiting.
+  check="$(docker image inspect --format '{{with .Config.Healthcheck}}{{index .Test 0}}{{end}}' anomander-daemon:ci)"
+  if [[ -z "$check" || "$check" == NONE ]]; then
+    echo "docker smoke start: anomander-daemon:ci has no HEALTHCHECK (Dockerfile), so it can never turn healthy" >&2
+    return 1
+  fi
   token="$(head -c 32 /dev/urandom | od -An -tx1 | tr -d ' \n')"
   docker rm --force anomander-smoke >/dev/null 2>&1 || true
+  trap smoke_cleanup EXIT
   docker run --detach --name anomander-smoke --health-interval=2s \
     --env ANOMANDER_LOCAL_TOKEN="$token" anomander-daemon:ci >/dev/null
   for _ in $(seq 1 30); do
-    status="$(docker inspect --format '{{if .State.Running}}{{.State.Health.Status}}{{else}}exited{{end}}' anomander-smoke)"
+    status="$(docker inspect --format '{{if .State.Running}}{{with .State.Health}}{{.Status}}{{else}}without health{{end}}{{else}}exited{{end}}' anomander-smoke)"
     [[ "$status" == starting ]] || break
     sleep 2
   done
-  docker logs anomander-smoke
-  docker rm --force anomander-smoke >/dev/null
+  trap - EXIT
+  smoke_cleanup
   echo "container status: $status"
-  [[ "$status" == healthy ]]
+  if [[ "$status" != healthy ]]; then
+    echo "docker smoke start: the container is $status, not healthy" >&2
+    return 1
+  fi
 }
 
 wanted="$(cat .node-version)"
@@ -48,6 +65,7 @@ step "pnpm -r typecheck"; pnpm -r typecheck
 step "pnpm test"; pnpm test
 step "pnpm audit --audit-level high"; pnpm audit --audit-level high
 step "release script arguments"; bash scripts/test/release-args.sh
+step "docker smoke step ends"; bash scripts/test/docker-smoke.sh
 
 cd apps/desktop/src-tauri
 step "cargo fmt --check"; cargo fmt --check
@@ -60,8 +78,10 @@ else
   echo "skipped: cargo audit (cargo-audit is not installed; the CI audit job runs it)"
 fi
 # The msrv job: the declared rust-version, here only if that toolchain is already installed.
+# `cargo +1.90` runs only the toolchain named `1.90-<host>`; one installed as `1.90.0-<host>` is
+# another name, so only the exact name counts.
 msrv="$(sed -n 's/^rust-version = "\(.*\)"$/\1/p' Cargo.toml)"
-if rustup toolchain list | grep -q "^$msrv[-.]"; then
+if rustup toolchain list | awk -v name="$msrv-" 'index($1, name) == 1 { found = 1 } END { exit !found }'; then
   step "cargo +$msrv check --locked --all-targets"; cargo +"$msrv" check --locked --all-targets
 else
   echo "skipped: cargo check on rust-version $msrv (install it with: rustup toolchain install $msrv --profile minimal)"

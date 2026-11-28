@@ -109,7 +109,7 @@ describe('addWebSearch', () => {
     expect(other.saveConnection).not.toHaveBeenCalled();
   });
 
-  it('B56: adds through its own shell once the add before it failed, and only the first hears why', async () => {
+  it('B41: adds through its own shell once the add before it failed, and only the first hears why', async () => {
     let fail: (error: Error) => void = () => {};
     const failing = {
       connections: vi.fn(async () => NO_CONNECTIONS),
