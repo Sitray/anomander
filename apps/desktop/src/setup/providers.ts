@@ -2,8 +2,9 @@
 // pi-ai, each with a model suggested for it. Its key is stored under the variable pi-ai reads
 // (`keyName`), never shown: the screen names the key by `keyOwner`. A provider with a
 // subscription login (R-27 AC1) names its account. Any other provider is still reached with
-// "Otro modelo…" and its key by variable name. A daemon test checks that every suggested model
-// is one pi-ai knows and that it reads photos, so one suggestion serves both models.
+// "Otro modelo…" and its key by variable name. Daemon tests check that every suggested model
+// is one pi-ai knows and that it reads photos, so one suggestion serves both models, and that
+// every `keyName` is the variable pi-ai reads for its provider (B64).
 
 export interface SetupProvider {
   /** The pi-ai provider ID: what goes before the slash of `provider/model`. */
