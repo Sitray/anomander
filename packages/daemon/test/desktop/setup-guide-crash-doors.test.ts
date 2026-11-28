@@ -46,6 +46,7 @@ const { loadConfig } = await import('../../src/config.ts');
 const { resolveModels } = await import('../../src/setup/setup-guide.ts');
 const { acquireDaemonLock } = await import('../../src/store/daemon-lock.ts');
 const { exitOnceWritten } = await import('../../src/crash.ts');
+const { SHUTDOWN_DEADLINE_MS } = await import('../../src/app/shutdown.ts');
 
 let scratch: string;
 const logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn() };
@@ -137,6 +138,38 @@ describe('the doors of the setup guide (B85)', () => {
     await expect(stopping).rejects.toThrow('local boom');
     expect(tgDone).toBe(true);
     expect(lockFree(config.dbPath)).toBe(true);
+  });
+
+  it('B86: stop gives up on a hanging door at the deadline, logs it, releases the lock, throws the first failure', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    try {
+      doors.localStop = () => Promise.reject(new Error('local boom'));
+      doors.tgStop = () => new Promise(() => {});
+      logger.warn.mockClear();
+      const { guide, config } = start();
+      const stopping = guide.stop();
+      let settled = false;
+      stopping.then(
+        () => {
+          settled = true;
+        },
+        () => {
+          settled = true;
+        },
+      );
+      await vi.advanceTimersByTimeAsync(SHUTDOWN_DEADLINE_MS - 1);
+      expect(settled).toBe(false);
+      expect(lockFree(config.dbPath)).toBe(false);
+      expect(logger.warn).not.toHaveBeenCalledWith(expect.stringContaining('ms passed'));
+      await vi.advanceTimersByTimeAsync(1);
+      await expect(stopping).rejects.toThrow('local boom');
+      expect(lockFree(config.dbPath)).toBe(true);
+      expect(logger.warn).toHaveBeenCalledWith(
+        `the setup guide stopped before every door closed: ${SHUTDOWN_DEADLINE_MS} ms passed`,
+      );
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('a crash during a stop reuses the stop (telegram.stop once, no halt)', async () => {

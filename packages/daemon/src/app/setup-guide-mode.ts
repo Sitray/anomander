@@ -9,6 +9,7 @@ import { acquireDaemonLock } from '../store/daemon-lock.ts';
 import { openTelegramDoor } from '../telegram-door.ts';
 import { startChannel } from './local-channel.ts';
 import { watchingPastes } from './login-waits.ts';
+import { SHUTDOWN_DEADLINE_MS, settlesWithin } from './shutdown.ts';
 import type { Anomander, LoginDeps } from './types.ts';
 
 /**
@@ -173,12 +174,25 @@ export const startSetupGuide = (config: Config, deps: SetupGuideDeps): Anomander
     halt: async () => {
       await Promise.allSettled(halt({ crashed: true }));
     },
+    // B86: a door that hangs holds the stop up to the daemon's own deadline, then the lock is
+    // released anyway. What a door failed with, in time, is thrown, the first door's first.
     stop: async () => {
-      const failures = (await Promise.allSettled(halt()))
-        .filter((step) => step.status === 'rejected')
-        .map((step) => step.reason);
+      const failed: { error: unknown }[] = [];
+      const ended = Promise.all(
+        halt().map((door, index) =>
+          door.catch((error: unknown) => {
+            failed[index] = { error };
+          }),
+        ),
+      );
+      if (!(await settlesWithin(ended, SHUTDOWN_DEADLINE_MS))) {
+        logger.warn(
+          `the setup guide stopped before every door closed: ${SHUTDOWN_DEADLINE_MS} ms passed`,
+        );
+      }
       lock.release();
-      if (failures.length > 0) throw failures[0];
+      const first = failed.find((failure) => failure !== undefined);
+      if (first !== undefined) throw first.error;
     },
   };
 };
