@@ -535,7 +535,13 @@ fn a_restart_hands_over_the_login_the_stopping_daemon_handed_back() -> Result<()
             on_credentials: Some(Arc::clone(&on_credentials)),
         })
     };
-    let supervisor = Supervisor::new(Box::new(prepare), Box::new(|_| {}), fast());
+    // The handover rides on a graceful stop: under load a 300 ms stop timeout killed the stub
+    // before its TERM trap printed the login, so this test waits as long as a real stop may take.
+    let patient = Options {
+        stop_timeout: Duration::from_secs(10),
+        ..fast()
+    };
+    let supervisor = Supervisor::new(Box::new(prepare), Box::new(|_| {}), patient);
     let wait_running = |supervisor: &Supervisor| {
         let deadline = Instant::now() + Duration::from_secs(10);
         while supervisor.current().status.state != DaemonState::Running {
