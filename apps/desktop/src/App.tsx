@@ -110,7 +110,7 @@ export function App() {
   // "Deshacer" in Gastos, stored as a press in the chat with its reply. B56: apart from the
   // window shown again, so it is never taken for a second sign of the same show.
   const storedChangedListeners = useRef(new Set<() => void>());
-  const onForgotten = useCallback(() => {
+  const onStoredChanged = useCallback(() => {
     for (const listener of storedChangedListeners.current) listener();
   }, []);
   const subscribeStoredChanged = useCallback((changed: () => void) => {
@@ -211,7 +211,7 @@ export function App() {
                 <MemoryScreen
                   channel={snapshot.channel}
                   onClose={close}
-                  onForgotten={onForgotten}
+                  onForgotten={onStoredChanged}
                 />
               </div>
             )}
@@ -232,7 +232,7 @@ export function App() {
                 <ExpensesScreen
                   channel={snapshot.channel}
                   onClose={close}
-                  onAmended={onForgotten}
+                  onAmended={onStoredChanged}
                   onCorrecting={close}
                 />
               </div>
