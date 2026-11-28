@@ -1,7 +1,8 @@
 name: Release
 
-# The Windows installer of a release (B11). A pushed `vX.Y.Z` tag builds the NSIS installer, with
-# the daemon and the Node it runs staged inside (scripts/stage-daemon.mjs), and adds it with its
+# The Windows installer of a release (B11). A pushed `vX.Y.Z` tag runs the tests on Windows, then
+# builds the NSIS installer, with the daemon and the Node it runs staged inside
+# (scripts/stage-daemon.mjs), and adds it with its
 # SHA-256 to the tag's GitHub release, a draft created here when the tag has none, with the tag's
 # CHANGELOG section as its notes (scripts/release-notes.sh). The macOS app is built and added on
 # a Mac with scripts/release.sh; the maintainer publishes the draft once both are there.
@@ -76,6 +77,15 @@ jobs:
       - uses: dtolnay/rust-toolchain@df2a88e9fe4098bad09cb42c3dec7187f15861fc # master
         with:
           toolchain: stable
+
+      # The release is the only Windows run while CI is paused (B44): the tests that run on Windows
+      # alone run here, before anything is built or uploaded. A failure leaves the draft empty.
+      - name: pnpm test
+        run: pnpm test
+
+      - name: cargo test
+        working-directory: apps/desktop/src-tauri
+        run: cargo test
 
       - name: stage the daemon and Node
         run: node scripts/stage-daemon.mjs win32-x64

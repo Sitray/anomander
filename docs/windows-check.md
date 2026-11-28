@@ -9,7 +9,7 @@ Note what fails, with the step's number, and attach "Copiar diagnóstico" (step 
 
 ## 1. First run
 
-- [ ] The installer (`ANOMANDER_0.1.0_x64-setup.exe`) runs after SmartScreen's "More info" ›
+- [ ] The installer (`ANOMANDER_<version>_x64-setup.exe`) runs after SmartScreen's "More info" ›
       "Run anyway", and puts ANOMANDER in the Start menu.
 - [ ] Opening ANOMANDER shows the chat window and, in the notification area (perhaps under the
       "^" arrow), the "A" icon. No console window opens, then or later.
@@ -93,7 +93,7 @@ Note what fails, with the step's number, and attach "Copiar diagnóstico" (step 
 ## 11. Logs
 
 - [ ] `%LOCALAPPDATA%\dev.anomander.desktop\logs\anomander.log` exists, has the start line
-      ("ANOMANDER 0.1.0 started") and the daemon's lines, and no key or token from the setup.
+      ("ANOMANDER <version> started") and the daemon's lines, and no key or token from the setup.
 
 ## 12. "Copiar diagnóstico"
 
