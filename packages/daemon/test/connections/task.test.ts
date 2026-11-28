@@ -227,6 +227,19 @@ describe('DK-11: a task with connections', () => {
     expect(confirmed).toHaveBeenCalledOnce();
   });
 
+  it('B67: when "Permitir siempre" cannot be stored, nothing runs and the call still waits', async () => {
+    script = [call(['notes__create', { title: 'x' }]), say('Hecho.')];
+    const outcome = asked(await start([notes()]).start('t'));
+    const failing = () => {
+      throw new Error('disk full');
+    };
+
+    await expect(tasks.answer(outcome.id, true, failing)).rejects.toThrow('disk full');
+    expect(made).toEqual([]);
+    expect(await tasks.answer(outcome.id, true)).toEqual({ kind: 'answer', text: 'Hecho.' });
+    expect(made).toHaveLength(1);
+  });
+
   it('S3: "Detener" ends the task and nothing runs; an answer is taken once', async () => {
     script = [call(['notes__create', { title: 'x' }])];
     const outcome = asked(await start([notes()]).start('Apunta x'));
