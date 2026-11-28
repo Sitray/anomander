@@ -361,6 +361,8 @@ const es = {
       model_unset: 'Aún no hay un modelo guardado.',
       vision_model_unset:
         'Falta el modelo para fotos. Escribe uno que lea imágenes en «Modelo para fotos» y guarda.',
+      vision_model_text_only:
+        'El modelo para fotos no lee imágenes. Escribe uno que sí en «Modelo para fotos» y guarda.',
       model_unknown: 'ANOMANDER no conoce ese modelo. Elige otro.',
       not_connected: 'Falta la clave del proveedor, o conectar tu suscripción.',
       budget_exhausted: 'Hoy ya se ha llegado al límite diario de llamadas a la IA. Prueba mañana.',
@@ -1037,6 +1039,8 @@ const en: Strings = {
       model_unset: 'No model is saved yet.',
       vision_model_unset:
         'The model for photos is missing. Write one that reads images in "Model for photos" and save.',
+      vision_model_text_only:
+        'The model for photos doesn\'t read images. Write one that does in "Model for photos" and save.',
       model_unknown: "ANOMANDER doesn't know that model. Choose another one.",
       not_connected: "The provider's key is missing, or your subscription is not connected.",
       budget_exhausted: 'The daily limit of AI calls has been reached today. Try tomorrow.',

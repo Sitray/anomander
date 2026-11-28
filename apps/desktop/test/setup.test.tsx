@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import type { ProbeOutcome } from '@anomander/protocol';
+import { type ProbeOutcome, setLocale } from '@anomander/protocol';
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { SETUP_PROVIDERS } from '../src/setup/providers.ts';
@@ -789,6 +789,33 @@ describe('onboarding (DK-23)', () => {
         expect(onProbe).toHaveBeenCalledOnce();
       },
     );
+
+    it("says a photo model that reads no images in the principal's words (B88)", async () => {
+      renderProbe(FILLED_SETUP, async () => 'vision_model_text_only');
+      fireEvent.click(probe());
+
+      expect(
+        await screen.findByText(
+          'El modelo para fotos no lee imágenes. Escribe uno que sí en «Modelo para fotos» y guarda.',
+        ),
+      ).toBeTruthy();
+    });
+
+    it('says a photo model that reads no images in English too (B88)', async () => {
+      setLocale('en');
+      try {
+        renderProbe(FILLED_SETUP, async () => 'vision_model_text_only');
+        fireEvent.click(probe());
+
+        expect(
+          await screen.findByText(
+            'The model for photos doesn\'t read images. Write one that does in "Model for photos" and save.',
+          ),
+        ).toBeTruthy();
+      } finally {
+        setLocale('es');
+      }
+    });
 
     it('says so when the connection was lost before the answer', async () => {
       renderProbe(FILLED_SETUP, async () => 'lost');
