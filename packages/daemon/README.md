@@ -894,7 +894,9 @@ and is never a recent turn (R-17 AC8).
 
 A crash halts the setup guide as it halts the daemon (B85): both doors begin to close in the same
 call, and the bot stops with `haltTelegramBot`, so what it read after the halt gets no reply and
-comes again after the restart. Its `stop` keeps `bot.stop()`.
+comes again after the restart. Its `stop` keeps `bot.stop()` and waits for both doors up to the
+daemon's own `SHUTDOWN_DEADLINE_MS` (5 s, `src/app/shutdown.ts`, B86); past it, it logs that it gave
+up, releases the lock and throws what a door failed with in time.
 
 ## Running the daemon
 
@@ -951,8 +953,10 @@ a header row even with no rows) and all three in `ledger.json`, into a new
 `<data folder>/exports/<yyyymmddThhmmssZ>/` (`-1`, `-2`, … within the same second). The views are
 read in one transaction; folders get mode 700 and files 600, and a failed write leaves no partial
 folder. A CSV text that starts with `=`, `+`, `-`, `@`, a tab or a carriage return, also behind
-spaces or as the full-width `＝`, `＋`, `－`, `＠` (B54), gets a leading `'`, so a spreadsheet
-never runs a merchant or product name read from a receipt as a formula;
+spaces or as the full-width `＝`, `＋`, `－`, `＠` (B54), or behind zero-width and other format
+characters (U+200B, U+200C, U+200D, U+2060, U+FEFF, …) or as the small-form `﹦`, `﹢`, `﹣`, `﹫`
+or the minus sign `−` (B86), gets a leading `'`, so a spreadsheet never runs a merchant or product
+name read from a receipt as a formula; numbers are written as they are;
 `ledger.json` keeps the text as stored. Each `gastos` and `lineas_de_compra` row has its
 `moneda`; `por_moneda` of `pendientes_de_confirmar` is JSON text in its CSV file and an array in
 `ledger.json` (B71). No processor is called.

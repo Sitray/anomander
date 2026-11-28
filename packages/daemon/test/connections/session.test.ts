@@ -1,12 +1,14 @@
 import { type DoorReply, HISTORY_LIMIT } from '@anomander/protocol';
+import type { AssistantMessage } from '@earendil-works/pi-ai';
 import type Database from 'better-sqlite3';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { Connection } from '../../src/connections/connection.ts';
 import {
   createConnectionSession,
   type Later,
   type TurnLock,
 } from '../../src/connections/session.ts';
-import type { ConnectionTasks } from '../../src/connections/task.ts';
+import { type ConnectionTasks, createConnectionTasks } from '../../src/connections/task.ts';
 import { createRecentTurns } from '../../src/conversation/recent-turns.ts';
 import { storedConversation } from '../../src/store/conversation.ts';
 import { applyMigrations, openDatabase } from '../../src/store/database.ts';
@@ -317,5 +319,72 @@ describe('connection session after an erase (B81)', () => {
     turns.clear();
 
     expect(turns.erasures()).toBe(before + 1);
+  });
+});
+
+describe('"Permitir siempre" whose grant cannot be stored (B67)', () => {
+  it('nothing runs, and "Permitir siempre" pressed again stores it and runs the call once', async () => {
+    const made: unknown[] = [];
+    const notes: Connection = {
+      name: 'notes',
+      identity: 'id-notes',
+      tools: [
+        { name: 'create', description: 'c', inputSchema: { type: 'object', properties: {} } },
+      ],
+      readOnly: new Set(),
+      call: async (_tool, args) => {
+        made.push(args);
+        return { text: 'ok', isError: false };
+      },
+    };
+    const script = [
+      {
+        role: 'assistant',
+        content: [{ type: 'toolCall', id: 'c1', name: 'notes__create', arguments: { t: 'x' } }],
+        stopReason: 'toolUse',
+      },
+      { role: 'assistant', content: [{ type: 'text', text: 'Hecho.' }], stopReason: 'stop' },
+    ] as unknown as AssistantMessage[];
+    const tasks = createConnectionTasks({
+      complete: async () => {
+        const next = script.shift();
+        if (next === undefined) throw new Error('script over');
+        return next;
+      },
+      model: 'm',
+      connections: async () => [notes],
+      logger,
+      newId: () => 'id-1',
+    });
+    let full = true;
+    const granted: unknown[] = [];
+    const session = createConnectionSession({
+      tasks,
+      turnLock: lock(),
+      turns: createRecentTurns({ db, now: () => AT, logger }),
+      keep: () => {},
+      send: async () => {},
+      grant: (call) => {
+        if (full) throw new Error('disk full');
+        granted.push(call);
+      },
+      logger,
+    });
+    const asked = await (session.run('apunta x', 'app') as Later).later;
+    const always = asked?.buttons
+      ?.flatMap((button) => ('data' in button ? [button.data] : []))
+      .find((data) => data.endsWith(':always'));
+    expect(always).toBe('connection:id-1:always');
+
+    await expect((session.answer(always ?? '', 'app') as Later).later).rejects.toThrow('disk full');
+    expect(made).toEqual([]);
+
+    full = false;
+    expect((await (session.answer(always ?? '', 'app') as Later).later)?.text).toBe('Hecho.');
+    expect(granted).toEqual([{ server: 'notes', tool: 'create', identity: 'id-notes' }]);
+    expect(made).toHaveLength(1);
+    // Answered: a later press on it grants nothing.
+    expect(session.answer(always ?? '', 'app')).toEqual({ text: expect.any(String) });
+    expect(granted).toHaveLength(1);
   });
 });

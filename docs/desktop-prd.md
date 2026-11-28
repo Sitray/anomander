@@ -782,12 +782,14 @@ and keep its secrets in the operating system instead of a text file.
     borrar" (B84), S-187. At its start the daemon revokes
     every grant of a server that is no longer in `mcp.json`, was renamed, or whose command or URL
     changed, so removing a server removes its grants and adding it again does not bring them back;
-    a file it cannot read revokes none.
+    no `mcp.json` is no server, so it revokes them all, and a file it cannot read revokes none
+    (B67).
   - AC4: the question says the call in one plain line above the exact JSON (S-181, S-182): each
     argument by its name, a text inside «», anything else as compact JSON, each value cut at 60
     characters and the line cut between arguments at 200 with "…", what cannot be seen written as
     its code (DK-11 AC3). So that a value cannot fake another argument, the «» inside a name or a
-    value and the commas of a name are written as their code too, and a backslash is doubled, so
+    value and the commas and spaces of a name are written as their code too (a name ends at its
+    first space, B65), and a backslash is doubled, so
     a code typed in a value never reads as one written by code. The JSON stays exact and below it.
   - AC5: only the principal's press on "Permitir siempre" under the call that waits grants, and
     the grant is stored only once that call is found waiting, before it is made; the

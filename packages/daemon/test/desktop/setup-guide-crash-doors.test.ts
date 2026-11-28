@@ -46,6 +46,7 @@ const { loadConfig } = await import('../../src/config.ts');
 const { resolveModels } = await import('../../src/setup/setup-guide.ts');
 const { acquireDaemonLock } = await import('../../src/store/daemon-lock.ts');
 const { exitOnceWritten } = await import('../../src/crash.ts');
+const { SHUTDOWN_DEADLINE_MS } = await import('../../src/app/shutdown.ts');
 
 let scratch: string;
 const logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn() };
@@ -139,6 +140,38 @@ describe('the doors of the setup guide (B85)', () => {
     expect(lockFree(config.dbPath)).toBe(true);
   });
 
+  it('B86: stop gives up on a hanging door at the deadline, logs it, releases the lock, throws the first failure', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    try {
+      doors.localStop = () => Promise.reject(new Error('local boom'));
+      doors.tgStop = () => new Promise(() => {});
+      logger.warn.mockClear();
+      const { guide, config } = start();
+      const stopping = guide.stop();
+      let settled = false;
+      stopping.then(
+        () => {
+          settled = true;
+        },
+        () => {
+          settled = true;
+        },
+      );
+      await vi.advanceTimersByTimeAsync(SHUTDOWN_DEADLINE_MS - 1);
+      expect(settled).toBe(false);
+      expect(lockFree(config.dbPath)).toBe(false);
+      expect(logger.warn).not.toHaveBeenCalledWith(expect.stringContaining('ms passed'));
+      await vi.advanceTimersByTimeAsync(1);
+      await expect(stopping).rejects.toThrow('local boom');
+      expect(lockFree(config.dbPath)).toBe(true);
+      expect(logger.warn).toHaveBeenCalledWith(
+        `the setup guide stopped before every door closed: ${SHUTDOWN_DEADLINE_MS} ms passed`,
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('a crash during a stop reuses the stop (telegram.stop once, no halt)', async () => {
     let letGo = (): void => {};
     doors.tgStop = () => new Promise<void>((r) => (letGo = r));
@@ -165,5 +198,98 @@ describe('the doors of the setup guide (B85)', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+// Verifier probes (B86 item 5): the setup guide's stop past its deadline.
+describe('the setup guide stop past its deadline (B86, verifier)', () => {
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    logger.warn.mockClear();
+  });
+  afterEach(() => vi.useRealTimers());
+
+  it('both doors close in time: resolves at once, no warning, lock free', async () => {
+    const { guide, config } = start();
+    await expect(guide.stop()).resolves.toBeUndefined();
+    expect(logger.warn).not.toHaveBeenCalledWith(expect.stringContaining('ms passed'));
+    expect(lockFree(config.dbPath)).toBe(true);
+  });
+
+  it('a door that rejects after the deadline: the stop resolved, the late rejection is handled', async () => {
+    let fail = (_: Error): void => {};
+    doors.tgStop = () => new Promise<void>((_, reject) => (fail = reject));
+    const { guide, config } = start();
+    const stopping = guide.stop();
+    await vi.advanceTimersByTimeAsync(SHUTDOWN_DEADLINE_MS);
+    await expect(stopping).resolves.toBeUndefined();
+    expect(lockFree(config.dbPath)).toBe(true);
+    fail(new Error('late boom'));
+    await vi.advanceTimersByTimeAsync(10);
+    expect(
+      logger.warn.mock.calls.filter(([line]) => String(line).includes('ms passed')),
+    ).toHaveLength(1);
+  });
+
+  it('a door that closes after the deadline does not touch the lock a new daemon took', async () => {
+    let done = (): void => {};
+    doors.tgStop = () => new Promise<void>((resolve) => (done = resolve));
+    const { guide, config } = start();
+    const stopping = guide.stop();
+    await vi.advanceTimersByTimeAsync(SHUTDOWN_DEADLINE_MS);
+    await stopping;
+    const next = acquireDaemonLock(config.dbPath);
+    done();
+    await vi.advanceTimersByTimeAsync(10);
+    expect(lockFree(config.dbPath)).toBe(false);
+    next.release();
+    expect(lockFree(config.dbPath)).toBe(true);
+  });
+
+  it('two stops racing on a hanging door: both end at the deadline, each door closed once', async () => {
+    doors.tgStop = () => new Promise(() => {});
+    const { guide, config } = start();
+    const first = guide.stop();
+    const second = guide.stop();
+    await vi.advanceTimersByTimeAsync(SHUTDOWN_DEADLINE_MS);
+    await expect(first).resolves.toBeUndefined();
+    await expect(second).resolves.toBeUndefined();
+    expect(doors.calls).toEqual(['local.stop', 'telegram.stop']);
+    expect(lockFree(config.dbPath)).toBe(true);
+  });
+
+  it('a crash after a timed-out stop reuses the closing doors and still exits on time', async () => {
+    doors.tgStop = () => new Promise(() => {});
+    const { guide } = start();
+    const stopping = guide.stop();
+    await vi.advanceTimersByTimeAsync(SHUTDOWN_DEADLINE_MS);
+    await stopping;
+    const exited = vi.fn();
+    exitOnceWritten([], exited, 5_000, () => guide.halt())(exitCodes.failed);
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(exited).toHaveBeenCalledWith(exitCodes.failed);
+    expect(doors.calls).toEqual(['local.stop', 'telegram.stop']);
+  });
+
+  it("both doors fail in time: the first door's failure is thrown, whichever failed first", async () => {
+    doors.tgStop = () => Promise.reject(new Error('tg boom'));
+    doors.localStop = () =>
+      new Promise<void>((_, reject) => setTimeout(() => reject(new Error('local boom')), 100));
+    const { guide } = start();
+    const stopping = guide.stop();
+    stopping.catch(() => {});
+    await vi.advanceTimersByTimeAsync(100);
+    await expect(stopping).rejects.toThrow('local boom');
+  });
+
+  it('a door fails in time, the other hangs: that failure is thrown at the deadline', async () => {
+    doors.tgStop = () => Promise.reject(new Error('tg boom'));
+    doors.localStop = () => new Promise(() => {});
+    const { guide, config } = start();
+    const stopping = guide.stop();
+    stopping.catch(() => {});
+    await vi.advanceTimersByTimeAsync(SHUTDOWN_DEADLINE_MS);
+    await expect(stopping).rejects.toThrow('tg boom');
+    expect(lockFree(config.dbPath)).toBe(true);
   });
 });

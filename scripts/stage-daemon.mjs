@@ -17,6 +17,8 @@
 // strips the types of a `.ts` file only outside `node_modules`.
 //
 // Run it again at will: it rebuilds the folder from scratch, beside it, and swaps it in at the end.
+// Imported instead of run (scripts/test/stage-daemon.test.ts), it stages nothing: it only exports
+// the helpers below.
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import {
@@ -28,11 +30,13 @@ import {
   readdirSync,
   readFileSync,
   readlinkSync,
+  realpathSync,
   renameSync,
   rmSync,
   writeFileSync,
 } from 'node:fs';
 import { dirname, join, posix, relative, resolve, sep } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 const ROOT = resolve(import.meta.dirname, '..');
 const OUT = join(ROOT, 'apps/desktop/src-tauri/resources/daemon');
@@ -43,7 +47,7 @@ const CACHE = join(ROOT, 'node_modules/.cache/anomander-node');
  * The Node every release carries; its major is `.node-version`'s. To move it, take the new
  * version's hashes from https://nodejs.org/dist/v<version>/SHASUMS256.txt.
  */
-const NODE = {
+export const NODE = {
   version: '24.22.3',
   archives: {
     'darwin-arm64': {
@@ -93,10 +97,10 @@ const run = (command, args, options = {}) => {
   if (ran.status !== 0) fail(`${command} ${args.join(' ')} ended with ${ran.status ?? ran.signal}`);
 };
 
-const sha256 = (file) => createHash('sha256').update(readFileSync(file)).digest('hex');
+export const sha256 = (file) => createHash('sha256').update(readFileSync(file)).digest('hex');
 
 /** Each path under `dir`, depth first, children before their folder. */
-function* walk(dir) {
+export function* walk(dir) {
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
     const path = join(dir, entry.name);
     if (entry.isDirectory()) yield* walk(path);
@@ -138,7 +142,7 @@ const install = (stage, target) => {
 };
 
 /** Replaces each link pnpm made to a workspace package with a package that re-exports it. */
-const shimWorkspacePackages = (stage) => {
+export const shimWorkspacePackages = (stage) => {
   const byDir = new Map(
     Object.keys(PACKAGES).map((pkg) => [
       join(stage, pkg),
@@ -165,7 +169,8 @@ const shimWorkspacePackages = (stage) => {
   }
 };
 
-const strip = (stage, target) => {
+/** Drops what the daemon never loads from the dependencies, and the other platforms' addons. */
+export const strip = (stage, target) => {
   const modules = join(stage, 'node_modules');
   for (const path of walk(modules)) {
     const name = path.slice(path.lastIndexOf(sep) + 1);
@@ -184,20 +189,29 @@ const strip = (stage, target) => {
   }
 };
 
-/** Node's binary, from the cache when its hash still matches, else from nodejs.org. */
-const stageNode = async (stage, target) => {
-  const archive = NODE.archives[target];
-  const cached = join(CACHE, archive.file);
+/**
+ * The path of Node's `archive` in `cache`: the cached file when its hash still matches, else one
+ * downloaded from nodejs.org into it. It fails unless the file has the pinned SHA-256.
+ */
+export const cachedArchive = async (archive, cache = CACHE, download = fetch) => {
+  const cached = join(cache, archive.file);
   if (!existsSync(cached) || sha256(cached) !== archive.sha256) {
     const url = `https://nodejs.org/dist/v${NODE.version}/${archive.file}`;
     console.info(`stage-daemon: downloading ${url}`);
-    const response = await fetch(url);
+    const response = await download(url);
     if (!response.ok) fail(`${url}: ${response.status}`);
-    mkdirSync(CACHE, { recursive: true });
+    mkdirSync(cache, { recursive: true });
     writeFileSync(cached, Buffer.from(await response.arrayBuffer()));
   }
   const got = sha256(cached);
   if (got !== archive.sha256) fail(`${archive.file} has SHA-256 ${got}, not ${archive.sha256}`);
+  return cached;
+};
+
+/** Node's binary, from the cache when its hash still matches, else from nodejs.org. */
+const stageNode = async (stage, target) => {
+  const archive = NODE.archives[target];
+  const cached = await cachedArchive(archive);
   const top = archive.file.replace(/\.(tar\.gz|zip)$/, '');
   const extracted = join(stage, '.node');
   mkdirSync(extracted);
@@ -236,29 +250,42 @@ const check = (stage, node) => {
   });
 };
 
-const target = process.argv[2] ?? `${process.platform}-${process.arch}`;
-if (!(target in NODE.archives)) {
-  fail(`no release for ${target}; one of: ${Object.keys(NODE.archives).join(', ')}`);
-}
-const major = readFileSync(join(ROOT, '.node-version'), 'utf8').trim();
-if (NODE.version.split('.')[0] !== major)
-  fail(`Node ${NODE.version} is not .node-version's ${major}`);
+/** Fails when any link is left under `stage`: the app's resource folder must hold none. */
+export const refuseLinks = (stage) => {
+  for (const path of walk(stage)) {
+    if (lstatSync(path).isSymbolicLink()) fail(`a link is left: ${relative(stage, path)}`);
+  }
+};
 
-rmSync(PARTIAL, { recursive: true, force: true });
-mkdirSync(PARTIAL, { recursive: true });
-copySources(PARTIAL);
-install(PARTIAL, target);
-strip(PARTIAL, target);
-shimWorkspacePackages(PARTIAL);
-const node = await stageNode(PARTIAL, target);
-for (const path of walk(PARTIAL)) {
-  if (lstatSync(path).isSymbolicLink()) fail(`a link is left: ${relative(PARTIAL, path)}`);
+const stage = async () => {
+  const target = process.argv[2] ?? `${process.platform}-${process.arch}`;
+  if (!(target in NODE.archives)) {
+    fail(`no release for ${target}; one of: ${Object.keys(NODE.archives).join(', ')}`);
+  }
+  const major = readFileSync(join(ROOT, '.node-version'), 'utf8').trim();
+  if (NODE.version.split('.')[0] !== major)
+    fail(`Node ${NODE.version} is not .node-version's ${major}`);
+
+  rmSync(PARTIAL, { recursive: true, force: true });
+  mkdirSync(PARTIAL, { recursive: true });
+  copySources(PARTIAL);
+  install(PARTIAL, target);
+  strip(PARTIAL, target);
+  shimWorkspacePackages(PARTIAL);
+  const node = await stageNode(PARTIAL, target);
+  refuseLinks(PARTIAL);
+  writeFileSync(
+    join(PARTIAL, 'stage.json'),
+    `${JSON.stringify({ target, node: NODE.version }, null, 2)}\n`,
+  );
+  if (target === `${process.platform}-${process.arch}`) check(PARTIAL, node);
+  rmSync(OUT, { recursive: true, force: true });
+  renameSync(PARTIAL, OUT);
+  console.info(`stage-daemon: ${relative(ROOT, OUT)} is ready for ${target}`);
+};
+
+// Run as `node scripts/stage-daemon.mjs`, not imported: Node gives the main module's real path.
+const script = process.argv[1];
+if (script !== undefined && existsSync(script)) {
+  if (realpathSync(script) === realpathSync(fileURLToPath(import.meta.url))) await stage();
 }
-writeFileSync(
-  join(PARTIAL, 'stage.json'),
-  `${JSON.stringify({ target, node: NODE.version }, null, 2)}\n`,
-);
-if (target === `${process.platform}-${process.arch}`) check(PARTIAL, node);
-rmSync(OUT, { recursive: true, force: true });
-renameSync(PARTIAL, OUT);
-console.info(`stage-daemon: ${relative(ROOT, OUT)} is ready for ${target}`);

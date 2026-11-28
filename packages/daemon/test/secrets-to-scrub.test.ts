@@ -1,7 +1,7 @@
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createFileCredentialStore } from '../src/auth/file-credential-store.ts';
 import { rememberingLogins } from '../src/auth/remembering-logins.ts';
 import { createShellCredentialStore } from '../src/auth/shell-credential-store.ts';
@@ -9,6 +9,7 @@ import { loadConfig } from '../src/config.ts';
 import { createOAuthKeeper } from '../src/connections/oauth.ts';
 import { createScrubbingLogger } from '../src/scrubbing-logger.ts';
 import {
+  ACQUIRED_KEPT_MS,
   ACQUIRED_LIMIT,
   createSecretList,
   secretsBeforeConfig,
@@ -196,6 +197,9 @@ describe('the secrets the daemon scrubs from its log', () => {
 // B42: what the daemon gets after its start (a refreshed or new login, a refreshed OAuth token)
 // is scrubbed too, by the same rules as what it read at the start.
 describe('the secrets the daemon gets after its start', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
   const NEW_ACCESS = 'late-access-0123456789abcdef';
   const NEW_REFRESH = 'late-refresh-0123456789abcdef';
 
@@ -541,19 +545,24 @@ describe('the secrets the daemon gets after its start', () => {
   };
 
   it('B53: keep at most ACQUIRED_LIMIT acquired secrets, dropping the one seen longest ago', () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
     const list = createSecretList();
     list.setFromStart([LOCAL_TOKEN]);
-    failuresQuoting(list, ACQUIRED_LIMIT + 1, 'failed');
+    failuresQuoting(list, 1, 'old');
+    // B86: a secret seen within ACQUIRED_KEPT_MS is never dropped by the count.
+    vi.advanceTimersByTime(ACQUIRED_KEPT_MS);
+    failuresQuoting(list, ACQUIRED_LIMIT, 'failed');
     const log = logOver(list);
 
     expect(list.current()).toHaveLength(1 + ACQUIRED_LIMIT);
-    expect(log('failed-0123456789-0')).toBe('failed-0123456789-0');
-    expect(log('failed-0123456789-1')).toBe('[secret]');
-    expect(log(`failed-0123456789-${ACQUIRED_LIMIT}`)).toBe('[secret]');
+    expect(log('old-0123456789-0')).toBe('old-0123456789-0');
+    expect(log('failed-0123456789-0')).toBe('[secret]');
+    expect(log(`failed-0123456789-${ACQUIRED_LIMIT - 1}`)).toBe('[secret]');
     expect(log(`local ${LOCAL_TOKEN}`)).toBe('local [secret]');
   });
 
   it('B53: keep a login seen again however many secrets came before it', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
     const list = createSecretList();
     const store = rememberingLogins(
       createShellCredentialStore(
@@ -568,6 +577,7 @@ describe('the secrets the daemon gets after its start', () => {
 
     await store.read('openai-codex');
     failuresQuoting(list, ACQUIRED_LIMIT - 2, 'early');
+    vi.advanceTimersByTime(ACQUIRED_KEPT_MS);
     // Every model call reads the login it uses: it is the newest again.
     await store.read('openai-codex');
     failuresQuoting(list, ACQUIRED_LIMIT - 2, 'late');
@@ -577,6 +587,7 @@ describe('the secrets the daemon gets after its start', () => {
   });
 
   it("B53: keep the connections' current OAuth tokens however many secrets came after them", () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
     const list = createSecretList();
     const log = logOver(list);
     const set = (access: string) => ({
@@ -585,11 +596,13 @@ describe('the secrets the daemon gets after its start', () => {
 
     list.acquire('oauth', set('first-access-0123456789'));
     list.acquire('oauth', set(NEW_ACCESS));
+    vi.advanceTimersByTime(ACQUIRED_KEPT_MS);
     failuresQuoting(list, ACQUIRED_LIMIT + 10, 'failed');
 
     expect(log(`Bearer ${NEW_ACCESS}`)).toBe('Bearer [secret]');
     expect(log('Bearer first-access-0123456789')).toBe('Bearer first-access-0123456789');
-    expect(list.current()).toHaveLength(ACQUIRED_LIMIT);
+    // The failures, seen within ACQUIRED_KEPT_MS, all stay (B86).
+    expect(list.current()).toHaveLength(1 + ACQUIRED_LIMIT + 10);
   });
 
   it('keeps logging when a secret holds a lone surrogate', () => {

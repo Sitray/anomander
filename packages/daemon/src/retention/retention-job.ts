@@ -5,7 +5,7 @@ import { buttons, decisionButtons, type Notify, strings } from '@anomander/proto
 import type Database from 'better-sqlite3';
 import type { Logger } from '../processor/ports.ts';
 import { CONVERSATION_RETENTION_DAYS, forgetConversationBefore } from '../store/conversation.ts';
-import { reopenStaleAwaiting } from '../store/decisions.ts';
+import { DECISION_EXPIRY_MS, reopenStaleAwaiting } from '../store/decisions.ts';
 import { forgetActionsEndedBefore } from '../store/history.ts';
 import { finishReading, recordDecisionMessage } from '../store/receipts.ts';
 import {
@@ -161,7 +161,10 @@ export const createRetention = ({
       // R-17 AC6 is applied lazily, when a message arrives; a decision left awaiting text must be
       // open again here, or it would never expire (AC2).
       reopenStaleAwaiting(db, new Date(at));
-      const decisionsExpired = expireOpenDecisions(db, new Date(at - 7 * DAY).toISOString());
+      const decisionsExpired = expireOpenDecisions(
+        db,
+        new Date(at - DECISION_EXPIRY_MS).toISOString(),
+      );
       const inferencesExpired = expireLooseInferences(db, new Date(at - 30 * DAY).toISOString());
       const receiptsDiscarded = await discardExpired();
       const receiptsAbandoned = await abandonHalfRead();

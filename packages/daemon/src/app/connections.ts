@@ -41,7 +41,10 @@ export const setUpConnections = <M>({
   // one of a server removed, renamed or changed is revoked at the start; a file that cannot be
   // read changes none.
   if (read !== undefined && !read.invalid) {
-    const revoked = revokeConnectionToolsNotIn(db, read.identities, now().toISOString());
+    // B67: one that cannot be read grants nothing; said once per start, by its id only.
+    const revoked = revokeConnectionToolsNotIn(db, read.identities, now().toISOString(), (id) =>
+      logger.warn('a connection grant cannot be read; it grants nothing', { id }),
+    );
     if (revoked > 0) logger.info(`revoked ${revoked} connection grants of changed servers`);
   }
   const servers =
