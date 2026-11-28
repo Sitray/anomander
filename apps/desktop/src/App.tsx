@@ -89,15 +89,7 @@ export function App() {
 
   // B48: the shell shows the window again (closing it only hides it); the chat then shows what
   // the daemon keeps now. Subscribed as `useShell` subscribes "Detener tarea".
-  // DK-18: a forget in Memoria erased the turns of the stored conversation that said it; the chat
-  // follows it as it follows the window shown again. DK-17 AC6: and so it follows a row's
-  // "Corregir" or "Deshacer" in Gastos, stored as a press in the chat with its reply.
-  const forgottenListeners = useRef(new Set<() => void>());
-  const onForgotten = useCallback(() => {
-    for (const listener of forgottenListeners.current) listener();
-  }, []);
   const subscribeShown = useCallback((shown: () => void) => {
-    forgottenListeners.current.add(shown);
     let gone = false;
     let unlisten: (() => void) | undefined;
     native.onChatShown(shown).then(
@@ -111,7 +103,20 @@ export function App() {
     return () => {
       gone = true;
       unlisten?.();
-      forgottenListeners.current.delete(shown);
+    };
+  }, []);
+  // DK-18: a forget in Memoria erased the turns of the stored conversation that said it; the chat
+  // shows what the daemon keeps now. DK-17 AC6: and so it follows a row's "Corregir" or
+  // "Deshacer" in Gastos, stored as a press in the chat with its reply. B56: apart from the
+  // window shown again, so it is never taken for a second sign of the same show.
+  const storedChangedListeners = useRef(new Set<() => void>());
+  const onForgotten = useCallback(() => {
+    for (const listener of storedChangedListeners.current) listener();
+  }, []);
+  const subscribeStoredChanged = useCallback((changed: () => void) => {
+    storedChangedListeners.current.add(changed);
+    return () => {
+      storedChangedListeners.current.delete(changed);
     };
   }, []);
 
@@ -162,6 +167,7 @@ export function App() {
                 onTaskRunning={shell.setTaskRunning}
                 subscribeStop={shell.onStopTask}
                 subscribeShown={subscribeShown}
+                subscribeStoredChanged={subscribeStoredChanged}
                 model={snapshot.setup.model}
                 onOpenSetup={() => setOpen('setup')}
                 onStart={shell.start}

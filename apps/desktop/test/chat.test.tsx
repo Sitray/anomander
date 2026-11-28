@@ -2296,6 +2296,102 @@ describe('the stored conversation (DK-16)', () => {
         await waitFor(() => expect(shownTexts()).toEqual(['[botón: Sí]', replies.forgotten()]));
       });
 
+      /** The history requests `socket` was sent, answered by hand. */
+      const historyAsks = (socket: FakeWebSocket) =>
+        socket.requests.filter((request) => request.type === 'history');
+      /** The chat with the shell's sign that it showed the window, answered by hand. */
+      const withShellSign = async () => {
+        let shellShown: () => void = () => {};
+        FakeWebSocket.history = null;
+        render(
+          <ChatScreen
+            daemon={RUNNING}
+            channel={CHANNEL}
+            subscribeShown={(shown) => {
+              shellShown = shown;
+              return () => {};
+            }}
+          />,
+        );
+        const socket = FakeWebSocket.last;
+        act(() => socket.open());
+        const [first] = await waitFor(() => {
+          const asks = historyAsks(socket);
+          expect(asks).toHaveLength(1);
+          return asks;
+        });
+        act(() =>
+          socket.receive({ type: 'history', inReplyTo: first?.id ?? '', messages: STORED }),
+        );
+        await waitFor(() => expect(shownTexts()).toHaveLength(4));
+        return { socket, shellShown: () => act(() => shellShown()) };
+      };
+
+      it('B56: asks once when the page and the shell both say the window was shown', async () => {
+        const { socket, shellShown } = await withShellSign();
+        await hideAndShow();
+        const asked = historyAsks(socket);
+        expect(asked).toHaveLength(2);
+        act(() =>
+          socket.receive({ type: 'history', inReplyTo: asked[1]?.id ?? '', messages: STORED }),
+        );
+        await act(async () => {});
+
+        shellShown();
+        await act(async () => {});
+
+        expect(historyAsks(socket)).toHaveLength(2);
+      });
+
+      it('B56: asks again on a later sign of the shell, or once the window was hidden', async () => {
+        const now = vi.spyOn(Date, 'now').mockReturnValue(1_000_000);
+        const { socket, shellShown } = await withShellSign();
+        try {
+          now.mockReturnValue(1_001_000);
+          shellShown();
+          await waitFor(() => expect(historyAsks(socket)).toHaveLength(2));
+          act(() =>
+            socket.receive({
+              type: 'history',
+              inReplyTo: historyAsks(socket)[1]?.id ?? '',
+              messages: STORED,
+            }),
+          );
+          await act(async () => {});
+          now.mockReturnValue(1_001_500);
+          shellShown();
+          await act(async () => {});
+          expect(historyAsks(socket)).toHaveLength(2);
+          now.mockReturnValue(1_002_000);
+          shellShown();
+          await waitFor(() => expect(historyAsks(socket)).toHaveLength(3));
+          act(() =>
+            socket.receive({
+              type: 'history',
+              inReplyTo: historyAsks(socket)[2]?.id ?? '',
+              messages: STORED,
+            }),
+          );
+          await act(async () => {});
+          await hideAndShow();
+          expect(historyAsks(socket)).toHaveLength(4);
+        } finally {
+          now.mockRestore();
+        }
+      });
+
+      it('B56: asks again once the connection is back when the stored conversation did not come', async () => {
+        const { socket } = await withShellSign();
+        await hideAndShow();
+        expect(historyAsks(socket)).toHaveLength(2);
+        act(() => socket.drop());
+        await waitFor(() => expect(FakeWebSocket.last).not.toBe(socket), { timeout: 3000 });
+        const back = FakeWebSocket.last;
+        act(() => back.open());
+
+        await waitFor(() => expect(historyAsks(back)).toHaveLength(1));
+      });
+
       it('drops nothing while a message still waits for its answer', async () => {
         const socket = await shownWithQuestion();
         say('23 € cena');

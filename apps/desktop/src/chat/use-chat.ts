@@ -69,9 +69,14 @@ export interface Chat {
   clear(): Promise<'done' | 'not_done' | 'unknown'>;
   /**
    * B48: the window was shown again: it shows the stored conversation instead, once nothing on
-   * screen would be lost.
+   * screen would be lost. B56: a second sign of the same show asks nothing more.
    */
   shownAgain(): void;
+  /**
+   * DK-18, DK-17 AC6: the stored conversation changed outside the chat, as a forget in Memoria
+   * does: it is shown instead, as when the window is shown again, however soon after that.
+   */
+  storedChanged(): void;
 }
 
 export interface ChatOptions {
@@ -113,6 +118,12 @@ interface AskAgain {
 /** DK-11 AC13: how long a press waits for its add and for the daemon that reads it. */
 const GIVE_UP_MS = 60_000;
 
+/**
+ * B56: the page and the shell each say when the window is shown: a sign this soon after the
+ * stored conversation was asked for, with no hide between, is the same show.
+ */
+const SHOWN_AGAIN_MS = 1_000;
+
 /** A task started while a look waited for its turn: the screen is the task's. */
 const BUSY = Symbol('busy');
 
@@ -150,6 +161,8 @@ export const useChat = (channel: LocalChannel | null, options: ChatOptions = {})
   const wanted = useRef(false);
   /** A request for it is on its way. */
   const asking = useRef(false);
+  /** B56: when it was last asked for since the window was last hidden; `null` when not. */
+  const askedAt = useRef<number | null>(null);
   const [reload, setReload] = useState(0);
   const wantStored = useCallback(() => {
     wanted.current = true;
@@ -487,13 +500,20 @@ export const useChat = (channel: LocalChannel | null, options: ChatOptions = {})
   // B48: the window is hidden, not closed; shown again, it shows what the daemon keeps now, so a
   // forget made through Telegram meanwhile is gone from it too. The shell says when it shows the
   // window (`shownAgain`); the page's own visibility is a second, harmless sign of it.
+  // B56: both signs of one show ask once.
+  const shownAgain = useCallback(() => {
+    if (asking.current) return;
+    if (askedAt.current !== null && Date.now() - askedAt.current < SHOWN_AGAIN_MS) return;
+    wantStored();
+  }, [wantStored]);
   useEffect(() => {
     const visible = () => {
-      if (document.visibilityState === 'visible') wantStored();
+      if (document.visibilityState === 'visible') shownAgain();
+      else askedAt.current = null;
     };
     document.addEventListener('visibilitychange', visible);
     return () => document.removeEventListener('visibilitychange', visible);
-  }, [wantStored]);
+  }, [shownAgain]);
   // biome-ignore lint/correctness/useExhaustiveDependencies: tried again on every change.
   useEffect(() => {
     if (!wanted.current || asking.current) return;
@@ -504,6 +524,7 @@ export const useChat = (channel: LocalChannel | null, options: ChatOptions = {})
     if (request === undefined) return;
     wanted.current = false;
     asking.current = true;
+    askedAt.current = Date.now();
     const replacing = conversation.messages;
     void request.then((messages) => {
       asking.current = false;
@@ -557,7 +578,8 @@ export const useChat = (channel: LocalChannel | null, options: ChatOptions = {})
     stop,
     addWebSearch,
     clear,
-    shownAgain: wantStored,
+    shownAgain,
+    storedChanged: wantStored,
   };
 };
 

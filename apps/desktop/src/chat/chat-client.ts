@@ -85,7 +85,8 @@ export interface ChatClient {
   cancel(requestId: string): boolean;
   /**
    * DK-16: asks for the stored conversation; its messages, oldest first, or `null` when it did
-   * not come: no open connection, rejected, or the connection was lost first.
+   * not come: no open connection, rejected, the connection was lost first, or no answer within
+   * `HISTORY_LIMIT_MS` (B56).
    */
   requestHistory(): Promise<ChatStoredMessage[] | null>;
   /**
@@ -149,6 +150,13 @@ const RETRY_DELAYS_MS = [250, 500, 1000, 2000, 4000];
  * so does "Quitar" on a connection grant.
  */
 export const CLEAR_LIMIT_MS = 120_000;
+
+/**
+ * B56: how long the window waits for the stored conversation it asked for. Past it, it did not
+ * come, as when the connection is lost, so a daemon that never answers never keeps the window
+ * from asking again. A late answer changes nothing.
+ */
+export const HISTORY_LIMIT_MS = 30_000;
 
 /** DK-13 AC2: a look or a task the window starts, with what was asked; anything else is not one. */
 const routeOf = (route: unknown): ChatReply['route'] => {
@@ -578,7 +586,7 @@ export const createChatClient = (options: ChatClientOptions): ChatClient => {
       return true;
     },
     async requestHistory() {
-      const event = await ask({ type: 'history' });
+      const event = await ask({ type: 'history' }, HISTORY_LIMIT_MS);
       return event?.type === 'history' ? event.messages : null;
     },
     clearHistory: () => eraseWithin({ type: 'clear_history' }),
