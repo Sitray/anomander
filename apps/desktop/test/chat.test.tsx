@@ -77,9 +77,10 @@ describe('the examples of an empty chat (B23)', () => {
     expect(examples.getAllByRole('button').map((button) => button.textContent)).toEqual(
       strings.chat.examples,
     );
-    fireEvent.click(examples.getByRole('button', { name: strings.chat.examples[0] }));
+    const [first = ''] = strings.chat.examples;
+    fireEvent.click(examples.getByRole('button', { name: first }));
 
-    expect(composer().value).toBe(strings.chat.examples[0]);
+    expect(composer().value).toBe(first);
     expect(document.activeElement).toBe(composer());
     await act(async () => {});
     expect(socket.requests).toEqual([]);
