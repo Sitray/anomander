@@ -146,12 +146,21 @@ export const startSetupGuide = (config: Config, deps: SetupGuideDeps): Anomander
   // halt gets no reply and is not acknowledged, so it comes again after the restart, answered
   // once; a stop keeps `bot.stop()`.
   let doorsClosing: Promise<unknown>[] | undefined;
+  // Begun at once; a door that throws instead of rejecting is a rejection too, so `halt` never
+  // rejects and no door is closed twice.
+  const closing = (close: () => Promise<unknown> | undefined): Promise<unknown> => {
+    try {
+      return Promise.resolve(close());
+    } catch (error) {
+      return Promise.reject(error);
+    }
+  };
   const halt = ({ crashed = false } = {}): Promise<unknown>[] => {
     if (doorsClosing !== undefined) return doorsClosing;
     login?.stop();
     doorsClosing = [
-      localChannel?.stop() ?? Promise.resolve(),
-      crashed ? telegram.halt() : telegram.stop(),
+      closing(() => localChannel?.stop()),
+      closing(() => (crashed ? telegram.halt() : telegram.stop())),
     ];
     for (const closing of doorsClosing) closing.catch(() => {});
     return doorsClosing;

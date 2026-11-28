@@ -97,6 +97,16 @@ describe('the doors of the setup guide (B85)', () => {
     await expect(guide.halt()).resolves.toBeUndefined();
   });
 
+  it('halt never rejects when a door throws at once, and closes each door only once', async () => {
+    doors.localStop = () => {
+      throw new Error('local thrown');
+    };
+    const { guide } = start();
+    await expect(guide.halt()).resolves.toBeUndefined();
+    await expect(guide.halt()).resolves.toBeUndefined();
+    expect(doors.calls).toEqual(['local.stop', 'telegram.halt']);
+  });
+
   it('stop: a failing local door still stops telegram, waits for it, releases the lock, throws first failure', async () => {
     let tgDone = false;
     let letTgGo = (): void => {};
