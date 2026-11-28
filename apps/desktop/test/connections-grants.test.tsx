@@ -137,7 +137,9 @@ describe('the tools allowed always (DK-24 AC3)', () => {
     const reopened = FakeWebSocket.last;
     act(() => reopened.open());
     const again = await requestOf(reopened, 'connection_grants');
-    act(() => reopened.receive({ type: 'connection_grants', inReplyTo: again.id, grants: [CREATE] }));
+    act(() =>
+      reopened.receive({ type: 'connection_grants', inReplyTo: again.id, grants: [CREATE] }),
+    );
     await waitFor(() =>
       expect(within(allowedOf('notes')).getAllByRole('listitem')).toHaveLength(1),
     );
