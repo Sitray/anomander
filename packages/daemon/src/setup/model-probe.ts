@@ -22,6 +22,16 @@ export const probeWithoutModel = (
   return model !== undefined && visionModel === undefined ? 'vision_model_unset' : 'model_unset';
 };
 
+/**
+ * B88: whether `model` reads images, from its own pi-ai data (`input`), with no call; `undefined`
+ * when that data is not there, as for a model pi-ai's catalogue does not describe.
+ */
+export const readsImages = (model: unknown): boolean | undefined => {
+  const input =
+    typeof model === 'object' && model !== null && 'input' in model ? model.input : undefined;
+  return Array.isArray(input) ? input.includes('image') : undefined;
+};
+
 /** The outcome a provider's error text says, never the text itself. */
 export const probeOutcomeOf = (errorMessage: string | undefined): ProbeOutcome => {
   const reason = errorMessage ?? '';
@@ -37,6 +47,8 @@ export interface ModelProbeDeps<M> {
   /** The raw processor call (pi-ai's `models.complete`), not the budgeted or retried one. */
   complete: Complete<M>;
   model: M;
+  /** The model that reads receipts (B88): one whose data says it reads no images fails the probe. */
+  visionModel: M;
   budget: AiBudget;
   /** The connection gaps (R-28 AC4): a provider without a key or a login is not called. */
   gaps: () => Promise<readonly SetupGap[]>;
@@ -50,6 +62,7 @@ const PROMPT = 'Answer with the single word: ok';
 export const createModelProbe = <M>({
   complete,
   model,
+  visionModel,
   budget,
   gaps,
   timeoutMs,
@@ -57,6 +70,10 @@ export const createModelProbe = <M>({
 }: ModelProbeDeps<M>): (() => Promise<ProbeOutcome>) => {
   const timed = withTimeout(complete, timeoutMs);
   const outcome = async (): Promise<ProbeOutcome> => {
+    // B88: first, as the setup's own model outcomes are: it is a choice of model, and fixing it
+    // may change the provider (and so its connection). Data only: no call, nothing spent. A model
+    // whose data says nothing of images goes on as before.
+    if (readsImages(visionModel) === false) return 'vision_model_text_only';
     if ((await gaps()).length > 0) return 'not_connected';
     if (!budget.tryConsume()) return 'budget_exhausted';
     try {
