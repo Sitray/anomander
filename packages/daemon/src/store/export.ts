@@ -25,7 +25,9 @@ export interface LedgerExport {
 type Row = Record<string, unknown>;
 
 // A text a spreadsheet would run as a formula starts with one of these; it gets a leading `'`.
-const FORMULA_START = /^[=+\-@\t\r]/;
+// B54: also behind spaces, which an import may trim, and as the full-width signs, which a
+// spreadsheet may read as the ASCII ones.
+const FORMULA_START = /^[\t\r]|^\s*[=+\-@\uFF1D\uFF0B\uFF0D\uFF20]/;
 
 const csvField = (value: unknown): string => {
   if (value === null || value === undefined) return '';
