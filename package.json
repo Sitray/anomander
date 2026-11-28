@@ -17,7 +17,7 @@
     "logout": "pnpm -F @anomander/daemon run logout"
   },
   "devDependencies": {
-    "@biomejs/biome": "2.6.8",
+    "@biomejs/biome": "2.6.9",
     "@types/node": "24.19.2",
     "@vitest/coverage-v8": "5.1.1",
     "fast-check": "4.11.0",
