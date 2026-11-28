@@ -927,8 +927,8 @@ while it waits behind other copies stamped ahead, and, once its day arrives, can
 day's daily copy although it holds older data (for example when a daily run is missed). A fresh database gets no copy, and a copy that cannot be written stops the start with nothing
 applied. A copy is written as `<name>.partial` and takes its name only once complete (B54), so a
 daemon stopped while it copies leaves no file that counts as a backup; the next copy deletes the
-`.partial` files of its kind. To go back, stop the daemon and put a backup in place of the database
-file, removing its `-wal` and `-shm`.
+`.partial` files of its kind and their `-journal`. To go back, stop the daemon and put a backup in
+place of the database file, removing its `-wal` and `-shm`.
 
 The daily backup (B5, `src/backup/daily-backup.ts`) runs right after each retention run, so at
 startup and at `ANOMANDER_RETENTION_CRON`: it copies the database the same way as

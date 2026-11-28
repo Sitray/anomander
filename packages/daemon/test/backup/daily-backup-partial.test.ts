@@ -77,6 +77,26 @@ describe('a copy being written (B54)', () => {
     expect(path).toBe(join(scratch, 'anomander.db.backup-v3-20261124T030000Z'));
   });
 
+  it('the rollback journal SQLite leaves beside a killed .partial is deleted with it', async () => {
+    // A copy killed yesterday: today's copy has another name, so SQLite never opens that journal.
+    const yesterday = 'anomander.db.backup-daily-20261123T030000Z';
+    const left = [`${yesterday}.partial`, `${yesterday}.partial-journal`];
+    // Of another database, or of the copies taken before migrations: never touched by this one.
+    const others = [
+      'other.db.backup-daily-20261123T030000Z.partial-journal',
+      'anomander.db.backup-v2-20261120T000000Z.partial-journal',
+      'anomander.db.backup-daily-junk.partial-journal',
+    ];
+    for (const name of [...left, ...others]) writeFileSync(join(scratch, name), 'half');
+
+    expect(hasDailyBackupOn(db, NOW)).toBe(false);
+    await createDailyBackup({ db, now: () => NOW, logger }).run();
+
+    const names = readdirSync(scratch);
+    for (const name of left) expect(names).not.toContain(name);
+    expect(names).toEqual(expect.arrayContaining([DAILY, ...others]));
+  });
+
   it('a .partial left by a killed daemon never counts, and the next copy deletes it', async () => {
     const left = [
       `${DAILY}.partial`,

@@ -90,7 +90,7 @@ const writeBackup = (
     db.prepare('VACUUM INTO ?').run(partial);
     renameSync(partial, target);
   } catch (error) {
-    rmSync(partial, { force: true });
+    for (const suffix of LEFT_BESIDE) rmSync(`${partial}${suffix}`, { force: true });
     throw error;
   }
   prune(folder, pattern, keep, basename(target), stamp(now));
@@ -100,11 +100,19 @@ const writeBackup = (
 // B54: what a copy is written as until it is complete; never a backup's name (`namePattern`).
 const PARTIAL = '.partial';
 
-// The `.partial` files a daemon killed while copying left, of these copies of this database
-// only. A failure to delete one does not stop the copy: it never counts as a backup.
+// What SQLite leaves beside a `.partial` that `VACUUM INTO` was writing: its rollback journal.
+const LEFT_BESIDE = ['', '-journal'];
+
+// The `.partial` files, and their journals, a daemon killed while copying left, of these copies of
+// this database only. A failure to delete one does not stop the copy: it never counts as a backup.
 const removePartials = (folder: string, pattern: RegExp): void => {
+  const leftover = (name: string) =>
+    LEFT_BESIDE.some((suffix) => {
+      const end = `${PARTIAL}${suffix}`;
+      return name.endsWith(end) && pattern.test(name.slice(0, -end.length));
+    });
   for (const name of readdirSync(folder)) {
-    if (!name.endsWith(PARTIAL) || !pattern.test(name.slice(0, -PARTIAL.length))) continue;
+    if (!leftover(name)) continue;
     try {
       rmSync(join(folder, name), { force: true });
     } catch {
