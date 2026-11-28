@@ -15,7 +15,13 @@ import {
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { cachedArchive, refuseLinks, shimWorkspacePackages, strip } from '../stage-daemon.mjs';
+import {
+  cachedArchive,
+  NODE,
+  refuseLinks,
+  shimWorkspacePackages,
+  strip,
+} from '../stage-daemon.mjs';
 
 let scratch: string;
 let errors: string[];
@@ -72,7 +78,7 @@ describe("Node's archive (checksum)", () => {
 
     expect(await cachedArchive(archive, scratch, download)).toBe(join(scratch, archive.file));
     expect(download).toHaveBeenCalledExactlyOnceWith(
-      `https://nodejs.org/dist/v24.22.3/${archive.file}`,
+      `https://nodejs.org/dist/v${NODE.version}/${archive.file}`,
     );
     expect(readFileSync(join(scratch, archive.file))).toEqual(bytes);
   });

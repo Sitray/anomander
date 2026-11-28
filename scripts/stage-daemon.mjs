@@ -47,7 +47,7 @@ const CACHE = join(ROOT, 'node_modules/.cache/anomander-node');
  * The Node every release carries; its major is `.node-version`'s. To move it, take the new
  * version's hashes from https://nodejs.org/dist/v<version>/SHASUMS256.txt.
  */
-const NODE = {
+export const NODE = {
   version: '24.22.3',
   archives: {
     'darwin-arm64': {
