@@ -26,6 +26,9 @@ USER node
 # (DK-2 AC1, store/daemon-lock.ts), in every mode, Telegram, setup guide or read API. The check
 # opens that file read-only with Node's own SQLite: "locked" means a daemon holds it, so the
 # container is healthy; a file it can read, or no file, means none does. No curl, no open port.
+# The read takes a shared lock for a moment, which would make a daemon taking its lock at that
+# instant refuse to start; the daemon takes it once, at start, and Docker runs the first check only
+# an interval later (30 s here, 2 s in the CI smoke start).
 HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
   CMD ["node", "--no-warnings", "-e", "const{DatabaseSync}=require('node:sqlite');const f=(process.env.ANOMANDER_DB_PATH||'./data/anomander.db')+'.lock';try{new DatabaseSync(f,{readOnly:true}).prepare('SELECT 1 FROM sqlite_master').all();console.log('no daemon holds '+f);process.exit(1)}catch(e){const held=e.errcode===5;console.log(held?'daemon holds '+f:'cannot read '+f+': '+e.message);process.exit(held?0:1)}"]
 
