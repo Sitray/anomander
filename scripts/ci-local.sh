@@ -32,6 +32,7 @@ step "pnpm typecheck"; pnpm typecheck
 step "pnpm test"; pnpm test
 step "pnpm audit --audit-level high"; pnpm audit --audit-level high
 step "release script arguments"; bash scripts/test/release-args.sh
+step "release notes"; bash scripts/test/release-notes.sh
 step "docker smoke step ends"; bash scripts/test/docker-smoke.sh
 
 cd apps/desktop/src-tauri

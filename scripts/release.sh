@@ -5,7 +5,8 @@
 #
 # The tag must exist here and on origin, at the same commit, and its version must be the app's:
 # `version` in apps/desktop/src-tauri/tauri.conf.json (the one the app and the installers show),
-# equal to apps/desktop/package.json and apps/desktop/src-tauri/Cargo.toml at that tag.
+# equal to apps/desktop/package.json and apps/desktop/src-tauri/Cargo.toml at that tag. Its
+# CHANGELOG.md must have a section for that version: the release notes (scripts/release-notes.sh).
 #
 # From a clean, temporary worktree of the tag: `pnpm install --frozen-lockfile`, the daemon and a
 # pinned Node staged as the app's resources (scripts/stage-daemon.mjs), a release `.app` for Apple
@@ -79,6 +80,10 @@ cargo_version="$(git show "$tag:apps/desktop/src-tauri/Cargo.toml" | sed -n 's/^
 git cat-file -e "$tag:scripts/stage-daemon.mjs" 2>/dev/null ||
   fail "tag $tag predates scripts/stage-daemon.mjs, so its app cannot carry the daemon; release a later tag"
 
+# The release notes: the tag's CHANGELOG section, then the builds and how to check them.
+notes="$(git show "$tag:CHANGELOG.md" 2>/dev/null | bash "$root/scripts/release-notes.sh" "$version" -)" ||
+  fail "tag $tag has no CHANGELOG section for $version to use as release notes"
+
 if [[ "$mode" == check ]]; then
   echo "release: $tag ($commit) is version $version here and on origin"
   exit 0
@@ -145,16 +150,19 @@ echo "==> $out/$zip_name"
 cat "$out/$zip_name.sha256"
 
 files=("$out/$zip_name" "$out/$zip_name.sha256")
+notes_file="$scratch/release-notes.md"
+printf '%s\n' "$notes" >"$notes_file"
 if gh release view "$tag" >/dev/null 2>&1; then
   upload=(gh release upload "$tag" "${files[@]}" --clobber)
 else
   upload=(gh release create "$tag" "${files[@]}" --draft --verify-tag --title "ANOMANDER $version"
-    --notes "Unsigned builds of ANOMANDER $version. How to open them the first time: see the README, \"Download\".")
+    --notes-file "$notes_file")
 fi
 if [[ "$mode" == dry-run ]]; then
   printf 'release: dry run, not uploading:'
   printf ' %q' "${upload[@]}"
   printf '\n'
+  [[ "${upload[2]}" != create ]] || { echo "release: the notes would be:"; cat "$notes_file"; }
 else
   "${upload[@]}"
   echo "release: $tag has $zip_name; publish the draft once the Windows installer is there"

@@ -2,9 +2,10 @@ name: Release
 
 # The Windows installer of a release (B11). A pushed `vX.Y.Z` tag builds the NSIS installer, with
 # the daemon and the Node it runs staged inside (scripts/stage-daemon.mjs), and adds it with its
-# SHA-256 to the tag's GitHub release, a draft created here when the tag has none. The macOS app
-# is built and added on a Mac with scripts/release.sh; the maintainer publishes the draft once
-# both are there. Unsigned: no code-signing certificate, no notarization, no auto-update.
+# SHA-256 to the tag's GitHub release, a draft created here when the tag has none, with the tag's
+# CHANGELOG section as its notes (scripts/release-notes.sh). The macOS app is built and added on
+# a Mac with scripts/release.sh; the maintainer publishes the draft once both are there.
+# Unsigned: no code-signing certificate, no notarization, no auto-update.
 on:
   push:
     tags: ['v*']
@@ -46,6 +47,10 @@ jobs:
           [[ "$cargo" == "$version" ]] || { echo "::error::$TAG but Cargo.toml says $cargo"; exit 1; }
           echo "VERSION=$version" >> "$GITHUB_ENV"
 
+      # The tag's CHANGELOG section, then the builds and how to check them. No section, no release.
+      - name: release notes from the CHANGELOG
+        run: bash scripts/release-notes.sh "$VERSION" > "$RUNNER_TEMP/release-notes.md"
+
       # The draft first, so scripts/release.sh, run on the Mac while this builds, finds it and adds
       # the macOS zip to the same release instead of making a second draft.
       - name: create the draft release if the tag has none
@@ -55,7 +60,7 @@ jobs:
           gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1 ||
             gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --draft --verify-tag \
               --title "ANOMANDER $VERSION" \
-              --notes "Unsigned builds of ANOMANDER $VERSION. How to open them the first time: see the README, \"Download\"."
+              --notes-file "$RUNNER_TEMP/release-notes.md"
 
       # pnpm's version comes from `packageManager` in package.json.
       - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1

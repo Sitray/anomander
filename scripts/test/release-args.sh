@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Checks how scripts/release.sh refuses a tag before it builds anything: no tag, a malformed tag,
-# a tag missing here or on origin, or at another commit there, and a version the app does not
-# have. Each case runs the script, copied into a throwaway repository with its own origin, in
+# a tag missing here or on origin, or at another commit there, a version the app does not have,
+# and a version the CHANGELOG has no section for. Each case runs the script, copied into a throwaway repository with its own origin, in
 # `--check` mode, and expects its exit code and message.
 #   bash scripts/test/release-args.sh
 set -euo pipefail
@@ -12,12 +12,15 @@ trap 'rm -rf "$scratch"' EXIT
 
 git_q() { git -c user.name=test -c user.email=test@example.invalid -c commit.gpgsign=false -c tag.gpgsign=false "$@" >/dev/null 2>&1; }
 
-# A repository with the three files holding the app's version, all at 0.1.0, and a bare origin.
+# A repository with the three files holding the app's version, all at 0.1.0, a CHANGELOG with its
+# section, and a bare origin.
 git init -q --bare "$scratch/origin.git"
 repo="$scratch/repo"
 git init -q "$repo"
 mkdir -p "$repo/scripts" "$repo/apps/desktop/src-tauri"
 cp "$script" "$repo/scripts/release.sh"
+cp "$(dirname "$script")/release-notes.sh" "$repo/scripts/release-notes.sh"
+printf '# Changelog\n\n## [Unreleased]\n\n## [0.1.0] - 2026-11-21\n\n- The first version.\n' >"$repo/CHANGELOG.md"
 touch "$repo/scripts/stage-daemon.mjs"
 echo '{ "productName": "ANOMANDER", "version": "0.1.0" }' >"$repo/apps/desktop/src-tauri/tauri.conf.json"
 echo '{ "name": "@anomander/desktop", "version": "0.1.0" }' >"$repo/apps/desktop/package.json"
@@ -87,6 +90,14 @@ git_q -C "$repo" commit -am bump
 git_q -C "$repo" tag v0.3.0
 git_q -C "$repo" push origin v0.3.0
 expect fail "apps/desktop/package.json at that tag says 0.1.0" --check v0.3.0
+
+# The version bumped everywhere, but the CHANGELOG has no section for it.
+set_version 0.4.0
+git_q -C "$repo" commit -am bump-all
+git_q -C "$repo" tag v0.4.0
+git_q -C "$repo" push origin v0.4.0
+expect fail "tag v0.4.0 has no CHANGELOG section for 0.4.0" --check v0.4.0
+expect fail "the CHANGELOG has no section for 0.4.0" --check v0.4.0
 
 # The tag moved here after it was pushed.
 git_q -C "$repo" tag -f -a v0.1.0 -m moved HEAD
