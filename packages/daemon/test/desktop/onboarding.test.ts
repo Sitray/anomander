@@ -284,6 +284,67 @@ describe('"Probar" (DK-23 AC4)', () => {
     const daemon = await guide([{ kind: 'model_unset' }], { visionModel: undefined });
     expect(await probe(daemon)).toBe('vision_model_unset');
   });
+
+  describe('the photo model (B88)', () => {
+    const models = builtinModels({});
+    const TEXT_MODEL = models.getModel('google', 'gemini-2.5-flash');
+    /** A model pi-ai knows that reads text only. */
+    const TEXT_ONLY = models.getModel('openai', 'o3-mini');
+    const withPhotoModel = async (
+      visionModel: unknown,
+      named: string,
+      deps: Partial<AnomanderDeps<unknown>> = {},
+    ): Promise<Anomander> => {
+      anomander = startAnomander(config({ ANOMANDER_VISION_MODEL: named }), {
+        complete: async () => answer({}),
+        model: TEXT_MODEL,
+        visionModel,
+        logger,
+        ...deps,
+      });
+      await anomander.started;
+      return anomander;
+    };
+
+    it('says a photo model that reads no images does not, with no call and nothing spent', async () => {
+      expect(TEXT_ONLY?.input).toEqual(['text']);
+      const complete = vi.fn(async () => answer({}));
+      const daemon = await withPhotoModel(TEXT_ONLY, 'openai/o3-mini', { complete });
+
+      expect(await probe(daemon)).toBe('vision_model_text_only');
+      expect(complete).not.toHaveBeenCalled();
+      expect(callsToday()).toBe(0);
+    });
+
+    it('says so before a missing key: the photo model is chosen first', async () => {
+      const daemon = await withPhotoModel(TEXT_ONLY, 'openai/o3-mini', {
+        setupGaps: async () => [{ kind: 'provider_unconnected', providerId: 'openai' }],
+      });
+      expect(await probe(daemon)).toBe('vision_model_text_only');
+    });
+
+    it('passes with a photo model that reads images', async () => {
+      const complete = vi.fn(async () => answer({}));
+      const daemon = await withPhotoModel(TEXT_MODEL, MODEL, { complete });
+
+      expect(await probe(daemon)).toBe('ok');
+      expect(complete).toHaveBeenCalledOnce();
+      expect(callsToday()).toBe(1);
+    });
+
+    it('does not call text-only a custom photo model whose data says nothing of images', async () => {
+      const custom = { provider: 'custom', id: 'my-model' };
+      const daemon = await withPhotoModel(custom, 'custom/my-model');
+      expect(await probe(daemon)).toBe('ok');
+    });
+
+    it('still says a missing key with a photo model that reads images', async () => {
+      const daemon = await withPhotoModel(TEXT_MODEL, MODEL, {
+        setupGaps: async () => [{ kind: 'provider_unconnected', providerId: 'google' }],
+      });
+      expect(await probe(daemon)).toBe('not_connected');
+    });
+  });
 });
 
 describe('the providers the setup screen offers (DK-23 AC2)', () => {
