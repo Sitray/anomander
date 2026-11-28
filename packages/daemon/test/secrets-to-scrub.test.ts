@@ -551,4 +551,35 @@ describe('the secrets the daemon gets after its start', () => {
       ),
     ).toEqual([OPENAI_KEY, LOCAL_TOKEN]);
   });
+
+  it('B53: include, before the configuration is read, the tokens inside a handed JSON value', () => {
+    const before = secretsBeforeConfig(
+      {},
+      {
+        ANOMANDER_MCP_SECRETS: JSON.stringify({ 'mcp/notes/env/NOTES_TOKEN': NOTES_TOKEN }),
+        ANOMANDER_AUTH_JSON: JSON.stringify({
+          'openai-codex': {
+            type: 'oauth',
+            refresh: LOGIN_REFRESH,
+            accountId: 'account-0123456789',
+          },
+        }),
+        ANOMANDER_MCP_OAUTH: JSON.stringify({
+          notion: {
+            tokens: { access_token: NOTION_ACCESS },
+            clientInformation: { client_name: 'ANOMANDER' },
+          },
+        }),
+      },
+    );
+    const sink = { info: vi.fn(), warn: vi.fn(), error: vi.fn() };
+
+    createScrubbingLogger(sink, () => before).error(
+      `failed: ${NOTES_TOKEN} ${LOGIN_REFRESH} ${NOTION_ACCESS} for account-0123456789 of ANOMANDER`,
+    );
+
+    expect(sink.error).toHaveBeenCalledWith(
+      'failed: [secret] [secret] [secret] for account-0123456789 of ANOMANDER',
+    );
+  });
 });

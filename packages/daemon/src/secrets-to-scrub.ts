@@ -155,13 +155,43 @@ const providerKeysOf = (env: Record<string, string | undefined>): (string | unde
     .map(([, value]) => value);
 
 /**
+ * The secrets of the variables that hold JSON, by the same fields at every point of the start:
+ * every string of `ANOMANDER_MCP_SECRETS`, and the keys and tokens of the model login and of the
+ * connections' OAuth.
+ */
+const jsonVariableSecrets = (
+  mcpSecrets: string | undefined,
+  authJson: string | undefined,
+  mcpOAuth: string | undefined,
+): string[] => [
+  // The Keychain items by name: every value is secret, no name is.
+  ...jsonSecrets(mcpSecrets),
+  ...jsonSecrets(authJson, isLoginSecret),
+  ...jsonSecrets(mcpOAuth, isOAuthSecret),
+];
+
+/**
  * What is known before the configuration is read (B45, R1-002): every provider key of `env` and
- * every value `handed` over on stdin, which holds secrets only, each taken whole.
+ * every value `handed` over on stdin, which holds secrets only, each taken whole. B53: the tokens
+ * inside a handed JSON value too, as the configuration will read them, so a line that quotes one
+ * alone is scrubbed from the moment the handover is read.
  */
 export const secretsBeforeConfig = (
   env: Record<string, string | undefined>,
   handed: Record<string, string> = {},
-): string[] => [...new Set(nonBlank([...providerKeysOf(env), ...Object.values(handed)]))];
+): string[] => [
+  ...new Set(
+    nonBlank([
+      ...providerKeysOf(env),
+      ...Object.values(handed),
+      ...jsonVariableSecrets(
+        handed.ANOMANDER_MCP_SECRETS,
+        handed.ANOMANDER_AUTH_JSON,
+        handed.ANOMANDER_MCP_OAUTH,
+      ),
+    ]),
+  ),
+];
 
 /**
  * Every secret of `config` and of `env`, the environment with the handover laid over it as
@@ -178,10 +208,7 @@ export const secretsToScrub = (
     config.apiToken,
     config.localToken,
     ...providerKeysOf(env),
-    // The Keychain items by name: every value is secret, no name is.
-    ...jsonSecrets(config.mcpSecrets),
-    ...jsonSecrets(config.authJson, isLoginSecret),
-    ...jsonSecrets(config.mcpOAuth, isOAuthSecret),
+    ...jsonVariableSecrets(config.mcpSecrets, config.authJson, config.mcpOAuth),
   ]);
 };
 
