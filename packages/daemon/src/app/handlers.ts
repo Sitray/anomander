@@ -78,10 +78,12 @@ export const createHandlers = <M>({
   });
   // DK-19: outside the budget too, so a call refused after a stop is never counted (R-12).
   const ai = withCancel(budgeted(timed, budget));
-  // DK-23 AC4: "Probar": one call, never retried, counted against the budget.
+  // DK-23 AC4: "Probar": one call, never retried, counted against the budget. B88: it also
+  // checks that the model receipts are read with (below) reads images.
   const probe = createModelProbe({
     complete,
     model,
+    visionModel: deps.visionModel ?? model,
     budget,
     gaps: setupGaps,
     timeoutMs: config.processorTimeoutMs,

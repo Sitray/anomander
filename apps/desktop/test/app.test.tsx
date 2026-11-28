@@ -1101,6 +1101,26 @@ describe('"Probar" in the setup', () => {
     expect(await screen.findByText(strings.setup.probeLost)).toBeTruthy();
   });
 
+  it('shows that the photo model reads no images when the daemon says so (B88)', async () => {
+    const socket = await probe();
+    act(() => socket.open());
+    act(() =>
+      socket.receiveRaw(
+        JSON.stringify({
+          type: 'probe',
+          inReplyTo: socket.lastRequest.id,
+          outcome: 'vision_model_text_only',
+        }),
+      ),
+    );
+
+    expect(
+      await screen.findByText(
+        'El modelo para fotos no lee imágenes. Escribe uno que sí en «Modelo para fotos» y guarda.',
+      ),
+    ).toBeTruthy();
+  });
+
   it('says it failed when the daemon answers something else', async () => {
     const socket = await probe();
     act(() => socket.open());

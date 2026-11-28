@@ -742,7 +742,10 @@ and keep its secrets in the operating system instead of a text file.
     la IA. Prueba mañana." and, while the setup guide runs, "Aún no hay un modelo guardado.",
     "Falta el modelo para fotos. Escribe uno que lea imágenes en «Modelo para fotos» y guarda."
     (the model is saved, the one for photos is not) or "ANOMANDER no conoce ese modelo. Elige
-    otro.". The provider's own error text can quote the key,
+    otro.". Before any of the others, and with no call (nothing spent), a photo model
+    (`ANOMANDER_VISION_MODEL`) whose own pi-ai data says it reads no images gives "El modelo para
+    fotos no lee imágenes. Escribe uno que sí en «Modelo para fotos» y guarda."; a model whose data
+    says nothing of images is tested as before. The provider's own error text can quote the key,
     so it never reaches the window or the log: the daemon classifies it and logs only the outcome.
     "Probar" tests what is saved: it is disabled, saying "Guarda primero: Probar usa el modelo y la
     clave guardados.", while the model or a key has changes, and "Para probar, ANOMANDER tiene
