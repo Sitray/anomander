@@ -112,14 +112,18 @@ export function ChatScreen(props: ChatScreenProps) {
   });
   const { warn, withdraw } = draft;
   // B86: a link that did not open says so until one opens, which takes back only that notice.
+  // Only the latest click decides, however the opens settle; one that throws at once failed too.
+  const latestOpen = useRef(0);
   const openLink = useMemo(
     () =>
       onOpenLink === undefined
         ? undefined
         : (url: string) => {
-            Promise.resolve(onOpenLink(url)).then(
-              () => withdraw(strings.chat.linkNotOpened),
-              () => warn(strings.chat.linkNotOpened),
+            latestOpen.current += 1;
+            const click = latestOpen.current;
+            new Promise<unknown>((resolve) => resolve(onOpenLink(url))).then(
+              () => click === latestOpen.current && withdraw(strings.chat.linkNotOpened),
+              () => click === latestOpen.current && warn(strings.chat.linkNotOpened),
             );
           },
     [onOpenLink, warn, withdraw],

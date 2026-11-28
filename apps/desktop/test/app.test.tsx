@@ -143,28 +143,6 @@ describe('opening', () => {
     expect(screen.queryByText(strings.chat.linkNotOpened)).toBeNull();
   });
 
-  it('says in the chat when the shell could not open a link (B86)', async () => {
-    mocked.openLink.mockRejectedValue('the browser did not start');
-    await open(runningSnapshot());
-    const socket = FakeWebSocket.last;
-    act(() => socket.open());
-    fireEvent.change(composer(), { target: { value: '/login' } });
-    fireEvent.keyDown(composer(), { key: 'Enter' });
-    await waitFor(() => expect(socket.requests).toHaveLength(1));
-    act(() =>
-      socket.receive(
-        replyTo(socket.lastRequest.id, { text: 'Entra en https://example.com/login.' }),
-      ),
-    );
-
-    fireEvent.click(screen.getByRole('link', { name: 'https://example.com/login' }));
-
-    expect((await screen.findByText(strings.chat.linkNotOpened)).getAttribute('role')).toBe(
-      'status',
-    );
-    expect(strings.chat.linkNotOpened).toBe('No he podido abrir el enlace en el navegador.');
-  });
-
   /** The chat with a reply holding one web address; returns its link. */
   const linkInReply = async () => {
     await open(runningSnapshot());
@@ -180,6 +158,47 @@ describe('opening', () => {
     );
     return () => screen.getByRole('link', { name: 'https://example.com/login' });
   };
+
+  it('says in the chat when the shell could not open a link (B86)', async () => {
+    mocked.openLink.mockRejectedValue('the browser did not start');
+    const link = await linkInReply();
+
+    fireEvent.click(link());
+
+    expect((await screen.findByText(strings.chat.linkNotOpened)).getAttribute('role')).toBe(
+      'status',
+    );
+    expect(strings.chat.linkNotOpened).toBe('No he podido abrir el enlace en el navegador.');
+  });
+
+  it('says it when opening a link throws at once (B86)', async () => {
+    mocked.openLink.mockImplementation(() => {
+      throw new Error('no shell');
+    });
+    const link = await linkInReply();
+
+    fireEvent.click(link());
+
+    await screen.findByText(strings.chat.linkNotOpened);
+  });
+
+  it('keeps the outcome of the latest link when an earlier one fails after it (B86)', async () => {
+    let failFirst: (reason: unknown) => void = () => {};
+    mocked.openLink.mockReturnValueOnce(
+      new Promise<undefined>((_, reject) => {
+        failFirst = reject;
+      }),
+    );
+    const link = await linkInReply();
+    fireEvent.click(link());
+    fireEvent.click(link());
+    await act(async () => {});
+
+    await act(async () => failFirst('the browser did not start'));
+
+    expect(mocked.openLink).toHaveBeenCalledTimes(2);
+    expect(screen.queryByText(strings.chat.linkNotOpened)).toBeNull();
+  });
 
   it('takes back the notice once a later link opens (B86)', async () => {
     mocked.openLink.mockRejectedValueOnce('the browser did not start');
