@@ -103,4 +103,39 @@ describe('a message sent unasked to both doors (DK-22, B75)', () => {
       'an unasked message reached the app but not Telegram',
     );
   });
+
+  it("tells Telegram's delivery at once, without waiting for the app, so a reply to it finds its question", async () => {
+    let appSettle: () => void = () => {};
+    const delivered: string[] = [];
+    const notify = recordingNotices(
+      createRecentTurns({ db, now: () => AT, logger }),
+      async (message) => {
+        message.onDelivered?.({ channelRef: 'telegram:9', deliveredAt: AT.toISOString() });
+      },
+      {
+        connected: () => true,
+        notify: (message) =>
+          new Promise<void>((resolve) => {
+            appSettle = () => {
+              message.onDelivered?.({ channelRef: 'desktop:1', deliveredAt: AT.toISOString() });
+              resolve();
+            };
+          }),
+      },
+      logger,
+    );
+
+    const sending = notify({
+      text: 'Recordatorio',
+      onDelivered: (delivery) => delivered.push(delivery.channelRef),
+    });
+    await vi.waitFor(() => expect(delivered).toEqual(['telegram:9']));
+    appSettle();
+    await sending;
+
+    expect(delivered).toEqual(['telegram:9']);
+    expect(stored()).toMatchObject([
+      { from: 'anomander', door: 'telegram', channelRef: 'telegram:9' },
+    ]);
+  });
 });

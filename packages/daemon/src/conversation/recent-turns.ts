@@ -176,9 +176,11 @@ export const NO_DOOR = 'Telegram is not configured and the app is not connected:
  * Records each message sent to the principal unasked as a turn with no principal part, once it
  * was delivered. It goes to Telegram as before (R-1), when `notify` is given, and also to the
  * app while it is connected (DK-22): one fan-out, sent to both at once (B75), so the app's copy
- * never waits for Telegram's retries. Once both answered it is kept once, with Telegram's
- * reference when Telegram delivered it and the app's otherwise, and `message.onDelivered` is
- * called that once, with that delivery. A send that fails or ends without delivering it stores
+ * never waits for Telegram's retries. `message.onDelivered` is called once: as soon as Telegram
+ * delivered it, so a Telegram reply to it finds what it asked; with the app's delivery only once
+ * Telegram failed. Once both answered it is kept once, with that reference. Neither door's
+ * buttons need it: their data names the decision, and the app sends no replies. A send that
+ * fails or ends without delivering it stores
  * nothing (DK-16 AC1); it rejects with Telegram's failure when no door delivered it. When Telegram
  * failed and the app got it, one fixed line says so, never its words or the error, which may
  * quote them.
@@ -190,7 +192,9 @@ export const recordingNotices =
     const through = (door: TurnDoor) => ({
       ...message,
       onDelivered: (delivery: Delivery) => {
-        deliveries[door] ??= delivery;
+        if (deliveries[door] !== undefined) return;
+        deliveries[door] = delivery;
+        if (door === 'telegram') message.onDelivered?.(delivery);
       },
     });
     const toTelegram = (async () => {
@@ -210,7 +214,7 @@ export const recordingNotices =
     if (notify !== undefined && telegram.status === 'rejected') {
       logger?.warn('an unasked message reached the app but not Telegram');
     }
-    message.onDelivered?.(delivered);
+    if (door === 'app') message.onDelivered?.(delivered);
     turns.add(null, message, door, delivered.channelRef);
   };
 
