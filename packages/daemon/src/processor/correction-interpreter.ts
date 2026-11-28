@@ -2,7 +2,6 @@ import { validateProcessorOutput, weekdayOf } from '@anomander/core';
 import type { AssistantMessage, Context } from '@earendil-works/pi-ai';
 import { z } from 'zod';
 import { AiBudgetExhaustedError } from '../budget/ai-budget.ts';
-import { centsName } from './currency.ts';
 import type { Complete, CorrectionInterpretation, CorrectionInterpreter, Logger } from './ports.ts';
 
 export type {
@@ -15,7 +14,10 @@ export type {
 // values written in it, as inferences only. It never writes (R-14 AC1); code accepts a value
 // only if the principal actually wrote it.
 
-/** The correction interpreter's prompt, in the principal's currency (B73). */
+/**
+ * The correction interpreter's prompt. The new total is in the corrected expense's own currency,
+ * given in its user turn, never the principal's: a stored expense keeps its currency (B87).
+ */
 export const correctionInterpreterPrompt =
   (): string => `You read one message in which the user corrects an expense that a personal assistant was about to record. You can only answer; you have no tools and you never store anything.
 
@@ -24,7 +26,7 @@ Reply with exactly one JSON object and nothing else:
 Each inference is an object with these fields and no others:
 {"subject_type":"expense","subject_id":null,"predicate":"<predicate>","value_json":<value>,"mode":"inferred","basis_json":{"quote":"<the words of the message it rests on>"},"confidence":<number from 0 to 1>}
 Predicates, only for what the message changes:
-- "total": the new amount paid, as an integer number of ${centsName()} ("28,40" is 2840).
+- "total": the new amount paid, in the currency of the expense's "total" (its "currency"), as an integer number of hundredths of that currency ("28,40" is 2840).
 - "merchant": the new merchant, written as the user wrote it.
 - "category": the new category, written as the user wrote it.
 - "occurred_on": the new purchase date as YYYY-MM-DD, resolved against "today" and "weekday".

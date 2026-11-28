@@ -185,7 +185,8 @@ with the S-15 buttons first when S-15 is asked with it:
 
 A correction typed without the button (R-7 AC7) is the interpreter's `expense_correct` kind. The
 text expense cycle gives the interpreter `expenses`: the current expenses registered in the last
-30 minutes, at most 5, newest first (`recentExpenses`). The interpreter keeps an `expense_id` only
+30 minutes, at most 5, newest first (`recentExpenses`), each with its total in its own currency
+(`total`: cents and currency, B87), which may not be the principal's. The interpreter keeps an `expense_id` only
 if it was given and each value only if its quote is in the message; the cycle then applies
 `acceptCorrection` and `amendExpense` with a new `amend_expense` proposal `executed`, and closes the
 expense's open decision (`closeAmendDecisions`, `expired`), so its buttons get S-19. No expense
@@ -781,7 +782,8 @@ is rejected and logged (R-14 AC2). Its user turn starts with `today` (`YYYY-MM-D
 `weekday`, today's English weekday (`weekdayOf` in `@anomander/core`), so "el lunes" or "la
 semana pasada" never depend on the model working out the weekday (B59). Amounts are asked for
 as hundredths of the principal's currency, `euro cents` with `EUR` (`src/processor/currency.ts`,
-B73), in this prompt as in the receipt reader's and the correction interpreter's.
+B73), in this prompt as in the receipt reader's; a recent expense's total, and a correction of it
+here or in the correction interpreter, is in that expense's own currency (B87).
 
 `ReceiptReader` (`src/processor/receipt-reader.ts`) reads receipts. `createPiAiReceiptReader`
 calls `ANOMANDER_VISION_MODEL` with one user turn: a text block (`today`, `categories`,

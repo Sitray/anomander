@@ -221,7 +221,7 @@ const createCorrection = (
     const interpretation = await interpreter({
       text,
       expense: {
-        total_cents: stored.total_cents,
+        total: stored.total,
         merchant: stored.merchant,
         category: stored.category,
         occurred_on: stored.occurred_on,

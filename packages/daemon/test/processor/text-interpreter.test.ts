@@ -1,8 +1,9 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { isLiteralAmount } from '@anomander/core';
+import { setCurrency } from '@anomander/protocol';
 import type { AssistantMessage, Context } from '@earendil-works/pi-ai';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   createPiAiTextInterpreter,
   MAX_CONNECTED_TOOLS,
@@ -52,6 +53,8 @@ const interpreterAnswering = (envelope: unknown) => {
   });
   return { interpret, logger };
 };
+
+afterEach(() => setCurrency('EUR'));
 
 describe('pi-ai text interpreter', () => {
   // R-2 AC5: the six amount forms are the contract cases and the inputs of the AC6 check.
@@ -448,5 +451,73 @@ describe('pi-ai text interpreter', () => {
     expect(prompt).toContain(
       'The user turn is a JSON object with the fields "today", "weekday" (the day of the week of "today"), "categories",',
     );
+  });
+
+  // B87: after the principal chooses another currency, the expenses stored before keep theirs
+  // (DK-25), so each recent expense comes with its own currency and the prompt says so.
+  it("B87: gives each recent expense its total in its own currency, not the principal's", async () => {
+    setCurrency('USD');
+    const { interpret, contexts } = interpreterFor('conversation');
+    const expenses = [
+      {
+        id: 2,
+        total: { cents: 1200, currency: 'USD' },
+        merchant: null,
+        category: null,
+        occurred_on: '2026-10-30',
+      },
+      {
+        id: 1,
+        total: { cents: 1200, currency: 'EUR' },
+        merchant: null,
+        category: null,
+        occurred_on: '2026-10-30',
+      },
+    ];
+
+    await interpret({ ...input('el de 12 euros eran 15'), expenses });
+
+    expect(JSON.parse(String(contexts[0]?.messages[0]?.content)).expenses).toEqual(expenses);
+    const prompt = String(contexts[0]?.systemPrompt);
+    expect(prompt).toContain(
+      'Each expense\'s "total" is in its own "currency", which may not be the one of a new expense: an amount the message names with a currency ("el de 12 dólares") points only at an expense in that currency.',
+    );
+    expect(prompt).toContain(
+      'A corrected "total" is an integer number of hundredths of the corrected expense\'s own currency.',
+    );
+  });
+
+  // B87: code changes the figure of a stored expense, never its currency.
+  it('B87: drops a correction of the currency and keeps the expense it points at', async () => {
+    const { interpret } = interpreterAnswering({
+      kind: 'expense_correct',
+      expense_id: 1,
+      inferences: [
+        {
+          subject_type: 'expense',
+          subject_id: null,
+          predicate: 'currency',
+          value_json: 'USD',
+          mode: 'inferred',
+          basis_json: { quote: 'eran 32' },
+          confidence: 0.9,
+        },
+      ],
+    });
+    const expenses = [
+      {
+        id: 1,
+        total: { cents: 2300, currency: 'EUR' },
+        merchant: null,
+        category: null,
+        occurred_on: '2026-10-30',
+      },
+    ];
+
+    expect(await interpret({ ...input('no eran 23, eran 32'), expenses })).toEqual({
+      kind: 'expense_correct',
+      expenseId: 1,
+      inferences: [],
+    });
   });
 });

@@ -1,5 +1,5 @@
 import type { ProcessorInference } from '@anomander/core';
-import type { ComputerAction, RouteKind } from '@anomander/protocol';
+import type { ComputerAction, Money, RouteKind } from '@anomander/protocol';
 import type { AssistantMessage, Context } from '@earendil-works/pi-ai';
 import type { CapabilityCall } from '../capabilities/capability.ts';
 import type { RecentTurn } from '../conversation/recent-turns.ts';
@@ -120,7 +120,8 @@ export interface CorrectionInterpreterInput {
   text: string;
   /** The expense being corrected, as stored. */
   expense: {
-    total_cents: number;
+    /** In the expense's own currency, which may not be the principal's now (DK-25, B87). */
+    total: Money;
     merchant: string | null;
     category: string | null;
     occurred_on: string;

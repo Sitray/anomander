@@ -6,16 +6,24 @@ import { textInterpreterPrompt } from '../../src/processor/text-interpreter.ts';
 
 // B73: the processor reads amounts in the principal's currency (`ANOMANDER_CURRENCY`, DK-25),
 // never in euros when another one is configured. With EUR the prompts say what they always said.
+// B87: the correction interpreter corrects a stored expense, whose own currency it is given, so
+// it never names the principal's.
 afterEach(() => {
   setLocale('es');
   setCurrency('EUR');
 });
 
-const PROMPTS = {
+/** The prompts that ask for new amounts, in the principal's currency. */
+const PRINCIPAL_PROMPTS = {
   'text interpreter': textInterpreterPrompt,
   'receipt reader': receiptReaderPrompt,
-  'correction interpreter': correctionInterpreterPrompt,
 };
+
+const PROMPTS = { ...PRINCIPAL_PROMPTS, 'correction interpreter': correctionInterpreterPrompt };
+
+/** B87: the correction interpreter's total, in the corrected expense's own currency. */
+const CORRECTED_TOTAL =
+  '"total": the new amount paid, in the currency of the expense\'s "total" (its "currency"), as an integer number of hundredths of that currency ("28,40" is 2840).';
 
 describe('the currency the processor reads amounts in', () => {
   it('keeps euro cents and the euro examples with EUR', () => {
@@ -25,9 +33,7 @@ describe('the currency the processor reads amounts in', () => {
     expect(receiptReaderPrompt()).toContain(
       '"total": the total paid, as an integer number of euro cents ("23,40" is 2340). Exactly one.',
     );
-    expect(correctionInterpreterPrompt()).toContain(
-      '"total": the new amount paid, as an integer number of euro cents ("28,40" is 2840).',
-    );
+    expect(correctionInterpreterPrompt()).toContain(CORRECTED_TOTAL);
     setLocale('en');
     expect(textInterpreterPrompt()).toContain(
       'an integer number of euro cents ("23.40" is 2340, "€23" is 2300).',
@@ -42,18 +48,21 @@ describe('the currency the processor reads amounts in', () => {
     expect(receiptReaderPrompt()).toContain(
       '"total": the total paid, as an integer number of US Dollar cents (USD) ("23,40" is 2340). Exactly one.',
     );
-    expect(correctionInterpreterPrompt()).toContain(
-      '"total": the new amount paid, as an integer number of US Dollar cents (USD) ("28,40" is 2840).',
-    );
+    expect(correctionInterpreterPrompt()).toContain(CORRECTED_TOTAL);
+    expect(correctionInterpreterPrompt()).not.toMatch(/US Dollar|USD/u);
     setLocale('en');
     expect(textInterpreterPrompt()).toContain(
       'an integer number of US Dollar cents (USD) ("23.40" is 2340, "US$23" is 2300).',
     );
   });
 
-  it.each(Object.entries(PROMPTS))('the %s never says euros with GBP', (_name, prompt) => {
+  it.each(Object.entries(PRINCIPAL_PROMPTS))('the %s says pence with GBP', (_name, prompt) => {
     setCurrency('GBP');
     expect(prompt()).toContain('British Pound pence (GBP)');
+  });
+
+  it.each(Object.entries(PROMPTS))('the %s never says euros with GBP', (_name, prompt) => {
+    setCurrency('GBP');
     expect(prompt()).not.toMatch(/euro|€/iu);
   });
 

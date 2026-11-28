@@ -6,12 +6,14 @@
 //
 //   pnpm eval:text [--model provider/id ...] [--runs 3] [--file evals/text/cases.json] [--currency EUR]
 //
+// A case may name its own principal `currency`, and each of its `expenses` its own (B87).
+//
 // Without `--model`, it interprets with `ANOMANDER_MODEL`. See `evals/text/README.md`.
 import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { parseArgs } from 'node:util';
 import { weekdayOf } from '@anomander/core';
-import { setCurrency } from '@anomander/protocol';
+import { getCurrency, isCurrency, setCurrency } from '@anomander/protocol';
 import type { AssistantMessage } from '@earendil-works/pi-ai';
 import { builtinModels } from '@earendil-works/pi-ai/providers/all';
 import { z } from 'zod';
@@ -33,12 +35,16 @@ const caseSchema = z.object({
   pending: z
     .array(z.object({ id: z.int(), text: z.string(), when: z.string().nullable() }))
     .default([]),
+  /** The principal's currency for this case (B87); the run's when absent. */
+  currency: z.string().optional(),
   /** The recent expenses a typed correction may point at (R-7 AC7), newest first. */
   expenses: z
     .array(
       z.object({
         id: z.int(),
         total_cents: z.int(),
+        /** The expense's own currency (DK-25, B87); the case's principal currency when absent. */
+        currency: z.string().optional(),
         merchant: z.string().nullable(),
         category: z.string().nullable(),
         occurred_on: z.string(),
@@ -152,8 +158,33 @@ if (cases.length === 0 || !(runs > 0)) {
   process.exit(1);
 }
 
+// B87: each case's own currency is checked as the daemon checks `ANOMANDER_CURRENCY`, for every
+// case before any model is called, so a currency the daemon refuses never costs a provider call.
+// An expense's own currency only has to be an ISO 4217 code: a stored expense may be in one
+// without cents.
+for (const item of cases) {
+  for (const expense of item.expenses ?? []) {
+    if (expense.currency !== undefined && !isCurrency(expense.currency)) {
+      console.error(
+        `case ${item.name}: expense ${expense.id} has ${expense.currency}, which is no ISO 4217 currency`,
+      );
+      process.exit(1);
+    }
+  }
+  if (item.currency === undefined) continue;
+  try {
+    item.currency = loadCurrency({ ANOMANDER_CURRENCY: item.currency });
+  } catch (error) {
+    console.error(`case ${item.name}: ${(error as Error).message}`);
+    process.exit(1);
+  }
+}
+
 const models = builtinModels();
 const quiet = { info: () => {}, warn: () => {}, error: () => {} };
+
+/** The run's currency, which a case may replace with its own `currency` (B87). */
+const runCurrency = getCurrency();
 
 for (const modelId of modelIds) {
   const { provider, id } = parseModelId(modelId);
@@ -178,6 +209,13 @@ for (const modelId of modelIds) {
   const byKind = new Map<string, { right: number; total: number }>();
   for (const item of cases) {
     const wants = Array.isArray(item.expect) ? item.expect : [item.expect];
+    // B87: a case may run after the principal chose another currency; the prompt follows it.
+    setCurrency(item.currency ?? runCurrency);
+    // The expenses as the daemon gives them: each total in its own currency (DK-25).
+    const expenses = item.expenses?.map(({ total_cents, currency, ...expense }) => ({
+      ...expense,
+      total: { cents: total_cents, currency: currency ?? getCurrency() },
+    }));
     const today = item.now.slice(0, 10);
     const weekday = weekdayOf(today);
     const outcomes: string[] = [];
@@ -190,7 +228,7 @@ for (const modelId of modelIds) {
         recent: [],
         memories: item.memories.map((memory) => ({ ...memory, mode: memory.mode as 'declared' })),
         capabilities: { reminders: { now: item.now, weekday, pending: item.pending } },
-        ...(item.expenses === undefined ? {} : { expenses: item.expenses }),
+        ...(expenses === undefined ? {} : { expenses }),
       });
       // A provider that refuses (a spent quota, a network error) measures nothing about the
       // prompt: say so and stop, so it never reads as a wrong answer. The reason is the

@@ -1,7 +1,8 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { setCurrency } from '@anomander/protocol';
 import type { AssistantMessage, Context } from '@earendil-works/pi-ai';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   correctionInterpreterPrompt,
   createPiAiCorrectionInterpreter,
@@ -13,6 +14,8 @@ const recorded = (name: string): AssistantMessage =>
   JSON.parse(readFileSync(resolve(FIXTURES, `${name}.json`), 'utf8'));
 
 const MODEL = { provider: 'openai', id: 'gpt-4o-mini' };
+
+afterEach(() => setCurrency('EUR'));
 
 describe('pi-ai correction interpreter', () => {
   // R-14 AC2 and §16: a rejected item quotes the correction, so only its reason and predicate
@@ -50,7 +53,7 @@ describe('pi-ai correction interpreter', () => {
     const interpretation = await interpret({
       text: 'era en casa secreta',
       expense: {
-        total_cents: 2340,
+        total: { cents: 2340, currency: 'EUR' },
         merchant: 'Mercadona',
         category: null,
         occurred_on: '2026-10-29',
@@ -83,7 +86,12 @@ describe('pi-ai correction interpreter', () => {
 
     await interpret({
       text: 'fue el lunes',
-      expense: { total_cents: 2340, merchant: null, category: null, occurred_on: '2026-11-25' },
+      expense: {
+        total: { cents: 2340, currency: 'EUR' },
+        merchant: null,
+        category: null,
+        occurred_on: '2026-11-25',
+      },
       categories: [],
       today: '2026-11-25',
     });
@@ -98,5 +106,92 @@ describe('pi-ai correction interpreter', () => {
     expect(correctionInterpreterPrompt()).toContain(
       'The user turn is a JSON object with the fields "expense" (the values being corrected), "categories", "today", "weekday" (the day of the week of "today") and "message".',
     );
+  });
+
+  // B87: a stored expense keeps its currency when the principal chooses another (DK-25), so the
+  // processor is told the expense's own currency and asked for the new total in it.
+  it("B87: gives the expense's total in its own currency and asks for the new one in it", async () => {
+    setCurrency('USD');
+    const contexts: Context[] = [];
+    const interpret = createPiAiCorrectionInterpreter({
+      complete: async (_model, context) => {
+        contexts.push(context);
+        return {
+          ...recorded('nothing'),
+          content: [{ type: 'text', text: '{"kind":"correction","inferences":[]}' }],
+        };
+      },
+      model: MODEL,
+      logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+    });
+
+    await interpret({
+      text: 'eran 15',
+      expense: {
+        total: { cents: 1200, currency: 'EUR' },
+        merchant: null,
+        category: null,
+        occurred_on: '2026-11-25',
+      },
+      categories: [],
+      today: '2026-11-25',
+    });
+
+    expect(JSON.parse(String(contexts[0]?.messages[0]?.content)).expense).toEqual({
+      total: { cents: 1200, currency: 'EUR' },
+      merchant: null,
+      category: null,
+      occurred_on: '2026-11-25',
+    });
+    const prompt = String(contexts[0]?.systemPrompt);
+    expect(prompt).toContain(
+      '"total": the new amount paid, in the currency of the expense\'s "total" (its "currency"), as an integer number of hundredths of that currency ("28,40" is 2840).',
+    );
+    // The principal's currency is not the expense's: the prompt never names it.
+    expect(prompt).not.toMatch(/US Dollar|USD/u);
+  });
+
+  // B87: a correction changes the figure of the expense, never its currency.
+  it('B87: drops an inference about the currency', async () => {
+    const interpret = createPiAiCorrectionInterpreter({
+      complete: async () => ({
+        ...recorded('nothing'),
+        content: [
+          {
+            type: 'text',
+            text: JSON.stringify({
+              kind: 'correction',
+              inferences: [
+                {
+                  subject_type: 'expense',
+                  subject_id: null,
+                  predicate: 'currency',
+                  value_json: 'EUR',
+                  mode: 'inferred',
+                  basis_json: { quote: '32' },
+                  confidence: 0.9,
+                },
+              ],
+            }),
+          },
+        ],
+      }),
+      model: MODEL,
+      logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+    });
+
+    const interpretation = await interpret({
+      text: '32',
+      expense: {
+        total: { cents: 1200, currency: 'EUR' },
+        merchant: null,
+        category: null,
+        occurred_on: '2026-11-20',
+      },
+      categories: [],
+      today: '2026-11-20',
+    });
+
+    expect(interpretation).toEqual({ kind: 'correction', inferences: [] });
   });
 });
