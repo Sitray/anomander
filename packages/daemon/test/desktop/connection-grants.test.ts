@@ -521,6 +521,30 @@ describe('the grants follow mcp.json (DK-24 AC2, AC3)', { timeout: 20_000 }, () 
     expect(permissions()[0]?.revoked_at).toEqual(expect.any(String));
   });
 
+  it('B67: one stored that cannot be read grants nothing and is logged by its id only', async () => {
+    const env = withServer({ env: [] });
+    await grantNames(env);
+    const written = new Database(join(scratch, 'anomander.db'));
+    const id = Number(
+      written
+        .prepare(
+          `INSERT INTO permissions (operation, conditions_json, granted_at)
+           VALUES ('call_connection_tool', ?, '2026-11-28T10:00:00.000Z')`,
+        )
+        .run('{"server":"env","tool":"names","identity":"secret-token"').lastInsertRowid,
+    );
+    written.close();
+
+    const chat = await client(await start(env, true));
+
+    expect(await grants(chat)).toHaveLength(1);
+    expect(logger.warn).toHaveBeenCalledWith(
+      'a connection grant cannot be read; it grants nothing',
+      { id },
+    );
+    expect(JSON.stringify(logger.warn.mock.calls)).not.toContain('secret-token');
+  });
+
   it('drops them when the server was removed, and adding it again does not bring them back', async () => {
     await grantNames(withServer({ env: [] }));
     const chat = await client(await start(withServer({}), true));
