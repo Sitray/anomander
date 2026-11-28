@@ -36,8 +36,9 @@ export const createTextRouter =
         if (correct !== undefined) return correct({ decision, message });
       }
       // B79 (decided by the principal on 2026-11-26: "Corrige el gasto"): a "Corregido…" whose
-      // "Deshacer" was used still shows a recorded expense, so a reply to it corrects it again.
-      const used = findUsedCorrectionUndoShownIn(db, message.replyTo);
+      // "Deshacer" was used still shows a recorded expense, so a reply to it corrects it again,
+      // for the 7 days an unused one stays open (B85 (4), R-19 AC2); after them, AC5.
+      const used = findUsedCorrectionUndoShownIn(db, message.replyTo, now());
       const correct = takesText(used);
       if (used !== null && correct !== undefined) return correct({ decision: used, message });
     }
