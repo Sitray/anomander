@@ -74,6 +74,24 @@ describe('the scrubbing logger', () => {
     );
   });
 
+  it('B53: hides a secret with a lone surrogate in each form a line may quote it', () => {
+    const out = sink();
+    const secret = 'abcdefgh\ud800ijkl mnop';
+    const logger = createScrubbingLogger(out, () => [secret]);
+    // A URL holds no lone surrogate: it is written as U+FFFD there, as `URLSearchParams` does.
+    const form = new URLSearchParams({ token: secret }).toString();
+
+    logger.error(
+      `as is ${secret}; in a body {"key":${JSON.stringify(secret)}}; ` +
+        `in an address /cb?token=${encodeURIComponent(secret.toWellFormed())}; in a form ${form}`,
+    );
+
+    expect(out.error).toHaveBeenCalledWith(
+      'as is [secret]; in a body {"key":"[secret]"}; in an address /cb?token=[secret]; ' +
+        'in a form token=[secret]',
+    );
+  });
+
   it('writes everything else as the console would', () => {
     const out = sink();
     const logger = createScrubbingLogger(out, () => [TOKEN, '']);

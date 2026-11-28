@@ -141,16 +141,28 @@ export const startSetupGuide = (config: Config, deps: SetupGuideDeps): Anomander
     () => announceGaps(gaps, config.telegram === undefined ? undefined : send, logger),
     () => {},
   );
-  // B51: what `halt` began, `stop` waits for.
-  let doorsClosing: Promise<void> | undefined;
-  const halt = (): Promise<void> => {
+  // B51: what `halt` began, `stop` waits for. B85: both doors begin to close in this same call,
+  // and a crash (`crashed`) halts the bot as the daemon's does (B82, B84): what it read after the
+  // halt gets no reply and is not acknowledged, so it comes again after the restart, answered
+  // once; a stop keeps `bot.stop()`.
+  let doorsClosing: Promise<unknown>[] | undefined;
+  // Begun at once; a door that throws instead of rejecting is a rejection too, so `halt` never
+  // rejects and no door is closed twice.
+  const closing = (close: () => Promise<unknown> | undefined): Promise<unknown> => {
+    try {
+      return Promise.resolve(close());
+    } catch (error) {
+      return Promise.reject(error);
+    }
+  };
+  const halt = ({ crashed = false } = {}): Promise<unknown>[] => {
     if (doorsClosing !== undefined) return doorsClosing;
     login?.stop();
-    doorsClosing = (async () => {
-      await localChannel?.stop();
-      await telegram.stop();
-    })();
-    doorsClosing.catch(() => {});
+    doorsClosing = [
+      closing(() => localChannel?.stop()),
+      closing(() => (crashed ? telegram.halt() : telegram.stop())),
+    ];
+    for (const closing of doorsClosing) closing.catch(() => {});
     return doorsClosing;
   };
   return {
@@ -158,10 +170,15 @@ export const startSetupGuide = (config: Config, deps: SetupGuideDeps): Anomander
     polling: telegram.ended,
     readApi: undefined,
     localChannel: localChannel?.listening,
-    halt: () => halt().catch(() => {}),
+    halt: async () => {
+      await Promise.allSettled(halt({ crashed: true }));
+    },
     stop: async () => {
-      await halt();
+      const failures = (await Promise.allSettled(halt()))
+        .filter((step) => step.status === 'rejected')
+        .map((step) => step.reason);
       lock.release();
+      if (failures.length > 0) throw failures[0];
     },
   };
 };
