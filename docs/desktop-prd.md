@@ -717,7 +717,8 @@ and keep its secrets in the operating system instead of a text file.
     reads photos (a test checks both). Choosing one fills "Modelo" and "Modelo para fotos" with its
     suggestion, keeping a photo model the principal typed. "Otro modelo…" keeps the free
     `provider/model` field, still checked only by shape; a model typed with a listed provider
-    selects it. "Modelo para fotos" left empty is saved as the model only when that is a suggested
+    selects it. Chosen after a listed provider, "Otro modelo…" empties "Modelo" (and "Modelo para
+    fotos" when it only followed the suggestion), so the picker stays on it (B64). "Modelo para fotos" left empty is saved as the model only when that is a suggested
     one, known to read photos; otherwise the screen asks for it ("Falta el modelo para fotos:
     escribe uno que lea imágenes, o elige un proveedor de la lista."), so the daemon never starts
     with half of R-28 AC2's pair nor reads receipts with a model that cannot see them.

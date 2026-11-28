@@ -691,6 +691,28 @@ describe('onboarding (DK-23)', () => {
     });
   });
 
+  it('stays on "Otro modelo…" when chosen after a provider, with the model to write (B64)', () => {
+    renderSetup(EMPTY_SETUP);
+    pick('google');
+    pick('other');
+
+    expect(picker().value).toBe('other');
+    expect(field(text.model).value).toBe('');
+    // The photo model only followed the suggestion: it goes with it.
+    expect(field(text.visionModel).value).toBe('');
+    fill(text.model, 'groq/llama-3.3-70b-versatile');
+    expect(picker().value).toBe('other');
+  });
+
+  it('keeps a photo model of its own when "Otro modelo…" is chosen', () => {
+    renderSetup(EMPTY_SETUP);
+    pick('google');
+    fill(text.visionModel, 'google/gemini-2.5-pro');
+    pick('other');
+
+    expect(field(text.visionModel).value).toBe('google/gemini-2.5-pro');
+  });
+
   it('keeps a photo model of its own when a provider is chosen', () => {
     renderSetup(EMPTY_SETUP);
     pick('google');
