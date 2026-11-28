@@ -61,7 +61,7 @@ export interface ChatScreenProps {
    * B25: opens an http(s) address in the principal's browser; absent where the shell cannot.
    * B86: when the promise it returns rejects, the composer says the link did not open.
    */
-  onOpenLink?: (url: string) => Promise<unknown> | void;
+  onOpenLink?: (url: string) => Promise<unknown>;
   /** DK-21: opens the setup from the model's name under the composer. */
   onOpenSetup?: () => void;
 }
@@ -116,7 +116,7 @@ export function ChatScreen(props: ChatScreenProps) {
       onOpenLink === undefined
         ? undefined
         : (url: string) => {
-            onOpenLink(url)?.catch(() => warn(strings.chat.linkNotOpened));
+            Promise.resolve(onOpenLink(url)).catch(() => warn(strings.chat.linkNotOpened));
           },
     [onOpenLink, warn],
   );
