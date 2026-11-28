@@ -249,7 +249,7 @@ describe('the ledger export', () => {
   });
 
   it('B90: also guards a formula written with a hyphen, non-breaking hyphen, em dash or small em dash', () => {
-    const names = ['\u2010=1', '\u20111+1', '\u2014=1', '\uFE58=1'];
+    const names = ['\u2010=1', '\u20111+1', '\u2014=1', '\uFE58=1', '\u0085 \u200B\u2014=1'];
     for (const name of names) expense(name, 500, 'current');
 
     const gastos = readFileSync(join(exportLedger(db, scratch, NOW).folder, 'gastos.csv'), 'utf8');
