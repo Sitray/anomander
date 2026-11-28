@@ -69,7 +69,7 @@ export interface Chat {
   clear(): Promise<'done' | 'not_done' | 'unknown'>;
   /**
    * B48: the window was shown again: it shows the stored conversation instead, once nothing on
-   * screen would be lost. B56: a second sign of the same show asks nothing more.
+   * screen would be lost. B56: the page's own sign of the same show asks nothing more.
    */
   shownAgain(): void;
   /**
@@ -119,10 +119,14 @@ interface AskAgain {
 const GIVE_UP_MS = 60_000;
 
 /**
- * B56: the page and the shell each say when the window is shown: a sign this soon after the
- * stored conversation was asked for, with no hide between, is the same show.
+ * B56: the page and the shell each say when the window is shown: a sign from the other one this
+ * soon after, with no hide between, is the same show. A second sign from the same one is a new
+ * show, as is any sign after a hide.
  */
 const SHOWN_AGAIN_MS = 1_000;
+
+/** B56: who said the window was shown. */
+type ShowSign = 'shell' | 'page';
 
 /** A task started while a look waited for its turn: the screen is the task's. */
 const BUSY = Symbol('busy');
@@ -161,13 +165,8 @@ export const useChat = (channel: LocalChannel | null, options: ChatOptions = {})
   const wanted = useRef(false);
   /** A request for it is on its way. */
   const asking = useRef(false);
-  /** B56: when it was last asked for; `null` before the first time. */
-  const askedAt = useRef<number | null>(null);
-  /**
-   * B56: the window was hidden since it was last asked for: the next sign is a new show, and what
-   * is asked for, or on its way, may be older than a change made meanwhile.
-   */
-  const hiddenSinceAsked = useRef(false);
+  /** B56: the last sign that the window was shown, and when; `null` once it was hidden. */
+  const lastSign = useRef<{ by: ShowSign; at: number } | null>(null);
   const [reload, setReload] = useState(0);
   const wantStored = useCallback(() => {
     wanted.current = true;
@@ -505,23 +504,27 @@ export const useChat = (channel: LocalChannel | null, options: ChatOptions = {})
   // B48: the window is hidden, not closed; shown again, it shows what the daemon keeps now, so a
   // forget made through Telegram meanwhile is gone from it too. The shell says when it shows the
   // window (`shownAgain`); the page's own visibility is a second, harmless sign of it.
-  // B56: both signs of one show ask once. A show after a hide always asks, once the request on
-  // its way came if one is: it may have been read before a change made while hidden.
-  const shownAgain = useCallback(() => {
-    if (!hiddenSinceAsked.current) {
-      if (asking.current) return;
-      if (askedAt.current !== null && Date.now() - askedAt.current < SHOWN_AGAIN_MS) return;
-    }
-    wantStored();
-  }, [wantStored]);
+  // B56: the two signs of one show ask once; every new show asks, after the request on its way
+  // if one is, since that one may have been read before a change made while hidden.
+  const signOfShow = useCallback(
+    (by: ShowSign) => {
+      const at = performance.now();
+      const last = lastSign.current;
+      if (last !== null && last.by !== by && at - last.at < SHOWN_AGAIN_MS) return;
+      lastSign.current = { by, at };
+      wantStored();
+    },
+    [wantStored],
+  );
+  const shownAgain = useCallback(() => signOfShow('shell'), [signOfShow]);
   useEffect(() => {
     const visible = () => {
-      if (document.visibilityState === 'visible') shownAgain();
-      else hiddenSinceAsked.current = true;
+      if (document.visibilityState === 'visible') signOfShow('page');
+      else lastSign.current = null;
     };
     document.addEventListener('visibilitychange', visible);
     return () => document.removeEventListener('visibilitychange', visible);
-  }, [shownAgain]);
+  }, [signOfShow]);
   // biome-ignore lint/correctness/useExhaustiveDependencies: tried again on every change.
   useEffect(() => {
     if (!wanted.current || asking.current) return;
@@ -532,8 +535,6 @@ export const useChat = (channel: LocalChannel | null, options: ChatOptions = {})
     if (request === undefined) return;
     wanted.current = false;
     asking.current = true;
-    askedAt.current = Date.now();
-    hiddenSinceAsked.current = false;
     const replacing = conversation.messages;
     void request.then((messages) => {
       asking.current = false;

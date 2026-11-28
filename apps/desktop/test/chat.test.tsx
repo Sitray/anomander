@@ -2309,35 +2309,35 @@ describe('the stored conversation (DK-16)', () => {
         return { socket, shellShown: () => act(() => shellShown()) };
       };
 
-      it('B56: asks again on a later sign of the shell, or once the window was hidden', async () => {
-        const now = vi.spyOn(Date, 'now').mockReturnValue(1_000_000);
-        const { socket, shellShown } = await withShellSign();
+      it('B56: the page saying so too soon after asks nothing; a later shell sign or a hide asks again', async () => {
+        const now = vi.spyOn(performance, 'now').mockReturnValue(1_000_000);
         try {
-          now.mockReturnValue(1_001_000);
+          const { socket, shellShown } = await withShellSign();
+          const answer = (index: number) =>
+            act(() =>
+              socket.receive({
+                type: 'history',
+                inReplyTo: historyAsks(socket)[index]?.id ?? '',
+                messages: STORED,
+              }),
+            );
           shellShown();
           await waitFor(() => expect(historyAsks(socket)).toHaveLength(2));
-          act(() =>
-            socket.receive({
-              type: 'history',
-              inReplyTo: historyAsks(socket)[1]?.id ?? '',
-              messages: STORED,
-            }),
-          );
+          answer(1);
           await act(async () => {});
-          now.mockReturnValue(1_001_500);
-          shellShown();
+
+          // The page's own sign of the same show, never hidden in between.
+          now.mockReturnValue(1_000_500);
+          act(() => {
+            document.dispatchEvent(new Event('visibilitychange'));
+          });
           await act(async () => {});
           expect(historyAsks(socket)).toHaveLength(2);
-          now.mockReturnValue(1_002_000);
+
+          // The shell again is a new show, however soon.
           shellShown();
           await waitFor(() => expect(historyAsks(socket)).toHaveLength(3));
-          act(() =>
-            socket.receive({
-              type: 'history',
-              inReplyTo: historyAsks(socket)[2]?.id ?? '',
-              messages: STORED,
-            }),
-          );
+          answer(2);
           await act(async () => {});
           await hideAndShow();
           expect(historyAsks(socket)).toHaveLength(4);

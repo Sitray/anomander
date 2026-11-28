@@ -88,7 +88,7 @@ describe('the signs that the stored conversation changed (B56)', () => {
   });
 
   it('a forget in Memoria within 1 s of the last request still asks again', async () => {
-    const now = vi.spyOn(Date, 'now').mockReturnValue(5_000_000);
+    const now = vi.spyOn(performance, 'now').mockReturnValue(5_000_000);
     try {
       const { socket, changed } = await setup();
       changed();
@@ -106,7 +106,7 @@ describe('the signs that the stored conversation changed (B56)', () => {
   });
 
   it('hidden then shown within 1 s of the last answer reloads', async () => {
-    const now = vi.spyOn(Date, 'now').mockReturnValue(7_000_000);
+    const now = vi.spyOn(performance, 'now').mockReturnValue(7_000_000);
     try {
       const { socket } = await setup();
       now.mockReturnValue(7_000_200);
@@ -120,7 +120,19 @@ describe('the signs that the stored conversation changed (B56)', () => {
     }
   });
 
-  it('one show signalled by hidden, the shell, then visible asks once', async () => {
+  it('one show signalled by hidden, visible, then the shell asks once', async () => {
+    const { socket, shell } = await setup();
+    visibilityTo('hidden');
+    visibilityTo('visible');
+    await waitFor(() => expect(asks(socket)).toHaveLength(2));
+    shell();
+    answer(socket, 1, BEFORE);
+    await act(async () => {});
+    await act(async () => {});
+    expect(asks(socket)).toHaveLength(2);
+  });
+
+  it('one show signalled by hidden, the shell, then visible asks once; the shell again asks again', async () => {
     const { socket, shell } = await setup();
     visibilityTo('hidden');
     shell();
@@ -129,9 +141,9 @@ describe('the signs that the stored conversation changed (B56)', () => {
     expect(asks(socket)).toHaveLength(2);
     answer(socket, 1, BEFORE);
     await act(async () => {});
+    // R4-001: the shell again is a new show.
     shell();
-    await act(async () => {});
-    expect(asks(socket)).toHaveLength(2);
+    await waitFor(() => expect(asks(socket)).toHaveLength(3));
   });
 
   it('hidden and shown again while a history request is still under way asks again once it comes', async () => {
@@ -150,5 +162,19 @@ describe('the signs that the stored conversation changed (B56)', () => {
     if (n === 3) answer(socket, 2, AFTER);
     await act(async () => {});
     expect({ asks: n, shown: shownTexts() }).toEqual({ asks: 3, shown: ['uno', 'dos'] });
+  });
+  it('R4-001: a shell that shows the window twice, never hidden for the page, asks again for the second show', async () => {
+    const { socket, shell } = await setup();
+    shell();
+    await waitFor(() => expect(asks(socket)).toHaveLength(2));
+    // #2 is slow: the window is hidden, a forget is made in Telegram, and the shell shows it again
+    // with no visibilitychange at all.
+    shell();
+    await act(async () => {});
+    answer(socket, 1, BEFORE);
+    await waitFor(() => expect(asks(socket)).toHaveLength(3));
+    answer(socket, 2, AFTER);
+
+    await waitFor(() => expect(shownTexts()).toEqual(['uno', 'dos']));
   });
 });

@@ -549,7 +549,7 @@ describe('Memoria (DK-18)', () => {
       shown = handler;
       return unlisten;
     });
-    const now = vi.spyOn(Date, 'now').mockReturnValue(1_000_000);
+    const now = vi.spyOn(performance, 'now').mockReturnValue(1_000_000);
     try {
       FakeWebSocket.history = [
         {
