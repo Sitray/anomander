@@ -122,12 +122,33 @@ const isConnectionTool = (value: unknown): value is ConnectionTool & { door?: un
   return typeof server === 'string' && typeof tool === 'string' && typeof identity === 'string';
 };
 
-/** Every "Permitir siempre" in force, by server and then tool. */
-export const connectionToolGrants = (db: Database.Database): ConnectionToolGrant[] =>
+/** What `json` holds; `undefined` when it is not JSON. */
+const parsedOrNone = (json: string): unknown => {
+  try {
+    return JSON.parse(json);
+  } catch {
+    return undefined;
+  }
+};
+
+/** Told the id of a row whose conditions cannot be read; never what they hold. */
+export type UnreadableGrant = (id: number) => void;
+
+/**
+ * Every "Permitir siempre" in force, by server and then tool. One whose conditions cannot be
+ * read is none: it grants nothing and stops no other, and `unreadable` is told its id (B67).
+ */
+export const connectionToolGrants = (
+  db: Database.Database,
+  unreadable: UnreadableGrant = () => {},
+): ConnectionToolGrant[] =>
   activePermissions(db, CONNECTION_TOOL_OPERATION, new Date())
     .flatMap(({ id, conditions_json, granted_at }) => {
-      const conditions: unknown = JSON.parse(conditions_json);
-      if (!isConnectionTool(conditions)) return [];
+      const conditions = parsedOrNone(conditions_json);
+      if (!isConnectionTool(conditions)) {
+        unreadable(id);
+        return [];
+      }
       const { server, tool, identity } = conditions;
       return [{ id, server, tool, identity, grantedAt: granted_at }];
     })
@@ -178,14 +199,16 @@ export const revokeConnectionTool = (db: Database.Database, id: number, now: str
 
 /**
  * Revokes every "Permitir siempre" of a server `identities` (name to identity) does not hold as
- * it is: removed, renamed, or with another command or address. Returns how many were revoked.
+ * it is: removed, renamed, or with another command or address. Returns how many were revoked;
+ * `unreadable` is told of each one that cannot be read, which grants nothing.
  */
 export const revokeConnectionToolsNotIn = (
   db: Database.Database,
   identities: Readonly<Record<string, string>>,
   now: string,
+  unreadable?: UnreadableGrant,
 ): number => {
-  const gone = connectionToolGrants(db).filter(
+  const gone = connectionToolGrants(db, unreadable).filter(
     ({ server, identity }) => !Object.hasOwn(identities, server) || identities[server] !== identity,
   );
   for (const { id } of gone) revokeConnectionTool(db, id, now);
