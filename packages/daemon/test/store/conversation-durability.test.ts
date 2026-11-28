@@ -144,6 +144,17 @@ describe('R-23 AC3: a replaced memory takes the turns that hold its words with i
       '¿Eres vegetariano?',
     ]);
   });
+  it('B56: a message sent unasked that holds the old fact goes alone; the turn before it stays', () => {
+    db = openDatabase(path);
+    applyMigrations(db);
+    const turns = createRecentTurns({ db, now: () => AT, logger });
+    turns.add('23 € cena', { text: 'Apuntado.' }, 'app');
+    turns.add(null, { text: 'Recuerda: vives en Zorbtown.' }, 'telegram');
+    turns.add('30 € taxi', { text: 'Apuntado: 30 € en taxi.' }, 'app');
+    const old = saveMemory(db, memo('Vives en Zorbtown', 'vivo en Zorbtown', null));
+    saveMemory(db, memo('Vives en Lisboa', 'ya vivo en Lisboa', old));
+    expect(texts()).toEqual(['23 € cena', 'Apuntado.', '30 € taxi', 'Apuntado: 30 € en taxi.']);
+  });
   it('a numeric quote erases only its turn', () => {
     db = openDatabase(path);
     applyMigrations(db);
