@@ -167,6 +167,23 @@ describe('the setup guide when the daemon crashes (B85)', () => {
     ]);
     expect(api.sent.map((sent) => sent.text)).toEqual([text, text]);
     expect(await unacknowledged()).toEqual(['café 3']);
+
+    // The crashed process is gone, its lock with it: the guide starts again on the same bot, and
+    // what was left for later is answered once.
+    await started.stop();
+    guide = undefined;
+    const again = startSetupGuide(config, {
+      gaps: resolved.gaps,
+      telegramApiRoot: api.apiRoot,
+      logger,
+    });
+    guide = again;
+    await again.started;
+    // The guide sent at start again, then the answer to 'café 3'.
+    await api.waitForSent(4);
+    await pause(200);
+    expect(api.sent.map((sent) => sent.text)).toEqual([text, text, text, text]);
+    await vi.waitFor(async () => expect(await unacknowledged()).toEqual([]));
   });
 
   it('a stop still answers what it read and acknowledges it, as before', async () => {
