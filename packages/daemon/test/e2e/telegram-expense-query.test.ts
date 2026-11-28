@@ -404,6 +404,26 @@ describe('a free query on the expenses (R-30)', () => {
     );
   });
 
+  // B74: the breakdown is ordered by the principal's currency first, so a category spent only in
+  // US dollars comes after every category in euros, whatever its figure.
+  it('DK-25: a category spent only in another currency is never ranked against euros by its figure', async () => {
+    const db = new Database(dbPath());
+    db.prepare("INSERT INTO categories (name, created_at) VALUES ('ocio', ?)").run(
+      NOW.toISOString(),
+    );
+    db.prepare(
+      `INSERT INTO expenses (occurred_on, total_cents, currency, category_id, mode, status, created_at)
+       VALUES ('2026-11-05', 9000, 'USD', (SELECT id FROM categories WHERE name = 'ocio'),
+               'declared', 'current', ?)`,
+    ).run(NOW.toISOString());
+    db.close();
+    const usd = (amount: string) => `${amount} US$`;
+
+    expect(await say('¿cuánto llevo gastado este mes?', THIS_MONTH)).toBe(
+      `Del 1 de noviembre al 24 de noviembre: ${eur('88,70')} y ${usd('90,00')} en 5 gastos. Supermercado ${eur('57,70')} · Restaurantes ${eur('23,00')} · Ocio ${usd('90,00')} · Sin clasificar ${eur('8,00')}. Pendientes de confirmar: 1.`,
+    );
+  });
+
   it('AC8: the app gets the same answer, stored as a turn of its door', async () => {
     const text = '¿cuánto llevo gastado este mes?';
 

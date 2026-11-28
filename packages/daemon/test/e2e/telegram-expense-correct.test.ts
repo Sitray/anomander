@@ -317,6 +317,34 @@ describe('undoing and correcting a typed expense', () => {
     ]);
   });
 
+  // B74: a correction changes the figure, never the currency, so an expense stored in euros
+  // before the principal chose US dollars is corrected, said and put back in euros.
+  it('DK-25: a correction of an expense stored in another currency keeps and says that currency', async () => {
+    const reply = await registered();
+    await anomander.stop();
+    await start({ ANOMANDER_CURRENCY: 'USD' });
+    const eur = (amount: string) => `${amount} €`;
+
+    expect(await press(reply, 'Corregir')).toBe(S7);
+    expect((await say('total 28,40')).text).toBe(`Corregido: ${eur('28,40')} (restaurantes).`);
+
+    interpretations.set('no eran 28,40, eran 32', ({ expenses = [] }) =>
+      correcting(expenses[0]?.id ?? null, 3200, 'eran 32'),
+    );
+    const corrected = await say('no eran 28,40, eran 32');
+    expect(corrected.text).toBe(`Corregido: ${eur('32,00')} (restaurantes).`);
+    expect(query('SELECT total_cents, currency FROM expenses')).toEqual([
+      { total_cents: 3200, currency: 'EUR' },
+    ]);
+
+    expect(await press(corrected, 'Deshacer')).toBe(
+      `Deshecho: vuelve a ser ${eur('28,40')} (restaurantes).`,
+    );
+    expect(query('SELECT total_cents, currency, status FROM expenses')).toEqual([
+      { total_cents: 2840, currency: 'EUR', status: 'current' },
+    ]);
+  });
+
   it('R-7 AC6: "Corregir" asks S-7, and the text supersedes the declaration with a new declared one', async () => {
     const reply = await registered();
 
