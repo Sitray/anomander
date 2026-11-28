@@ -232,23 +232,44 @@ export interface SecretList {
 }
 
 /**
- * The secrets the log hides. Those acquired are kept for the life of the daemon: a rotated
- * token may still be valid, and a line may quote it.
+ * B53: how many acquired secrets the log keeps hiding. Every log line is scrubbed of each, so a
+ * daemon that runs for months, its logins refreshed every hour, would slow every line down.
+ */
+export const ACQUIRED_LIMIT = 256;
+
+/**
+ * The secrets the log hides. Those of the start are kept for the life of the daemon. Of those
+ * acquired, a rotated token may still be valid and a line may quote it, so the last
+ * `ACQUIRED_LIMIT` seen are kept, and past that the one seen longest ago is dropped (B53), never
+ * one still in use: a login is seen again each time it is read, before every model call, and the
+ * connections' current OAuth set, which they use without reading it again, is never dropped.
  */
 export const createSecretList = (): SecretList => {
   let start: readonly string[] = [];
+  /** In the order they were last seen, the one seen longest ago first. */
   const acquired = new Set<string>();
+  /** The tokens of the OAuth set acquired last: the connections' current ones. */
+  let currentOAuth = new Set<string>();
   return {
     current: () => (acquired.size === 0 ? start : [...start, ...acquired]),
     setFromStart: (secrets) => {
       start = [...secrets];
     },
     acquire: (kind, value) => {
-      const found =
+      const found = nonBlank(
         kind === 'failure'
           ? quotedTokens(value)
-          : stringLeaves(value, kind === 'login' ? isLoginSecret : isOAuthSecret);
-      for (const secret of nonBlank(found)) acquired.add(secret);
+          : stringLeaves(value, kind === 'login' ? isLoginSecret : isOAuthSecret),
+      );
+      if (kind === 'oauth') currentOAuth = new Set(found);
+      for (const secret of found) {
+        acquired.delete(secret);
+        acquired.add(secret);
+      }
+      for (const secret of acquired) {
+        if (acquired.size <= ACQUIRED_LIMIT) break;
+        if (!currentOAuth.has(secret)) acquired.delete(secret);
+      }
     },
   };
 };

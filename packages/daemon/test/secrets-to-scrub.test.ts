@@ -9,6 +9,7 @@ import { loadConfig } from '../src/config.ts';
 import { createOAuthKeeper } from '../src/connections/oauth.ts';
 import { createScrubbingLogger } from '../src/scrubbing-logger.ts';
 import {
+  ACQUIRED_LIMIT,
   createSecretList,
   secretsBeforeConfig,
   secretsToScrub,
@@ -526,6 +527,69 @@ describe('the secrets the daemon gets after its start', () => {
     expect(out).toHaveLength(2);
     expect(out[0]).toMatch(/^anomander credentials /);
     expect(out[1]).toMatch(/^anomander mcp-oauth .*late-access/);
+  });
+
+  /** `count` failures, each quoting a token of its own, as refreshes that failed over time. */
+  const failuresQuoting = (
+    list: ReturnType<typeof createSecretList>,
+    count: number,
+    tag: string,
+  ) => {
+    for (let index = 0; index < count; index += 1) {
+      list.acquire('failure', new Error(`{"access_token":"${tag}-0123456789-${index}"}`));
+    }
+  };
+
+  it('B53: keep at most ACQUIRED_LIMIT acquired secrets, dropping the one seen longest ago', () => {
+    const list = createSecretList();
+    list.setFromStart([LOCAL_TOKEN]);
+    failuresQuoting(list, ACQUIRED_LIMIT + 1, 'failed');
+    const log = logOver(list);
+
+    expect(list.current()).toHaveLength(1 + ACQUIRED_LIMIT);
+    expect(log('failed-0123456789-0')).toBe('failed-0123456789-0');
+    expect(log('failed-0123456789-1')).toBe('[secret]');
+    expect(log(`failed-0123456789-${ACQUIRED_LIMIT}`)).toBe('[secret]');
+    expect(log(`local ${LOCAL_TOKEN}`)).toBe('local [secret]');
+  });
+
+  it('B53: keep a login seen again however many secrets came before it', async () => {
+    const list = createSecretList();
+    const store = rememberingLogins(
+      createShellCredentialStore(
+        JSON.stringify({
+          'openai-codex': { type: 'oauth', access: NEW_ACCESS, refresh: NEW_REFRESH, expires: 1 },
+        }),
+        () => {},
+      ),
+      list.acquire,
+    );
+    const log = logOver(list);
+
+    await store.read('openai-codex');
+    failuresQuoting(list, ACQUIRED_LIMIT - 2, 'early');
+    // Every model call reads the login it uses: it is the newest again.
+    await store.read('openai-codex');
+    failuresQuoting(list, ACQUIRED_LIMIT - 2, 'late');
+
+    expect(log(`with ${NEW_ACCESS} and ${NEW_REFRESH}`)).toBe('with [secret] and [secret]');
+    expect(log('early-0123456789-0')).toBe('early-0123456789-0');
+  });
+
+  it("B53: keep the connections' current OAuth tokens however many secrets came after them", () => {
+    const list = createSecretList();
+    const log = logOver(list);
+    const set = (access: string) => ({
+      notion: { client: { client_id: 'anomander-client' }, tokens: { access_token: access } },
+    });
+
+    list.acquire('oauth', set('first-access-0123456789'));
+    list.acquire('oauth', set(NEW_ACCESS));
+    failuresQuoting(list, ACQUIRED_LIMIT + 10, 'failed');
+
+    expect(log(`Bearer ${NEW_ACCESS}`)).toBe('Bearer [secret]');
+    expect(log('Bearer first-access-0123456789')).toBe('Bearer first-access-0123456789');
+    expect(list.current()).toHaveLength(ACQUIRED_LIMIT);
   });
 
   it('keeps logging when a secret holds a lone surrogate', () => {
