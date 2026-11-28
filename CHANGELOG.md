@@ -4,7 +4,9 @@ All notable changes to ANOMANDER are recorded here. The format follows [Keep a C
 
 ## [Unreleased]
 
-On `main` since 0.1.0. The interface speaks English or Spanish, and the app runs on macOS and on Windows.
+## [0.2.0] - 2026-11-28
+
+The first release with downloads: the Mac app for Apple silicon and the Windows installer. The interface speaks English or Spanish, and the app runs on macOS and on Windows.
 
 ### Added
 
@@ -107,7 +109,7 @@ On `main` since 0.1.0. The interface speaks English or Spanish, and the app runs
 
 ## [0.1.0] - 2026-11-21
 
-The first tagged version. There is no packaged download: you build and run it from this repository, with Docker or as the Mac app (see the [README](README.md)). In this version the interface is in Spanish only and the Mac app runs on macOS only; English and Windows came later (see [Unreleased](#unreleased)).
+The first tagged version. There is no packaged download: you build and run it from this repository, with Docker or as the Mac app (see the [README](README.md)). In this version the interface is in Spanish only and the Mac app runs on macOS only; English and Windows came in [0.2.0](#020---2026-11-28).
 
 ### Added
 
