@@ -282,5 +282,8 @@ const stage = async () => {
   console.info(`stage-daemon: ${relative(ROOT, OUT)} is ready for ${target}`);
 };
 
-// Run as `node scripts/stage-daemon.mjs`, not imported (Node 24.2+ says which module is main).
+// Run as `node scripts/stage-daemon.mjs`, not imported (Node 24.2+ says which module is main; an
+// older Node would stage nothing and say nothing).
+if (import.meta.main === undefined)
+  fail(`Node ${process.version} cannot stage: it needs 24.2 or later`);
 if (import.meta.main) await stage();

@@ -76,5 +76,14 @@ for want in 0 1; do
   fi
 done
 
+# ci.yml runs this script, not a copy of the step that this test would never see.
+ci_yml="$(cd "$(dirname "$0")/../.." && pwd)/.github/workflows/ci.yml"
+if grep -q '^        run: bash scripts/docker-smoke.sh$' "$ci_yml"; then
+  passed=$((passed + 1))
+else
+  failed=$((failed + 1))
+  echo "FAIL: ci.yml no longer runs scripts/docker-smoke.sh"
+fi
+
 echo "docker-smoke: $passed passed, $failed failed"
 [[ $failed -eq 0 ]]
