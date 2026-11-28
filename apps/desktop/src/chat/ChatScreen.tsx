@@ -110,15 +110,19 @@ export function ChatScreen(props: ChatScreenProps) {
     onProblem: draft.warn,
     ...(onAddWebSearch === undefined ? {} : { addWebSearch: onAddWebSearch }),
   });
-  const { warn } = draft;
+  const { warn, withdraw } = draft;
+  // B86: a link that did not open says so until one opens, which takes back only that notice.
   const openLink = useMemo(
     () =>
       onOpenLink === undefined
         ? undefined
         : (url: string) => {
-            Promise.resolve(onOpenLink(url)).catch(() => warn(strings.chat.linkNotOpened));
+            Promise.resolve(onOpenLink(url)).then(
+              () => withdraw(strings.chat.linkNotOpened),
+              () => warn(strings.chat.linkNotOpened),
+            );
           },
-    [onOpenLink, warn],
+    [onOpenLink, warn, withdraw],
   );
   const [dropping, setDropping] = useState(false);
   /** B23: how many times an example asked for the caret. */

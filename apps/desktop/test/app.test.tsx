@@ -162,6 +162,48 @@ describe('opening', () => {
     expect(strings.chat.linkNotOpened).toBe('No he podido abrir el enlace en el navegador.');
   });
 
+  /** The chat with a reply holding one web address; returns its link. */
+  const linkInReply = async () => {
+    await open(runningSnapshot());
+    const socket = FakeWebSocket.last;
+    act(() => socket.open());
+    fireEvent.change(composer(), { target: { value: '/login' } });
+    fireEvent.keyDown(composer(), { key: 'Enter' });
+    await waitFor(() => expect(socket.requests).toHaveLength(1));
+    act(() =>
+      socket.receive(
+        replyTo(socket.lastRequest.id, { text: 'Entra en https://example.com/login.' }),
+      ),
+    );
+    return () => screen.getByRole('link', { name: 'https://example.com/login' });
+  };
+
+  it('takes back the notice once a later link opens (B86)', async () => {
+    mocked.openLink.mockRejectedValueOnce('the browser did not start');
+    const link = await linkInReply();
+    fireEvent.click(link());
+    await screen.findByText(strings.chat.linkNotOpened);
+
+    fireEvent.click(link());
+
+    await waitFor(() => expect(screen.queryByText(strings.chat.linkNotOpened)).toBeNull());
+    expect(mocked.openLink).toHaveBeenCalledTimes(2);
+  });
+
+  it('keeps any other notice of the composer when a link opens (B86)', async () => {
+    const link = await linkInReply();
+    fireEvent.paste(composer(), {
+      clipboardData: { files: [new File(['bytes'], 'factura.pdf', { type: 'application/pdf' })] },
+    });
+    expect(screen.getByText(strings.chat.onlyImages)).toBeTruthy();
+
+    fireEvent.click(link());
+    await act(async () => {});
+
+    expect(mocked.openLink).toHaveBeenCalledOnce();
+    expect(screen.getByText(strings.chat.onlyImages)).toBeTruthy();
+  });
+
   it('says it is loading until the shell answers', () => {
     mocked.snapshot.mockReturnValue(new Promise(() => {}));
     render(<App />);
