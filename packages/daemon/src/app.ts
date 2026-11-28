@@ -8,6 +8,7 @@ import { startJobs } from './app/jobs.ts';
 import { channelViews, startChannel } from './app/local-channel.ts';
 import { watchingPastes } from './app/login-waits.ts';
 import { announceGaps } from './app/setup-guide-mode.ts';
+import { SHUTDOWN_DEADLINE_MS, settlesWithin } from './app/shutdown.ts';
 import { oneTurnAtATime } from './app/turns.ts';
 import type { Anomander, AnomanderDeps } from './app/types.ts';
 import { createTelegramLogin } from './auth/telegram-login.ts';
@@ -27,23 +28,8 @@ import { openTelegramDoor } from './telegram-door.ts';
 // `models.complete`; the e2e test passes recorded responses and the fake Telegram API.
 
 export { type SetupGuideDeps, startSetupGuide } from './app/setup-guide-mode.ts';
+export { SHUTDOWN_DEADLINE_MS } from './app/shutdown.ts';
 export type { Anomander, AnomanderDeps } from './app/types.ts';
-
-/** T14: how long a shutdown waits for the turns that run before it closes the store. */
-export const SHUTDOWN_DEADLINE_MS = 5_000;
-
-/** Whether `work` settled within `ms`. */
-const settlesWithin = async (work: Promise<unknown>, ms: number): Promise<boolean> => {
-  let timer: NodeJS.Timeout | undefined;
-  const late = new Promise<false>((resolve) => {
-    timer = setTimeout(() => resolve(false), ms);
-  });
-  try {
-    return await Promise.race([work.then(() => true), late]);
-  } finally {
-    clearTimeout(timer);
-  }
-};
 
 export const startAnomander = <M>(config: Config, deps: AnomanderDeps<M>): Anomander => {
   // Before any text is built: one daemon speaks one language for its whole life, and writes new
