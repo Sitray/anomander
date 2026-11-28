@@ -18,7 +18,7 @@ step() { printf '\n==> %s\n' "$*"; }
 # Prints the smoke container's logs and removes it: on success, and from the EXIT trap on any
 # failure of `docker_smoke` once the container may exist.
 smoke_cleanup() {
-  docker logs anomander-smoke 2>&1 || true
+  docker logs anomander-smoke || true
   docker rm --force anomander-smoke >/dev/null 2>&1 || true
 }
 
@@ -65,6 +65,7 @@ step "pnpm -r typecheck"; pnpm -r typecheck
 step "pnpm test"; pnpm test
 step "pnpm audit --audit-level high"; pnpm audit --audit-level high
 step "release script arguments"; bash scripts/test/release-args.sh
+step "docker smoke step ends"; bash scripts/test/docker-smoke.sh
 
 cd apps/desktop/src-tauri
 step "cargo fmt --check"; cargo fmt --check
