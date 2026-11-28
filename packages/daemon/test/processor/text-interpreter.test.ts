@@ -486,4 +486,38 @@ describe('pi-ai text interpreter', () => {
       'A corrected "total" is an integer number of hundredths of the corrected expense\'s own currency.',
     );
   });
+
+  // B87: code changes the figure of a stored expense, never its currency.
+  it('B87: drops a correction of the currency and keeps the expense it points at', async () => {
+    const { interpret } = interpreterAnswering({
+      kind: 'expense_correct',
+      expense_id: 1,
+      inferences: [
+        {
+          subject_type: 'expense',
+          subject_id: null,
+          predicate: 'currency',
+          value_json: 'USD',
+          mode: 'inferred',
+          basis_json: { quote: 'eran 32' },
+          confidence: 0.9,
+        },
+      ],
+    });
+    const expenses = [
+      {
+        id: 1,
+        total: { cents: 2300, currency: 'EUR' },
+        merchant: null,
+        category: null,
+        occurred_on: '2026-10-30',
+      },
+    ];
+
+    expect(await interpret({ ...input('no eran 23, eran 32'), expenses })).toEqual({
+      kind: 'expense_correct',
+      expenseId: 1,
+      inferences: [],
+    });
+  });
 });

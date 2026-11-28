@@ -150,4 +150,48 @@ describe('pi-ai correction interpreter', () => {
     // The principal's currency is not the expense's: the prompt never names it.
     expect(prompt).not.toMatch(/US Dollar|USD/u);
   });
+
+  // B87: a correction changes the figure of the expense, never its currency.
+  it('B87: drops an inference about the currency', async () => {
+    const interpret = createPiAiCorrectionInterpreter({
+      complete: async () => ({
+        ...recorded('nothing'),
+        content: [
+          {
+            type: 'text',
+            text: JSON.stringify({
+              kind: 'correction',
+              inferences: [
+                {
+                  subject_type: 'expense',
+                  subject_id: null,
+                  predicate: 'currency',
+                  value_json: 'EUR',
+                  mode: 'inferred',
+                  basis_json: { quote: '32' },
+                  confidence: 0.9,
+                },
+              ],
+            }),
+          },
+        ],
+      }),
+      model: MODEL,
+      logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+    });
+
+    const interpretation = await interpret({
+      text: '32',
+      expense: {
+        total: { cents: 1200, currency: 'EUR' },
+        merchant: null,
+        category: null,
+        occurred_on: '2026-11-20',
+      },
+      categories: [],
+      today: '2026-11-20',
+    });
+
+    expect(interpretation).toEqual({ kind: 'correction', inferences: [] });
+  });
 });

@@ -79,4 +79,16 @@ describe('recentExpenses', () => {
     expect(recentExpenses(db, at(3)).map(({ id }) => id)).toEqual(newestFirst(ids.slice(1)));
     expect(recentExpenses(db, at(8))).toEqual([]);
   });
+
+  it('B87: expenses registered at the same time come newest id first, each in its own currency', () => {
+    const usd = typed(200, 'USD', at(2));
+    const gbp = typed(300, 'GBP', at(2));
+    const jpy = typed(500, 'JPY', at(3));
+
+    expect(recentExpenses(db, at(0)).map(({ id, total }) => ({ id, total }))).toEqual([
+      { id: jpy, total: { cents: 500, currency: 'JPY' } },
+      { id: gbp, total: { cents: 300, currency: 'GBP' } },
+      { id: usd, total: { cents: 200, currency: 'USD' } },
+    ]);
+  });
 });

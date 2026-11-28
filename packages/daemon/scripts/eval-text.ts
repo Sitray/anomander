@@ -158,6 +158,18 @@ if (cases.length === 0 || !(runs > 0)) {
   process.exit(1);
 }
 
+// B87: each case's own currency is checked as the daemon checks `ANOMANDER_CURRENCY`, for every
+// case before any model is called, so a currency the daemon refuses never costs a provider call.
+for (const item of cases) {
+  if (item.currency === undefined) continue;
+  try {
+    item.currency = loadCurrency({ ANOMANDER_CURRENCY: item.currency });
+  } catch (error) {
+    console.error(`case ${item.name}: ${(error as Error).message}`);
+    process.exit(1);
+  }
+}
+
 const models = builtinModels();
 const quiet = { info: () => {}, warn: () => {}, error: () => {} };
 
