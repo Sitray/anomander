@@ -29,9 +29,10 @@ type Row = Record<string, unknown>;
 // spreadsheet may read as the ASCII ones. B86: also behind zero-width and other format characters
 // (`\p{Cf}`: U+200B-U+200D, U+2060, U+FEFF, …), which an import may drop, and as the small-form
 // signs (U+FE62, U+FE63, U+FE66, U+FE6B) and the minus sign U+2212. B89: also behind the
-// next-line character U+0085, which `\s` leaves out, and as the figure and en dashes U+2012, U+2013.
+// next-line character U+0085, which `\s` leaves out. B90: and as any dash, U+2010-U+2014 and the
+// small em dash U+FE58.
 const FORMULA_START =
-  /^[\t\r]|^[\s\p{Cf}\u0085]*[=+\-@\uFF1D\uFF0B\uFF0D\uFF20\uFE66\uFE62\uFE63\uFE6B\u2212\u2012\u2013]/u;
+  /^[\t\r]|^[\s\p{Cf}\u0085]*[=+\-@\uFF1D\uFF0B\uFF0D\uFF20\uFE66\uFE62\uFE63\uFE6B\u2212\u2010-\u2014\uFE58]/u;
 
 const csvField = (value: unknown): string => {
   if (value === null || value === undefined) return '';

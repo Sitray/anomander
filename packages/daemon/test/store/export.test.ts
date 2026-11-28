@@ -248,6 +248,20 @@ describe('the ledger export', () => {
     expect(again).toContain(',Mercadona \u2013 =1,supermercado,300,');
   });
 
+  it('B90: also guards a formula written with a hyphen, non-breaking hyphen, em dash or small em dash', () => {
+    const names = ['\u2010=1', '\u20111+1', '\u2014=1', '\uFE58=1'];
+    for (const name of names) expense(name, 500, 'current');
+
+    const gastos = readFileSync(join(exportLedger(db, scratch, NOW).folder, 'gastos.csv'), 'utf8');
+    for (const name of names) {
+      expect(gastos).toContain(`,"'${name}",supermercado,500,`);
+    }
+    // A dash further in is left as it is.
+    expense('Mercadona \u2014 =1', 300, 'current');
+    const again = readFileSync(join(exportLedger(db, scratch, NOW).folder, 'gastos.csv'), 'utf8');
+    expect(again).toContain(',Mercadona \u2014 =1,supermercado,300,');
+  });
+
   it('never overwrites an export made the same second', () => {
     const first = exportLedger(db, scratch, NOW);
     const second = exportLedger(db, scratch, NOW);
