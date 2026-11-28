@@ -1317,6 +1317,54 @@ describe('a text pasted in the app while a Telegram login waits (R-17 AC7, R-27 
     ]);
   });
 
+  it('B56: goes to the login in the setup guide too, and the next text gets the guide', async () => {
+    const pasted = 'http://127.0.0.1:1455/auth/callback?code=zorbguided&state=s';
+    let received: string | undefined;
+    const models: ModelLogin = {
+      login: async (_providerId, _type, interaction) => {
+        interaction.notify({ type: 'auth_url', url: 'https://auth.openai.com/oauth/authorize' });
+        received = await interaction.prompt({
+          type: 'manual_code',
+          message: 'Paste the redirect URL',
+          ...(interaction.signal === undefined ? {} : { signal: interaction.signal }),
+        });
+        return { type: 'oauth', access: 'a', refresh: 'r', expires: 1 };
+      },
+      logout: async () => {},
+    };
+    const guide = startSetupGuide(
+      { ...config({ ANOMANDER_LOCAL_TOKEN: TOKEN }), localPort: 0 },
+      {
+        gaps: [{ kind: 'model_unset' }],
+        login: {
+          models,
+          credentials: createFileCredentialStore(join(scratch, 'auth.json')),
+          getDeviceId: () => '00000000-0000-4000-8000-000000000000',
+          timeoutMs: 60_000,
+        },
+        telegramApiRoot: api.apiRoot,
+        logger,
+      },
+    );
+    anomander = guide;
+    await guide.started;
+    const chat = await client(guide);
+    await api.waitForSent(1);
+    api.push(updates.text({ chatId: PRINCIPAL }, '/login'));
+    const [, choose] = await api.waitForSent(2);
+    api.push(updates.callbackQuery({ chatId: PRINCIPAL }, 'login:openai', choose?.messageId ?? 0));
+    await api.waitForSent(3);
+
+    const answer = await chat.ask({ type: 'text', text: pasted });
+
+    expect(answer).toEqual({ type: 'done', inReplyTo: expect.any(String), taken: 'login' });
+    await vi.waitFor(() => expect(received).toBe(pasted));
+    expect(
+      JSON.stringify([logger.info, logger.warn, logger.error].flatMap((log) => log.mock.calls)),
+    ).not.toContain('zorbguided');
+    expect(reply(await chat.ask({ type: 'text', text: '23 € cena' })).text).toBe(APP_GUIDE);
+  });
+
   it('B81: tells every open window while a login waits for a pasted text, and when it stops', async () => {
     const pasted = 'http://127.0.0.1:1455/auth/callback?code=zorbwaits&state=s';
     const models: ModelLogin = {
@@ -2883,6 +2931,8 @@ describe('who the principal is and what ANOMANDER did (DK-14)', () => {
     );
 
     expect(done.text).toBe('Hecho, lo he olvidado.');
+    // B56: the window is told the stored conversation was erased, not left to read it in the text.
+    expect(done.erased).toBe('conversation');
     // Only the press and S-30, which name no fact, are stored after the erase.
     expect(query('SELECT text FROM conversation ORDER BY id')).toEqual([
       { text: '[botón: Sí]' },
@@ -2921,6 +2971,8 @@ describe('who the principal is and what ANOMANDER did (DK-14)', () => {
       );
 
       expect(done.text).toBe('Hecho, he borrado mi historial.');
+      // B56: the window is told the stored conversation was erased.
+      expect(done.erased).toBe('conversation');
       expect(history()).toEqual([]);
       // DK-16 S6: the stored conversation is erased too; only the press and its answer follow.
       expect(query('SELECT sender, text FROM conversation ORDER BY id')).toEqual([
@@ -2976,10 +3028,12 @@ describe('who the principal is and what ANOMANDER did (DK-14)', () => {
       const question = reply(await chat.ask({ type: 'text', text: 'borra tu historial' }));
       const [, no] = question.buttons as { data: string }[];
 
-      expect(
-        reply(await chat.ask({ type: 'button', data: no?.data, channelRef: question.channelRef }))
-          .text,
-      ).toBe('Vale, no borro nada.');
+      const kept = reply(
+        await chat.ask({ type: 'button', data: no?.data, channelRef: question.channelRef }),
+      );
+      expect(kept.text).toBe('Vale, no borro nada.');
+      // B56: nothing was erased, so the window is not told it was.
+      expect(kept).not.toHaveProperty('erased');
       expect(history()).toHaveLength(1);
     });
   });

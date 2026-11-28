@@ -1,7 +1,7 @@
 // DK-4: binds the chat client to React. It owns the connection for as long as the chat is on
 // screen and turns what the client reports into the conversation.
 
-import { type ProgressPhase, strings as replies } from '@anomander/protocol';
+import { type ChatReply, type ProgressPhase, strings as replies } from '@anomander/protocol';
 import { useCallback, useEffect, useReducer, useRef, useState } from 'react';
 import type { LocalChannel } from '../shell.ts';
 import { strings } from '../strings.ts';
@@ -69,9 +69,14 @@ export interface Chat {
   clear(): Promise<'done' | 'not_done' | 'unknown'>;
   /**
    * B48: the window was shown again: it shows the stored conversation instead, once nothing on
-   * screen would be lost.
+   * screen would be lost. B56: the page's own sign of the same show asks nothing more.
    */
   shownAgain(): void;
+  /**
+   * DK-18, DK-17 AC6: the stored conversation changed outside the chat, as a forget in Memoria
+   * does: it is shown instead, as when the window is shown again, however soon after that.
+   */
+  storedChanged(): void;
 }
 
 export interface ChatOptions {
@@ -113,6 +118,16 @@ interface AskAgain {
 /** DK-11 AC13: how long a press waits for its add and for the daemon that reads it. */
 const GIVE_UP_MS = 60_000;
 
+/**
+ * B56: the page and the shell each say when the window is shown: a sign from the other one this
+ * soon after, with no hide between, is the same show. A second sign from the same one is a new
+ * show, as is any sign after a hide.
+ */
+const SHOWN_AGAIN_MS = 1_000;
+
+/** B56: who said the window was shown. */
+type ShowSign = 'shell' | 'page';
+
 /** A task started while a look waited for its turn: the screen is the task's. */
 const BUSY = Symbol('busy');
 
@@ -150,6 +165,8 @@ export const useChat = (channel: LocalChannel | null, options: ChatOptions = {})
   const wanted = useRef(false);
   /** A request for it is on its way. */
   const asking = useRef(false);
+  /** B56: the last sign that the window was shown, and when; `null` once it was hidden. */
+  const lastSign = useRef<{ by: ShowSign; at: number } | null>(null);
   const [reload, setReload] = useState(0);
   const wantStored = useCallback(() => {
     wanted.current = true;
@@ -230,8 +247,10 @@ export const useChat = (channel: LocalChannel | null, options: ChatOptions = {})
         // DK-13: a route is followed only in the answer to a plain text.
         const plain = texts.current.delete(requestId);
         // B48: a forget confirmed here erased the stored conversation; the window follows it.
+        // B56: the daemon says so (`erased`); one older than it, only in the words of the answer
+        // to a press.
         const pressed = presses.current.delete(requestId);
-        if (pressed && outcome.type === 'reply' && forgets(outcome.reply.text)) wantStored();
+        if (outcome.type === 'reply' && erased(outcome.reply, pressed)) wantStored();
         const step = session.answer(requestId, outcome);
         // A step on the way to the next one is not an answer to notify.
         if (step === 'routine') return;
@@ -485,13 +504,27 @@ export const useChat = (channel: LocalChannel | null, options: ChatOptions = {})
   // B48: the window is hidden, not closed; shown again, it shows what the daemon keeps now, so a
   // forget made through Telegram meanwhile is gone from it too. The shell says when it shows the
   // window (`shownAgain`); the page's own visibility is a second, harmless sign of it.
+  // B56: the two signs of one show ask once; every new show asks, after the request on its way
+  // if one is, since that one may have been read before a change made while hidden.
+  const signOfShow = useCallback(
+    (by: ShowSign) => {
+      const at = performance.now();
+      const last = lastSign.current;
+      if (last !== null && last.by !== by && at - last.at < SHOWN_AGAIN_MS) return;
+      lastSign.current = { by, at };
+      wantStored();
+    },
+    [wantStored],
+  );
+  const shownAgain = useCallback(() => signOfShow('shell'), [signOfShow]);
   useEffect(() => {
     const visible = () => {
-      if (document.visibilityState === 'visible') wantStored();
+      if (document.visibilityState === 'visible') signOfShow('page');
+      else lastSign.current = null;
     };
     document.addEventListener('visibilitychange', visible);
     return () => document.removeEventListener('visibilitychange', visible);
-  }, [wantStored]);
+  }, [signOfShow]);
   // biome-ignore lint/correctness/useExhaustiveDependencies: tried again on every change.
   useEffect(() => {
     if (!wanted.current || asking.current) return;
@@ -555,7 +588,8 @@ export const useChat = (channel: LocalChannel | null, options: ChatOptions = {})
     stop,
     addWebSearch,
     clear,
-    shownAgain: wantStored,
+    shownAgain,
+    storedChanged: wantStored,
   };
 };
 
@@ -563,6 +597,11 @@ export const useChat = (channel: LocalChannel | null, options: ChatOptions = {})
 const startable = (route: Route, options: ChatOptions): boolean =>
   (route.to === 'computer' ? options.computer : options.look) !== undefined;
 
-/** B48: the answer to a "Sí" that forgot a memory or erased the history, as the daemon says it. */
-const forgets = (text: string): boolean =>
-  text === replies.forgotten() || text === replies.historyForgotten();
+/**
+ * B48, B56: whether `reply` erased the stored conversation: the daemon says so, or, from a daemon
+ * older than `erased`, it answers a press with the words of a "Sí" that forgot a memory or erased
+ * the history.
+ */
+const erased = (reply: ChatReply, pressed: boolean): boolean =>
+  reply.erased === 'conversation' ||
+  (pressed && (reply.text === replies.forgotten() || reply.text === replies.historyForgotten()));

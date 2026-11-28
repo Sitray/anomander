@@ -85,7 +85,8 @@ export interface ChatClient {
   cancel(requestId: string): boolean;
   /**
    * DK-16: asks for the stored conversation; its messages, oldest first, or `null` when it did
-   * not come: no open connection, rejected, or the connection was lost first.
+   * not come: no open connection, rejected, the connection was lost first, or no answer within
+   * `HISTORY_LIMIT_MS` (B56).
    */
   requestHistory(): Promise<ChatStoredMessage[] | null>;
   /**
@@ -150,6 +151,13 @@ const RETRY_DELAYS_MS = [250, 500, 1000, 2000, 4000];
  */
 export const CLEAR_LIMIT_MS = 120_000;
 
+/**
+ * B56: how long the window waits for the stored conversation it asked for. Past it, it did not
+ * come, as when the connection is lost, so a daemon that never answers never keeps the window
+ * from asking again. A late answer changes nothing.
+ */
+export const HISTORY_LIMIT_MS = 30_000;
+
 /** DK-13 AC2: a look or a task the window starts, with what was asked; anything else is not one. */
 const routeOf = (route: unknown): ChatReply['route'] => {
   if (typeof route !== 'object' || route === null) return undefined;
@@ -170,6 +178,13 @@ const withRoute = (reply: ChatReply): ChatReply => {
 const withOffer = (reply: ChatReply): ChatReply => {
   if (!('offer' in reply) || reply.offer === 'web_search') return reply;
   const { offer: _unknown, ...rest } = reply;
+  return rest;
+};
+
+/** B56: whether the reply erased the stored conversation, only as the daemon says it. */
+const withErased = (reply: ChatReply): ChatReply => {
+  if (!('erased' in reply) || reply.erased === 'conversation') return reply;
+  const { erased: _unknown, ...rest } = reply;
   return rest;
 };
 
@@ -334,7 +349,7 @@ const parseEvent = (data: unknown): ChatEvent | undefined => {
   if (typeof data !== 'string') return undefined;
   try {
     const event = JSON.parse(data) as Partial<ChatEvent> | null;
-    if (event?.type === 'reply') return withOffer(withRoute(event as ChatReply));
+    if (event?.type === 'reply') return withErased(withOffer(withRoute(event as ChatReply)));
     if (event?.type === 'notice') return parseNotice(event as Record<string, unknown>);
     if (event?.type === 'login_waiting') {
       const { waiting } = event as { waiting: unknown };
@@ -571,7 +586,7 @@ export const createChatClient = (options: ChatClientOptions): ChatClient => {
       return true;
     },
     async requestHistory() {
-      const event = await ask({ type: 'history' });
+      const event = await ask({ type: 'history' }, HISTORY_LIMIT_MS);
       return event?.type === 'history' ? event.messages : null;
     },
     clearHistory: () => eraseWithin({ type: 'clear_history' }),

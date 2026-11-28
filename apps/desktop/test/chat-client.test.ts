@@ -9,6 +9,7 @@ import {
   CLEAR_LIMIT_MS,
   type ConnectionState,
   createChatClient,
+  HISTORY_LIMIT_MS,
   type Outcome,
 } from '../src/chat/chat-client.ts';
 import { FakeWebSocket } from './fake-web-socket.ts';
@@ -294,6 +295,27 @@ describe('requests', () => {
   });
 });
 
+describe('a reply that erased the stored conversation (B56)', () => {
+  it('keeps `erased` only as the daemon sends it: the conversation', () => {
+    const socket = connected();
+    const values = ['conversation', 'memories', true];
+    const ids = values.map(() =>
+      sent(client.send({ type: 'button', data: 'decision:9:yes', channelRef: 'desktop:q' })),
+    );
+    values.forEach((erased, index) => {
+      socket.receive({ ...reply(ids[index] as string), erased } as never);
+    });
+
+    const replies = outcomes.map(([, outcome]) =>
+      outcome.type === 'reply' ? outcome.reply : null,
+    );
+    expect(replies[0]?.erased).toBe('conversation');
+    expect(replies.slice(1).some((received) => received === null || 'erased' in received)).toBe(
+      false,
+    );
+  });
+});
+
 describe('the stored conversation (DK-16)', () => {
   const STORED: ChatStoredMessage[] = [
     {
@@ -343,6 +365,25 @@ describe('the stored conversation (DK-16)', () => {
     expect(await rejected).toBeNull();
     expect(await lost).toBeNull();
     expect(await client.requestHistory()).toBeNull();
+  });
+
+  it('B56: resolves with nothing once HISTORY_LIMIT_MS passed without an answer; a late one changes nothing', async () => {
+    const socket = connected();
+    const asked = client.requestHistory();
+    const request = socket.lastRequest;
+    let settled = false;
+    void asked.then(() => {
+      settled = true;
+    });
+
+    await vi.advanceTimersByTimeAsync(HISTORY_LIMIT_MS - 1);
+    expect(settled).toBe(false);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(await asked).toBeNull();
+    socket.receive({ type: 'history', inReplyTo: request.id, messages: STORED });
+
+    expect(outcomes).toEqual([]);
+    expect(HISTORY_LIMIT_MS).toBe(30_000);
   });
 
   it('erases it: done once the daemon says so, and never as an outcome', async () => {

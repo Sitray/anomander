@@ -2146,6 +2146,7 @@ describe('the stored conversation (DK-16)', () => {
       return socket;
     };
 
+    // A daemon older than B56 says it only in the words of the answer.
     it.each([
       ['a memory', replies.forgotten()],
       ['the history', replies.historyForgotten()],
@@ -2162,6 +2163,16 @@ describe('the stored conversation (DK-16)', () => {
         expect(screen.queryByText('40 € mercadona')).toBeNull();
       },
     );
+
+    it('B56: shows the stored conversation again when the answer says it erased it, whatever its words', async () => {
+      const socket = await shownWithQuestion();
+      pressYes();
+      const press = await sentRequest(socket);
+      FakeWebSocket.history = afterForget('Listo.');
+      act(() => socket.receive(replyTo(press.id, { text: 'Listo.', erased: 'conversation' })));
+
+      await waitFor(() => expect(shownTexts()).toEqual(['[botón: Sí]', 'Listo.']));
+    });
 
     it('keeps the conversation as it is when the answer forgot nothing', async () => {
       const socket = await shownWithQuestion();
@@ -2265,6 +2276,86 @@ describe('the stored conversation (DK-16)', () => {
         await hideAndShow();
 
         await waitFor(() => expect(shownTexts()).toEqual(['[botón: Sí]', replies.forgotten()]));
+      });
+
+      /** The history requests `socket` was sent, answered by hand. */
+      const historyAsks = (socket: FakeWebSocket) =>
+        socket.requests.filter((request) => request.type === 'history');
+      /** The chat with the shell's sign that it showed the window, answered by hand. */
+      const withShellSign = async () => {
+        let shellShown: () => void = () => {};
+        FakeWebSocket.history = null;
+        render(
+          <ChatScreen
+            daemon={RUNNING}
+            channel={CHANNEL}
+            subscribeShown={(shown) => {
+              shellShown = shown;
+              return () => {};
+            }}
+          />,
+        );
+        const socket = FakeWebSocket.last;
+        act(() => socket.open());
+        const [first] = await waitFor(() => {
+          const asks = historyAsks(socket);
+          expect(asks).toHaveLength(1);
+          return asks;
+        });
+        act(() =>
+          socket.receive({ type: 'history', inReplyTo: first?.id ?? '', messages: STORED }),
+        );
+        await waitFor(() => expect(shownTexts()).toHaveLength(4));
+        return { socket, shellShown: () => act(() => shellShown()) };
+      };
+
+      it('B56: the page saying so too soon after asks nothing; a later shell sign or a hide asks again', async () => {
+        const now = vi.spyOn(performance, 'now').mockReturnValue(1_000_000);
+        try {
+          const { socket, shellShown } = await withShellSign();
+          const answer = (index: number) =>
+            act(() =>
+              socket.receive({
+                type: 'history',
+                inReplyTo: historyAsks(socket)[index]?.id ?? '',
+                messages: STORED,
+              }),
+            );
+          shellShown();
+          await waitFor(() => expect(historyAsks(socket)).toHaveLength(2));
+          answer(1);
+          await act(async () => {});
+
+          // The page's own sign of the same show, never hidden in between.
+          now.mockReturnValue(1_000_500);
+          act(() => {
+            document.dispatchEvent(new Event('visibilitychange'));
+          });
+          await act(async () => {});
+          expect(historyAsks(socket)).toHaveLength(2);
+
+          // The shell again is a new show, however soon.
+          shellShown();
+          await waitFor(() => expect(historyAsks(socket)).toHaveLength(3));
+          answer(2);
+          await act(async () => {});
+          await hideAndShow();
+          expect(historyAsks(socket)).toHaveLength(4);
+        } finally {
+          now.mockRestore();
+        }
+      });
+
+      it('B56: asks again once the connection is back when the stored conversation did not come', async () => {
+        const { socket } = await withShellSign();
+        await hideAndShow();
+        expect(historyAsks(socket)).toHaveLength(2);
+        act(() => socket.drop());
+        await waitFor(() => expect(FakeWebSocket.last).not.toBe(socket), { timeout: 3000 });
+        const back = FakeWebSocket.last;
+        act(() => back.open());
+
+        await waitFor(() => expect(historyAsks(back)).toHaveLength(1));
       });
 
       it('drops nothing while a message still waits for its answer', async () => {

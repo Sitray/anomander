@@ -94,6 +94,11 @@ export interface Reply {
    */
   awaitsText?: boolean;
   /**
+   * B48, B56: on the answer to a confirmed forget, which erased the stored conversation (R-23 AC6,
+   * DK-16), so the desktop app shows the stored one again; Telegram sends `text` alone.
+   */
+  erased?: 'conversation';
+  /**
    * R-29 AC3: files sent after `text`, as documents, such as the ledger export. Only Telegram
    * sends them; the daemon never gives them to the app.
    */

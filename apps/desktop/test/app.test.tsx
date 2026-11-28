@@ -543,6 +543,61 @@ describe('the connections', () => {
 describe('Memoria (DK-18)', () => {
   const heading = () => screen.queryByRole('heading', { name: strings.memory.title });
 
+  it('B56: a forget in Memoria right after the window was shown again still shows it again', async () => {
+    let shown: () => void = () => {};
+    mocked.onChatShown.mockImplementation(async (handler) => {
+      shown = handler;
+      return unlisten;
+    });
+    const now = vi.spyOn(performance, 'now').mockReturnValue(1_000_000);
+    try {
+      FakeWebSocket.history = [
+        {
+          id: 1,
+          from: 'principal',
+          door: 'app',
+          text: 'Me llamo Eric',
+          buttons: [],
+          channelRef: null,
+          at: '2026-11-20T10:00:00.000Z',
+        },
+      ];
+      await open(runningSnapshot());
+      act(() => FakeWebSocket.last.open());
+      expect(await screen.findByText('Me llamo Eric')).toBeTruthy();
+      const chat = FakeWebSocket.last;
+      act(() => shown());
+      await act(async () => {});
+
+      fireEvent.click(screen.getByRole('button', { name: strings.status.openMemory }));
+      const socket = FakeWebSocket.last;
+      expect(socket).not.toBe(chat);
+      act(() => socket.open());
+      await waitFor(() => expect(socket.requests.map(({ type }) => type)).toContain('actions'));
+      const [memories, actions] = socket.requests;
+      act(() =>
+        socket.receive({
+          type: 'memories',
+          inReplyTo: memories?.id ?? '',
+          memories: [{ id: 3, text: 'Se llama Eric', mode: 'declared' }],
+        }),
+      );
+      act(() => socket.receive({ type: 'actions', inReplyTo: actions?.id ?? '', actions: [] }));
+      fireEvent.click(
+        await screen.findByRole('button', { name: strings.memory.forgetLabel('Se llama Eric') }),
+      );
+      fireEvent.click(screen.getByRole('button', { name: strings.memory.confirmYes }));
+      await waitFor(() => expect(socket.lastRequest.type).toBe('forget_memory'));
+      FakeWebSocket.history = [];
+      act(() => socket.receive({ type: 'done', inReplyTo: socket.lastRequest.id }));
+
+      fireEvent.click(screen.getByRole('button', { name: strings.status.closeSetup }));
+      await waitFor(() => expect(screen.queryByText('Me llamo Eric')).toBeNull());
+    } finally {
+      now.mockRestore();
+    }
+  });
+
   it('opens from the status area, forgets a memory, and the chat shows the stored conversation again', async () => {
     FakeWebSocket.history = [
       {

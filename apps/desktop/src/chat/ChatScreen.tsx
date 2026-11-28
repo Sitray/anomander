@@ -43,6 +43,11 @@ export interface ChatScreenProps {
    * answers how to unsubscribe.
    */
   subscribeShown?: (shown: () => void) => () => void;
+  /**
+   * DK-18, DK-17 AC6: subscribes `changed` to an erase or a correction made outside the chat, in
+   * Memoria or Gastos; answers how to unsubscribe.
+   */
+  subscribeStoredChanged?: (changed: () => void) => () => void;
   /** The model the daemon answers with (S2); `null` or absent when none is set. */
   model?: string | null;
   /** S5: starts the daemon, offered by the empty chat while it is stopped. */
@@ -79,7 +84,7 @@ const proposing = ({ messages }: Conversation): boolean =>
 export function ChatScreen(props: ChatScreenProps) {
   const { daemon, channel, onThinking, onReply, onCaptureScreen, onPerformAction } = props;
   const { onReveal, onTaskRunning, subscribeStop, model = null, onAddWebSearch } = props;
-  const { subscribeShown, onOpenLink } = props;
+  const { subscribeShown, subscribeStoredChanged, onOpenLink } = props;
   const draft = useDraft();
   const computer = useMemo(
     () =>
@@ -151,8 +156,9 @@ export function ChatScreen(props: ChatScreenProps) {
     return () => document.removeEventListener('keydown', onKey);
   }, [running, stoppable, stop, cancel]);
   useEffect(() => subscribeStop?.(stop), [subscribeStop, stop]);
-  const { shownAgain } = chat;
+  const { shownAgain, storedChanged } = chat;
   useEffect(() => subscribeShown?.(shownAgain), [subscribeShown, shownAgain]);
+  useEffect(() => subscribeStoredChanged?.(storedChanged), [subscribeStoredChanged, storedChanged]);
 
   const disabled = channel === null;
   const connecting = chat.conversation.connection !== 'open';

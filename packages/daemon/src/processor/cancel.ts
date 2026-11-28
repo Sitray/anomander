@@ -64,13 +64,17 @@ export const withCancel =
     const both = signal === undefined ? turn.signal : AbortSignal.any([signal, turn.signal]);
     let stop: (() => void) | undefined;
     const stopped = new Promise<never>((_, reject) => {
-      stop = () => {
-        turn.interrupted = true;
-        reject(new TurnCancelledError());
-      };
+      stop = () => reject(new TurnCancelledError());
       turn.signal.addEventListener('abort', stop, { once: true });
     });
-    return Promise.race([complete(model, context, both), stopped]).finally(() => {
-      if (stop !== undefined) turn.signal.removeEventListener('abort', stop);
-    });
+    return Promise.race([complete(model, context, both), stopped])
+      .catch((error: unknown) => {
+        // B76: only a call the stop overtook was interrupted; one that answered first keeps its
+        // answer, so its reply never says it was stopped.
+        if (turn.signal.aborted) turn.interrupted = true;
+        throw error;
+      })
+      .finally(() => {
+        if (stop !== undefined) turn.signal.removeEventListener('abort', stop);
+      });
   };

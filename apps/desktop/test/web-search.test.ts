@@ -109,6 +109,30 @@ describe('addWebSearch', () => {
     expect(other.saveConnection).not.toHaveBeenCalled();
   });
 
+  it('B56: adds through its own shell once the add before it failed, and only the first hears why', async () => {
+    let fail: (error: Error) => void = () => {};
+    const failing = {
+      connections: vi.fn(async () => NO_CONNECTIONS),
+      saveConnection: vi.fn(
+        () => new Promise<ConnectionsView>((_resolve, reject) => (fail = reject)),
+      ),
+    };
+    const other = {
+      connections: vi.fn(async () => NO_CONNECTIONS),
+      saveConnection: vi.fn(async () => NO_CONNECTIONS),
+    };
+
+    const first = addWebSearch(failing);
+    const second = addWebSearch(other);
+    await vi.waitFor(() => expect(failing.saveConnection).toHaveBeenCalledOnce());
+    expect(other.connections).not.toHaveBeenCalled();
+    fail(new Error('No se ha podido guardar.'));
+
+    await expect(first).rejects.toThrow('No se ha podido guardar.');
+    expect(await second).toBe(true);
+    expect(other.saveConnection).toHaveBeenCalledExactlyOnceWith(webSearchInput());
+  });
+
   it('gives up on an add that never answers; the next call adds once that add is over', async () => {
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
     try {

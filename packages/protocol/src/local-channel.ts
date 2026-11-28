@@ -305,6 +305,11 @@ export interface ChatReply {
    * their next text is its answer, written in the chat (DK-17 AC6); absent otherwise.
    */
   awaitsText?: true;
+  /**
+   * B48, B56: this answer erased the stored conversation, as a confirmed forget does; the app
+   * shows the stored one again. Absent otherwise, and from a daemon older than it.
+   */
+  erased?: 'conversation';
 }
 
 /** The request `inReplyTo` was handled and has no reply. */
