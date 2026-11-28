@@ -929,8 +929,10 @@ ones included (B52): a clock that stays behind loses one copy of the history per
 right clock would. Limitation: a copy stamped ahead stays while the kept number is not exceeded or
 while it waits behind other copies stamped ahead, and, once its day arrives, can stand for that
 day's daily copy although it holds older data (for example when a daily run is missed). A fresh database gets no copy, and a copy that cannot be written stops the start with nothing
-applied. To go back, stop the daemon and put a backup in place of the database file, removing its
-`-wal` and `-shm`.
+applied. A copy is written as `<name>.partial` and takes its name only once complete (B54), so a
+daemon stopped while it copies leaves no file that counts as a backup; the next copy deletes the
+`.partial` files of its kind and their `-journal`. To go back, stop the daemon and put a backup in
+place of the database file, removing its `-wal` and `-shm`.
 
 The daily backup (B5, `src/backup/daily-backup.ts`) runs right after each retention run, so at
 startup and at `ANOMANDER_RETENTION_CRON`: it copies the database the same way as
@@ -948,8 +950,9 @@ copies sit on the same disk as the database.
 a header row even with no rows) and all three in `ledger.json`, into a new
 `<data folder>/exports/<yyyymmddThhmmssZ>/` (`-1`, `-2`, … within the same second). The views are
 read in one transaction; folders get mode 700 and files 600, and a failed write leaves no partial
-folder. A CSV text that starts with `=`, `+`, `-`, `@`, a tab or a carriage return gets a leading
-`'`, so a spreadsheet never runs a merchant or product name read from a receipt as a formula;
+folder. A CSV text that starts with `=`, `+`, `-`, `@`, a tab or a carriage return, also behind
+spaces or as the full-width `＝`, `＋`, `－`, `＠` (B54), gets a leading `'`, so a spreadsheet
+never runs a merchant or product name read from a receipt as a formula;
 `ledger.json` keeps the text as stored. Each `gastos` and `lineas_de_compra` row has its
 `moneda`; `por_moneda` of `pendientes_de_confirmar` is JSON text in its CSV file and an array in
 `ledger.json` (B71). No processor is called.

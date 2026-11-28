@@ -130,7 +130,15 @@ export const useShell = (): Shell => {
   const setNotifications = useCallback(async (mode: NotificationMode) => {
     const seen = events.current;
     const saved = await shell.setNotifications(mode);
-    if (events.current === seen) setSnapshot(saved);
+    // B75: an event that arrived meanwhile may have been read before the save, so it wins but
+    // for the mode, which only this command changes, and the setting asks one at a time. An
+    // absent mode is `content`.
+    const notifications = saved.setup.notifications ?? 'content';
+    setSnapshot((current) =>
+      events.current === seen || current === null
+        ? saved
+        : { ...current, setup: { ...current.setup, notifications } },
+    );
     return saved;
   }, []);
 

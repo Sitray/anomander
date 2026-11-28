@@ -95,6 +95,27 @@ describe('what a notification shows (DK-22, B29)', () => {
     expect(mocked.saveSetup).not.toHaveBeenCalled();
   });
 
+  it('B75: a status event that arrives while the choice is saved does not undo it on screen', async () => {
+    let emit: (next: Snapshot) => void = () => {};
+    mocked.onSnapshot.mockImplementation(async (handler) => {
+      emit = handler;
+      return () => {};
+    });
+    let answer: (saved: Snapshot) => void = () => {};
+    mocked.setNotifications.mockReturnValue(new Promise((resolve) => (answer = resolve)));
+    await openSetup(runningSnapshot({ setup: FILLED_SETUP }));
+
+    fireEvent.click(option(strings.notifications.noticeOnly));
+    // The shell read this status before the choice was saved: it still holds the old mode.
+    act(() => emit(runningSnapshot({ setup: FILLED_SETUP })));
+    await act(async () =>
+      answer(runningSnapshot({ setup: { ...FILLED_SETUP, notifications: 'notice_only' } })),
+    );
+
+    await waitFor(() => expect(option(strings.notifications.noticeOnly).checked).toBe(true));
+    expect(option(strings.notifications.content).checked).toBe(false);
+  });
+
   it('S-167: says so when it could not be saved, and keeps what was in force', async () => {
     mocked.setNotifications.mockRejectedValue('disk full');
     await openSetup(runningSnapshot({ setup: FILLED_SETUP }));
