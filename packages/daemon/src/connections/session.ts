@@ -238,12 +238,15 @@ export const createConnectionSession = (deps: ConnectionSessionDeps): Connection
       if (offer?.id !== id || grant === undefined) return { text: strings.connectionGone() };
       // Stored only once the task found that call waiting, before it is made. The offer ends once
       // it is stored: a grant that cannot be stored leaves the call and its offer waiting (B67).
-      return connectionStep(task, () =>
-        tasks.answer(id, true, () => {
+      // A call that no longer waits ends its offer too (B89).
+      return connectionStep(task, async () => {
+        const outcome = await tasks.answer(id, true, () => {
           grant(offer.call, door);
           if (task.offer?.id === id) delete task.offer;
-        }),
-      );
+        });
+        if (outcome.kind === 'gone' && task.offer?.id === id) delete task.offer;
+        return outcome;
+      });
     },
     decided: (call) => {
       asked.calls.push(call);
