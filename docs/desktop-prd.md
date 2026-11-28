@@ -882,7 +882,8 @@ and keep its secrets in the operating system instead of a text file.
     absolute `http` or `https` address with a host and no user name. Any other scheme
     (`javascript:`, `file:`) or a relative address stays text, and a link button with one is named
     as before ("solo se puede abrir desde Telegram"). Only the chat window may call `open_link`.
-    Telegram is unchanged but for the prompt.
+    When the shell refuses or cannot open the address, the composer's notice says "No he podido
+    abrir el enlace en el navegador." (B86). Telegram is unchanged but for the prompt.
   - AC3: while an answer is owed the chat says what ANOMANDER is doing, in a live region that is
     always in the page, so each phase is announced: "ANOMANDER está pensando…" for a text or a
     step, "Leyendo el ticket…" for a receipt, "Mirando tu pantalla…" for a look. While a task with

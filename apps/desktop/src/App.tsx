@@ -81,11 +81,9 @@ export function App() {
     [connections, saveConnection],
   );
 
-  // B25: a web address of a reply opens in the browser. A refusal leaves the window as it is:
-  // the shell refuses only what is not an http(s) address, which the chat never offers.
-  const openLink = useCallback((url: string) => {
-    native.openLink(url).catch(() => {});
-  }, []);
+  // B25: a web address of a reply opens in the browser. B86: the chat says so when it did not
+  // (the shell refuses what is not an http(s) address, or the system could not open it).
+  const openLink = useCallback((url: string) => native.openLink(url), []);
 
   // B48: the shell shows the window again (closing it only hides it); the chat then shows what
   // the daemon keeps now. Subscribed as `useShell` subscribes "Detener tarea".

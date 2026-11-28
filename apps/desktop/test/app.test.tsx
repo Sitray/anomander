@@ -137,6 +137,29 @@ describe('opening', () => {
       ['https://example.com/login'],
       ['https://example.com/abrir'],
     ]);
+    expect(screen.queryByText(strings.chat.linkNotOpened)).toBeNull();
+  });
+
+  it('says in the chat when the shell could not open a link (B86)', async () => {
+    mocked.openLink.mockRejectedValue('the browser did not start');
+    await open(runningSnapshot());
+    const socket = FakeWebSocket.last;
+    act(() => socket.open());
+    fireEvent.change(composer(), { target: { value: '/login' } });
+    fireEvent.keyDown(composer(), { key: 'Enter' });
+    await waitFor(() => expect(socket.requests).toHaveLength(1));
+    act(() =>
+      socket.receive(
+        replyTo(socket.lastRequest.id, { text: 'Entra en https://example.com/login.' }),
+      ),
+    );
+
+    fireEvent.click(screen.getByRole('link', { name: 'https://example.com/login' }));
+
+    expect((await screen.findByText(strings.chat.linkNotOpened)).getAttribute('role')).toBe(
+      'status',
+    );
+    expect(strings.chat.linkNotOpened).toBe('No he podido abrir el enlace en el navegador.');
   });
 
   it('says it is loading until the shell answers', () => {

@@ -57,8 +57,11 @@ export interface ChatScreenProps {
    * there. Absent where the window cannot add one: the chat then only says it is missing.
    */
   onAddWebSearch?: () => Promise<boolean>;
-  /** B25: opens an http(s) address in the principal's browser; absent where the shell cannot. */
-  onOpenLink?: (url: string) => void;
+  /**
+   * B25: opens an http(s) address in the principal's browser; absent where the shell cannot.
+   * B86: when the promise it returns rejects, the composer says the link did not open.
+   */
+  onOpenLink?: (url: string) => Promise<unknown> | void;
   /** DK-21: opens the setup from the model's name under the composer. */
   onOpenSetup?: () => void;
 }
@@ -107,6 +110,16 @@ export function ChatScreen(props: ChatScreenProps) {
     onProblem: draft.warn,
     ...(onAddWebSearch === undefined ? {} : { addWebSearch: onAddWebSearch }),
   });
+  const { warn } = draft;
+  const openLink = useMemo(
+    () =>
+      onOpenLink === undefined
+        ? undefined
+        : (url: string) => {
+            onOpenLink(url)?.catch(() => warn(strings.chat.linkNotOpened));
+          },
+    [onOpenLink, warn],
+  );
   const [dropping, setDropping] = useState(false);
   /** B23: how many times an example asked for the caret. */
   const [focusRequest, setFocusRequest] = useState(0);
@@ -288,7 +301,7 @@ export function ChatScreen(props: ChatScreenProps) {
         turn={turn}
         onStop={cancel}
         onExample={fillWith}
-        onOpenLink={onOpenLink}
+        onOpenLink={openLink}
         empty={emptyStateFor(disabled ? daemon : null, props.onStart)}
         onRetry={chat.retry}
         onRestart={chat.restart}
