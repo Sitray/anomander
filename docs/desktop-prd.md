@@ -922,8 +922,9 @@ and keep its secrets in the operating system instead of a text file.
     the window's `Intl` does not know is still shown, with the code (`12,30 XYZ`) (B78).
   - AC4: a sum never adds two currencies. When the expenses of a total or of a `{desglose}` line
     (S-9, S-90, S-91, the Gastos screen's total and pending) hold more than one currency, it is
-    said per currency, the principal's first and then by code: `45,20 € y 12,00 US$`. With one
-    currency every figure reads as before.
+    said per currency, the principal's first and then by code: `45,20 € y 12,00 US$`. The window
+    takes the principal's from the setup, as the daemon does (B74). With one currency every
+    figure reads as before.
   - AC5: the first setup proposes the system's time zone and the currency of the system's region
     (`EUR` when the region has none the app knows); "Configuración" lets the principal change
     both, the zone from the IANA list and the currency from a short list or any ISO 4217 code.

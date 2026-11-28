@@ -753,6 +753,44 @@ describe('the expenses (DK-17)', () => {
     expect(composer().closest('[hidden]')).toBeNull();
   });
 
+  // B74: a sum of two currencies is said with the principal's first, as the daemon says it.
+  it.each([
+    ['USD', '12,00 US$ y 45,20 €'],
+    [null, '45,20 € y 12,00 US$'],
+  ])('says a total with the currency of the setup (%s) first', async (currency, said) => {
+    await open(runningSnapshot({ setup: { ...FILLED_SETUP, currency } }));
+    fireEvent.click(screen.getByRole('button', { name: strings.status.openExpenses }));
+    const socket = FakeWebSocket.last;
+    act(() => socket.open());
+    act(() =>
+      socket.receive({
+        type: 'expenses',
+        inReplyTo: socket.lastRequest.id,
+        month: '2026-11',
+        expenses: (['EUR', 'USD'] as const).map((code, index) => ({
+          id: index + 1,
+          date: '2026-11-02',
+          merchant: null,
+          category: null,
+          totalCents: code === 'EUR' ? 4520 : 1200,
+          currency: code,
+          mode: 'declared' as const,
+          categoryMode: null,
+          origin: 'text' as const,
+          lines: 0,
+        })),
+        totals: [
+          { cents: 4520, currency: 'EUR' },
+          { cents: 1200, currency: 'USD' },
+        ],
+        pending: { count: 0, totals: [] },
+      }),
+    );
+
+    const total = await screen.findByText(strings.expenses.total);
+    expect(total.closest('tr')?.textContent).toContain(said);
+  });
+
   it('"Corregir" on a row goes to the chat, which shows the question, so the next text corrects it (AC6)', async () => {
     await open(runningSnapshot());
     act(() => FakeWebSocket.last.open());
