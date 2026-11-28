@@ -198,6 +198,38 @@ describe('the ledger export', () => {
     expect(readFileSync(join(again.folder, 'gastos.csv'), 'utf8')).toContain(',Café = bueno,');
   });
 
+  it('B86: also guards a formula behind zero-width characters or written with other sign forms', () => {
+    // Zero-width and other format characters are invisible and an import may drop them; the
+    // small-form signs and the minus sign may be read as the ASCII ones.
+    const names = [
+      '​=1+1',
+      '‌+1',
+      '‍-1',
+      '⁠@A1',
+      '﻿=1',
+      ' ​ =1',
+      '﹦HYPERLINK("x")',
+      '﹢1',
+      '﹣1',
+      '﹫A1',
+      '−1+1',
+    ];
+    for (const name of names) expense(name, 500, 'current');
+
+    const { folder } = exportLedger(db, scratch, NOW);
+
+    const gastos = readFileSync(join(folder, 'gastos.csv'), 'utf8');
+    for (const name of names) {
+      expect(gastos).toContain(`,"'${name.replaceAll('"', '""')}",supermercado,500,`);
+    }
+    // A zero-width character before a plain text, and the numeric columns, are left as they are.
+    expense('​Mercadona', -250, 'current');
+    const again = exportLedger(db, scratch, NOW);
+    expect(readFileSync(join(again.folder, 'gastos.csv'), 'utf8')).toContain(
+      ',​Mercadona,supermercado,-250,',
+    );
+  });
+
   it('never overwrites an export made the same second', () => {
     const first = exportLedger(db, scratch, NOW);
     const second = exportLedger(db, scratch, NOW);
