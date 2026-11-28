@@ -97,5 +97,16 @@ check "v0.2.0 fails" '[[ $code -ne 0 && "$output" == *"is not a version of the f
 run 0.2.0 "$scratch/none.md"
 check "a missing file fails" '[[ $code -ne 0 && "$output" == *"none.md does not exist"* ]]'
 
+# Links and code spans inside a section.
+printf '## [1.0.0] - x\n\n- [d](docs/a.md#h) [x](#y) `## [z]`\n' >"$scratch/edge.md"
+run 1.0.0 "$scratch/edge.md"
+check "a relative link keeps its anchor" '[[ "$output" == *"(https://github.com/Sitray/anomander/blob/v1.0.0/docs/a.md#h)"* ]]'
+check "an anchor-only link is left alone" '[[ "$output" == *"[x](#y)"* ]]'
+check "a code span with ## [ does not end the section" '[[ "$output" == *"\`## [z]\`"* ]]'
+# A CRLF CHANGELOG whose section has headings only.
+printf '## [0.9.0] - y\r\n\r\n### Added\r\n\r\n## [0.8.0]\r\n' >"$scratch/crlf.md"
+run 0.9.0 "$scratch/crlf.md"
+check "a CRLF headings-only section fails" '[[ $code -ne 0 && "$output" == *"no section for 0.9.0, or it is empty"* ]]'
+
 echo "release-notes: $passed passed, $failed failed"
 [[ $failed -eq 0 ]]

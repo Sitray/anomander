@@ -59,5 +59,5 @@ The builds are unsigned: the README, "Download", says how to open them the first
 Each file has its SHA-256 in a \`.sha256\` file beside it. To check a download:
 
 - macOS, in the folder of both files: \`shasum -a 256 -c $zip.sha256\` prints \`OK\`.
-- Windows, in PowerShell: \`Get-FileHash $exe -Algorithm SHA256\` prints the same hash as \`$exe.sha256\`.
+- Windows, in PowerShell: \`Get-FileHash $exe -Algorithm SHA256\` prints the same hash as \`$exe.sha256\`, in capitals.
 EOF

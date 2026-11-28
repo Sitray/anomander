@@ -200,7 +200,7 @@ Each release on [GitHub Releases](https://github.com/Sitray/anomander/releases) 
 
 There is no download for an Intel Mac or for Linux: on an Intel Mac, build the app from source ([Run the Mac app](#run-the-mac-app)); on Linux, run ANOMANDER with Docker ([Getting started](#getting-started)).
 
-Each file has a `.sha256` beside it to check the download: on the Mac, `shasum -a 256 -c ANOMANDER-<version>-macos-arm64.zip.sha256` prints `OK`; on Windows, `Get-FileHash ANOMANDER_<version>_x64-setup.exe -Algorithm SHA256` in PowerShell prints the hash, which must be the one in the `.sha256` file. As with a build of your own, stop a Docker install first: two daemons on one bot fail (DK-2 AC2).
+Each file has a `.sha256` beside it to check the download: on the Mac, `shasum -a 256 -c ANOMANDER-<version>-macos-arm64.zip.sha256` prints `OK`; on Windows, `Get-FileHash ANOMANDER_<version>_x64-setup.exe -Algorithm SHA256` in PowerShell prints the hash, which must be the one in the `.sha256` file (PowerShell writes it in capitals). As with a build of your own, stop a Docker install first: two daemons on one bot fail (DK-2 AC2).
 
 The builds are not signed by Apple or Microsoft (no paid certificate), so the system asks before it opens them the first time. The system's labels are given as on an English system, with the Spanish ones in parentheses:
 
@@ -209,7 +209,7 @@ The builds are not signed by Apple or Microsoft (no paid certificate), so the sy
 
 Then set it up as in [Run the Mac app](#run-the-mac-app), step 4 (and step 5 on a Mac).
 
-Updating: quit ANOMANDER, then replace the app in Applications with the new one, or run the new installer. Your data, setup and secrets stay. On the Mac, each version has a new ad hoc signature, so macOS asks again for your login keychain password the first time the new version reads each stored secret ("Always Allow", "Permitir siempre", stops it asking until the next update). It may also ask again for Screen Recording and Accessibility: if a look at the screen or a task on the computer says it lacks the permission while its switch is on, turn the switch off and on again in System Settings (Ajustes del Sistema) → Privacy & Security (Privacidad y seguridad).
+Updating: quit ANOMANDER, then replace the app in Applications with the new one, or run the new installer. Your data, setup and secrets stay. On the Mac, each version has a new ad hoc signature, so macOS asks again for your login keychain password the first time the new version reads each stored secret; "Always Allow" ("Permitir siempre") stops it asking until the next update. It may also ask again for Screen Recording and Accessibility: if a look at the screen or a task on the computer says it lacks the permission while its switch is on, turn the switch off and on again in System Settings (Ajustes del Sistema) → Privacy & Security (Privacidad y seguridad).
 
 ### Cutting a release
 

@@ -19,7 +19,8 @@ permissions:
 jobs:
   windows:
     runs-on: windows-latest
-    timeout-minutes: 40
+    # The tests, then an uncached release build.
+    timeout-minutes: 60
     defaults:
       run:
         shell: bash
