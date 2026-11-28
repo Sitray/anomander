@@ -6,6 +6,7 @@ import {
   getCurrency,
   LOCAL_CHANNEL_PROTOCOL,
   strings as replies,
+  setLocale,
 } from '@anomander/protocol';
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -190,6 +191,37 @@ describe('opening', () => {
 
     await waitFor(() => expect(screen.queryByText(strings.chat.linkNotOpened)).toBeNull());
     expect(mocked.openLink).toHaveBeenCalledTimes(2);
+  });
+
+  it('says it once for links failed one after another, and takes it back on a send (B86)', async () => {
+    mocked.openLink.mockRejectedValue(new Error('refused'));
+    const link = await linkInReply();
+    const socket = FakeWebSocket.last;
+    fireEvent.click(link());
+    await screen.findByText(strings.chat.linkNotOpened);
+    fireEvent.click(link());
+    await act(async () => {});
+
+    expect(mocked.openLink).toHaveBeenCalledTimes(2);
+    expect(screen.getAllByText(strings.chat.linkNotOpened)).toHaveLength(1);
+
+    fireEvent.change(composer(), { target: { value: 'hola' } });
+    fireEvent.keyDown(composer(), { key: 'Enter' });
+    await waitFor(() => expect(socket.requests).toHaveLength(2));
+    expect(screen.queryByText(strings.chat.linkNotOpened)).toBeNull();
+  });
+
+  it('says it in English in an English window (B86)', async () => {
+    setLocale('en');
+    try {
+      mocked.openLink.mockRejectedValue('refused');
+      const link = await linkInReply();
+      fireEvent.click(link());
+
+      expect(await screen.findByText("I couldn't open the link in the browser.")).toBeTruthy();
+    } finally {
+      setLocale('es');
+    }
   });
 
   it('keeps any other notice of the composer when a link opens (B86)', async () => {
