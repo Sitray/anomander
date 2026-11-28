@@ -228,15 +228,22 @@ export const createConnectionSession = (deps: ConnectionSessionDeps): Connection
       const [, id = '', answer] = pressed;
       // DK-24 AC5: only the press on "Permitir siempre" of the call that waits grants; the
       // processor never sees a button, and a press it was not offered for grants nothing.
-      const { offer } = asked;
-      // Any answer to that call ends the offer: a later press on it grants nothing.
-      if (offer?.id === id) delete asked.offer;
+      const task = asked;
+      const { offer } = task;
       if (answer !== 'always') {
-        return connectionStep(asked, () => tasks.answer(id, answer === 'allow'));
+        // Any other answer to that call ends the offer: a later press on it grants nothing.
+        if (offer?.id === id) delete task.offer;
+        return connectionStep(task, () => tasks.answer(id, answer === 'allow'));
       }
       if (offer?.id !== id || grant === undefined) return { text: strings.connectionGone() };
-      // Stored only once the task found that call waiting, before it is made.
-      return connectionStep(asked, () => tasks.answer(id, true, () => grant(offer.call, door)));
+      // Stored only once the task found that call waiting, before it is made. The offer ends once
+      // it is stored: a grant that cannot be stored leaves the call and its offer waiting (B67).
+      return connectionStep(task, () =>
+        tasks.answer(id, true, () => {
+          grant(offer.call, door);
+          if (task.offer?.id === id) delete task.offer;
+        }),
+      );
     },
     decided: (call) => {
       asked.calls.push(call);
